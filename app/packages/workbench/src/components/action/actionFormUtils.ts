@@ -3,6 +3,7 @@ import type {
     ActionSchemaTypeForm,
     ActionSchemaEnumForm,
     ActionSchemaFileSelectForm,
+    ActionSchemaFileSelectNode,
     ActionSchemaElementsForm,
     ActionSchemaPropertiesForm,
     ActionSchemaOptionalForm,
@@ -113,14 +114,65 @@ export function generateDefaultValue(schema: ActionSchema): unknown {
     }
 
     if (isEnumForm(schema)) {
+        if (schema.enum.length === 1) {
+            return schema.enum[0];
+        }
         return undefined;
     }
 
     if (isFileSelectForm(schema)) {
+        if (!schema.selectDirectory) {
+            const singleLeaf = findSingleLeafPath(schema.fileSelect, schema.rootPath);
+            if (singleLeaf != null) {
+                return singleLeaf;
+            }
+        }
         return undefined;
     }
 
     return undefined;
+}
+
+/**
+ * Strips the /{projectId}/files prefix from a URI path, returning just the
+ * project-relative file path.
+ */
+function stripFileSelectPrefix(absolutePath: string): string {
+    const parts = absolutePath.split("/").filter(Boolean);
+    if (parts.length >= 2 && parts[1] === "files") {
+        const remaining = parts.slice(2).join("/");
+        return remaining ? "/" + remaining : "";
+    }
+    return absolutePath;
+}
+
+/**
+ * Recursively collects all leaf (file) paths from the fileSelect node tree.
+ * A leaf is a node with no children or an empty children array.
+ */
+function collectLeafPaths(nodes: ActionSchemaFileSelectNode[], currentPath: string, result: string[]): void {
+    for (const node of nodes) {
+        const nodePath = currentPath + "/" + node.name;
+        const isFolder = node.children != null && node.children.length > 0;
+        if (isFolder) {
+            collectLeafPaths(node.children!, nodePath, result);
+        } else {
+            result.push(nodePath);
+        }
+    }
+}
+
+/**
+ * Returns the single leaf file path from a fileSelect schema (after stripping the
+ * files prefix), or undefined if there is not exactly one leaf.
+ */
+function findSingleLeafPath(nodes: ActionSchemaFileSelectNode[], rootPath: string): string | undefined {
+    const leaves: string[] = [];
+    collectLeafPaths(nodes, "", leaves);
+    if (leaves.length !== 1) {
+        return undefined;
+    }
+    return stripFileSelectPrefix(rootPath + leaves[0]);
 }
 
 /**

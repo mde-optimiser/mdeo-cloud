@@ -355,7 +355,15 @@ async function buildUpdateImportEdit(
         formattingOptions
     );
 
-    return { range: cst.range, newText: serialized };
+    const indentChar = formattingOptions.insertSpaces === false ? "\t" : " ";
+    const indentation = indentChar.repeat(cst.range.start.character);
+    const serializedIndented = serialized
+        .trimEnd()
+        .split("\n")
+        .map((line, index) => (index === 0 ? line : indentation + line))
+        .join("\n");
+
+    return { range: cst.range, newText: serializedIndented };
 }
 
 /**

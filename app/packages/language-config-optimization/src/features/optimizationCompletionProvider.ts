@@ -6,11 +6,12 @@ import {
     computeRelativePathCompletions,
     acceptRelativePathCompletions,
     resolveRelativePath,
+    getExportetEntitiesFromRelativeFile,
     sharedImport,
     type AstFileImportItem
 } from "@mdeo/language-shared";
 import type { CompletionAcceptor, CompletionContext, CompletionProviderOptions, NextFeature } from "langium/lsp";
-import type { AstNode, CompositeCstNode, LangiumDocument, LangiumDocuments } from "langium";
+import type { AstNode, CompositeCstNode, IndexManager, LangiumDocument, LangiumDocuments } from "langium";
 import {
     ConstraintReference,
     FunctionFileImport,
@@ -102,12 +103,14 @@ export class OptimizationCompletionProvider extends BaseCompletionProvider {
     private readonly documents: LangiumDocuments;
     private readonly reflection: AstReflection;
     private readonly importHelper: OptimizationFunctionImportHelper;
+    private readonly indexManager: IndexManager;
 
     constructor(services: ExtendedLangiumServices & AstSerializerAdditionalServices) {
         super(services);
         this.documents = services.shared.workspace.LangiumDocuments;
         this.reflection = services.shared.AstReflection;
         this.importHelper = new OptimizationFunctionImportHelper(services);
+        this.indexManager = services.shared.workspace.IndexManager;
     }
 
     /**
@@ -127,6 +130,11 @@ export class OptimizationCompletionProvider extends BaseCompletionProvider {
             return;
         }
 
+        if (next.property === "entity" && this.reflection.isInstance(context.node, FunctionImport)) {
+            await this.completionForImportEntity(context, context.node, acceptor);
+            return;
+        }
+
         this.completionForRelativePath(context, next, acceptor);
 
         return super.completionFor(context, next, acceptor);
@@ -135,7 +143,8 @@ export class OptimizationCompletionProvider extends BaseCompletionProvider {
     /**
      * Provides completion items for constraint and objective function references.
      *
-     * First registers all already-imported functions (highest priority sort), then
+     * Registers already-imported functions (highest priority sort) while skipping those
+     * already referenced by another constraint or objective in the same section, then
      * uses the import helper to suggest not-yet-imported functions from compatible scripts.
      */
     private async completionForFunctionReference(
@@ -157,10 +166,28 @@ export class OptimizationCompletionProvider extends BaseCompletionProvider {
                 return;
             }
 
+            const alreadyUsed = new Set<string>();
+            const isConstraintCtx = this.reflection.isInstance(node, ConstraintReference);
+            if (isConstraintCtx) {
+                for (const c of goalSection.constraints) {
+                    if (c !== node) {
+                        const name = c.constraint.$refText ?? c.constraint.ref?.name;
+                        if (name != undefined) alreadyUsed.add(name);
+                    }
+                }
+            } else {
+                for (const o of goalSection.objectives) {
+                    if (o !== node) {
+                        const name = o.objective.$refText ?? o.objective.ref?.name;
+                        if (name != undefined) alreadyUsed.add(name);
+                    }
+                }
+            }
+
             for (const fileImport of goalSection.imports) {
                 for (const imp of fileImport.imports) {
                     const funcName = (imp as FunctionImportType).name ?? imp.entity.ref?.name;
-                    if (funcName == undefined) {
+                    if (funcName == undefined || alreadyUsed.has(funcName)) {
                         continue;
                     }
                     acceptor(context, {
@@ -183,9 +210,69 @@ export class OptimizationCompletionProvider extends BaseCompletionProvider {
                     const sectionCst = goalSection.$cstNode as CompositeCstNode | undefined;
                     return sectionCst?.content.find((c) => c.text.trim() === "{");
                 },
-                undefined,
+                (name) => alreadyUsed.has(name),
                 1
             );
+        } catch {
+            // Ignore errors during completion on incomplete documents
+        }
+    }
+
+    /**
+     * Provides completions for the `entity` property inside an import `{ }` block.
+     *
+     * Langium's default cross-reference completion may return no results when the
+     * synthetic node used during completion lacks a `$container` link, causing the
+     * scope provider to receive an unresolvable reference.  This method explicitly
+     * resolves the target file from the nearest `FunctionFileImport` ancestor and
+     * queries the workspace index directly.
+     *
+     * @param context LSP completion context.
+     * @param node The AST node corresponding to the `entity` property being completed.
+     * @param acceptor LSP completion acceptor.
+     */
+    private async completionForImportEntity(
+        context: CompletionContext,
+        node: FunctionImportType,
+        acceptor: CompletionAcceptor
+    ): Promise<void> {
+        if (node == undefined) {
+            return;
+        }
+
+        try {
+            const document = AstUtils.getDocument(node);
+
+            const fileImport = node.$container;
+            if (fileImport == undefined || !this.reflection.isInstance(fileImport, FunctionFileImport)) {
+                return;
+            }
+
+            const alreadyImported = new Set<string>(
+                fileImport.imports.flatMap((imp) => {
+                    const name = imp.entity.$refText ?? imp.entity.ref?.name;
+                    return name != undefined ? [name] : [];
+                })
+            );
+
+            const scope = getExportetEntitiesFromRelativeFile(
+                document,
+                fileImport.file,
+                [ScriptFunction],
+                this.indexManager
+            );
+
+            for (const desc of scope.getAllElements()) {
+                const name = desc.name;
+                if (!name || alreadyImported.has(name)) {
+                    continue;
+                }
+                acceptor(context, {
+                    label: name,
+                    kind: CompletionItemKind.Function,
+                    sortText: "0"
+                });
+            }
         } catch {
             // Ignore errors during completion on incomplete documents
         }

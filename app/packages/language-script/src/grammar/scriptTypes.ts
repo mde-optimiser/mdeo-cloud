@@ -201,6 +201,11 @@ export const { importType: FunctionImport, fileImportType: FunctionFileImport } 
 export type FunctionFileImportType = ASTType<typeof FunctionFileImport>;
 
 /**
+ * Type representing a FunctionImport AST node.
+ */
+export type FunctionImportType = ASTType<typeof FunctionImport>;
+
+/**
  * Union type for Function or FunctionImport.
  */
 export const FunctionOrImport = createType("ScriptFunctionOrImport").types(Function, FunctionImport);

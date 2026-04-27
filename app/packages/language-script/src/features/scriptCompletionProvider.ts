@@ -6,18 +6,20 @@ import {
     computeRelativePathCompletions,
     acceptRelativePathCompletions,
     resolveRelativePath,
+    getExportetEntitiesFromRelativeFile,
     sharedImport,
     type AstFileImportItem
 } from "@mdeo/language-shared";
 import type { CompletionAcceptor, CompletionContext, CompletionProviderOptions, NextFeature } from "langium/lsp";
 import type { ExtendedLangiumServices, AstSerializerAdditionalServices } from "@mdeo/language-common";
-import type { LangiumDocument, LangiumDocuments } from "langium";
+import type { IndexManager, LangiumDocument, LangiumDocuments } from "langium";
 import type { ScriptTypirServices } from "../plugin.js";
 import {
     Function,
     FunctionFileImport,
     FunctionImport,
     MetamodelFileImport,
+    type FunctionImportType,
     type FunctionType,
     type ScriptType
 } from "../grammar/scriptTypes.js";
@@ -90,6 +92,7 @@ export class ScriptCompletionProvider extends ExpressionCompletionProvider {
     override readonly completionOptions: CompletionProviderOptions = { triggerCharacters: ['"', "/", "."] };
     private readonly langiumDocuments: LangiumDocuments;
     private readonly importHelper: ScriptFunctionImportHelper;
+    private readonly indexManager: IndexManager;
 
     constructor(
         services: { typir: ScriptTypirServices } & ExtendedLangiumServices & AstSerializerAdditionalServices,
@@ -99,6 +102,7 @@ export class ScriptCompletionProvider extends ExpressionCompletionProvider {
         super(services, expressionTypes, typeTypes);
         this.langiumDocuments = services.shared.workspace.LangiumDocuments;
         this.importHelper = new ScriptFunctionImportHelper(services);
+        this.indexManager = services.shared.workspace.IndexManager;
     }
 
     /**
@@ -113,6 +117,11 @@ export class ScriptCompletionProvider extends ExpressionCompletionProvider {
 
         if (next.type === this.expressionTypes.identifierExpressionType.name) {
             await this.completionForUnimportedFunctions(context, acceptor);
+        }
+
+        if (next.property === "entity" && this.reflection.isInstance(context.node, FunctionImport)) {
+            await this.completionForImportEntity(context, context.node, acceptor);
+            return;
         }
 
         this.completionForRelativePath(context, next, acceptor);
@@ -153,6 +162,61 @@ export class ScriptCompletionProvider extends ExpressionCompletionProvider {
                 },
                 (name) => alreadyInScope.has(name)
             );
+        } catch {
+            // Ignore errors during completion on incomplete documents
+        }
+    }
+
+    /**
+     * Provides completions for the `entity` property inside an import `{ }` block.
+     *
+     * Langium's default cross-reference completion may return no results when the
+     * synthetic node used during completion lacks a `$container` link, causing the
+     * scope provider to receive an unresolvable reference.  This method explicitly
+     * resolves the target file from the nearest `FunctionFileImport` ancestor and
+     * queries the workspace index directly.
+     *
+     * @param context LSP completion context.
+     * @param node The AST node corresponding to the `entity` property being completed.
+     * @param acceptor LSP completion acceptor.
+     */
+    private async completionForImportEntity(
+        context: CompletionContext,
+        node: FunctionImportType,
+        acceptor: CompletionAcceptor
+    ): Promise<void> {
+        if (node == undefined) {
+            return;
+        }
+
+        try {
+            const document = AstUtils.getDocument(node);
+
+            const fileImport = node.$container;
+            if (fileImport == undefined || !this.reflection.isInstance(fileImport, FunctionFileImport)) {
+                return;
+            }
+
+            const alreadyImported = new Set<string>(
+                fileImport.imports.flatMap((imp) => {
+                    const name = imp.entity.$refText ?? imp.entity.ref?.name;
+                    return name != undefined ? [name] : [];
+                })
+            );
+
+            const scope = getExportetEntitiesFromRelativeFile(document, fileImport.file, [Function], this.indexManager);
+
+            for (const desc of scope.getAllElements()) {
+                const name = desc.name;
+                if (!name || alreadyImported.has(name)) {
+                    continue;
+                }
+                acceptor(context, {
+                    label: name,
+                    kind: CompletionItemKind.Function,
+                    sortText: "0"
+                });
+            }
         } catch {
             // Ignore errors during completion on incomplete documents
         }

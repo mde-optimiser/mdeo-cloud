@@ -145,6 +145,9 @@ export class MdeoValidator {
      * @param accept The validation acceptor
      */
     private validateUsingPath(usingPath: UsingPathType, accept: ValidationAcceptor): void {
+        if (usingPath.path == undefined) {
+            return;
+        }
         const document = AstUtils.getDocument(usingPath);
         const targetUri = resolveRelativePath(document, usingPath.path);
         const documents = this.services.shared.workspace.LangiumDocuments;
