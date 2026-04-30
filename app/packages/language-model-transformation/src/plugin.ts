@@ -41,6 +41,7 @@ import { ModelTransformationExternalReferenceCollector } from "./features/modelT
 import { NewFileActionHandler } from "./action-handlers/newFileActionHandler.js";
 import { RunModelTransformationActionHandler } from "./action-handlers/runModelTransformationActionHandler.js";
 import { ModelTransformationActionProvider } from "./features/modelTransformationActionProvider.js";
+import { ModelTransformationCodeActionProvider } from "./features/modelTransformationCodeActionProvider.js";
 import { addExternalReferenceCollectionPhase } from "@mdeo/language-shared";
 import { registerModelTransformationValidationChecks } from "./validation/modelTransformationValidator.js";
 import { ModelTransformationDiagramModule } from "./features/diagram-server/modelTransformationDiagramModule.js";
@@ -122,7 +123,8 @@ function createModelTransformationPlugin(): LangiumLanguagePlugin<ModelTransform
             lsp: {
                 CompletionProvider: (services) => new ModelTransformationCompletionProvider(services, expressionTypes),
                 HoverProvider: (services) => new ExpressionHoverProvider(services, expressionTypes, typeTypes),
-                Formatter: (services) => new SerializerFormatter(services)
+                Formatter: (services) => new SerializerFormatter(services),
+                CodeActionProvider: (services) => new ModelTransformationCodeActionProvider(services)
             },
             AstSerializer: (services) => new DefaultAstSerializer(services),
             action: {

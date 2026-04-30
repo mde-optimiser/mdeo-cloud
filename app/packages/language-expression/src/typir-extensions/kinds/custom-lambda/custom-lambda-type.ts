@@ -60,7 +60,6 @@ export class CustomLambdaTypeImplementation
         );
         this.kind = kind;
         this.registerSubtypesAndConversion();
-        this.registerTypeDependencies();
         this.defineTheInitializationProcessOfThisType({});
     }
 
@@ -235,8 +234,9 @@ export class CustomLambdaTypeImplementation
 
     /**
      * Registers dependency edges for return type, parameter types, and type arguments.
+     * Must be called after this type has been added to the type graph.
      */
-    private registerTypeDependencies(): void {
+    registerTypeDependencies(): void {
         if (this.details.returnType instanceof CustomValueTypeImplementation) {
             this.registerTypeDependency(this.details.returnType);
         }

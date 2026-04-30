@@ -138,11 +138,15 @@ export function createDescriptionsFromExports(
     const descriptions: AstNodeDescription[] = [];
 
     for (const classEntity of exports.classes.values()) {
-        descriptions.push(descriptionProvider.createDescription(classEntity, classEntity.name));
+        if (classEntity.name != undefined) {
+            descriptions.push(descriptionProvider.createDescription(classEntity, classEntity.name));
+        }
     }
 
     for (const enumEntity of exports.enums.values()) {
-        descriptions.push(descriptionProvider.createDescription(enumEntity, enumEntity.name));
+        if (enumEntity.name != undefined) {
+            descriptions.push(descriptionProvider.createDescription(enumEntity, enumEntity.name));
+        }
     }
 
     return descriptions;

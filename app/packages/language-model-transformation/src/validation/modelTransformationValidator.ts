@@ -34,6 +34,14 @@ import { resolveRelativeDocument, sharedImport } from "@mdeo/language-shared";
 const { MultiMap, AstUtils } = sharedImport("langium");
 
 /**
+ * Issue codes for model transformation validator quick fixes.
+ */
+export const ModelTransformationIssueCodes = {
+    LinkEndpointModifierMismatch: "link-endpoint-modifier-mismatch",
+    InstanceModifierLinkMismatch: "instance-modifier-link-mismatch"
+} as const;
+
+/**
  * Interface for named elements (objects and variables).
  */
 interface NamedElement {
@@ -603,7 +611,11 @@ export class ModelTransformationValidator extends BaseModelValidator {
             `A '${linkModifierLabel}' link cannot be attached to a '${endpointModifier}' instance '${endpointObject.name}'.`,
             {
                 node: link,
-                property: endpointProperty
+                property: endpointProperty,
+                data: {
+                    code: ModelTransformationIssueCodes.LinkEndpointModifierMismatch,
+                    endpointModifier
+                }
             }
         );
     }
@@ -674,7 +686,10 @@ export class ModelTransformationValidator extends BaseModelValidator {
 
             accept("error", `A '${instanceModifier}' instance can only be attached to '${instanceModifier}' links.`, {
                 node: obj,
-                property: "modifier"
+                property: "modifier",
+                data: {
+                    code: ModelTransformationIssueCodes.InstanceModifierLinkMismatch
+                }
             });
             return;
         }

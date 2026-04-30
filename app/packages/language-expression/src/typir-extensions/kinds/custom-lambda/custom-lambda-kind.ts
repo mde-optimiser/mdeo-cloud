@@ -89,6 +89,7 @@ export class CustomLambdaKind<Specifics extends TypirSpecifics> implements Kind,
                 details
             );
             this.services.infrastructure.Graph.addNode(newType);
+            newType.registerTypeDependencies();
             return newType;
         }
     }

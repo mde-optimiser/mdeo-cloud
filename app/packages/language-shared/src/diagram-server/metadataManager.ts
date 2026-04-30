@@ -15,12 +15,6 @@ import type { AstReflection, LanguageServices } from "@mdeo/language-common";
 const { injectable, inject } = sharedImport("inversify");
 
 /**
- * Minimum number of nodes in either graph before the pruning optimisation is
- * applied prior to GED computation.
- */
-const GED_PRUNING_THRESHOLD = 20;
-
-/**
  * Node attributes with added loops property for self-referential edges.
  */
 interface NodeAttributesWithLoops extends NodeAttributes {
@@ -351,21 +345,11 @@ export abstract class MetadataManager<T extends AstNode = AstNode> {
         currentGraph: MultiGraph,
         newGraph: MultiGraph
     ): [NodeEditPath, EdgeEditPath, number] | undefined {
-        let gedCurrentGraph = currentGraph;
-        let gedNewGraph = newGraph;
-        let preMatchedNodes: NodeEditPath = [];
-        let preMatchedEdges: EdgeEditPath = [];
+        const { prunedCurrent, prunedNew, stableNodeIds, stableEdges } = this.pruneGraphs(currentGraph, newGraph);
+        const preMatchedNodes: NodeEditPath = [...stableNodeIds].map((id) => [id, id]);
+        const preMatchedEdges: EdgeEditPath = stableEdges.map((edge) => [edge, edge]);
 
-        const maxNodes = Math.max(currentGraph.numberOfNodes, newGraph.numberOfNodes);
-        if (maxNodes > GED_PRUNING_THRESHOLD) {
-            const { prunedCurrent, prunedNew, stableNodeIds, stableEdges } = this.pruneGraphs(currentGraph, newGraph);
-            gedCurrentGraph = prunedCurrent;
-            gedNewGraph = prunedNew;
-            preMatchedNodes = [...stableNodeIds].map((id) => [id, id]);
-            preMatchedEdges = stableEdges.map((edge) => [edge, edge]);
-        }
-
-        const generator = optimizeEditPaths(gedCurrentGraph, gedNewGraph, {
+        const generator = optimizeEditPaths(prunedCurrent, prunedNew, {
             nodeSubstCost: (a, b) => this.calculateNodeCost(a, b),
             nodeDelCost: (a) => this.calculateNodeCost(a, undefined),
             nodeInsCost: (a) => this.calculateNodeCost(undefined, a),

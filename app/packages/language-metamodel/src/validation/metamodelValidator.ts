@@ -32,6 +32,16 @@ import { getExportedEntitiesFromMetamodelFile, resolveImportedDocument } from ".
 const { MultiMap, AstUtils } = sharedImport("langium");
 
 /**
+ * Issue codes for metamodel validator quick fixes.
+ */
+export const MetamodelIssueCodes = {
+    AssociationMissingSourceName: "association-missing-source-name",
+    AssociationMissingTargetName: "association-missing-target-name",
+    AssociationExtraSourceName: "association-extra-source-name",
+    AssociationExtraTargetName: "association-extra-target-name"
+} as const;
+
+/**
  * Interface mapping for metamodel AST types used in validation checks.
  */
 interface MetamodelAstTypes {
@@ -721,7 +731,13 @@ export class MetamodelValidator {
                 if (!sourceHasProperty) {
                     accept("error", `Association with '-->' requires a property name on the source (left) side.`, {
                         node: association,
-                        property: "source"
+                        property: "source",
+                        data: {
+                            code: MetamodelIssueCodes.AssociationMissingSourceName,
+                            suggestedOperator: targetHasProperty
+                                ? MetamodelAssociationOperators.NAVIGABLE_TO_SOURCE
+                                : undefined
+                        }
                     });
                 }
                 if (targetHasProperty) {
@@ -730,7 +746,13 @@ export class MetamodelValidator {
                         `Association with '-->' must not have a property name on the target (right) side.`,
                         {
                             node: association,
-                            property: "target"
+                            property: "target",
+                            data: {
+                                code: MetamodelIssueCodes.AssociationExtraTargetName,
+                                suggestedOperator: sourceHasProperty
+                                    ? MetamodelAssociationOperators.BIDIRECTIONAL
+                                    : MetamodelAssociationOperators.NAVIGABLE_TO_SOURCE
+                            }
                         }
                     );
                 }
@@ -740,13 +762,25 @@ export class MetamodelValidator {
                 if (!targetHasProperty) {
                     accept("error", `Association with '<--' requires a property name on the target (right) side.`, {
                         node: association,
-                        property: "target"
+                        property: "target",
+                        data: {
+                            code: MetamodelIssueCodes.AssociationMissingTargetName,
+                            suggestedOperator: sourceHasProperty
+                                ? MetamodelAssociationOperators.NAVIGABLE_TO_TARGET
+                                : undefined
+                        }
                     });
                 }
                 if (sourceHasProperty) {
                     accept("error", `Association with '<--' must not have a property name on the source (left) side.`, {
                         node: association,
-                        property: "source"
+                        property: "source",
+                        data: {
+                            code: MetamodelIssueCodes.AssociationExtraSourceName,
+                            suggestedOperator: targetHasProperty
+                                ? MetamodelAssociationOperators.BIDIRECTIONAL
+                                : MetamodelAssociationOperators.NAVIGABLE_TO_TARGET
+                        }
                     });
                 }
                 break;
@@ -758,7 +792,13 @@ export class MetamodelValidator {
                         `Bidirectional association '<-->' requires a property name on the source (left) side.`,
                         {
                             node: association,
-                            property: "source"
+                            property: "source",
+                            data: {
+                                code: MetamodelIssueCodes.AssociationMissingSourceName,
+                                suggestedOperator: targetHasProperty
+                                    ? MetamodelAssociationOperators.NAVIGABLE_TO_SOURCE
+                                    : undefined
+                            }
                         }
                     );
                 }
@@ -768,7 +808,13 @@ export class MetamodelValidator {
                         `Bidirectional association '<-->' requires a property name on the target (right) side.`,
                         {
                             node: association,
-                            property: "target"
+                            property: "target",
+                            data: {
+                                code: MetamodelIssueCodes.AssociationMissingTargetName,
+                                suggestedOperator: sourceHasProperty
+                                    ? MetamodelAssociationOperators.NAVIGABLE_TO_TARGET
+                                    : undefined
+                            }
                         }
                     );
                 }
@@ -781,7 +827,13 @@ export class MetamodelValidator {
                         `Composition association '*-->' requires a property name on the source (left) side.`,
                         {
                             node: association,
-                            property: "source"
+                            property: "source",
+                            data: {
+                                code: MetamodelIssueCodes.AssociationMissingSourceName,
+                                suggestedOperator: targetHasProperty
+                                    ? MetamodelAssociationOperators.COMPOSITION_SOURCE
+                                    : undefined
+                            }
                         }
                     );
                 }
@@ -791,7 +843,13 @@ export class MetamodelValidator {
                         `Composition association '*-->' requires a property name on the target (right) side.`,
                         {
                             node: association,
-                            property: "target"
+                            property: "target",
+                            data: {
+                                code: MetamodelIssueCodes.AssociationMissingTargetName,
+                                suggestedOperator: sourceHasProperty
+                                    ? MetamodelAssociationOperators.COMPOSITION_TARGET
+                                    : undefined
+                            }
                         }
                     );
                 }
@@ -804,7 +862,13 @@ export class MetamodelValidator {
                         `Composition association '*--' requires a property name on the target (right) side.`,
                         {
                             node: association,
-                            property: "target"
+                            property: "target",
+                            data: {
+                                code: MetamodelIssueCodes.AssociationMissingTargetName,
+                                suggestedOperator: sourceHasProperty
+                                    ? MetamodelAssociationOperators.COMPOSITION_TARGET
+                                    : undefined
+                            }
                         }
                     );
                 }
@@ -814,7 +878,13 @@ export class MetamodelValidator {
                         `Composition association '*--' must not have a property name on the source (left) side.`,
                         {
                             node: association,
-                            property: "source"
+                            property: "source",
+                            data: {
+                                code: MetamodelIssueCodes.AssociationExtraSourceName,
+                                suggestedOperator: targetHasProperty
+                                    ? MetamodelAssociationOperators.COMPOSITION_SOURCE_NAVIGABLE_TARGET
+                                    : MetamodelAssociationOperators.COMPOSITION_TARGET
+                            }
                         }
                     );
                 }
@@ -827,7 +897,13 @@ export class MetamodelValidator {
                         `Composition association '<--*' requires a property name on the source (left) side.`,
                         {
                             node: association,
-                            property: "source"
+                            property: "source",
+                            data: {
+                                code: MetamodelIssueCodes.AssociationMissingSourceName,
+                                suggestedOperator: targetHasProperty
+                                    ? MetamodelAssociationOperators.COMPOSITION_SOURCE
+                                    : undefined
+                            }
                         }
                     );
                 }
@@ -837,7 +913,13 @@ export class MetamodelValidator {
                         `Composition association '<--*' requires a property name on the target (right) side.`,
                         {
                             node: association,
-                            property: "target"
+                            property: "target",
+                            data: {
+                                code: MetamodelIssueCodes.AssociationMissingTargetName,
+                                suggestedOperator: sourceHasProperty
+                                    ? MetamodelAssociationOperators.COMPOSITION_TARGET
+                                    : undefined
+                            }
                         }
                     );
                 }
@@ -850,7 +932,13 @@ export class MetamodelValidator {
                         `Composition association '--*' requires a property name on the source (left) side.`,
                         {
                             node: association,
-                            property: "source"
+                            property: "source",
+                            data: {
+                                code: MetamodelIssueCodes.AssociationMissingSourceName,
+                                suggestedOperator: targetHasProperty
+                                    ? MetamodelAssociationOperators.COMPOSITION_SOURCE
+                                    : undefined
+                            }
                         }
                     );
                 }
@@ -860,7 +948,13 @@ export class MetamodelValidator {
                         `Composition association '--*' must not have a property name on the target (right) side.`,
                         {
                             node: association,
-                            property: "target"
+                            property: "target",
+                            data: {
+                                code: MetamodelIssueCodes.AssociationExtraTargetName,
+                                suggestedOperator: sourceHasProperty
+                                    ? MetamodelAssociationOperators.COMPOSITION_SOURCE_NAVIGABLE_TARGET
+                                    : MetamodelAssociationOperators.COMPOSITION_SOURCE
+                            }
                         }
                     );
                 }

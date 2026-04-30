@@ -83,6 +83,7 @@ export class CustomClassKind<Specifics extends TypirSpecifics> implements Kind, 
                 details
             );
             this.services.infrastructure.Graph.addNode(newType);
+            newType.registerTypeDependencies();
             return newType;
         }
     }

@@ -68,7 +68,6 @@ export class CustomClassTypeImplementation
         );
         this.kind = kind;
         this.registerSubtypesAndConversion();
-        this.registerTypeDependencies();
         this.defineTheInitializationProcessOfThisType({});
     }
 
@@ -170,8 +169,9 @@ export class CustomClassTypeImplementation
 
     /**
      * Registers dependency edges for all dependent custom types.
+     * Must be called after this type has been added to the type graph.
      */
-    private registerTypeDependencies(): void {
+    registerTypeDependencies(): void {
         for (const typeArg of this.details.typeArgs.values()) {
             this.registerTypeDependency(typeArg);
         }
