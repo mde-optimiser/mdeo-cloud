@@ -4,14 +4,14 @@ import {
     StatementsScopeProvider,
     inferLambdaTypeFromContext,
     extractMetamodelEntities,
-    DefaultCollectionTypeFactory,
     type BoundScope,
     type LambdaTypeInferenceResult,
     type Scope,
     type ScopeEntry,
     type ScopeLocalInitialization,
     type MetamodelEnumInfo,
-    type MetamodelClassInfo
+    type MetamodelClassInfo,
+    ReadonlyCollectionTypeFactory
 } from "@mdeo/language-expression";
 import type { ScriptTypirServices, ScriptTypirSpecifics } from "../../plugin.js";
 import {
@@ -172,7 +172,7 @@ export class ScriptScopeProvider extends StatementsScopeProvider<ScriptTypirSpec
                 docEntities.classes,
                 docEntities.enums,
                 langiumServices.AstReflection,
-                DefaultCollectionTypeFactory,
+                ReadonlyCollectionTypeFactory,
                 docEntities.absolutePath
             );
             allEnumInfos.push(...enumInfos);

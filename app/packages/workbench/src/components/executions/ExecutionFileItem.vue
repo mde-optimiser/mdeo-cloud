@@ -27,7 +27,7 @@
             </TreeItem>
         </ContextMenuTrigger>
         <ContextMenuContent
-            v-if="!isDirectory && contextMenuActions.length > 0"
+            v-if="!isDirectory || isMarkdownReportFolder"
             @close-auto-focus="$event.preventDefault()"
         >
             <ContextMenuItem
@@ -38,13 +38,17 @@
                 <Icon :iconNode="action.icon" :name="action.key" class="size-4 mr-2" />
                 <span>{{ action.name }}</span>
             </ContextMenuItem>
+            <ContextMenuItem @click="handleDownload">
+                <DownloadIcon class="size-4 mr-2" />
+                <span>Download</span>
+            </ContextMenuItem>
         </ContextMenuContent>
     </ContextMenu>
 </template>
 
 <script setup lang="ts">
 import { computed, inject, ref } from "vue";
-import { FolderIcon, Icon } from "lucide-vue-next";
+import { FolderIcon, DownloadIcon, Icon } from "lucide-vue-next";
 import TreeItem from "@/components/tree/TreeItem.vue";
 import FileTypeIcon from "@/components/FileTypeIcon.vue";
 import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem } from "@/components/ui/context-menu";
@@ -75,6 +79,12 @@ const contextMenuActions = computed(() =>
 const itemId = computed(() => props.entry.uri.toString());
 
 const isDirectory = computed(() => props.entry.type === FileType.Directory);
+
+const isMarkdownReportFolder = computed(() => {
+    if (!isDirectory.value) return false;
+    const folder = props.entry as Folder;
+    return folder.children.some((c) => c.type === FileType.File && (c as File).extension === ".md");
+});
 
 const fileExtension = computed(() => {
     if (isDirectory.value) {
@@ -136,6 +146,33 @@ function handleFileAction(action: FileAction): void {
         props.entry.uri.toString(),
         fileExtension.value
     );
+}
+
+async function handleDownload(): Promise<void> {
+    let downloadUri = props.entry.uri;
+    let downloadName = props.entry.name;
+
+    if (isMarkdownReportFolder.value) {
+        const folder = props.entry as Folder;
+        const mdFile = folder.children.find(
+            (c) => c.type === FileType.File && (c as File).extension === ".md"
+        ) as File | undefined;
+        if (!mdFile) return;
+        downloadUri = mdFile.uri;
+        downloadName = mdFile.name;
+    }
+
+    const result = await monacoApi.fileService.readFile(downloadUri);
+    const content = result.value.toString();
+    const blob = new Blob([content], { type: "application/octet-stream" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = downloadName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
 }
 
 async function openTab(temporary: boolean, event?: MouseEvent | KeyboardEvent) {

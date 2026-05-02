@@ -102,9 +102,6 @@ class LocalMutationEvaluator(
 
         for (solutionId in batch.discards) {
             solutions.remove(solutionId)?.close()
-            // Also remove staged-but-unmaterialised models: if a solution was pushed here
-            // (arriving in incomingSerializedModels) but discarded before any task could
-            // materialise it, the staged bytes would otherwise leak indefinitely.
             incomingSerializedModels.remove(solutionId)
         }
 

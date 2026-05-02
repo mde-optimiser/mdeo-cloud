@@ -344,10 +344,11 @@ class OrderedSetImplTest {
 
     // ==================== map() tests ====================
     @Test
-    fun `map returns ordered set`() {
+    fun `map returns list type`() {
         val set = OrderedSetImpl.of(1, 2, 3)
         val mapped = set.map(Func1 { it * 2 })
-        assertTrue(mapped is OrderedSet)
+        @Suppress("USELESS_IS_CHECK")
+        assertTrue(mapped is ScriptList)
     }
 
     @Test
@@ -359,10 +360,10 @@ class OrderedSetImplTest {
     }
 
     @Test
-    fun `map can collapse duplicates`() {
+    fun `map preserves all elements`() {
         val set = OrderedSetImpl.of(1, 2, 3, 4)
         val mapped = set.map(Func1 { it % 2 })
-        assertEquals(2, mapped.size())
+        assertEquals(4, mapped.size())
     }
 
     @Test

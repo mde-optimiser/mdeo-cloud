@@ -234,12 +234,12 @@ class BagImpl<T> : Bag<T> {
         return result
     }
 
-    override fun <U> map(mapper: Func1<T, U>): Bag<U> {
-        val result = HashBag<U>()
+    override fun <U> map(mapper: Func1<T, U>): ScriptList<U> {
+        val result = ArrayList<U>()
         for (element in backing) {
             result.add(mapper.call(element))
         }
-        return BagImpl(result)
+        return ListImpl(result)
     }
 
     override fun exists(predicate: Predicate1<T>): Boolean {

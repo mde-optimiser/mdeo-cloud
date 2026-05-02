@@ -272,11 +272,11 @@ class BagImplTest {
     }
 
     @Test
-    fun `map returns bag type`() {
+    fun `map returns list type`() {
         val bag = BagImpl.of(1, 2, 3)
         val mapped = bag.map(Func1 { it * 2 })
         @Suppress("USELESS_IS_CHECK")
-        assertTrue(mapped is Bag)
+        assertTrue(mapped is ScriptList)
     }
 
     // ==================== filter() / reject() tests ====================

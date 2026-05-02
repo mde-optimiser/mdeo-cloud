@@ -30,11 +30,16 @@ object StdlibRegistrar {
         registry.register(createCollectionType())
         registry.register(createReadonlyOrderedCollectionType())
         registry.register(createOrderedCollectionType())
+        registry.register(createReadonlyListType())
         registry.register(createListType())
+        registry.register(createReadonlySetType())
         registry.register(createSetType())
         registry.register(createReadonlyBagType())
         registry.register(createBagType())
         registry.register(createReadonlyOrderedSetType())
         registry.register(createOrderedSetType())
+
+        registry.register(createReadonlyMapType())
+        registry.register(createMapType())
     }
 }

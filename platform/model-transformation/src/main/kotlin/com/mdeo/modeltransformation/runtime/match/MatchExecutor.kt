@@ -123,7 +123,8 @@ class MatchExecutor {
             nodeAnalyzer = nodeAnalyzer,
             isCollectionExpression = { expr ->
                 expressionSupport.isCollectionType(expressionSupport.resolveExpressionType(expr))
-            }
+            },
+            metamodelData = engine.metamodelData
         ).build(elements, referencedInstances)
 
         val traversal = buildUnifiedTraversal(
@@ -171,7 +172,6 @@ class MatchExecutor {
         var t: GraphTraversal<Vertex, Map<String, Any>> =
             traversalBuilder.buildBaseTraversal(plan) as GraphTraversal<Vertex, Map<String, Any>>
 
-        // Apply post-match filters: injective constraints and cross-node where clauses.
         for (filter in plan.postMatchFilters) {
             @Suppress("UNCHECKED_CAST")
             t = when (filter) {

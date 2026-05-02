@@ -99,6 +99,10 @@
                 <FileText class="size-4 mr-2" />
                 <span>Open Report</span>
             </ContextMenuItem>
+            <ContextMenuItem v-if="isCompleted" @click="handleDownloadReport">
+                <Download class="size-4 mr-2" />
+                <span>Download Report</span>
+            </ContextMenuItem>
             <ContextMenuItem v-if="canCancel" @click="handleCancel">
                 <XCircle class="size-4 mr-2" />
                 <span>Cancel</span>
@@ -114,7 +118,7 @@
 
 <script setup lang="ts">
 import { computed, inject, watch } from "vue";
-import { FileText, Loader2, XCircle, Trash2, FileCode, Clock, Play, Timer } from "lucide-vue-next";
+import { FileText, Loader2, XCircle, Trash2, Download, FileCode, Clock, Play, Timer } from "lucide-vue-next";
 import { useTimeAgo } from "@vueuse/core";
 import TreeItem from "@/components/tree/TreeItem.vue";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
@@ -210,6 +214,21 @@ async function openTab(temporary: boolean, event?: MouseEvent | KeyboardEvent) {
 
 function handleCancel() {
     emit("cancel", props.executionData.execution.id);
+}
+
+async function handleDownloadReport(): Promise<void> {
+    const reportUri = Uri.file(`/${project.value!.id}/executions/${props.executionData.execution.id}/report.md`);
+    const result = await monacoApi.fileService.readFile(reportUri);
+    const content = result.value.toString();
+    const blob = new Blob([content], { type: "application/octet-stream" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "report.md";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
 }
 
 function handleDelete() {

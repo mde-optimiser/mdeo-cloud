@@ -228,7 +228,7 @@ abstract class AbstractCollection<T, C : MutableCollection<T>>(
         return result
     }
 
-    override fun <U> map(mapper: Func1<T, U>): Collection<U> {
+    override fun <U> map(mapper: Func1<T, U>): ScriptList<U> {
         val result = ArrayList<U>()
         for (element in backing) {
             result.add(mapper.call(element))

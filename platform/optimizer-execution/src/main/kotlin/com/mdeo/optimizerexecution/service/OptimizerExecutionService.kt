@@ -136,6 +136,10 @@ class OptimizerExecutionService(
          */
         private const val SUMMARY_FILE = "summary.md"
         /**
+         * File path for the JSON execution report stored alongside solution files.
+         */
+        private const val REPORT_FILE = "report.json"
+        /**
          * MIME type used for JSON result files. 
          */
         private const val MIME_TYPE_JSON = "application/json"
@@ -375,6 +379,7 @@ class OptimizerExecutionService(
     ) {
         val orchestrator = OptimizationOrchestrator(config = config, evaluator = evaluator)
 
+        val startTimeMs = System.currentTimeMillis()
         try {
             val result = try {
                 orchestrator.run { generation ->
@@ -400,7 +405,8 @@ class OptimizerExecutionService(
                 return
             }
 
-            storeResults(executionId, config, result, metamodel, evaluator)
+            val durationMs = System.currentTimeMillis() - startTimeMs
+            storeResults(executionId, config, result, metamodel, evaluator, durationMs)
             updateState(executionId, ExecutionState.COMPLETED, "Completed successfully", jwtToken)
             logger.info("Optimizer execution $executionId completed")
         } finally {
@@ -597,9 +603,16 @@ class OptimizerExecutionService(
         config: OptimizationConfig,
         result: SearchResult,
         metamodel: Metamodel,
-        evaluator: MutationEvaluator
+        evaluator: MutationEvaluator,
+        durationMs: Long
     ) {
-        val solutions = result.getFinalSolutions()
+        val rawSolutions = result.getFinalSolutions()
+        val objectiveTendencies = config.goal.objectives.map { it.type }
+        val solutions = rawSolutions.map { sol ->
+            sol.copy(objectives = sol.objectives.mapIndexed { i, v ->
+                if (objectiveTendencies.getOrNull(i) == ObjectiveTendency.MAXIMIZE) -v else v
+            })
+        }
         val backend = config.runtime.backend ?: GraphBackendType.MDEO
         val nodeThreadCounts = (evaluator as FederatedMutationEvaluator).getWorkerThreadCounts()
         val summaryContent = buildResultSummary(solutions, result.getMetrics(), nodeThreadCounts, backend)
@@ -611,6 +624,8 @@ class OptimizerExecutionService(
             json.encodeToString(modelData)
         }
 
+        val reportContent = buildJsonReport(solutions, result.getMetrics(), durationMs)
+
         transaction {
             OptimizerResultFilesTable.insert {
                 it[id] = Uuid.random()
@@ -618,6 +633,14 @@ class OptimizerExecutionService(
                 it[filePath] = SUMMARY_FILE
                 it[content] = summaryContent
                 it[mimeType] = MIME_TYPE_MARKDOWN
+            }
+
+            OptimizerResultFilesTable.insert {
+                it[id] = Uuid.random()
+                it[OptimizerResultFilesTable.executionId] = executionId.toKotlinUuid()
+                it[filePath] = REPORT_FILE
+                it[content] = reportContent
+                it[mimeType] = MIME_TYPE_JSON
             }
 
             solutionModelJsons.forEachIndexed { index, jsonContent ->
@@ -887,6 +910,55 @@ class OptimizerExecutionService(
                 }
             }
         }
+    }
+
+    /**
+     * Builds a JSON execution report containing duration, Pareto front models, and graph data.
+     *
+     * @param solutions The final Pareto-optimal solutions.
+     * @param metricsCollector Per-generation metrics collected during the run.
+     * @param durationMs Wall-clock duration of the optimization in milliseconds.
+     * @return JSON string representing the report.
+     */
+    private fun buildJsonReport(
+        solutions: List<SolutionResult>,
+        metricsCollector: OptimizationMetricsCollector,
+        durationMs: Long
+    ): String {
+        val report = buildJsonObject {
+            put("durationMs", durationMs)
+            putJsonArray("paretoFront") {
+                solutions.forEachIndexed { index, sol ->
+                    addJsonObject {
+                        put("path", "$RESULTS_DIR/solution_$index.m_gen")
+                        putJsonArray("objectives") { sol.objectives.forEach { add(it) } }
+                        putJsonArray("constraints") { sol.constraints.forEach { add(it) } }
+                    }
+                }
+            }
+            putJsonObject("graphData") {
+                putJsonArray("generations") {
+                    metricsCollector.generations.forEach { gen ->
+                        addJsonObject {
+                            put("generation", gen.generation)
+                            put("totalModels", gen.totalModels)
+                            put("transformationsInGeneration", gen.transformationsInGeneration)
+                            put("rebalancedSolutions", gen.rebalancedSolutions)
+                            put("iterationTimeMs", gen.iterationTimeMs)
+                            putJsonObject("perNode") {
+                                gen.perNode.forEach { (nodeId, nodeMetrics) ->
+                                    putJsonObject(nodeId) {
+                                        put("totalModels", nodeMetrics.totalModels)
+                                        put("transformationsInGeneration", nodeMetrics.transformationsInGeneration)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return json.encodeToString(JsonElement.serializer(), report)
     }
 
     /**

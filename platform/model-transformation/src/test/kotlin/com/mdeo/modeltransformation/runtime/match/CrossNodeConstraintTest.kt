@@ -394,14 +394,19 @@ class CrossNodeConstraintTest {
         @Test
         fun `1i - multiple matched nodes each checked against separate cross-node forbids`() {
             // Graph: nodeA→nodeB, nodeA.value="same", nodeB.value="same"
+            //        nodeA→nodeX, nodeX.value="same"  (extra unmatched node with same value)
             //        nodeC→nodeD, nodeC.value="x",    nodeD.value="y"
-            // Two separate matchable instances, forbid each from having a connected node with same value
+            //
+            // With island injective semantics, the forbid island node c must be distinct
+            // from ALL main-pattern nodes (a and b). nodeB is already matched as b, so it
+            // cannot act as c. Only a truly fresh node (nodeX) can trigger the forbid.
             val nodeA = addNode("same"); val nodeB = addNode("same"); addEdge(nodeA, nodeB)
+            val nodeX = addNode("same"); addEdge(nodeA, nodeX) // extra same-valued node for nodeA
             val nodeC = addNode("x");    val nodeD = addNode("y");    addEdge(nodeC, nodeD)
 
             // match a:Node, b:Node, link a.to→b.from,
             // forbid c:Node { value == a.value }, forbidLink a.to→c.from
-            // This tests that a and b are matched via link, but a is also subject to the forbid
+            // c must be distinct from a and b (injective island semantics).
             val count = matchCount(
                 matchNode("a"),
                 matchNode("b"),
@@ -409,12 +414,12 @@ class CrossNodeConstraintTest {
                 forbidNodeWithProp("c", "value", nodeValueExpr("a")),
                 forbidLink("a", "c")
             )
-            // (a=nodeA, b=nodeB): a.to→b exists. Forbid: a.to→c where c.value==a.value="same".
-            //   The only "to" edge from nodeA goes to nodeB(value="same"==nodeA.value="same") → FORBIDDEN
-            //   → (nodeA, nodeB) excluded
-            // (a=nodeC, b=nodeD): a.to→b exists. Forbid: a.to→c where c.value==a.value="x".
-            //   nodeD.value="y" != "x" → forbid doesn't trigger → (nodeC, nodeD) included
-            assertEquals(1, count, "Only (nodeC, nodeD) should match; (nodeA, nodeB) excluded by cross-node forbid")
+            // (a=nodeA, b=nodeB): Forbid looks for c (!=nodeA,!=nodeB) linked from nodeA with value="same".
+            //   nodeX.value="same" and nodeA→nodeX, nodeX!=nodeA and !=nodeB → forbid fires → EXCLUDED.
+            // (a=nodeA, b=nodeX): Forbid looks for c (!=nodeA,!=nodeX) linked from nodeA with value="same".
+            //   nodeB.value="same" and nodeA→nodeB, nodeB!=nodeA and !=nodeX → forbid fires → EXCLUDED.
+            // (a=nodeC, b=nodeD): Forbid: c linked from nodeC with value="x". nodeD.value="y"!="x" → not triggered → INCLUDED.
+            assertEquals(1, count, "Only (nodeC, nodeD) should match; (nodeA, nodeB) and (nodeA, nodeX) excluded by cross-node forbid")
         }
     }
 

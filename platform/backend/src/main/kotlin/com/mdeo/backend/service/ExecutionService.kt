@@ -346,7 +346,14 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
                 )
             }
 
-            performStateUpdate(executionId, newState, progressText, currentState)
+            val updatedCount = performStateUpdate(executionId, newState, progressText, currentState)
+
+            if (updatedCount == 0) {
+                return@transaction executionFailure(
+                    ErrorCodes.EXECUTION_ALREADY_COMPLETED,
+                    "Execution transitioned to a terminal state concurrently"
+                )
+            }
 
             val row = ExecutionsTable
                 .selectAll()
@@ -421,10 +428,14 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
         newState: String,
         progressText: String?,
         currentState: String
-    ) {
+    ): Int {
         val now = Instant.now()
+        val terminalStates = listOf(ExecutionState.COMPLETED, ExecutionState.CANCELLED, ExecutionState.FAILED)
 
-        ExecutionsTable.update({ ExecutionsTable.id eq executionId.toKotlinUuid() }) {
+        return ExecutionsTable.update({
+            (ExecutionsTable.id eq executionId.toKotlinUuid()) and
+                (ExecutionsTable.state notInList terminalStates)
+        }) {
             it[state] = newState
             it[ExecutionsTable.progressText] = progressText
             it[updatedAt] = now

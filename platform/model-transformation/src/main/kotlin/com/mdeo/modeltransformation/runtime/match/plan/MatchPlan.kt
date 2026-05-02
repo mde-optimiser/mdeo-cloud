@@ -80,6 +80,12 @@ internal sealed class BaseStep {
      *
      * When [needsSelect] is true (deferred), a `select()` navigates to the anchor first:
      * `.not(select(anchor).where(chain))` or `.where(select(anchor).where(chain))`.
+     *
+     * [injectiveConstraints] maps each island node name to a list of step labels
+     * (outer traversal labels for main-pattern nodes, or `__inline_<name>` labels for
+     * earlier island nodes in BFS order) that the island node must be distinct from.
+     * After each island node is reached in the chain, a `.where(P.neq(label))` is
+     * emitted for every label in the list.
      */
     data class InlineIslandConstraint(
         val island: Island,
@@ -87,7 +93,8 @@ internal sealed class BaseStep {
         val orderedLinks: List<Pair<TypedPatternLinkElement, Boolean>>,
         val nodesNeedingBacktrackLabel: Set<String>,
         val isNegative: Boolean,
-        val needsSelect: Boolean = false
+        val needsSelect: Boolean = false,
+        val injectiveConstraints: Map<String, List<String>> = emptyMap()
     ) : BaseStep()
 
     /**
@@ -138,10 +145,16 @@ internal sealed class BaseStep {
      * A disconnected island filter (no links connecting it to the matchable graph).
      *
      * Translated to `.where(V().hasLabel(cls)...count().is(predicate))`.
+     *
+     * [injectiveConstraints] maps each island instance name to a list of outer-traversal
+     * step labels (for already-matched main-pattern nodes of the same class) that the
+     * counted vertex must be distinct from. Applied as `.where(P.neq(label))` inside the
+     * count sub-traversal so that already-matched vertices are not counted.
      */
     data class DisconnectedIslandFilter(
         val island: Island,
-        val isNegative: Boolean
+        val isNegative: Boolean,
+        val injectiveConstraints: Map<String, List<String>> = emptyMap()
     ) : BaseStep()
 }
 

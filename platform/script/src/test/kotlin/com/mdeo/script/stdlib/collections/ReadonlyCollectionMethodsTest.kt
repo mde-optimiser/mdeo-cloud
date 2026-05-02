@@ -438,7 +438,7 @@ class ReadonlyCollectionMethodsTest {
     @Test
     fun `map preserves order`() {
         val list = ListImpl.of(1, 2, 3, 4, 5)
-        val result = list.map(Func1 { it * 2 }) as ScriptList
+        val result = list.map(Func1 { it * 2 })
         assertEquals(2, result.at(0))
         assertEquals(4, result.at(1))
         assertEquals(6, result.at(2))

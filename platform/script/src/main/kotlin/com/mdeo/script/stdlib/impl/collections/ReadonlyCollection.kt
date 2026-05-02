@@ -175,11 +175,12 @@ interface ReadonlyCollection<out T> : ScriptIterable<T> {
     fun aggregate(keyMapper: Func1<@UnsafeVariance T, Any?>): ScriptMap<Any?, ScriptList<@UnsafeVariance T>>
 
     /**
-     * Maps each element to a new value.
+     * Maps each element to a new value. Always returns a [ScriptList] regardless of the
+     * underlying collection type.
      *
      * @param mapper the mapping function
      */
-    fun <U> map(mapper: Func1<@UnsafeVariance T, U>): Collection<U>
+    fun <U> map(mapper: Func1<@UnsafeVariance T, U>): ScriptList<U>
 
     /**
      * Returns true if at least one element matches the predicate.

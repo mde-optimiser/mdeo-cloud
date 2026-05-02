@@ -72,6 +72,13 @@
                 </ContextMenuItem>
                 <ContextMenuSeparator />
             </template>
+            <template v-if="entry.type === FileType.File">
+                <ContextMenuItem @click="handleDownload">
+                    <DownloadIcon class="size-4 mr-2" />
+                    <span>Download</span>
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+            </template>
             <ContextMenuItem @click="handleRename">
                 <EditIcon />
                 <span>Rename</span>
@@ -102,7 +109,7 @@
 
 <script setup lang="ts">
 import { ref, inject, computed } from "vue";
-import { FolderIcon, EditIcon, Trash2Icon, Icon } from "lucide-vue-next";
+import { FolderIcon, EditIcon, Trash2Icon, DownloadIcon, Icon } from "lucide-vue-next";
 import TreeItem from "@/components/tree/TreeItem.vue";
 import TreeItemInput from "../tree/TreeItemInput.vue";
 import FileSystemItemList from "./FileSystemItemList.vue";
@@ -293,6 +300,23 @@ function handleDeleteClick() {
     } else {
         handleDelete();
     }
+}
+
+async function handleDownload(): Promise<void> {
+    if (props.entry.type !== FileType.File) {
+        return;
+    }
+    const result = await monacoApi.fileService.readFile(props.entry.uri);
+    const content = result.value.toString();
+    const blob = new Blob([content], { type: "application/octet-stream" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = props.entry.name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
 }
 
 function handleDelete() {

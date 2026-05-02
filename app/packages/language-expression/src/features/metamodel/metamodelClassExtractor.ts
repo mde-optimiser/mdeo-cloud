@@ -34,20 +34,38 @@ const { AstUtils } = sharedImport("langium");
  */
 export interface CollectionTypeFactory {
     /**
-     * Creates a list type from an element type.
+     * Creates a ReadonlyList type from an element type (used for multi-valued properties).
      *
      * @param elementType The type of elements in the list
-     * @returns A ValueType representing the list type
+     * @returns A ValueType representing the ReadonlyList type
      */
     createListType: (elementType: ValueType) => ValueType;
+    /**
+     * Creates a ReadonlySet type from an element type (used for multi-valued association ends).
+     *
+     * @param elementType The type of elements in the set
+     * @returns A ValueType representing the ReadonlySet type
+     */
+    createSetType: (elementType: ValueType) => ValueType;
 }
 
 /**
  * Default collection type factory for metamodel extraction.
- * Creates List types with the appropriate type arguments.
+ * Creates List types for properties and Set types for association ends.
  */
 export const DefaultCollectionTypeFactory: CollectionTypeFactory = {
-    createListType: (elementType) => typeRef("builtin", "List").withTypeArgs({ T: elementType }).build()
+    createListType: (elementType) => typeRef("builtin", "List").withTypeArgs({ T: elementType }).build(),
+    createSetType: (elementType) => typeRef("builtin", "Set").withTypeArgs({ T: elementType }).build()
+};
+
+/**
+ * Readonly collection type factory for metamodel extraction.
+ * Creates ReadonlyList types for properties and ReadonlySet types for association ends.
+ * Use this factory when the extracted metamodel should not allow modifications to collections.
+ */
+export const ReadonlyCollectionTypeFactory: CollectionTypeFactory = {
+    createListType: (elementType) => typeRef("builtin", "ReadonlyList").withTypeArgs({ T: elementType }).build(),
+    createSetType: (elementType) => typeRef("builtin", "ReadonlySet").withTypeArgs({ T: elementType }).build()
 };
 
 /**
@@ -336,13 +354,14 @@ class MetamodelClassExtractor {
 
     /**
      * Resolves the complete type of a property including multiplicity.
+     * Multi-valued properties use ReadonlyList.
      *
      * @param property The property to resolve the type for
      * @returns The complete ValueType including multiplicity handling
      */
     private resolvePropertyType(property: PropertyType): ValueType {
         const baseType = this.resolveBasePropertyType(property);
-        return this.applyMultiplicity(baseType, property.multiplicity);
+        return this.applyMultiplicity(baseType, property.multiplicity, this.collectionTypeFactory.createListType);
     }
 
     /**
@@ -387,17 +406,22 @@ class MetamodelClassExtractor {
     }
 
     /**
-     * Applies multiplicity modifiers to a base type (list, optional, or required).
+     * Applies multiplicity modifiers to a base type (collection, optional, or required).
      *
      * @param baseType The base type to modify
      * @param multiplicity The multiplicity specification
+     * @param createCollectionType Factory function to create the collection type for multiplicity > 1
      * @returns The modified ValueType with multiplicity applied
      */
-    private applyMultiplicity(baseType: ValueType, multiplicity: MultiplicityType | undefined): ValueType {
+    private applyMultiplicity(
+        baseType: ValueType,
+        multiplicity: MultiplicityType | undefined,
+        createCollectionType: (elementType: ValueType) => ValueType
+    ): ValueType {
         if (multiplicity == undefined) {
             return baseType;
         } else if (isMultipleMultiplicity(multiplicity, this.reflection)) {
-            return this.collectionTypeFactory.createListType(baseType);
+            return createCollectionType(baseType);
         } else if (isOptionalMultiplicity(multiplicity, this.reflection)) {
             return { ...baseType, isNullable: true };
         } else {
@@ -491,7 +515,7 @@ class MetamodelClassExtractor {
         const oppositePackage = this.getActualPackageForClass(oppositeClass);
         const oppositeClassName = `${oppositePackage}.${oppositeSimpleName}`;
         const baseType: ValueType = { package: oppositePackage, type: oppositeSimpleName, isNullable: false };
-        const valueType = this.applyMultiplicity(baseType, end.multiplicity);
+        const valueType = this.applyMultiplicity(baseType, end.multiplicity, this.collectionTypeFactory.createSetType);
 
         return {
             property: end.name,

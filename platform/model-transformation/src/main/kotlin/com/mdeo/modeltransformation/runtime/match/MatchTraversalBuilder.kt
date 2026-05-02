@@ -175,7 +175,8 @@ internal class MatchTraversalBuilder(
         step: BaseStep.InlineIslandConstraint
     ): GraphTraversal<Vertex, Vertex> {
         val chain = buildIslandChainFromIdentity(
-            step.island, step.anchorName, step.orderedLinks, step.nodesNeedingBacktrackLabel
+            step.island, step.anchorName, step.orderedLinks,
+            step.nodesNeedingBacktrackLabel, step.injectiveConstraints
         ) ?: return t
 
         if (!step.needsSelect) {
@@ -351,6 +352,7 @@ internal class MatchTraversalBuilder(
         var result = t
         for (instance in step.island.instances) {
             val className = instance.objectInstance.className ?: continue
+            val instName = instance.objectInstance.name
             val predicate = if (step.isNegative) P.eq(0L) else P.gt(0L)
             var countTraversal: GraphTraversal<Any, Any> =
                 (AnonymousTraversal.V<Any>() as GraphTraversal<Vertex, Vertex>).applyClassFilter(className)
@@ -358,6 +360,10 @@ internal class MatchTraversalBuilder(
             countTraversal = expressionSupport.applyPropertyEqualityConstraints(
                 countTraversal, instance.objectInstance.className, instance.objectInstance.properties
             )
+            step.injectiveConstraints[instName]?.forEach { label ->
+                @Suppress("UNCHECKED_CAST")
+                countTraversal = countTraversal.where(P.neq(label)) as GraphTraversal<Any, Any>
+            }
             result = result.where(
                 countTraversal.count().`is`(predicate)
             ) as GraphTraversal<Vertex, Vertex>
@@ -373,11 +379,19 @@ internal class MatchTraversalBuilder(
      * preceded by a `select(backtrackLabel)` when the chain needs to back-navigate to a
      * previously labelled node. Property equality constraints are applied inline.
      *
+     * After each island node is reached, injective-match constraints are emitted as
+     * `.where(P.neq(label))` for every label in [injectiveConstraints][toNode].
+     * Labels may refer to outer traversal step labels (for main-pattern nodes) or to
+     * `__inline_<name>` labels of earlier island nodes in the chain.
+     *
      * @param island The island whose graph structure is encoded in the chain.
      * @param anchorName The name of the main-pattern node from which the chain starts.
      * @param orderedLinks The BFS-ordered links to walk, each paired with an `isReversed` flag.
      * @param nodesNeedingBacktrackLabel The set of node names that need an inline step label
-     *   because the chain will select back to them from a different branch.
+     *   because the chain will select back to them from a different branch, or because a later
+     *   island node references them via an injective constraint.
+     * @param injectiveConstraints Map from island node name to the list of step labels that
+     *   node must be distinct from (injective matching).
      * @return The built chain traversal, or `null` when [orderedLinks] is empty and no steps
      *   can be emitted.
      */
@@ -386,7 +400,8 @@ internal class MatchTraversalBuilder(
         island: Island,
         anchorName: String,
         orderedLinks: List<Pair<com.mdeo.modeltransformation.ast.patterns.TypedPatternLinkElement, Boolean>>,
-        nodesNeedingBacktrackLabel: Set<String>
+        nodesNeedingBacktrackLabel: Set<String>,
+        injectiveConstraints: Map<String, List<String>> = emptyMap()
     ): GraphTraversal<Any, Any>? {
         val islandClassMap = island.instances.mapNotNull { inst ->
             inst.objectInstance.className?.let { inst.objectInstance.name to it }
@@ -420,6 +435,14 @@ internal class MatchTraversalBuilder(
                 chain = expressionSupport.applyPropertyEqualityConstraints(
                     chain, inst.objectInstance.className, inst.objectInstance.properties
                 )
+            }
+            if (toNode !in islandInstanceMap && toNode != anchorName) {
+                @Suppress("UNCHECKED_CAST")
+                chain = chain.where(P.eq(VariableBinding.stepLabel(toNode))) as GraphTraversal<Any, Any>
+            }
+            injectiveConstraints[toNode]?.forEach { label ->
+                @Suppress("UNCHECKED_CAST")
+                chain = chain.where(P.neq(label)) as GraphTraversal<Any, Any>
             }
             if (toNode in nodesNeedingBacktrackLabel) {
                 chain = chain.`as`("__inline_${toNode}") as GraphTraversal<Any, Any>

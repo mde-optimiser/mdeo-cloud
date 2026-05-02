@@ -26,7 +26,7 @@ import {
     generateClassTypes,
     generateEnumTypes,
     extractMetamodelEntities,
-    DefaultCollectionTypeFactory,
+    ReadonlyCollectionTypeFactory,
     type ClassType,
     getClassPackage,
     getEnumPackage,
@@ -158,7 +158,7 @@ export class ScriptTypeSystem extends ExpressionTypeSystem<ScriptTypirSpecifics>
                 docEntities.classes,
                 docEntities.enums,
                 reflection,
-                DefaultCollectionTypeFactory,
+                ReadonlyCollectionTypeFactory,
                 absolutePath
             );
 

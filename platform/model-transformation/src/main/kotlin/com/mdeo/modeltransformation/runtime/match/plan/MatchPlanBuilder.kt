@@ -1,6 +1,7 @@
 package com.mdeo.modeltransformation.runtime.match.plan
 
 import com.mdeo.expression.ast.expressions.TypedExpression
+import com.mdeo.metamodel.data.MetamodelData
 import com.mdeo.modeltransformation.ast.EdgeLabelUtils
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternLinkElement
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternObjectInstance
@@ -35,7 +36,8 @@ import com.mdeo.modeltransformation.runtime.match.PatternCategories
 internal class MatchPlanBuilder(
     private val getVertexId: (String) -> Any?,
     private val nodeAnalyzer: ExpressionNodeAnalyzer,
-    private val isCollectionExpression: (TypedExpression) -> Boolean
+    private val isCollectionExpression: (TypedExpression) -> Boolean,
+    private val metamodelData: MetamodelData = MetamodelData.empty()
 ) {
 
     /**
@@ -116,63 +118,6 @@ internal class MatchPlanBuilder(
             if (getVertexId(name) != null) { return name }
         }
         return componentInstances.firstOrNull { instanceMap[it]?.objectInstance?.className != null }
-    }
-
-    /**
-     * Computes a map from instance name to the list of combined island indices
-     * (across [allIslands]) for which that instance is the sole anchor.
-     *
-     * An island is inlinable when exactly one matched instance acts as its anchor,
-     * making it possible to attach the island constraint right after that anchor is bound.
-     *
-     * @param allIslands All forbid and require islands in (forbid ++ require) index order.
-     * @param matchableNames Names of all matched instances in the main pattern.
-     * @return Map from anchor instance name to a list of indices in [allIslands] it anchors.
-     */
-    private fun computeInlinableIslands(
-        allIslands: List<Island>,
-        matchableNames: Set<String>
-    ): Map<String, List<Int>> {
-        val result = mutableMapOf<String, MutableList<Int>>()
-        for ((index, island) in allIslands.withIndex()) {
-            if (island.links.isEmpty()) { continue }
-            val islandNames = island.instances.map { it.objectInstance.name }.toSet()
-            val anchors = IslandTraversalUtils.findAnchorNames(island.links, islandNames, matchableNames)
-            if (anchors.size == 1) {
-                result.getOrPut(anchors.first()) { mutableListOf() }.add(index)
-            }
-        }
-        return result
-    }
-
-    /**
-     * Builds the [BaseStep] for a deferred (non-inlined) island constraint.
-     *
-     * Islands without links become a [BaseStep.DisconnectedIslandFilter]. Connected
-     * islands are converted to a [BaseStep.InlineIslandConstraint] with
-     * `needsSelect = true` so the traversal navigates to the anchor before applying
-     * the constraint chain.
-     *
-     * @param island The island to build the step for.
-     * @param matchableNames Names of all matched instances (used to find anchors).
-     * @param isNegative `true` for a forbid island, `false` for a require island.
-     * @return The appropriate [BaseStep].
-     */
-    private fun buildDeferredIslandStep(
-        island: Island,
-        matchableNames: Set<String>,
-        isNegative: Boolean
-    ): BaseStep {
-        if (island.links.isEmpty()) {
-            return BaseStep.DisconnectedIslandFilter(island, isNegative)
-        }
-        val islandNames = island.instances.map { it.objectInstance.name }.toSet()
-        val anchorNames = IslandTraversalUtils.findAnchorNames(island.links, islandNames, matchableNames)
-        val anchor = anchorNames.firstOrNull()
-            ?: return BaseStep.DisconnectedIslandFilter(island, isNegative)
-        val orderedLinks = IslandTraversalUtils.orderLinksByBFS(island.links, anchor)
-        val backtrackLabels = IslandTraversalUtils.findNodesNeedingBacktrackLabel(orderedLinks, anchor)
-        return BaseStep.InlineIslandConstraint(island, anchor, orderedLinks, backtrackLabels, isNegative, needsSelect = true)
     }
 
     /**
@@ -287,14 +232,10 @@ internal class MatchPlanBuilder(
          * @return The [MatchPlan] ready for compilation into a Gremlin traversal.
          */
         fun run(): MatchPlan {
-            val inlinableIslands = computeInlinableIslands(forbidIslands + requireIslands, matchableNames)
             val components = buildComponents(allMatchable, allMatchableLinks)
-            val sortedComponents = components.sortedWith(
-                compareByDescending<MatchComponent> { comp -> comp.instances.any { getVertexId(it) != null } }
-                    .thenByDescending { comp ->
-                        comp.instances.count { name -> name in inlinableIslands }
-                    }
-            )
+            val sortedComponents = components.sortedByDescending { comp ->
+                comp.instances.any { getVertexId(it) != null }
+            }
             processComponents(sortedComponents)
             addUncoveredInstances()
             addReferencedInstances()
@@ -398,7 +339,7 @@ internal class MatchPlanBuilder(
             if (instance != null) {
                 addInlinePropertyConstraints(instance)
             }
-            inlineIslandConstraints(instanceName)
+            tryInlineIslands(instanceName)
             inlineOrphanLinks(forbidOrphanLinks, isNegative = true)
             inlineOrphanLinks(requireOrphanLinks, isNegative = false)
         }
@@ -447,11 +388,22 @@ internal class MatchPlanBuilder(
          * Attempts to inline all island constraints anchored at [instanceName].
          *
          * An island is inlined when it has exactly one anchor and that anchor equals
-         * [instanceName]. Already-processed islands (in [inlinedIslandIndices]) are skipped.
+         * [currentNode]. Already-processed islands (in [inlinedIslandIndices]) are skipped.
          *
-         * @param instanceName The name of the newly covered anchor candidate.
+         * An island is inlinable when ALL of the following are covered:
+         * - Every anchor node (main-pattern nodes connected to the island via links).
+         * - Every main-pattern (matchable-only, no modifier) node whose class is the same
+         *   as any island node's class — needed so that injective constraints against those
+         *   nodes can reference their already-bound step labels.
+         *
+         * This replaces separate single-anchor and multi-anchor helper methods: all islands
+         * (regardless of anchor count) are inlined as soon as their required nodes are ready.
+         *
+         * @param currentNode The name of the node most recently added to the traversal.
+         *   Islands that need `needsSelect = false` (i.e. directly at the anchor) are only
+         *   emitted without a select when [currentNode] equals the chosen best anchor.
          */
-        private fun inlineIslandConstraints(instanceName: String) {
+        private fun tryInlineIslands(currentNode: String) {
             val allIslands = forbidIslands.map { it to true } + requireIslands.map { it to false }
             for ((index, pair) in allIslands.withIndex()) {
                 if (index in inlinedIslandIndices) { continue }
@@ -459,20 +411,137 @@ internal class MatchPlanBuilder(
                 if (island.links.isEmpty()) { continue }
                 val islandNames = island.instances.map { it.objectInstance.name }.toSet()
                 val anchors = IslandTraversalUtils.findAnchorNames(island.links, islandNames, matchableNames)
-                if (anchors.size != 1 || anchors.first() != instanceName) { continue }
-                val orderedLinks = IslandTraversalUtils.orderLinksByBFS(island.links, instanceName)
-                val backtrackLabels = IslandTraversalUtils.findNodesNeedingBacktrackLabel(orderedLinks, instanceName)
+                if (anchors.isEmpty()) { continue }
+
+                // Require all anchors and all main-pattern nodes type-compatible with island
+                // nodes to be covered before inlining (needed for injective constraint labels).
+                val injectiveRequiredNodes = computeInjectiveRequiredNodes(island)
+                val requiredNodes = anchors + injectiveRequiredNodes
+                if (!requiredNodes.all { it in coveredInstances }) { continue }
+
+                val bestAnchor = IslandTraversalUtils.selectBestAnchor(anchors, island.links, metamodelData)
+                    ?: continue
+                val orderedLinks = IslandTraversalUtils.orderLinksByBFS(island.links, bestAnchor)
+                val (injectiveConstraints, nodesNeedingInjectiveLabel) =
+                    buildIslandInjectiveConstraints(island, orderedLinks, bestAnchor)
+                val backtrackLabels = IslandTraversalUtils.findNodesNeedingBacktrackLabel(orderedLinks, bestAnchor)
+                val needsSelect = bestAnchor != currentNode
                 baseSteps.add(
                     BaseStep.InlineIslandConstraint(
                         island = island,
-                        anchorName = instanceName,
+                        anchorName = bestAnchor,
                         orderedLinks = orderedLinks,
-                        nodesNeedingBacktrackLabel = backtrackLabels,
-                        isNegative = isNegative
+                        nodesNeedingBacktrackLabel = backtrackLabels + nodesNeedingInjectiveLabel,
+                        isNegative = isNegative,
+                        needsSelect = needsSelect,
+                        injectiveConstraints = injectiveConstraints
                     )
                 )
                 inlinedIslandIndices.add(index)
             }
+        }
+
+        /**
+         * Computes the set of main-pattern instance names (including delete nodes) that
+         * must be covered before [island] can be inlined, because they share a class with
+         * at least one island instance and therefore require injective constraints.
+         *
+         * Only exact class-name equality is tested, consistent with [addInjectiveConstraints].
+         */
+        private fun computeInjectiveRequiredNodes(island: Island): Set<String> {
+            val result = mutableSetOf<String>()
+            for (islandInst in island.instances) {
+                val islandClass = islandInst.objectInstance.className ?: continue
+                for (mainInst in allMatchable) {
+                    val mainClass = mainInst.objectInstance.className ?: continue
+                    if (islandClass == mainClass) {
+                        result.add(mainInst.objectInstance.name)
+                    }
+                }
+            }
+            return result
+        }
+
+        /**
+         * Builds the injective-constraint map for an island's chain traversal.
+         *
+         * For each non-anchor island node (in BFS order), computes the list of step labels
+         * that the node must be distinct from:
+         * - [VariableBinding.stepLabel] of every main-pattern node (including delete nodes)
+         *   that shares the same class.
+         * - `__inline_<prevName>` for every earlier island node in BFS order that shares
+         *   the same class (so those nodes are labelled in the chain and the constraint can
+         *   reference them).
+         *
+         * Also returns the set of island node names that must receive an `__inline_<name>`
+         * step label in the chain (because a later island node has an injective constraint
+         * against them).
+         */
+        private fun buildIslandInjectiveConstraints(
+            island: Island,
+            orderedLinks: List<Pair<TypedPatternLinkElement, Boolean>>,
+            anchorName: String
+        ): Pair<Map<String, List<String>>, Set<String>> {
+            val constraints = mutableMapOf<String, MutableList<String>>()
+            val nodesNeedingLabel = mutableSetOf<String>()
+
+            val islandInstanceMap = island.instances.associateBy { it.objectInstance.name }
+
+            val islandBfsOrder = mutableListOf<String>()
+            val visited = mutableSetOf(anchorName)
+            for ((link, isReversed) in orderedLinks) {
+                val toNode = if (isReversed) link.link.source.objectName else link.link.target.objectName
+                if (toNode in islandInstanceMap && visited.add(toNode)) {
+                    islandBfsOrder.add(toNode)
+                }
+            }
+
+            for ((i, islandNode) in islandBfsOrder.withIndex()) {
+                val islandClass = islandInstanceMap[islandNode]?.objectInstance?.className ?: continue
+
+                for (mainInst in allMatchable) {
+                    val mainClass = mainInst.objectInstance.className ?: continue
+                    if (islandClass == mainClass) {
+                        constraints.getOrPut(islandNode) { mutableListOf() }
+                            .add(VariableBinding.stepLabel(mainInst.objectInstance.name))
+                    }
+                }
+
+                for (j in 0 until i) {
+                    val prevNode = islandBfsOrder[j]
+                    val prevClass = islandInstanceMap[prevNode]?.objectInstance?.className ?: continue
+                    if (islandClass == prevClass) {
+                        nodesNeedingLabel.add(prevNode)
+                        constraints.getOrPut(islandNode) { mutableListOf() }
+                            .add("__inline_$prevNode")
+                    }
+                }
+            }
+
+            return Pair(constraints, nodesNeedingLabel)
+        }
+
+        /**
+         * Builds injective constraints for a disconnected island (no links to main pattern).
+         *
+         * For each island instance, returns a list of outer-traversal step labels for all
+         * main-pattern nodes (including delete nodes) that share the same class. These are
+         * used to exclude already-matched vertices from the disconnected count sub-traversal.
+         */
+        private fun buildDisconnectedInjectiveConstraints(island: Island): Map<String, List<String>> {
+            val constraints = mutableMapOf<String, MutableList<String>>()
+            for (islandInst in island.instances) {
+                val islandClass = islandInst.objectInstance.className ?: continue
+                val instName = islandInst.objectInstance.name
+                for (mainInst in allMatchable) {
+                    val mainClass = mainInst.objectInstance.className ?: continue
+                    if (islandClass == mainClass) {
+                        constraints.getOrPut(instName) { mutableListOf() }
+                            .add(VariableBinding.stepLabel(mainInst.objectInstance.name))
+                    }
+                }
+            }
+            return constraints
         }
 
         /**
@@ -497,7 +566,8 @@ internal class MatchPlanBuilder(
 
         /**
          * Emits [BaseStep.VertexScan] steps for matchable instances not covered during
-         * the connected-component traversal phase.
+         * the connected-component traversal phase, and attempts to inline any island
+         * constraints that become ready after each instance is covered.
          */
         private fun addUncoveredInstances() {
             for (instance in allMatchable) {
@@ -514,6 +584,7 @@ internal class MatchPlanBuilder(
                     )
                 }
                 coveredInstances.add(name)
+                applyInlineConstraintsAt(name, instance)
             }
         }
 
@@ -604,13 +675,47 @@ internal class MatchPlanBuilder(
         /**
          * Emits [BaseStep.InlineIslandConstraint] or [BaseStep.DisconnectedIslandFilter] steps
          * for all islands not inlined during component traversal.
+         *
+         * Any connected island that was not inlined earlier (because some required nodes
+         * were not covered in time) is emitted here with [BaseStep.InlineIslandConstraint]
+         * and `needsSelect = true`. Injective constraints are computed and included.
+         * Truly disconnected islands (no links) use [BaseStep.DisconnectedIslandFilter]
+         * with injective constraints so already-matched vertices are excluded from the count.
          */
         private fun addDeferredIslands() {
             val allIslands = forbidIslands.map { it to true } + requireIslands.map { it to false }
             for ((index, pair) in allIslands.withIndex()) {
                 if (index in inlinedIslandIndices) continue
                 val (island, isNegative) = pair
-                baseSteps.add(buildDeferredIslandStep(island, matchableNames, isNegative))
+                if (island.links.isEmpty()) {
+                    baseSteps.add(BaseStep.DisconnectedIslandFilter(
+                        island, isNegative,
+                        buildDisconnectedInjectiveConstraints(island)
+                    ))
+                    continue
+                }
+                val islandNames = island.instances.map { it.objectInstance.name }.toSet()
+                val anchorNames = IslandTraversalUtils.findAnchorNames(island.links, islandNames, matchableNames)
+                val anchor = IslandTraversalUtils.selectBestAnchor(anchorNames, island.links, metamodelData)
+                if (anchor == null) {
+                    baseSteps.add(BaseStep.DisconnectedIslandFilter(island, isNegative))
+                    continue
+                }
+                val orderedLinks = IslandTraversalUtils.orderLinksByBFS(island.links, anchor)
+                val (injectiveConstraints, nodesNeedingInjectiveLabel) =
+                    buildIslandInjectiveConstraints(island, orderedLinks, anchor)
+                val backtrackLabels = IslandTraversalUtils.findNodesNeedingBacktrackLabel(orderedLinks, anchor)
+                baseSteps.add(
+                    BaseStep.InlineIslandConstraint(
+                        island = island,
+                        anchorName = anchor,
+                        orderedLinks = orderedLinks,
+                        nodesNeedingBacktrackLabel = backtrackLabels + nodesNeedingInjectiveLabel,
+                        isNegative = isNegative,
+                        needsSelect = true,
+                        injectiveConstraints = injectiveConstraints
+                    )
+                )
             }
         }
 

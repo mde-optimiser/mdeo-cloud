@@ -233,10 +233,11 @@ class SetImplTest {
     }
 
     @Test
-    fun `map returns set type`() {
+    fun `map returns list type`() {
         val set = SetImpl.of(1, 2, 3)
         val mapped = set.map(Func1 { it * 2 })
-        assertTrue(mapped is ScriptSet)
+        @Suppress("USELESS_IS_CHECK")
+        assertTrue(mapped is ScriptList)
     }
 
     @Test
@@ -247,10 +248,10 @@ class SetImplTest {
     }
 
     @Test
-    fun `map can collapse duplicates`() {
+    fun `map preserves all elements`() {
         val set = SetImpl.of(1, 2, 3, 4)
         val mapped = set.map(Func1 { it % 2 })
-        assertEquals(2, mapped.size())
+        assertEquals(4, mapped.size())
     }
 
     @Test

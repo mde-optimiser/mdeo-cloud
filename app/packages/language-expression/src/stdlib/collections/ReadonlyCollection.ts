@@ -233,7 +233,7 @@ export const ReadonlyCollectionType = classType("ReadonlyCollection")
                 .generics("U")
                 .param("iterator", lambdaType().param("it", genericTypeRef("T")).returns(genericTypeRef("U")))
                 .returns(
-                    typeRef("builtin", "Collection")
+                    typeRef("builtin", "List")
                         .withTypeArgs({ T: genericTypeRef("U") })
                         .build()
                 )
