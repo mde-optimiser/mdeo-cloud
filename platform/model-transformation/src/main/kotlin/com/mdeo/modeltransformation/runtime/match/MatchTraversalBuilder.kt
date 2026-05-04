@@ -47,12 +47,11 @@ internal class MatchTraversalBuilder(
                 is BaseStep.VertexScan -> applyVertexScan(t, step)
                 is BaseStep.EdgeWalk -> applyEdgeWalk(t, step)
                 is BaseStep.InlinePropertyConstraint -> applyInlinePropertyConstraint(t, step)
-                is BaseStep.InlineIslandConstraint -> applyInlineIslandConstraint(t, step)
-                is BaseStep.InlineOrphanLinkConstraint -> applyInlineOrphanLink(t, step)
+                is BaseStep.ApplicationCondition -> applyApplicationCondition(t, step)
+                is BaseStep.EqualityFilter -> applyEqualityFilter(t, step)
                 is BaseStep.VariableBinding -> applyVariableBinding(t, step)
                 is BaseStep.DeferredPropertyConstraint -> applyDeferredPropertyConstraint(t, step)
                 is BaseStep.WhereFilter -> applyWhereFilter(t, step)
-                is BaseStep.DisconnectedIslandFilter -> applyDisconnectedIslandFilter(t, step)
             }
         }
         return t
@@ -159,27 +158,54 @@ internal class MatchTraversalBuilder(
     }
 
     /**
-     * Applies a [BaseStep.InlineIslandConstraint] to [t].
+     * Applies a [BaseStep.EqualityFilter] to [t].
      *
-     * Builds an anonymous chain traversal from the anchor via [buildIslandChainFromIdentity]
-     * and wraps it in `.not(chain)` (forbid) or `.where(chain)` (require). When
-     * [step] requires a select, the chain is anchored via `select(anchorLabel).where(chain)`.
+     * Verifies the current traverser vertex equals the already-bound outer instance
+     * [step.instanceName]. Translated to `.where(P.eq(stepLabel(instanceName)))`.
      *
      * @param t The traversal to extend.
-     * @param step The island-constraint step to apply.
+     * @param step The equality-filter step to apply.
      * @return The extended traversal.
      */
     @Suppress("UNCHECKED_CAST")
-    private fun applyInlineIslandConstraint(
+    private fun applyEqualityFilter(
         t: GraphTraversal<Vertex, Vertex>,
-        step: BaseStep.InlineIslandConstraint
+        step: BaseStep.EqualityFilter
     ): GraphTraversal<Vertex, Vertex> {
-        val chain = buildIslandChainFromIdentity(
-            step.island, step.anchorName, step.orderedLinks,
-            step.nodesNeedingBacktrackLabel, step.injectiveConstraints
-        ) ?: return t
+        return t.where(P.eq(VariableBinding.stepLabel(step.instanceName))) as GraphTraversal<Vertex, Vertex>
+    }
 
-        if (!step.needsSelect) {
+    /**
+     * Applies a [BaseStep.ApplicationCondition] to [t].
+     *
+     * Builds an anonymous sub-traversal from [step.innerSteps] (reusing the same step
+     * translation logic as for the main traversal) and wraps it in `.not(chain)` (NAC)
+     * or `.where(chain)` (PAC).
+     *
+     * - When [step.anchorName] is null the sub-traversal starts from a fresh `V()` scan
+     *   (the first inner step must be a [BaseStep.VertexScan]).
+     * - When [step.anchorName] is non-null and [step.needsSelect] is false the traverser is
+     *   already positioned at the anchor; the chain starts with `identity()`.
+     * - When [step.anchorName] is non-null and [step.needsSelect] is true the chain is
+     *   wrapped as `select(anchor).where(innerChain)`.
+     *
+     * Injective constraints from [step.injectiveConstraints] are applied as
+     * `.where(P.neq(label))` immediately after each island node is reached in the chain.
+     *
+     * @param t The traversal to extend.
+     * @param step The application-condition step to apply.
+     * @return The extended traversal.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun applyApplicationCondition(
+        t: GraphTraversal<Vertex, Vertex>,
+        step: BaseStep.ApplicationCondition
+    ): GraphTraversal<Vertex, Vertex> {
+        val chain = buildConditionChain(step.innerSteps, step.injectiveConstraints)
+            ?: return t
+
+        if (step.anchorName == null || !step.needsSelect) {
+            // Traverser is at the anchor (or no anchor — chain starts with V() scan).
             return if (step.isNegative) {
                 t.not(chain) as GraphTraversal<Vertex, Vertex>
             } else {
@@ -200,28 +226,209 @@ internal class MatchTraversalBuilder(
     }
 
     /**
-     * Applies a [BaseStep.InlineOrphanLinkConstraint] to [t].
+     * Builds an anonymous traversal chain from a list of [BaseStep]s for use inside a
+     * [BaseStep.ApplicationCondition].
      *
-     * Emits `.where(as(source).out(edge).as(target))` for a require constraint, or
-     * `.where(not(as(source).out(edge).as(target)))` for a forbid constraint.
+     * The first [BaseStep.VertexScan] step (if any) creates the root `__.V()...` traversal;
+     * all subsequent steps are appended using the same translation logic as for the main
+     * traversal. After each [BaseStep.EdgeWalk] step, any injective constraints registered
+     * for the destination node are emitted as `.where(P.neq(label))`.
      *
-     * @param t The traversal to extend.
-     * @param step The orphan-link constraint step to apply.
-     * @return The extended traversal.
+     * A node in the chain is labeled with `.as(label)` only when its label is genuinely
+     * needed inside the chain — either for backtracking (a later [BaseStep.EdgeWalk] has
+     * `needsSelect=true` and references this node as its `fromInstanceName`) or for
+     * within-island injective constraints (another island node must be distinct from this
+     * one via `where(P.neq(label))`).  Labeling every node unconditionally causes
+     * TinkerPop to throw [org.apache.tinkerpop.gremlin.process.traversal.step.Scoping.KeyNotFoundException]
+     * when `where(traversal)` encounters an `.as(label)` for a label not already in the
+     * outer scope.
+     *
+     * @param innerSteps The ordered steps encoding the condition pattern.
+     * @param injectiveConstraints Map from island-node step label to labels it must differ from.
+     * @return The built anonymous traversal, or `null` when no steps are provided.
      */
     @Suppress("UNCHECKED_CAST")
-    private fun applyInlineOrphanLink(
-        t: GraphTraversal<Vertex, Vertex>,
-        step: BaseStep.InlineOrphanLinkConstraint
-    ): GraphTraversal<Vertex, Vertex> {
-        val inner = AnonymousTraversal.`as`<Any>(VariableBinding.stepLabel(step.sourceName))
-            .out(step.edgeLabel)
-            .`as`(VariableBinding.stepLabel(step.targetName)) as GraphTraversal<Any, Any>
-        return if (step.isNegative) {
-            t.where(AnonymousTraversal.not<Any>(inner)) as GraphTraversal<Vertex, Vertex>
-        } else {
-            t.where(inner) as GraphTraversal<Vertex, Vertex>
+    private fun buildConditionChain(
+        innerSteps: List<BaseStep>,
+        injectiveConstraints: Map<String, List<String>> = emptyMap()
+    ): GraphTraversal<Any, Any>? {
+        if (innerSteps.isEmpty()) return null
+
+        val neededLabels = computeNeededLabels(innerSteps, injectiveConstraints)
+        var chain: GraphTraversal<Any, Any>? = null
+
+        for (step in innerSteps) {
+            chain = when {
+                step is BaseStep.VertexScan && chain == null -> {
+                    // First step in an unanchored condition: start with a V() scan.
+                    val v: GraphTraversal<Any, Any> = when {
+                        step.vertexId != null ->
+                            AnonymousTraversal.V<Any>(step.vertexId) as GraphTraversal<Any, Any>
+                        step.className != null ->
+                            (AnonymousTraversal.V<Any>() as GraphTraversal<Vertex, Vertex>)
+                                .applyClassFilter(step.className) as GraphTraversal<Any, Any>
+                        else -> throw IllegalStateException(
+                            "VertexScan for '${step.instanceName}' has neither vertexId nor className"
+                        )
+                    }
+                    val nodeLabel = VariableBinding.stepLabel(step.instanceName)
+                    val labeled = if (nodeLabel in neededLabels) {
+                        v.`as`(nodeLabel) as GraphTraversal<Any, Any>
+                    } else {
+                        v
+                    }
+                    // Apply injective constraints for this start node.
+                    applyInjectiveConstraints(labeled, nodeLabel, injectiveConstraints)
+                }
+                step is BaseStep.VertexScan -> {
+                    throw IllegalStateException(
+                        "VertexScan for '${step.instanceName}' in non-first position of condition chain"
+                    )
+                }
+                chain == null -> {
+                    // First step when the chain starts at the anchor via identity().
+                    val base = AnonymousTraversal.identity<Any>() as GraphTraversal<Any, Any>
+                    applyConditionStep(base, step, injectiveConstraints, neededLabels)
+                }
+                else -> applyConditionStep(chain, step, injectiveConstraints, neededLabels)
+            }
         }
+        return chain
+    }
+
+    /**
+     * Computes the set of step labels that must be explicitly assigned with `.as(label)`
+     * inside a condition chain.
+     *
+     * A label is needed when:
+     * 1. It appears as `fromInstanceName` in a [BaseStep.EdgeWalk] with `needsSelect=true`
+     *    AND the corresponding node is an island-internal node (appears as a destination in
+     *    a previous edge walk, not an outer matched node).
+     * 2. It appears as a value in [injectiveConstraints] AND the label refers to an
+     *    island-internal node (so the constraint `where(P.neq(label))` can resolve the
+     *    label from the chain's own path rather than from the outer traversal scope).
+     *
+     * Labels that refer to outer matched nodes are already present in the outer traversal
+     * scope and do not need to be re-assigned inside the chain.
+     */
+    private fun computeNeededLabels(
+        innerSteps: List<BaseStep>,
+        injectiveConstraints: Map<String, List<String>>
+    ): Set<String> {
+        // Collect labels for island-internal destination nodes.
+        // A node is "island-internal" when it appears as the destination of an EdgeWalk
+        // and is NOT immediately followed by an EqualityFilter (which marks it as an outer node).
+        val islandInternalLabels = mutableSetOf<String>()
+        for (i in innerSteps.indices) {
+            val step = innerSteps[i]
+            if (step is BaseStep.VertexScan) {
+                islandInternalLabels.add(VariableBinding.stepLabel(step.instanceName))
+            } else if (step is BaseStep.EdgeWalk) {
+                val toLabel = VariableBinding.stepLabel(step.toInstanceName)
+                val nextStep = if (i + 1 < innerSteps.size) innerSteps[i + 1] else null
+                // Only treat as island-internal when NOT followed by an EqualityFilter.
+                if (nextStep !is BaseStep.EqualityFilter ||
+                    nextStep.instanceName != step.toInstanceName) {
+                    islandInternalLabels.add(toLabel)
+                }
+            }
+        }
+
+        val needed = mutableSetOf<String>()
+
+        // (1) Backtracking: a later EdgeWalk with needsSelect=true whose fromInstanceName
+        //     is an island-internal node requires that node to be labeled in the chain.
+        for (step in innerSteps) {
+            if (step is BaseStep.EdgeWalk && step.needsSelect) {
+                val fromLabel = VariableBinding.stepLabel(step.fromInstanceName)
+                if (fromLabel in islandInternalLabels) {
+                    needed.add(fromLabel)
+                }
+            }
+        }
+
+        // (2) Within-island injective constraints: if a constraint value refers to an
+        //     island-internal node, that node must be labeled so the chain can reference it.
+        for (values in injectiveConstraints.values) {
+            for (label in values) {
+                if (label in islandInternalLabels) {
+                    needed.add(label)
+                }
+            }
+        }
+
+        return needed
+    }
+
+    /**
+     * Applies a single [BaseStep] to an anonymous traversal [chain] inside a condition.
+     *
+     * Supported step types: [BaseStep.EdgeWalk], [BaseStep.InlinePropertyConstraint],
+     * [BaseStep.EqualityFilter]. After each [BaseStep.EdgeWalk] the injective constraints
+     * for the destination node are emitted.
+     *
+     * @param neededLabels Labels that must be assigned with `.as()` — see [computeNeededLabels].
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun applyConditionStep(
+        chain: GraphTraversal<Any, Any>,
+        step: BaseStep,
+        injectiveConstraints: Map<String, List<String>>,
+        neededLabels: Set<String> = emptySet()
+    ): GraphTraversal<Any, Any> {
+        return when (step) {
+            is BaseStep.EdgeWalk -> {
+                val edgeLabel = EdgeLabelUtils.computeEdgeLabel(
+                    step.link.link.source.propertyName, step.link.link.target.propertyName
+                )
+                var result = chain
+                if (step.needsSelect) {
+                    result = result.select<Any>(VariableBinding.stepLabel(step.fromInstanceName)) as GraphTraversal<Any, Any>
+                }
+                result = if (step.isReversed) result.`in`(edgeLabel) as GraphTraversal<Any, Any>
+                         else result.out(edgeLabel) as GraphTraversal<Any, Any>
+                if (step.toVertexId != null) {
+                    result = result.hasId(step.toVertexId) as GraphTraversal<Any, Any>
+                } else if (step.toClassName != null) {
+                    result = (result as GraphTraversal<Vertex, Vertex>).applyClassFilter(step.toClassName) as GraphTraversal<Any, Any>
+                }
+                val toLabel = VariableBinding.stepLabel(step.toInstanceName)
+                if (toLabel in neededLabels) {
+                    result = result.`as`(toLabel) as GraphTraversal<Any, Any>
+                }
+                // Injective constraints for the destination node.
+                applyInjectiveConstraints(result, toLabel, injectiveConstraints)
+            }
+            is BaseStep.InlinePropertyConstraint -> {
+                applyInlinePropertyConstraint(
+                    chain as GraphTraversal<Vertex, Vertex>,
+                    step
+                ) as GraphTraversal<Any, Any>
+            }
+            is BaseStep.EqualityFilter -> {
+                // The destination node was NOT labeled in the chain (it is an outer matched
+                // node); reference its label from the outer traversal scope via P.eq().
+                chain.where(P.eq(VariableBinding.stepLabel(step.instanceName))) as GraphTraversal<Any, Any>
+            }
+            else -> throw IllegalStateException("Unsupported step type inside condition chain: ${step::class.simpleName}")
+        }
+    }
+
+    /**
+     * Emits `.where(P.neq(label))` for every label listed under [nodeLabel] in
+     * [injectiveConstraints], if any.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun applyInjectiveConstraints(
+        chain: GraphTraversal<Any, Any>,
+        nodeLabel: String,
+        injectiveConstraints: Map<String, List<String>>
+    ): GraphTraversal<Any, Any> {
+        var result = chain
+        injectiveConstraints[nodeLabel]?.forEach { label ->
+            result = result.where(P.neq(label)) as GraphTraversal<Any, Any>
+        }
+        return result
     }
 
     /**
@@ -334,137 +541,12 @@ internal class MatchTraversalBuilder(
     }
 
     /**
-     * Applies a [BaseStep.DisconnectedIslandFilter] to [t].
-     *
-     * For each instance in [step]'s island, emits a
-     * `.where(V().hasLabel(cls)...count().is(predicate))` sub-traversal that counts
-     * matching vertices and requires zero (forbid) or more than zero (require).
-     *
-     * @param t The traversal to extend.
-     * @param step The disconnected-island filter step to apply.
-     * @return The extended traversal.
-     */
-    @Suppress("UNCHECKED_CAST")
-    private fun applyDisconnectedIslandFilter(
-        t: GraphTraversal<Vertex, Vertex>,
-        step: BaseStep.DisconnectedIslandFilter
-    ): GraphTraversal<Vertex, Vertex> {
-        var result = t
-        for (instance in step.island.instances) {
-            val className = instance.objectInstance.className ?: continue
-            val instName = instance.objectInstance.name
-            val predicate = if (step.isNegative) P.eq(0L) else P.gt(0L)
-            var countTraversal: GraphTraversal<Any, Any> =
-                (AnonymousTraversal.V<Any>() as GraphTraversal<Vertex, Vertex>).applyClassFilter(className)
-                    as GraphTraversal<Any, Any>
-            countTraversal = expressionSupport.applyPropertyEqualityConstraints(
-                countTraversal, instance.objectInstance.className, instance.objectInstance.properties
-            )
-            step.injectiveConstraints[instName]?.forEach { label ->
-                @Suppress("UNCHECKED_CAST")
-                countTraversal = countTraversal.where(P.neq(label)) as GraphTraversal<Any, Any>
-            }
-            result = result.where(
-                countTraversal.count().`is`(predicate)
-            ) as GraphTraversal<Vertex, Vertex>
-        }
-        return result
-    }
-
-    /**
-     * Builds an anonymous traversal chain starting from `identity()` that walks the
-     * BFS-ordered island links from the given anchor.
-     *
-     * Each link in [orderedLinks] is translated to an `out/in(edgeLabel)` step, optionally
-     * preceded by a `select(backtrackLabel)` when the chain needs to back-navigate to a
-     * previously labelled node. Property equality constraints are applied inline.
-     *
-     * After each island node is reached, injective-match constraints are emitted as
-     * `.where(P.neq(label))` for every label in [injectiveConstraints][toNode].
-     * Labels may refer to outer traversal step labels (for main-pattern nodes) or to
-     * `__inline_<name>` labels of earlier island nodes in the chain.
-     *
-     * @param island The island whose graph structure is encoded in the chain.
-     * @param anchorName The name of the main-pattern node from which the chain starts.
-     * @param orderedLinks The BFS-ordered links to walk, each paired with an `isReversed` flag.
-     * @param nodesNeedingBacktrackLabel The set of node names that need an inline step label
-     *   because the chain will select back to them from a different branch, or because a later
-     *   island node references them via an injective constraint.
-     * @param injectiveConstraints Map from island node name to the list of step labels that
-     *   node must be distinct from (injective matching).
-     * @return The built chain traversal, or `null` when [orderedLinks] is empty and no steps
-     *   can be emitted.
-     */
-    @Suppress("UNCHECKED_CAST")
-    private fun buildIslandChainFromIdentity(
-        island: Island,
-        anchorName: String,
-        orderedLinks: List<Pair<com.mdeo.modeltransformation.ast.patterns.TypedPatternLinkElement, Boolean>>,
-        nodesNeedingBacktrackLabel: Set<String>,
-        injectiveConstraints: Map<String, List<String>> = emptyMap()
-    ): GraphTraversal<Any, Any>? {
-        val islandClassMap = island.instances.mapNotNull { inst ->
-            inst.objectInstance.className?.let { inst.objectInstance.name to it }
-        }.toMap()
-        val islandInstanceMap = island.instances.associateBy { it.objectInstance.name }
-
-        var chain: GraphTraversal<Any, Any> = AnonymousTraversal.identity<Any>() as GraphTraversal<Any, Any>
-        if (anchorName in nodesNeedingBacktrackLabel) {
-            chain = chain.`as`("__inline_${anchorName}") as GraphTraversal<Any, Any>
-        }
-
-        var current = anchorName
-        for ((link, isReversed) in orderedLinks) {
-            val edgeLabel = EdgeLabelUtils.computeEdgeLabel(
-                link.link.source.propertyName, link.link.target.propertyName
-            )
-            val fromNode = if (isReversed) link.link.target.objectName else link.link.source.objectName
-            val toNode = if (isReversed) link.link.source.objectName else link.link.target.objectName
-
-            if (fromNode != current) {
-                chain = chain.select<Any>("__inline_${fromNode}") as GraphTraversal<Any, Any>
-            }
-            chain = if (isReversed) chain.`in`(edgeLabel) as GraphTraversal<Any, Any> else chain.out(edgeLabel) as GraphTraversal<Any, Any>
-
-            islandClassMap[toNode]?.let { cls ->
-                @Suppress("UNCHECKED_CAST")
-                chain = (chain as GraphTraversal<Vertex, Vertex>).applyClassFilter(cls)
-                    as GraphTraversal<Any, Any>
-            }
-            islandInstanceMap[toNode]?.let { inst ->
-                chain = expressionSupport.applyPropertyEqualityConstraints(
-                    chain, inst.objectInstance.className, inst.objectInstance.properties
-                )
-            }
-            if (toNode !in islandInstanceMap && toNode != anchorName) {
-                @Suppress("UNCHECKED_CAST")
-                chain = chain.where(P.eq(VariableBinding.stepLabel(toNode))) as GraphTraversal<Any, Any>
-            }
-            injectiveConstraints[toNode]?.forEach { label ->
-                @Suppress("UNCHECKED_CAST")
-                chain = chain.where(P.neq(label)) as GraphTraversal<Any, Any>
-            }
-            if (toNode in nodesNeedingBacktrackLabel) {
-                chain = chain.`as`("__inline_${toNode}") as GraphTraversal<Any, Any>
-            }
-            current = toNode
-        }
-        return chain
-    }
-
-    /**
      * Applies a class-membership filter to the traversal.
      *
-     * For classes **without** subclasses, the cheap `hasLabel(className)` step is used.
-     *
-     * For classes **with** subclasses two conditions are combined with `or`:
-     * - `hasLabel(className)` — matches instances whose label IS exactly the class name
-     *   (e.g. direct `Room` vertices added without going through [ModelDataGraphLoader]).
-     * When the class has no subclasses the filter is `hasLabel(className)`. When it does have
-     * subclasses, all subtypes (including the class itself) are retrieved from
-     * [com.mdeo.metamodel.metadata.MetamodelMetadata.classHierarchy] and passed as a vararg to
-     * `hasLabel(...)`. Gremlin's `hasLabel` matches if the vertex label equals **any** of the
-     * given strings, so no separate property check is needed.
+     * For classes without subclasses, the cheap `hasLabel(className)` step is used.
+     * When the class has subclasses, all subtypes (including the class itself) are passed
+     * as a vararg to `hasLabel(...)`. Gremlin's `hasLabel` matches if the vertex label
+     * equals **any** of the given strings, so no separate property check is needed.
      *
      * @param className The metamodel class name to filter by.
      * @return The traversal extended with the appropriate class filter.
@@ -480,4 +562,3 @@ internal class MatchTraversalBuilder(
         }
     }
 }
-

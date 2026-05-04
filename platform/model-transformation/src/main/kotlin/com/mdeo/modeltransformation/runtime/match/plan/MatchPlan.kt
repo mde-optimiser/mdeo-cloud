@@ -4,7 +4,6 @@ import com.mdeo.modeltransformation.ast.patterns.TypedPatternLinkElement
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternPropertyAssignment
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternVariableElement
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternWhereClauseElement
-import com.mdeo.modeltransformation.runtime.match.Island
 
 /**
  * An abstract plan for executing a single match operation.
@@ -12,7 +11,7 @@ import com.mdeo.modeltransformation.runtime.match.Island
  * The plan is fully imperative — no `match()` step is used. It consists of two layers:
  *
  * 1. **[baseSteps]** — An imperative sequence of vertex scans, edge walks, property
- *    constraints, island constraints, variable bindings, and where filters. These steps
+ *    constraints, application conditions, variable bindings, and where filters. These steps
  *    form the complete traversal and prune traversers as early as possible.
  *
  * 2. **[postMatchFilters]** — Filters applied after all steps complete. Used for
@@ -73,40 +72,50 @@ internal sealed class BaseStep {
     ) : BaseStep()
 
     /**
-     * An island constraint (forbid/require) applied as an imperative filter.
+     * Verifies the current traverser equals the already-bound outer instance [instanceName].
      *
-     * When [needsSelect] is false (inline), the traverser is already at the anchor and
-     * the chain is applied directly: `.not(chain)` (forbid) or `.where(chain)` (require).
+     * Used inside [ApplicationCondition.innerSteps] when an edge walk inside the condition
+     * leads to a main-pattern node (outer anchor) that was matched earlier. Ensures the edge
+     * endpoint is exactly the already-matched vertex, not any vertex of that class.
      *
-     * When [needsSelect] is true (deferred), a `select()` navigates to the anchor first:
-     * `.not(select(anchor).where(chain))` or `.where(select(anchor).where(chain))`.
-     *
-     * [injectiveConstraints] maps each island node name to a list of step labels
-     * (outer traversal labels for main-pattern nodes, or `__inline_<name>` labels for
-     * earlier island nodes in BFS order) that the island node must be distinct from.
-     * After each island node is reached in the chain, a `.where(P.neq(label))` is
-     * emitted for every label in the list.
+     * Translated to `.where(P.eq(stepLabel(instanceName)))`.
      */
-    data class InlineIslandConstraint(
-        val island: Island,
-        val anchorName: String,
-        val orderedLinks: List<Pair<TypedPatternLinkElement, Boolean>>,
-        val nodesNeedingBacktrackLabel: Set<String>,
-        val isNegative: Boolean,
-        val needsSelect: Boolean = false,
-        val injectiveConstraints: Map<String, List<String>> = emptyMap()
+    data class EqualityFilter(
+        val instanceName: String
     ) : BaseStep()
 
     /**
-     * An orphan-link constraint (a forbid/require link between two instances).
+     * A positive or negative application condition (PAC/NAC).
      *
-     * Translated to `.where(not(as(source).out(edge).as(target)))` (forbid) or the positive form.
+     * All PAC/NACs — whether connected (with a main-pattern anchor) or disconnected
+     * (no anchor) — are represented uniformly through this single step type.
+     *
+     * When [anchorName] is non-null the sub-traversal starts at that anchor node.
+     * When [anchorName] is null the first [innerStep][innerSteps] must be a [VertexScan]
+     * that initiates a fresh `V().hasLabel(...)` scan.
+     *
+     * When [needsSelect] is true the outer traverser is not already positioned at the
+     * anchor and the chain is built as `select(anchor).where(innerChain)` instead of
+     * applying [innerSteps] directly.
+     *
+     * [innerSteps] are regular [BaseStep] instances ([VertexScan], [EdgeWalk],
+     * [InlinePropertyConstraint], [EqualityFilter]) that encode the condition pattern.
+     * This allows reusing the same step translation logic as for the main pattern.
+     *
+     * [injectiveConstraints] maps the step label of each condition-only node to the list
+     * of outer (or earlier inner) step labels that the node must be distinct from.
+     * These are emitted as `.where(P.neq(label))` immediately after each node is reached
+     * in the chain.
+     *
+     * Application conditions are sorted by estimated evaluation cost: cheaper conditions
+     * (anchored, fewer steps) are placed before more expensive ones (unanchored, many steps).
      */
-    data class InlineOrphanLinkConstraint(
-        val sourceName: String,
-        val targetName: String,
-        val edgeLabel: String,
-        val isNegative: Boolean
+    data class ApplicationCondition(
+        val isNegative: Boolean,
+        val anchorName: String?,
+        val needsSelect: Boolean,
+        val innerSteps: List<BaseStep>,
+        val injectiveConstraints: Map<String, List<String>> = emptyMap()
     ) : BaseStep()
 
     /**
@@ -139,22 +148,6 @@ internal sealed class BaseStep {
      */
     data class WhereFilter(
         val whereClause: TypedPatternWhereClauseElement
-    ) : BaseStep()
-
-    /**
-     * A disconnected island filter (no links connecting it to the matchable graph).
-     *
-     * Translated to `.where(V().hasLabel(cls)...count().is(predicate))`.
-     *
-     * [injectiveConstraints] maps each island instance name to a list of outer-traversal
-     * step labels (for already-matched main-pattern nodes of the same class) that the
-     * counted vertex must be distinct from. Applied as `.where(P.neq(label))` inside the
-     * count sub-traversal so that already-matched vertices are not counted.
-     */
-    data class DisconnectedIslandFilter(
-        val island: Island,
-        val isNegative: Boolean,
-        val injectiveConstraints: Map<String, List<String>> = emptyMap()
     ) : BaseStep()
 }
 

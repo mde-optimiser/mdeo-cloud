@@ -142,6 +142,7 @@ class MatchExecutor {
         val allSelectNames = (elements.allInstanceNames + planBoundNames).distinct()
 
         val matchedInstanceNames = allMatchable.map { it.objectInstance.name }
+        println(traversal)
         return executeTraversalAndExtract(traversal, elements, context, engine, matchedInstanceNames, allSelectNames)
     }
 
