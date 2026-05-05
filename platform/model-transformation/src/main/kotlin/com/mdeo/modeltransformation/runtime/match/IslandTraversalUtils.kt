@@ -89,37 +89,84 @@ internal object IslandTraversalUtils {
      *
      * Returns a list of `(link, isReversed)` pairs; when `isReversed` is true, the link
      * is traversed target→source (`.in(edgeLabel)` instead of `.out(edgeLabel)`).
+     *
+     * When [metamodelData] contains association definitions, the traversal is
+     * **composition-aware**: at each BFS step the available links are sorted by the
+     * upper-bound multiplicity at the *from* side, so that low-fan-out (composition /
+     * to-one) edges are traversed before high-fan-out (to-many) edges.  When two links
+     * have equal cost the original list order is preserved (stable sort).  When
+     * [metamodelData] has no associations the function behaves exactly as before.
      */
     fun orderLinksByBFS(
         links: List<TypedPatternLinkElement>,
-        startAnchor: String
+        startAnchor: String,
+        metamodelData: MetamodelData = MetamodelData.empty()
     ): List<Pair<TypedPatternLinkElement, Boolean>> {
         val visited = mutableSetOf(startAnchor)
         val ordered = mutableListOf<Pair<TypedPatternLinkElement, Boolean>>()
         val remaining = links.toMutableList()
 
-        var changed = true
-        while (remaining.isNotEmpty() && changed) {
-            changed = false
-            val iterator = remaining.iterator()
-            while (iterator.hasNext()) {
-                val link = iterator.next()
-                val src = link.link.source.objectName
-                val tgt = link.link.target.objectName
-                when {
-                    src in visited -> {
-                        ordered.add(link to false)
-                        visited.add(tgt)
-                        iterator.remove()
-                        changed = true
-                    }
-                    tgt in visited -> {
-                        ordered.add(link to true)
-                        visited.add(src)
-                        iterator.remove()
-                        changed = true
+        if (metamodelData.associations.isEmpty()) {
+            // Original behaviour: greedy first-fit BFS without metamodel preference.
+            var changed = true
+            while (remaining.isNotEmpty() && changed) {
+                changed = false
+                val iterator = remaining.iterator()
+                while (iterator.hasNext()) {
+                    val link = iterator.next()
+                    val src = link.link.source.objectName
+                    val tgt = link.link.target.objectName
+                    when {
+                        src in visited -> {
+                            ordered.add(link to false)
+                            visited.add(tgt)
+                            iterator.remove()
+                            changed = true
+                        }
+                        tgt in visited -> {
+                            ordered.add(link to true)
+                            visited.add(src)
+                            iterator.remove()
+                            changed = true
+                        }
                     }
                 }
+            }
+        } else {
+            // Composition-aware BFS: at every step pick the cheapest reachable link
+            // (lowest multiplicity from the current-frontier node) to minimise fan-out.
+            val assocByProps = metamodelData.associations
+                .associateBy { it.source.name to it.target.name }
+
+            fun linkCost(link: TypedPatternLinkElement, fromNode: String): Int {
+                val assoc = assocByProps[link.link.source.propertyName to link.link.target.propertyName]
+                    ?: return Int.MAX_VALUE
+                val mult = if (link.link.source.objectName == fromNode) assoc.source.multiplicity
+                           else assoc.target.multiplicity
+                return if (mult.upper == -1) Int.MAX_VALUE else mult.upper
+            }
+
+            while (remaining.isNotEmpty()) {
+                // Collect all links reachable from the current frontier.
+                val reachable = mutableListOf<Triple<TypedPatternLinkElement, Boolean, Int>>()
+                for (link in remaining) {
+                    val src = link.link.source.objectName
+                    val tgt = link.link.target.objectName
+                    when {
+                        src in visited && tgt !in visited ->
+                            reachable.add(Triple(link, false, linkCost(link, src)))
+                        tgt in visited && src !in visited ->
+                            reachable.add(Triple(link, true, linkCost(link, tgt)))
+                    }
+                }
+                if (reachable.isEmpty()) break
+
+                // Pick the cheapest link (stable: minByOrNull preserves order on tie).
+                val (best, isReversed, _) = reachable.minByOrNull { it.third }!!
+                val newNode = if (isReversed) best.link.source.objectName else best.link.target.objectName
+                ordered.add(best to isReversed)
+                visited.add(newNode)
+                remaining.remove(best)
             }
         }
         return ordered
