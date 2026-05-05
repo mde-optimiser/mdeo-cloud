@@ -590,7 +590,7 @@ class ScrumModelTransformationCorrectnessTest {
                 repeat(NUM_TRIALS) {
                     val copy = initialSolution.deepCopy()
                     try {
-                        if (runner.tryApply(copy, "/transformation/deleteSprint.mt")) {
+                        if (runner.tryApply(copy, "/transformation/deleteSprint.mt").isApplied) {
                             detectDeletedSprint(initialData, copy.modelGraph.toModelData())
                                 ?.let { found += it }
                         } else {
@@ -633,7 +633,7 @@ class ScrumModelTransformationCorrectnessTest {
                 repeat(NUM_TRIALS) {
                     val copy = initialSolution.deepCopy()
                     try {
-                        if (runner.tryApply(copy, "/transformation/createSprint.mt")) {
+                        if (runner.tryApply(copy, "/transformation/createSprint.mt").isApplied) {
                             detectCreatedSprintItem(initialData, copy.modelGraph.toModelData())
                                 ?.let { found += it }
                         } else {
@@ -679,7 +679,7 @@ class ScrumModelTransformationCorrectnessTest {
                 repeat(NUM_TRIALS) {
                     val copy = initialSolution.deepCopy()
                     try {
-                        if (runner.tryApply(copy, "/transformation/addItemToSprint.mt")) {
+                        if (runner.tryApply(copy, "/transformation/addItemToSprint.mt").isApplied) {
                             detectAddedSprintItem(initialData, copy.modelGraph.toModelData())
                                 ?.let { found += it }
                         } else {
@@ -723,7 +723,7 @@ class ScrumModelTransformationCorrectnessTest {
                 repeat(NUM_TRIALS) {
                     val copy = initialSolution.deepCopy()
                     try {
-                        if (runner.tryApply(copy, "/transformation/moveItemBetweenSprints.mt")) {
+                        if (runner.tryApply(copy, "/transformation/moveItemBetweenSprints.mt").isApplied) {
                             detectMovedItem(initialData, copy.modelGraph.toModelData())
                                 ?.let { found += it }
                         } else {

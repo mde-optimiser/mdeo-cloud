@@ -46,11 +46,11 @@ class RepetitiveOperatorMutationStrategyTest {
     }
 
     /**
-     * Controllable operator selection that returns operators from a predefined list.
+     * Controllable operator selection that returns operators from a predefined list of indices.
      * Tracks how many times [getNextOperator] is called and how many flushes occur.
      */
     private class FakeOperatorSelection(
-        private val operators: List<String>
+        private val operatorIndices: List<Int>
     ) : OperatorSelectionStrategy {
         var getNextOperatorCalls = 0
             private set
@@ -58,21 +58,17 @@ class RepetitiveOperatorMutationStrategyTest {
             private set
 
         private var index = 0
-        private val triedThisStep = mutableSetOf<String>()
 
-        override fun getNextOperator(solution: Solution): String? {
+        override fun getNextOperator(solution: Solution): Int? {
             getNextOperatorCalls++
-            if (index >= operators.size) return null
-            val op = operators[index++]
-            triedThisStep.add(op)
-            return op
+            if (index >= operatorIndices.size) return null
+            return operatorIndices[index++]
         }
 
-        override fun hasUntriedOperators(): Boolean = index < operators.size
+        override fun hasUntriedOperators(): Boolean = index < operatorIndices.size
 
         override fun flushTriedOperators() {
             flushCalls++
-            triedThisStep.clear()
         }
     }
 
@@ -89,9 +85,12 @@ class RepetitiveOperatorMutationStrategyTest {
     fun `reuses same operator when it keeps succeeding`() {
         // Only "opA" is a real transformation (no-op); opB and opC are decoys.
         val transformations = mapOf("opA" to noOpAst)
-        val selection = FakeOperatorSelection(listOf("opA", "opB", "opC"))
+        val operatorPaths = listOf("opA")
+        // Index 0 = opA; selection only needs to return it once (strategy retains it).
+        val selection = FakeOperatorSelection(listOf(0))
         val strategy = RepetitiveOperatorMutationStrategy(
             transformations = transformations,
+            operatorPaths = operatorPaths,
             stepSizeStrategy = FixedStepSize(3),
             operatorSelectionStrategyFactory = { selection }
         )
@@ -108,9 +107,12 @@ class RepetitiveOperatorMutationStrategyTest {
     fun `fetches new operator when current one fails`() {
         // "opA" maps to a failing AST, "opB" is a valid no-op.
         val transformations = mapOf("opA" to failAst, "opB" to noOpAst)
-        val selection = FakeOperatorSelection(listOf("opA", "opB"))
+        val operatorPaths = listOf("opA", "opB")  // sorted alphabetically
+        // Return index 0 (opA) first, then index 1 (opB).
+        val selection = FakeOperatorSelection(listOf(0, 1))
         val strategy = RepetitiveOperatorMutationStrategy(
             transformations = transformations,
+            operatorPaths = operatorPaths,
             stepSizeStrategy = FixedStepSize(1),
             operatorSelectionStrategyFactory = { selection }
         )
@@ -126,9 +128,11 @@ class RepetitiveOperatorMutationStrategyTest {
     @Test
     fun `operator persists across multiple steps`() {
         val transformations = mapOf("opA" to noOpAst, "opB" to noOpAst)
-        val selection = FakeOperatorSelection(listOf("opA", "opB"))
+        val operatorPaths = listOf("opA", "opB")  // sorted
+        val selection = FakeOperatorSelection(listOf(0, 1))  // 0=opA, 1=opB
         val strategy = RepetitiveOperatorMutationStrategy(
             transformations = transformations,
+            operatorPaths = operatorPaths,
             stepSizeStrategy = FixedStepSize(5),
             operatorSelectionStrategyFactory = { selection }
         )
@@ -146,9 +150,11 @@ class RepetitiveOperatorMutationStrategyTest {
     @Test
     fun `flushTriedOperators called once per step`() {
         val transformations = mapOf("opA" to noOpAst)
-        val selection = FakeOperatorSelection(listOf("opA"))
+        val operatorPaths = listOf("opA")
+        val selection = FakeOperatorSelection(listOf(0))  // 0=opA
         val strategy = RepetitiveOperatorMutationStrategy(
             transformations = transformations,
+            operatorPaths = operatorPaths,
             stepSizeStrategy = FixedStepSize(3),
             operatorSelectionStrategyFactory = { selection }
         )
@@ -162,9 +168,11 @@ class RepetitiveOperatorMutationStrategyTest {
     @Test
     fun `handles no operators available`() {
         val transformations = emptyMap<String, TypedAst>()
+        val operatorPaths = emptyList<String>()
         val selection = FakeOperatorSelection(emptyList())
         val strategy = RepetitiveOperatorMutationStrategy(
             transformations = transformations,
+            operatorPaths = operatorPaths,
             stepSizeStrategy = FixedStepSize(2),
             operatorSelectionStrategyFactory = { selection }
         )
@@ -179,9 +187,11 @@ class RepetitiveOperatorMutationStrategyTest {
     @Test
     fun `step size of zero produces empty transformation step`() {
         val transformations = mapOf("opA" to noOpAst)
-        val selection = FakeOperatorSelection(listOf("opA"))
+        val operatorPaths = listOf("opA")
+        val selection = FakeOperatorSelection(listOf(0))
         val strategy = RepetitiveOperatorMutationStrategy(
             transformations = transformations,
+            operatorPaths = operatorPaths,
             stepSizeStrategy = FixedStepSize(0),
             operatorSelectionStrategyFactory = { selection }
         )

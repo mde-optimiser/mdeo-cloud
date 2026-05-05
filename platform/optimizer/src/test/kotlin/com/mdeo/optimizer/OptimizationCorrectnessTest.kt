@@ -297,7 +297,7 @@ class OptimizationCorrectnessTest {
         val n = 5
         repeat(n) { i ->
             assertTrue(
-                runner.tryApply(solution, "/transformation/addRoom.mt"),
+                runner.tryApply(solution, "/transformation/addRoom.mt").isApplied,
                 "addRoom must succeed on iteration ${i + 1}"
             )
         }

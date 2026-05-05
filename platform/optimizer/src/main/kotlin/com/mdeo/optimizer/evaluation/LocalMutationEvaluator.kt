@@ -53,6 +53,16 @@ class LocalMutationEvaluator(
     private val incomingSerializedModels: ConcurrentHashMap<String, SerializedModel> = ConcurrentHashMap()
 
     /**
+     * Staged [Solution.failedDeterministicOperators] sets for lazily materialised solutions.
+     *
+     * When a peer sends a solution with known-failed operator indices, those indices are
+     * held here and applied to the [Solution] when it is materialised in [requireSolution].
+     * This ensures that previously discovered deterministic failures are not re-attempted
+     * on the destination node after a rebalancing transfer.
+     */
+    private val incomingFailedOperators: ConcurrentHashMap<String, Set<Int>> = ConcurrentHashMap()
+
+    /**
      * Optional callback invoked immediately after a solution has been materialised and
      * placed into [solutions].  The subprocess wires this to its [incomingSolutionSignals]
      * so that any task thread that entered [awaitSolutionAvailable] while materialization
@@ -119,13 +129,9 @@ class LocalMutationEvaluator(
         }
         solutions.clear()
         incomingSerializedModels.clear()
+        incomingFailedOperators.clear()
     }
 
-    /**
-     * Reconstitutes a solution from a [SerializedModel] and stores it under [solutionId].
-     *
-     * Requires that a non-null [metamodel] was provided at construction time.
-     */
     /**
      * Stages [serializedModel] for lazy [ModelGraph] construction under [solutionId].
      *
@@ -134,14 +140,36 @@ class LocalMutationEvaluator(
      * until [requireSolution] materialises them on the first access by a task thread.
      * [hasSolution] returns `true` as soon as this method returns, so waiting tasks can
      * be signalled and unblocked without delay.
+     *
+     * @param failedOperators Numerical operator indices known to deterministically fail on
+     *   this solution's model state. Restored to the materialised [Solution] so that the
+     *   destination node does not reattempt operators that are guaranteed to fail.
      */
-    fun receiveSolution(solutionId: String, serializedModel: SerializedModel) {
+    fun receiveSolution(solutionId: String, serializedModel: SerializedModel, failedOperators: Set<Int> = emptySet()) {
+        if (failedOperators.isNotEmpty()) {
+            incomingFailedOperators[solutionId] = failedOperators
+        }
         incomingSerializedModels[solutionId] = serializedModel
     }
 
     /**
+     * Returns the set of numerical operator indices known to deterministically fail on the
+     * solution identified by [solutionId], or an empty set if the solution is not found.
+     *
+     * Used when serialising a solution for transfer to another node so the destination
+     * can reconstruct the solution's failure history.
+     */
+    fun getSolutionFailedOperators(solutionId: String): Set<Int> =
+        solutions[solutionId]?.failedDeterministicOperators?.let { synchronized(it) { it.toSet() } } ?: emptySet()
+
+    /**
      * Deep-copies the parent solution, applies the mutation strategy, stores the offspring,
      * and returns an [EvaluationResult] with fitness values.
+     *
+     * After mutation, any newly discovered deterministic operator failures recorded on the
+     * copy are propagated back to the parent's [Solution.failedDeterministicOperators] set.
+     * This ensures that the parent avoids reattempting operators that are guaranteed to fail
+     * on its model state in future mutation rounds.
      *
      * @param task The mutation task identifying the parent solution.
      * @return An [EvaluationResult] with [EvaluationResult.succeeded] set accordingly.
@@ -162,6 +190,11 @@ class LocalMutationEvaluator(
                 succeeded = false
             )
         }
+        // Propagate any newly discovered deterministic failures from the copy back to the
+        // parent. When the copy's set is non-empty it means no successful operator was ever
+        // applied (the set gets cleared on first success), so the failures apply to the
+        // parent's unchanged model state too.
+        parent.failedDeterministicOperators.addAll(copy.failedDeterministicOperators)
         val newId = generateId()
         solutions[newId] = mutated
         val objectives: List<Double>
@@ -273,7 +306,13 @@ class LocalMutationEvaluator(
                 GraphBackendType.MDEO -> MdeoModelGraph.create(serializedModel, mm)
                 GraphBackendType.Tinker -> TinkerModelGraph.create(serializedModel.toModelData(mm), mm)
             }
-            Solution(modelGraph)
+            val solution = Solution(modelGraph)
+            // Restore failed operator indices transferred alongside the model data.
+            val failedOps = incomingFailedOperators.remove(id)
+            if (!failedOps.isNullOrEmpty()) {
+                solution.failedDeterministicOperators.addAll(failedOps)
+            }
+            solution
         }
         // Notify any task thread that entered awaitSolutionAvailable during the materialization
         // window (i.e., after the staged bytes were removed but before the solution was placed

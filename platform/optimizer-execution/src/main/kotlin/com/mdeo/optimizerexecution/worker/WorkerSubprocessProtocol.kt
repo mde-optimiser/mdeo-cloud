@@ -152,12 +152,16 @@ sealed class SubprocessChannelMessage {
      *
      * @param solutionId The identifier under which the solution should be registered.
      * @param modelBytes CBOR-encoded [com.mdeo.metamodel.SerializedModel].
+     * @param failedOperators Numerical operator indices known to deterministically fail on
+     *   this solution's model state. Forwarded to [LocalMutationEvaluator.receiveSolution]
+     *   so the destination node avoids reattempting those operators.
      */
     @Serializable
     @SerialName("solution_injected")
     data class SolutionInjected(
         val solutionId: String,
-        val modelBytes: ByteArray
+        val modelBytes: ByteArray,
+        val failedOperators: List<Int> = emptyList()
     ) : SubprocessChannelMessage() {
         override fun equals(other: Any?) =
             other is SolutionInjected && solutionId == other.solutionId && modelBytes.contentEquals(other.modelBytes)

@@ -7,6 +7,31 @@ import com.mdeo.optimizer.solution.Solution
 import org.slf4j.LoggerFactory
 
 /**
+ * Possible outcomes of a single transformation attempt.
+ */
+sealed class TransformationAttemptResult {
+    /** The transformation was applied successfully and the model was modified. */
+    object Applied : TransformationAttemptResult()
+
+    /**
+     * The transformation failed deterministically: no match was found before any graph
+     * modification, so re-running it on the same model state will always produce the
+     * same result. Safe to skip on future attempts against this model state.
+     */
+    object DeterministicFailure : TransformationAttemptResult()
+
+    /**
+     * The transformation failed but the outcome may differ on a re-try (e.g. a later
+     * match statement failed after some partial modifications, or an unexpected exception
+     * occurred). Not safe to permanently skip.
+     */
+    object NonDeterministicFailure : TransformationAttemptResult()
+
+    /** `true` when this result represents a successful application. */
+    val isApplied: Boolean get() = this is Applied
+}
+
+/**
  * Runs a model transformation attempt against a candidate solution.
  *
  * Nondeterministic behaviour is now reset automatically inside
@@ -31,9 +56,12 @@ class TransformationAttemptRunner(
      *
      * @param solution The candidate solution (modified in place on success).
      * @param transformationPath Path identifying which transformation to apply.
-     * @return true if the transformation was applied successfully, false otherwise.
+     * @return [TransformationAttemptResult.Applied] on success,
+     *   [TransformationAttemptResult.DeterministicFailure] when the failure is guaranteed
+     *   to recur on the same model state, or [TransformationAttemptResult.NonDeterministicFailure]
+     *   otherwise.
      */
-    fun tryApply(solution: Solution, transformationPath: String): Boolean {
+    fun tryApply(solution: Solution, transformationPath: String): TransformationAttemptResult {
         val typedAst = transformations[transformationPath]
             ?: throw IllegalArgumentException("Unknown transformation: $transformationPath")
 
@@ -44,13 +72,17 @@ class TransformationAttemptRunner(
             val result = engine.execute()
 
             when (result) {
-                is TransformationExecutionResult.Success -> true
-                is TransformationExecutionResult.Stopped -> result.isNormalStop
-                is TransformationExecutionResult.Failure -> false
+                is TransformationExecutionResult.Success -> TransformationAttemptResult.Applied
+                is TransformationExecutionResult.Stopped ->
+                    if (result.isNormalStop) TransformationAttemptResult.Applied
+                    else TransformationAttemptResult.NonDeterministicFailure
+                is TransformationExecutionResult.Failure ->
+                    if (result.isDeterministic) TransformationAttemptResult.DeterministicFailure
+                    else TransformationAttemptResult.NonDeterministicFailure
             }
         } catch (e: Exception) {
             logger.warn("Transformation $transformationPath threw exception: ${e.message}")
-            false
+            TransformationAttemptResult.NonDeterministicFailure
         }
     }
 }

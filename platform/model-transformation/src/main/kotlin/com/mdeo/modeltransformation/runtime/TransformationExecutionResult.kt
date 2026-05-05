@@ -79,10 +79,15 @@ sealed interface TransformationExecutionResult {
      *
      * @param reason A human-readable description of why the transformation failed.
      * @param failedAt Optional identifier of the statement or pattern that caused the failure.
+     * @param isDeterministic When `true`, the failure is deterministic — it occurred at the very
+     *   first match opportunity and no graph modifications had been made yet. A deterministic
+     *   failure means re-running the same transformation on the same model state will always
+     *   produce the same failure, so there is no benefit in reattempting it.
      */
     data class Failure(
         val reason: String,
-        val failedAt: String? = null
+        val failedAt: String? = null,
+        val isDeterministic: Boolean = false
     ) : TransformationExecutionResult {
         
         /**

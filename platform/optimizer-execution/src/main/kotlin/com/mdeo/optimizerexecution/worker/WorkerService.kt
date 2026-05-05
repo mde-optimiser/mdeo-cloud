@@ -238,7 +238,11 @@ class WorkerService(
                 if (msg is SolutionPushRequest) {
                     for ((idx, solution) in msg.solutions.withIndex()) {
                         val modelBytes = cbor.encodeToByteArray<SerializedModel>(solution.serializedModel)
-                        val channelMsg = SubprocessChannelMessage.SolutionInjected(solution.solutionId, modelBytes)
+                        val channelMsg = SubprocessChannelMessage.SolutionInjected(
+                            solution.solutionId,
+                            modelBytes,
+                            solution.failedOperators
+                        )
                         state.runner.sendChannelMessage(cbor.encodeToByteArray<SubprocessChannelMessage>(channelMsg))
                     }
                     session.send(Frame.Binary(true, cbor.encodeToByteArray<WorkerWsMessage>(SolutionPushAck(msg.requestId))))

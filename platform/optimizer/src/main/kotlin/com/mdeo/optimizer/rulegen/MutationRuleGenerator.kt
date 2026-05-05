@@ -92,7 +92,11 @@ object MutationRuleGenerator {
         }
 
         logger.info("MutationRuleGenerator produced {} rule(s) from {} spec(s)", seen.size, specs.size)
-        return seen.values.toList()
+        // Sort by name to guarantee a stable, deterministic order independent of metamodel
+        // data ordering. This is required so that numerical operator indices (assigned by
+        // MutationStrategyFactory based on sorted paths) are consistent across federated nodes
+        // that may receive the generated rules via different serialisation paths.
+        return seen.values.sortedBy { it.name }
     }
 
     /**

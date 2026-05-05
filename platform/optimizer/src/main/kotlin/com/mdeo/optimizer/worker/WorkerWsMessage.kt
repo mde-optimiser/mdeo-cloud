@@ -133,11 +133,16 @@ data class SolutionBatchFetchResponse(
  *
  * @param solutionId Identifier of the solution.
  * @param serializedModel Serialized model graph for the solution.
+ * @param failedOperators Numerical indices (into the sorted operator list) of operators
+ *   that are known to deterministically fail on this solution's model state. Transferred
+ *   alongside the model so that the receiving node avoids reattempting these operators.
+ *   Defaults to empty for solutions where no failures have been recorded.
  */
 @Serializable
 data class SolutionData(
     val solutionId: String,
-    val serializedModel: SerializedModel
+    val serializedModel: SerializedModel,
+    val failedOperators: List<Int> = emptyList()
 )
 
 /**

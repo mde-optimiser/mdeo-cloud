@@ -608,7 +608,7 @@ class WorkerSubprocessMain : SubprocessMain() {
                 is SubprocessChannelMessage.SolutionInjected -> {
                     val ev = evaluator ?: return
                     val model = cbor.decodeFromByteArray<SerializedModel>(msg.modelBytes)
-                    ev.receiveSolution(msg.solutionId, model)
+                    ev.receiveSolution(msg.solutionId, model, msg.failedOperators.toSet())
                     incomingSolutionSignals[msg.solutionId]?.offer(Unit)
                 }
                 else -> {
@@ -737,7 +737,12 @@ class WorkerSubprocessMain : SubprocessMain() {
                         solutionId = solId
                     )
                     val model = runBlocking { ev.getSolutionData(ref) }
-                    SolutionData(solutionId = solId, serializedModel = model)
+                    val failedOperators = ev.getSolutionFailedOperators(solId)
+                    SolutionData(
+                        solutionId = solId,
+                        serializedModel = model,
+                        failedOperators = failedOperators.toList()
+                    )
                 } catch (e: Exception) {
                     logger.warn("[handleWsNodeWorkBatch] RELOCATION_FAIL solId={}: {}", solId, e.message)
                     null
@@ -926,7 +931,14 @@ class WorkerSubprocessMain : SubprocessMain() {
             try {
                 val ref = com.mdeo.optimizer.evaluation.WorkerSolutionRef(LocalMutationEvaluator.DEFAULT_NODE_ID, solutionId)
                 val serializedModel = runBlocking { ev.getSolutionData(ref) }
-                solutions.add(SolutionData(solutionId = solutionId, serializedModel = serializedModel))
+                val failedOperators = ev.getSolutionFailedOperators(solutionId)
+                solutions.add(
+                    SolutionData(
+                        solutionId = solutionId,
+                        serializedModel = serializedModel,
+                        failedOperators = failedOperators.toList()
+                    )
+                )
             } catch (_: Exception) {
                 notFoundIds.add(solutionId)
             }

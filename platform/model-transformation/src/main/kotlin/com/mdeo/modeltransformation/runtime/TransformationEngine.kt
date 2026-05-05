@@ -142,7 +142,13 @@ class TransformationEngine(
                 is TransformationExecutionResult.Success -> {
                     accumulatedResult = accumulatedResult.merge(result)
                 }
-                is TransformationExecutionResult.Failure -> return result
+                is TransformationExecutionResult.Failure -> {
+                    // A failure is deterministic when no graph modifications have occurred yet:
+                    // the match found no candidates in the current model state, and since the
+                    // graph is unchanged, retrying will always produce the same outcome.
+                    val noChangesSoFar = accumulatedResult.createdNodes.isEmpty() && accumulatedResult.deletedNodes.isEmpty()
+                    return if (noChangesSoFar) result.copy(isDeterministic = true) else result
+                }
                 is TransformationExecutionResult.Stopped -> return result
             }
         }
