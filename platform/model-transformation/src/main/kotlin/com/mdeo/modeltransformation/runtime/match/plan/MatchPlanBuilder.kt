@@ -43,15 +43,17 @@ internal class MatchPlanBuilder(
 ) {
 
     /**
-     * Priority score for each class derived from the metamodel spanning tree.
+     * Pseudo-composition DAG derived from the metamodel.
      *
-     * Built once from [metamodelData] via [MetamodelClassPriority.computeClassPriorities].
-     * Higher score = higher priority = should be matched first in the traversal plan.
-     * Root nodes of the composition/inheritance hierarchy receive the highest scores;
-     * leaf nodes receive score 1.  Unknown classes default to 1.
+     * Built once from [metamodelData] via [MetamodelClassPriority.computePseudoCompositionDag].
+     * Each pair `(parentClass, childClass)` indicates that instances of [childClass] are
+     * structurally contained by (or pseudo-composited on) instances of [parentClass].
+     *
+     * Used by [PlanExecution] to compute per-instance priority scores from the actual
+     * pattern graph rather than static class-level scores.
      */
-    private val classPriorities: Map<String, Int> by lazy {
-        MetamodelClassPriority.computeClassPriorities(metamodelData)
+    private val pseudoCompositionDag: Set<Pair<String, String>> by lazy {
+        MetamodelClassPriority.computePseudoCompositionDag(metamodelData)
     }
 
     /**
@@ -194,6 +196,87 @@ internal class MatchPlanBuilder(
         private val deferredProperties = mutableListOf<DeferredPropertyInfo>()
         private val pendingWhereClauses = elements.whereClauses.toMutableList()
 
+        /**
+         * Per-instance priority scores computed from the actual pattern graph.
+         *
+         * Only regular (no modifier) matchable instances and PAC (require) instances
+         * participate.  For each regular/PAC link whose source and target classes form
+         * a pseudo-composition pair in [pseudoCompositionDag] (parent→child), the
+         * parent instance receives one credit per transitively pseudo-composited instance.
+         * The priority of an instance equals the count of instances that are
+         * transitively pseudo-composited on it in the pattern.
+         *
+         * By basing priorities on the *actual* pattern edges rather than static class
+         * scores, nodes that act as containers in *this* pattern are preferred, while
+         * nodes whose containment edge is absent (e.g., a create-only link) receive no
+         * extra boost and are ordered by other criteria (NAC unlock cost, step type).
+         */
+        private val instancePriorities: Map<String, Int> = computeInstancePriorities()
+
+        private fun computeInstancePriorities(): Map<String, Int> {
+            // Regular matchable + PAC instances are eligible to receive priority.
+            val regularNames = allMatchable.map { it.objectInstance.name }.toSet()
+            val requireNames = elements.requireInstances.map { it.objectInstance.name }.toSet()
+            val priorityNames = regularNames + requireNames
+
+            // Build a name→class map from both pools.
+            val classOf = HashMap<String, String>()
+            for (inst in allMatchable) {
+                inst.objectInstance.className?.let { classOf[inst.objectInstance.name] = it }
+            }
+            for (inst in elements.requireInstances) {
+                inst.objectInstance.className?.let { classOf[inst.objectInstance.name] = it }
+            }
+
+            // Directed priority graph: parentName → set of childNames.
+            // An edge A→B means B is pseudo-composited on A in the pattern.
+            val priorityChildren = priorityNames.associateWith { mutableSetOf<String>() }.toMutableMap()
+
+            val relevantLinks = elements.matchableLinks + elements.requireLinks
+            for (link in relevantLinks) {
+                val srcName = link.link.source.objectName
+                val tgtName = link.link.target.objectName
+                if (srcName !in priorityNames || tgtName !in priorityNames) continue
+
+                val srcClass = classOf[srcName] ?: continue
+                val tgtClass = classOf[tgtName] ?: continue
+
+                when {
+                    (srcClass to tgtClass) in pseudoCompositionDag ->
+                        // src is pseudo-parent of tgt
+                        priorityChildren.getOrPut(srcName) { mutableSetOf() }.add(tgtName)
+                    (tgtClass to srcClass) in pseudoCompositionDag ->
+                        // tgt is pseudo-parent of src
+                        priorityChildren.getOrPut(tgtName) { mutableSetOf() }.add(srcName)
+                }
+            }
+
+            // Priority = number of instances transitively pseudo-composited on this one.
+            return priorityNames.associateWith { name ->
+                countTransitiveDescendants(name, priorityChildren)
+            }
+        }
+
+        /**
+         * Counts the number of nodes reachable from [start] via [children] edges
+         * (excluding [start] itself). Used to compute transitive pseudo-composition depth.
+         */
+        private fun countTransitiveDescendants(
+            start: String,
+            children: Map<String, Set<String>>
+        ): Int {
+            val visited = mutableSetOf<String>()
+            val queue = ArrayDeque<String>()
+            queue.add(start)
+            while (queue.isNotEmpty()) {
+                val cur = queue.removeFirst()
+                if (visited.add(cur)) {
+                    for (child in children[cur] ?: emptySet()) queue.add(child)
+                }
+            }
+            return visited.size - 1 // exclude start itself
+        }
+
         private fun buildAllConditions(): List<PendingCondition> {
             val result = mutableListOf<PendingCondition>()
             forbidIslands.forEach  { result.add(PendingCondition(it, isNegative = true)) }
@@ -238,9 +321,10 @@ internal class MatchPlanBuilder(
          * Uses local [covered] and [walkedLinks] sets so that [coveredInstances] and
          * [coveredLinks] are left untouched for [emitPlanFromStructuralOrder] to repopulate.
          *
-         * Selection criterion (same as before):
+         * Selection criterion:
          * 1. Pre-bound instances first.
-         * 2. Highest class priority.
+         * 2. Highest per-instance priority (number of nodes transitively pseudo-composited on
+         *    this instance in the pattern's regular/PAC edges — see [instancePriorities]).
          * 3. Lowest NAC/PAC unlock cost.
          * 4. EdgeWalk over VertexScan on tie.
          */
@@ -266,16 +350,15 @@ internal class MatchPlanBuilder(
                 // Build candidate list: typed scans + available walks.
                 val candidates = mutableListOf<TraversalCandidate>()
                 for (inst in uncovered) {
-                    val cls = inst.objectInstance.className ?: continue
-                    val prio = classPriorities[cls] ?: 1
+                    if (inst.objectInstance.className == null) continue  // can't scan without class
                     val name = inst.objectInstance.name
+                    val prio = instancePriorities[name] ?: 0
                     val nacCost = minConditionCostUnlockedBy(covered + name, covered)
                     candidates.add(ScanCandidate(inst, prio, nacCost))
                 }
                 for (walk in availableWalks) {
                     if (walk.toInstanceName in covered) continue  // stale
-                    val cls = walk.toInstance?.objectInstance?.className
-                    val prio = if (cls != null) classPriorities[cls] ?: 1 else 1
+                    val prio = instancePriorities[walk.toInstanceName] ?: 0
                     val nacCost = minConditionCostUnlockedBy(covered + walk.toInstanceName, covered)
                     candidates.add(WalkCandidate(walk, prio, nacCost))
                 }

@@ -7,12 +7,12 @@ import com.mdeo.modeltransformation.runtime.match.ExpressionNodeAnalyzer
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNotNull
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * Tests for the metamodel-based class priority computation and the resulting
- * match-step ordering in [MatchPlanBuilder].
+ * Tests for the metamodel-based class priority computation, the pseudo-composition DAG,
+ * and the resulting match-step ordering in [MatchPlanBuilder].
  *
  * ## Scrum metamodel under test
  *
@@ -30,8 +30,6 @@ import kotlin.test.assertTrue
  * Stakeholder.workItems[1..*] <--> WorkItem.stakeholder[1]
  * ```
  *
- * Expected class priorities: Plan > Sprint = WorkItem = Stakeholder
- *
  * ## Transformation pattern under test
  *
  * ```
@@ -47,13 +45,13 @@ import kotlin.test.assertTrue
  * forbid plan     -- sprint1      (plan.sprints <--> sprint1.plan)
  * ```
  *
- * Expected plan ordering:
- * 1. `plan` is matched first (Plan has the highest class priority as composition root).
- * 2. `sprint2` is walked from `plan` via the matchable link (same component {plan, sprint2}).
- * 3. `workItem` is scanned (separate component, lower class priority but processed next).
- * 4. The cheapest condition — the orphan forbid link `sprint2 -- workItem` — is evaluated
- *    immediately after `workItem` becomes covered.
- * 5. The NAC island (sprint1 anchored at workItem + plan) is evaluated next.
+ * Expected plan ordering with new instance-priority algorithm:
+ * 1. `plan` is matched first — it has the highest *instance priority* (sprint2 is pseudo-composited
+ *    on it via the regular `sprint2 -- plan` link, which corresponds to a real composition).
+ * 2. `workItem` is scanned next — equal instance priority to sprint2 (priority 0), but scanning
+ *    workItem unlocks a cheap NAC island (sprint1 anchored at workItem) before the sprint2 walk.
+ * 3. The NAC island fires immediately after workItem is covered.
+ * 4. `sprint2` is walked from `plan`.
  */
 class MatchPlanOrderingTest {
 
@@ -101,108 +99,42 @@ class MatchPlanOrderingTest {
         )
     )
 
-    // ── MetamodelClassPriority unit tests ─────────────────────────────────────
+    // ── PseudoCompositionDag unit tests ───────────────────────────────────────
 
     @Nested
-    inner class ClassPriorityTests {
+    inner class PseudoCompositionDagTests {
 
         @Test
-        fun `Plan has strictly higher priority than Sprint, WorkItem, Stakeholder`() {
-            val priorities = MetamodelClassPriority.computeClassPriorities(scrumMetamodel)
-
-            val planPrio        = priorities["Plan"]        ?: error("Plan not in priorities")
-            val sprintPrio      = priorities["Sprint"]      ?: error("Sprint not in priorities")
-            val workItemPrio    = priorities["WorkItem"]    ?: error("WorkItem not in priorities")
-            val stakeholderPrio = priorities["Stakeholder"] ?: error("Stakeholder not in priorities")
-
-            assertTrue(planPrio > sprintPrio,
-                "Plan priority ($planPrio) should be > Sprint priority ($sprintPrio)")
-            assertTrue(planPrio > workItemPrio,
-                "Plan priority ($planPrio) should be > WorkItem priority ($workItemPrio)")
-            assertTrue(planPrio > stakeholderPrio,
-                "Plan priority ($planPrio) should be > Stakeholder priority ($stakeholderPrio)")
+        fun `real compositions appear in pseudo-composition DAG`() {
+            val dag = MetamodelClassPriority.computePseudoCompositionDag(scrumMetamodel)
+            // Plan is the real composition parent of Sprint, WorkItem, Stakeholder.
+            assertTrue("Plan" to "Sprint"      in dag, "Plan→Sprint must be in DAG")
+            assertTrue("Plan" to "WorkItem"    in dag, "Plan→WorkItem must be in DAG")
+            assertTrue("Plan" to "Stakeholder" in dag, "Plan→Stakeholder must be in DAG")
         }
 
         @Test
-        fun `Sprint, WorkItem, Stakeholder have equal priority`() {
-            val priorities = MetamodelClassPriority.computeClassPriorities(scrumMetamodel)
-
-            val sprintPrio      = priorities["Sprint"]      ?: error("Sprint not in priorities")
-            val workItemPrio    = priorities["WorkItem"]    ?: error("WorkItem not in priorities")
-            val stakeholderPrio = priorities["Stakeholder"] ?: error("Stakeholder not in priorities")
-
-            assertEquals(sprintPrio, workItemPrio,
-                "Sprint and WorkItem should have equal priority")
-            assertEquals(sprintPrio, stakeholderPrio,
-                "Sprint and Stakeholder should have equal priority")
+        fun `WorkItem is not pseudo-composition child of Sprint because WorkItem is already a real composition target`() {
+            // Sprint.committedItems[1..*] <--> WorkItem.isPlannedFor[0..1].
+            // WorkItem.isPlannedFor has upper=1 (finite, lower), but WorkItem is already
+            // a real composition target of Plan.  Condition (c) fails.
+            val dag = MetamodelClassPriority.computePseudoCompositionDag(scrumMetamodel)
+            assertFalse("Sprint" to "WorkItem" in dag,
+                "Sprint→WorkItem must NOT be in DAG: WorkItem is already a real composition target")
         }
 
         @Test
-        fun `isolated root classes all have maximum priority`() {
-            // A metamodel with no associations: every class is a root with max priority.
+        fun `isolated classes with no associations have empty DAG`() {
             val metamodel = MetamodelData(
-                classes = listOf(
-                    ClassData("A", false),
-                    ClassData("B", false),
-                    ClassData("C", false)
-                )
+                classes = listOf(ClassData("A", false), ClassData("B", false))
             )
-            val priorities = MetamodelClassPriority.computeClassPriorities(metamodel)
-            val a = priorities["A"]!!; val b = priorities["B"]!!; val c = priorities["C"]!!
-            assertEquals(a, b, "All roots should have equal priority")
-            assertEquals(b, c, "All roots should have equal priority")
+            val dag = MetamodelClassPriority.computePseudoCompositionDag(metamodel)
+            assertTrue(dag.isEmpty(), "No associations => empty pseudo-composition DAG")
         }
 
         @Test
-        fun `inheritance hierarchy - parent has higher priority than child`() {
-            val metamodel = MetamodelData(
-                classes = listOf(
-                    ClassData("Animal", isAbstract = true),
-                    ClassData("Dog", isAbstract = false, extends = listOf("Animal")),
-                    ClassData("Cat", isAbstract = false, extends = listOf("Animal"))
-                )
-            )
-            val priorities = MetamodelClassPriority.computeClassPriorities(metamodel)
-            val animalPrio = priorities["Animal"]!!
-            val dogPrio    = priorities["Dog"]!!
-            val catPrio    = priorities["Cat"]!!
-
-            assertTrue(animalPrio > dogPrio,    "Animal > Dog (parent > child)")
-            assertTrue(animalPrio > catPrio,    "Animal > Cat (parent > child)")
-            assertEquals(dogPrio, catPrio,       "Siblings have equal priority")
-        }
-
-        @Test
-        fun `composition cycle is broken and does not crash`() {
-            // Artificial cycle: A contains B, B contains A
-            val metamodel = MetamodelData(
-                classes = listOf(ClassData("A", false), ClassData("B", false)),
-                associations = listOf(
-                    AssociationData(
-                        AssociationEndData("A", "b", MultiplicityData.many()),
-                        "<>->",
-                        AssociationEndData("B", "a", MultiplicityData.single())
-                    ),
-                    AssociationData(
-                        AssociationEndData("B", "a", MultiplicityData.many()),
-                        "<>->",
-                        AssociationEndData("A", "b", MultiplicityData.single())
-                    )
-                )
-            )
-            // Should not throw; one of A or B will be root, the other will be child.
-            val priorities = MetamodelClassPriority.computeClassPriorities(metamodel)
-            assertNotNull(priorities["A"])
-            assertNotNull(priorities["B"])
-            // One must have strictly higher priority (the DFS root wins)
-            assertTrue(priorities["A"]!! != priorities["B"]!!,
-                "Cycle broken: one class should have higher priority than the other")
-        }
-
-        @Test
-        fun `regular association joins separate trees`() {
-            // A and B in separate trees (no composition/inheritance).
-            // A.items[*] <--> B.owner[1]: A has higher multiplicity => A is parent.
+        fun `finite-upper end becomes pseudo-composition child when other end is infinite and class is not already composed`() {
+            // A.items[*] <--> B.owner[1], neither is a real composition target.
             val metamodel = MetamodelData(
                 classes = listOf(ClassData("A", false), ClassData("B", false)),
                 associations = listOf(
@@ -213,13 +145,56 @@ class MatchPlanOrderingTest {
                     )
                 )
             )
-            val priorities = MetamodelClassPriority.computeClassPriorities(metamodel)
-            val aPrio = priorities["A"]!!
-            val bPrio = priorities["B"]!!
-            assertTrue(aPrio > bPrio,
-                "A should have higher priority than B (A.items[*] makes A the parent)")
+            val dag = MetamodelClassPriority.computePseudoCompositionDag(metamodel)
+            assertTrue("A" to "B" in dag,
+                "A→B must be in DAG: B.owner[1] is finite and lower than A.items[*]")
+            assertFalse("B" to "A" in dag, "B→A must not be in DAG")
+        }
+
+        @Test
+        fun `both ends equal or unbounded - no pseudo-composition edge added`() {
+            // A.x[*] <--> B.y[*]: neither end qualifies (both unbounded).
+            val metamodel = MetamodelData(
+                classes = listOf(ClassData("A", false), ClassData("B", false)),
+                associations = listOf(
+                    AssociationData(
+                        AssociationEndData("A", "x", MultiplicityData.many()),
+                        "<-->",
+                        AssociationEndData("B", "y", MultiplicityData.many())
+                    )
+                )
+            )
+            val dag = MetamodelClassPriority.computePseudoCompositionDag(metamodel)
+            assertFalse("A" to "B" in dag, "A→B must not be in DAG: both ends unbounded")
+            assertFalse("B" to "A" in dag, "B→A must not be in DAG: both ends unbounded")
+        }
+
+        @Test
+        fun `DAG is cycle-free even with a circular association chain`() {
+            // A.b[1] <--> B.c[1] and B.a[1] <--> A.b[1] would form a cycle if both were added.
+            val metamodel = MetamodelData(
+                classes = listOf(ClassData("A", false), ClassData("B", false)),
+                associations = listOf(
+                    AssociationData(
+                        AssociationEndData("A", "x", MultiplicityData.many()),
+                        "<-->",
+                        AssociationEndData("B", "y", MultiplicityData.single())
+                    ),
+                    AssociationData(
+                        AssociationEndData("B", "p", MultiplicityData.many()),
+                        "<-->",
+                        AssociationEndData("A", "q", MultiplicityData.single())
+                    )
+                )
+            )
+            val dag = MetamodelClassPriority.computePseudoCompositionDag(metamodel)
+            // Must not have both directions (would be a cycle A→B and B→A).
+            val hasCycle = ("A" to "B" in dag) && ("B" to "A" in dag)
+            assertFalse(hasCycle, "DAG must not contain a cycle A→B and B→A simultaneously")
         }
     }
+
+    // ── MetamodelClassPriority unit tests ─────────────────────────────────────
 
     // ── MatchPlan ordering tests ───────────────────────────────────────────────
 
@@ -337,11 +312,14 @@ class MatchPlanOrderingTest {
         }
 
         @Test
-        fun `plan is scanned before workItem (class priority)`() {
+        fun `plan is scanned before workItem (instance priority)`() {
             val plan = buildPlan()
             val steps = plan.baseSteps
 
-            // Plan has higher class priority (2) vs workItem (1), so it is scanned first.
+            // plan has instance priority 1 (sprint2 is pseudo-composited on it via the
+            // regular plan.sprints--sprint2.plan link, which is a real composition).
+            // workItem has instance priority 0 (no regular/PAC link connects it to plan
+            // in a pseudo-composition direction).
             val planScanIdx = steps.indexOfFirst { step ->
                 step is BaseStep.VertexScan && step.instanceName == "plan"
             }
@@ -360,10 +338,11 @@ class MatchPlanOrderingTest {
             val plan = buildPlan()
             val steps = plan.baseSteps
 
-            // workItem and sprint2 have equal class priority (both 1) but covering workItem
-            // unlocks the NAC island (anchors = {workItem, plan}) at lower cost than covering
-            // sprint2 first.  The step-level greedy therefore scans workItem before walking
-            // plan → sprint2, allowing the NAC to prune traversers before the sprint2 fan-out.
+            // workItem and sprint2 have equal instance priority (both 0 — no regular/PAC
+            // link pseudo-composes workItem onto anything), but covering workItem unlocks the
+            // NAC island (anchors = {workItem, plan}) at lower cost than walking to sprint2.
+            // The step-level greedy therefore scans workItem before walking plan→sprint2,
+            // allowing the NAC to prune traversers before the sprint2 fan-out.
             val workItemIdx = steps.indexOfFirst { step ->
                 step is BaseStep.VertexScan && step.instanceName == "workItem"
             }
@@ -399,6 +378,87 @@ class MatchPlanOrderingTest {
                 assertTrue(islandNacIdx < sprint2Idx,
                     "NAC island (idx=$islandNacIdx) should fire before sprint2 walk (idx=$sprint2Idx)")
             }
+        }
+
+        /**
+         * Tests the key scenario described in the algorithm design:
+         * when the only link between two nodes is a *create* link (not a regular matchable link),
+         * neither node gets a pseudo-composition priority boost.  The NAC unlock cost then becomes
+         * the decisive tiebreaker, and the node that directly enables a cheap NAC is matched first.
+         *
+         * Pattern:
+         * ```
+         * sprint1  : Sprint {}
+         * workItem : WorkItem {}
+         * forbid sprint2 : Sprint {}
+         *
+         * create  workItem -- sprint1      (sprint1.committedItems <--> workItem.isPlannedFor)
+         * forbid  workItem -- sprint1      (orphan forbid link — both are main-pattern nodes)
+         * forbid  sprint2  -- workItem     (sprint2 NAC island, anchored at workItem)
+         * ```
+         *
+         * Because the Sprint→WorkItem composition link is *not* in the regular matchable links,
+         * both sprint1 and workItem get instance priority 0.  However covering workItem immediately
+         * unlocks the `sprint2 -- workItem` NAC, so workItem is scanned first.
+         */
+        @Test
+        fun `workItem matched first when composition link is create-only (no priority boost)`() {
+            // Scrum metamodel: Sprint.committedItems[1..*] <--> WorkItem.isPlannedFor[0..1]
+            // but WorkItem is a real composition target of Plan, so it won't be a
+            // pseudo-composition child of Sprint.  Both sprint1 and workItem have priority 0.
+            val elements = com.mdeo.modeltransformation.runtime.match.PatternCategories(
+                matchableInstances = listOf(
+                    makeInstance(null, "sprint1",  "Sprint"),
+                    makeInstance(null, "workItem", "WorkItem")
+                ),
+                matchableLinks = emptyList(),  // no regular links between sprint1 and workItem
+                createInstances = emptyList(),
+                deleteInstances = emptyList(),
+                createLinks = listOf(
+                    makeLink("create", "sprint1", "committedItems", "workItem", "isPlannedFor")
+                ),
+                deleteLinks = emptyList(),
+                forbidInstances = listOf(makeInstance("forbid", "sprint2", "Sprint")),
+                forbidLinks = listOf(
+                    // orphan forbid link: both sprint1 and workItem are main-pattern nodes
+                    makeLink("forbid", "sprint1", "committedItems", "workItem", "isPlannedFor"),
+                    // NAC island: sprint2 anchored at workItem
+                    makeLink("forbid", "sprint2", "committedItems", "workItem", "isPlannedFor")
+                ),
+                requireInstances = emptyList(),
+                requireLinks = emptyList(),
+                variables = emptyList(),
+                whereClauses = emptyList()
+            )
+
+            val plan = MatchPlanBuilder(
+                getVertexId = { null },
+                nodeAnalyzer = ExpressionNodeAnalyzer(setOf("sprint1", "workItem"), 0),
+                isCollectionExpression = { false },
+                metamodelData = scrumMetamodel
+            ).build(elements, emptySet())
+
+            val steps = plan.baseSteps
+
+            // workItem should be scanned before sprint1 because covering workItem unlocks
+            // the sprint2 NAC island (anchor = workItem) while covering sprint1 unlocks nothing.
+            val workItemIdx = steps.indexOfFirst {
+                it is BaseStep.VertexScan && it.instanceName == "workItem"
+            }
+            val sprint1Idx = steps.indexOfFirst {
+                it is BaseStep.VertexScan && it.instanceName == "sprint1"
+            }
+
+            assertTrue(workItemIdx >= 0, "workItem must be covered by VertexScan")
+            assertTrue(sprint1Idx >= 0, "sprint1 must be covered by VertexScan")
+            assertTrue(workItemIdx < sprint1Idx,
+                "workItem (idx=$workItemIdx) should be scanned before sprint1 (idx=$sprint1Idx) " +
+                "because covering workItem enables the sprint2 NAC")
+
+            // The sprint2 NAC should fire immediately after workItem is covered, i.e. before sprint1.
+            val nacIdx = steps.indexOfFirst { it is BaseStep.ApplicationCondition }
+            assertTrue(nacIdx > workItemIdx, "NAC must come after workItem is covered")
+            assertTrue(nacIdx < sprint1Idx, "NAC must fire before sprint1 is covered")
         }
     }
 
