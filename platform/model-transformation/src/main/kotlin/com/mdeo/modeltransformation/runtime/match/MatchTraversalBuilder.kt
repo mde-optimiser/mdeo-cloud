@@ -52,6 +52,7 @@ internal class MatchTraversalBuilder(
                 is BaseStep.VariableBinding -> applyVariableBinding(t, step)
                 is BaseStep.DeferredPropertyConstraint -> applyDeferredPropertyConstraint(t, step)
                 is BaseStep.WhereFilter -> applyWhereFilter(t, step)
+                is BaseStep.InjectiveConstraint -> applyInjectiveConstraint(t, step)
             }
         }
         return t
@@ -538,6 +539,22 @@ internal class MatchTraversalBuilder(
     ): GraphTraversal<Vertex, Vertex> {
         val compiled = expressionSupport.compileToTraversal(step.whereClause.whereClause.expression)
         return t.where(compiled.`is`(true)) as GraphTraversal<Vertex, Vertex>
+    }
+
+    /**
+     * Applies a [BaseStep.InjectiveConstraint] to [t].
+     *
+     * Ensures that the two matched instances bind to distinct vertices.
+     * Translated to `.where(labelA, P.neq(labelB))`.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun applyInjectiveConstraint(
+        t: GraphTraversal<Vertex, Vertex>,
+        step: BaseStep.InjectiveConstraint
+    ): GraphTraversal<Vertex, Vertex> {
+        val labelA = VariableBinding.stepLabel(step.instanceNameA)
+        val labelB = VariableBinding.stepLabel(step.instanceNameB)
+        return t.where(labelA, P.neq(labelB)) as GraphTraversal<Vertex, Vertex>
     }
 
     /**

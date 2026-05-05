@@ -8,20 +8,18 @@ import com.mdeo.modeltransformation.ast.patterns.TypedPatternWhereClauseElement
 /**
  * An abstract plan for executing a single match operation.
  *
- * The plan is fully imperative — no `match()` step is used. It consists of two layers:
+ * The plan is fully imperative — no `match()` step is used. It consists of a single
+ * ordered list:
  *
- * 1. **[baseSteps]** — An imperative sequence of vertex scans, edge walks, property
- *    constraints, application conditions, variable bindings, and where filters. These steps
- *    form the complete traversal and prune traversers as early as possible.
- *
- * 2. **[postMatchFilters]** — Filters applied after all steps complete. Used for
- *    injective constraints and cross-node where clauses that reference multiple instances.
+ * **[baseSteps]** — An imperative sequence of vertex scans, edge walks, property
+ * constraints, application conditions, variable bindings, where filters, and injective
+ * constraints. All constraints are emitted as early as possible and in-lined into
+ * the traversal.
  *
  * No Gremlin traversal objects are referenced; the plan is purely structural data.
  */
 internal data class MatchPlan(
-    val baseSteps: List<BaseStep>,
-    val postMatchFilters: List<PostMatchFilter>
+    val baseSteps: List<BaseStep>
 )
 
 /**
@@ -149,29 +147,15 @@ internal sealed class BaseStep {
     data class WhereFilter(
         val whereClause: TypedPatternWhereClauseElement
     ) : BaseStep()
-}
-
-/**
- * A filter applied after all base steps complete.
- */
-internal sealed class PostMatchFilter {
 
     /**
      * Injective constraint: two matched instances must bind to distinct vertices.
      *
+     * Appended at the end of the traversal by `addInjectiveConstraints()`.
      * Translated to `.where(labelA, P.neq(labelB))`.
      */
     data class InjectiveConstraint(
         val instanceNameA: String,
         val instanceNameB: String
-    ) : PostMatchFilter()
-
-    /**
-     * A cross-node where-clause that references multiple matchable instances.
-     *
-     * Applied as `.where(compiledExpression.is(true))`.
-     */
-    data class CrossNodeWhereClause(
-        val whereClause: TypedPatternWhereClauseElement
-    ) : PostMatchFilter()
+    ) : BaseStep()
 }

@@ -45,9 +45,6 @@ internal object MetamodelClassPriority {
 
         val allClasses: Set<String> = metamodelData.classes.map { it.name }.toSet()
 
-        // ── Step 1: Build directed edges (composition + inheritance) ─────────────
-
-        // directed[A] = set of classes that A is "above" (A is parent/container)
         val directed = allClasses.associateWith { mutableSetOf<String>() }.toMutableMap()
 
         for (assoc in metamodelData.associations) {
@@ -68,12 +65,9 @@ internal object MetamodelClassPriority {
             }
         }
 
-        // ── Step 2: DFS spanning forest (break cycles by skipping back-edges) ────
-
-        // treeChildren[A] = set of children of A in the spanning forest
         val treeChildren = allClasses.associateWith { mutableSetOf<String>() }.toMutableMap()
 
-        val state = HashMap<String, Int>() // 0=unvisited, 1=in-stack, 2=done
+        val state = HashMap<String, Int>()
 
         fun dfs(node: String) {
             state[node] = 1
@@ -82,21 +76,17 @@ internal object MetamodelClassPriority {
                     treeChildren.getOrPut(node) { mutableSetOf() }.add(child)
                     dfs(child)
                 }
-                // back-edges (state=1) and cross-edges (state=2) are silently skipped
             }
             state[node] = 2
         }
 
-        // Visit in sorted order for determinism
         for (cls in allClasses.sorted()) {
             if (state.getOrDefault(cls, 0) == 0) dfs(cls)
         }
 
-        // ── Step 3: BFS to compute depths from roots ──────────────────────────────
 
         val depth = HashMap<String, Int>()
 
-        // Roots = nodes with no incoming tree-edges
         val hasTreeParent = allClasses.associateWith { false }.toMutableMap()
         for ((_, children) in treeChildren) {
             for (child in children) hasTreeParent[child] = true
@@ -121,15 +111,11 @@ internal object MetamodelClassPriority {
             }
         }
 
-        // Safety: any class still not assigned (cycle participant detached from BFS)
         val baseMax = depth.values.maxOrNull() ?: 0
         for (cls in allClasses) {
             if (cls !in depth) depth[cls] = baseMax + 1
         }
 
-        // ── Step 4: Join separate trees with regular associations ─────────────────
-
-        // Union-Find to track which tree each class belongs to
         val uf = allClasses.associateWith { it }.toMutableMap<String, String>()
 
         fun find(cls: String): String {
@@ -143,12 +129,10 @@ internal object MetamodelClassPriority {
             if (ra != rb) uf[ra] = rb
         }
 
-        // Initialise UF from treeChildren edges
         for ((parent, children) in treeChildren) {
             for (child in children) union(parent, child)
         }
 
-        // Try each non-containment association; process in sorted order for determinism
         val regularAssocs = metamodelData.associations
             .filter { it.operator != CONTAINMENT_OPERATOR }
             .sortedWith(compareBy({ it.source.className }, { it.target.className }))
@@ -157,11 +141,8 @@ internal object MetamodelClassPriority {
             val src = assoc.source.className
             val tgt = assoc.target.className
             if (src !in allClasses || tgt !in allClasses || src == tgt) continue
-            if (find(src) == find(tgt)) continue // already in the same tree
+            if (find(src) == find(tgt)) continue
 
-            // Determine direction based on multiplicity:
-            // The side with higher upper bound is the "parent"
-            // (it can reference many objects = it is typically the owner in this relationship)
             val srcUpper = assoc.source.multiplicity.upper
             val tgtUpper = assoc.target.multiplicity.upper
 
@@ -173,20 +154,17 @@ internal object MetamodelClassPriority {
                 srcUpper != -1 && tgtUpper != -1 && srcUpper > tgtUpper -> { parentClass = src; childClass = tgt }
                 srcUpper != -1 && tgtUpper != -1 && tgtUpper > srcUpper -> { parentClass = tgt; childClass = src }
                 else -> {
-                    // Equal or both unbounded: arbitrary tie-break by class name
                     if (src <= tgt) { parentClass = src; childClass = tgt }
                     else { parentClass = tgt; childClass = src }
                 }
             }
 
-            // Find the root of the child's tree and attach it one level below parentClass
             val childRoot = findTreeRoot(childClass, treeChildren, depth)
             val parentDepth = depth[parentClass]!!
             val newChildRootDepth = parentDepth + 1
             val depthDelta = newChildRootDepth - (depth[childRoot] ?: 0)
 
             if (depthDelta != 0) {
-                // BFS-update depths for all nodes in the child subtree rooted at childRoot
                 val updateQueue = ArrayDeque<String>()
                 updateQueue.add(childRoot)
                 val visited = mutableSetOf<String>()
@@ -198,12 +176,9 @@ internal object MetamodelClassPriority {
                 }
             }
 
-            // Add a virtual tree edge parentClass → childRoot (only for UF bookkeeping)
             treeChildren.getOrPut(parentClass) { mutableSetOf() }.add(childRoot)
             union(parentClass, childClass)
         }
-
-        // ── Step 5: Priority = maxDepth − depth + 1 ──────────────────────────────
 
         val maxDepth = depth.values.maxOrNull() ?: 0
         return depth.mapValues { (_, d) -> maxDepth - d + 1 }
@@ -230,13 +205,11 @@ internal object MetamodelClassPriority {
         treeChildren: Map<String, Set<String>>,
         depth: Map<String, Int>
     ): String {
-        // Build a reverse map (child → parent) for upward traversal
         val parentOf = HashMap<String, String>()
         for ((parent, children) in treeChildren) {
             for (child in children) parentOf[child] = parent
         }
 
-        // Walk up to the root
         var cur = cls
         while (cur in parentOf) cur = parentOf.getValue(cur)
         return cur

@@ -9,8 +9,6 @@ import com.mdeo.modeltransformation.runtime.TransformationEngine
 import com.mdeo.modeltransformation.runtime.match.plan.BaseStep
 import com.mdeo.modeltransformation.runtime.match.plan.MatchPlan
 import com.mdeo.modeltransformation.runtime.match.plan.MatchPlanBuilder
-import com.mdeo.modeltransformation.runtime.match.plan.PostMatchFilter
-import org.apache.tinkerpop.gremlin.process.traversal.P
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal
 import org.apache.tinkerpop.gremlin.structure.Vertex
 
@@ -142,7 +140,7 @@ class MatchExecutor {
         val allSelectNames = (elements.allInstanceNames + planBoundNames).distinct()
 
         val matchedInstanceNames = allMatchable.map { it.objectInstance.name }
-        //println(traversal)
+        println(traversal)
         return executeTraversalAndExtract(traversal, elements, context, engine, matchedInstanceNames, allSelectNames)
     }
 
@@ -172,21 +170,6 @@ class MatchExecutor {
         val traversalBuilder = MatchTraversalBuilder(expressionSupport, compilationContext, expressionSupport.engine)
         var t: GraphTraversal<Vertex, Map<String, Any>> =
             traversalBuilder.buildBaseTraversal(plan) as GraphTraversal<Vertex, Map<String, Any>>
-
-        for (filter in plan.postMatchFilters) {
-            @Suppress("UNCHECKED_CAST")
-            t = when (filter) {
-                is PostMatchFilter.InjectiveConstraint -> {
-                    val labelA = VariableBinding.stepLabel(filter.instanceNameA)
-                    val labelB = VariableBinding.stepLabel(filter.instanceNameB)
-                    t.where(labelA, P.neq(labelB)) as GraphTraversal<Vertex, Map<String, Any>>
-                }
-                is PostMatchFilter.CrossNodeWhereClause -> {
-                    val compiled = expressionSupport.compileToTraversal(filter.whereClause.whereClause.expression)
-                    t.where(compiled.`is`(true)) as GraphTraversal<Vertex, Map<String, Any>>
-                }
-            }
-        }
 
         t = applyLimit(t, limit)
 

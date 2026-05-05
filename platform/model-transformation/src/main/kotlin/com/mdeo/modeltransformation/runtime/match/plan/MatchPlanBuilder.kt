@@ -27,7 +27,7 @@ import com.mdeo.modeltransformation.runtime.match.PatternCategories
  *    emitted before more expensive ones via a cost-based ranking.
  * 4. Uncovered instances, referenced instances, deferred conditions, variables,
  *    deferred property constraints, and where clauses are appended as imperative steps.
- * 5. Only injective and cross-node where clauses go into [MatchPlan.postMatchFilters].
+ * 5. Injective constraints are appended last as [BaseStep.InjectiveConstraint] steps.
  *
  * No `match()` step is ever used — the plan is purely imperative.
  *
@@ -69,58 +69,6 @@ internal class MatchPlanBuilder(
         PlanExecution(elements, referencedInstances).run()
 
     /**
-     * Identifies orphan links — forbid or require links whose both endpoints are
-     * main-pattern (matchable) instances rather than constraint-only instances.
-     *
-     * Orphan links connect two already-matchable nodes without introducing new
-     * constraint nodes; they are tracked and handled separately from island links.
-     *
-     * @param conditionInstances All forbid or require instances for the block.
-     * @param conditionLinks All forbid or require links for the block.
-     * @param matchableNames Names of all matched (non-condition) instances.
-     * @return List of [OrphanLinkInfo] objects describing each orphan link.
-     */
-    private fun identifyOrphanLinks(
-        conditionInstances: List<TypedPatternObjectInstanceElement>,
-        conditionLinks: List<TypedPatternLinkElement>,
-        matchableNames: Set<String>
-    ): List<OrphanLinkInfo> {
-        val conditionNames = conditionInstances.map { it.objectInstance.name }.toSet()
-        return conditionLinks.mapNotNull { link ->
-            val src = link.link.source.objectName
-            val tgt = link.link.target.objectName
-            if (src !in conditionNames && src in matchableNames &&
-                tgt !in conditionNames && tgt in matchableNames) {
-                OrphanLinkInfo(src, tgt, link)
-            } else null
-        }
-    }
-
-    /**
-     * Chooses the traversal direction for an orphan link (a forbid/require edge whose both
-     * endpoints are main-pattern nodes).
-     *
-     * Prefers the direction where the starting end has the lower multiplicity upper bound,
-     * as that minimises the number of edges traversed when checking existence.
-     *
-     * @return `true` when the link should be traversed target→source (reversed);
-     *         `false` for the forward source→target direction.
-     */
-    private fun chooseOrphanLinkReversed(link: TypedPatternLinkElement): Boolean {
-        val assoc = metamodelData.associations.firstOrNull { assoc ->
-            assoc.source.name == link.link.source.propertyName &&
-            assoc.target.name == link.link.target.propertyName
-        } ?: return false  // no metamodel info: default forward
-
-        val srcUpper = if (assoc.source.multiplicity.upper == -1) Int.MAX_VALUE
-                       else assoc.source.multiplicity.upper
-        val tgtUpper = if (assoc.target.multiplicity.upper == -1) Int.MAX_VALUE
-                       else assoc.target.multiplicity.upper
-        // Reversed = walk from target to source; that traverses target's side multiplicity
-        return tgtUpper < srcUpper
-    }
-
-    /**
      * Merges instances that share the same name.
      *
      * When the same instance name appears multiple times (e.g., once with a className and once
@@ -157,17 +105,6 @@ internal class MatchPlanBuilder(
     )
 
     /**
-     * An orphan link: a forbid/require link whose both endpoints are main-pattern nodes.
-     * Stores the original [TypedPatternLinkElement] so that the traversal direction can be
-     * optimised based on association multiplicities.
-     */
-    private data class OrphanLinkInfo(
-        val sourceName: String,
-        val targetName: String,
-        val link: TypedPatternLinkElement
-    )
-
-    /**
      * A matchable link that can be walked because its [fromInstanceName] is already covered.
      * Walking the link will cover [toInstanceName].
      */
@@ -197,10 +134,33 @@ internal class MatchPlanBuilder(
         override val nacUnlockCost: Int
     ) : TraversalCandidate()
 
+    /**
+     * An intermediate representation of a single structural traversal step, used between
+     * the greedy ordering phase and the BaseStep emission phase.
+     */
+    private sealed class StructuralStep {
+        /** Cover an instance by scanning for it. */
+        data class CoverByVertex(
+            val name: String,
+            val instance: TypedPatternObjectInstanceElement?,
+            val vertexId: Any?
+        ) : StructuralStep()
+
+        /** Cover an instance by walking an edge from an already-covered instance. */
+        data class CoverByWalk(
+            val link: TypedPatternLinkElement,
+            val isReversed: Boolean,
+            val fromName: String,
+            val toName: String,
+            val toInstance: TypedPatternObjectInstanceElement?,
+            val toVertexId: Any?,
+            var needsSelect: Boolean   // mutable so post-reordering can update it
+        ) : StructuralStep()
+    }
+
     /** Groups a pending PAC or NAC into a uniform representation for the plan builder. */
     private data class PendingCondition(
-        val island: Island?,
-        val orphanLink: OrphanLinkInfo?,
+        val island: Island,
         val isNegative: Boolean
     )
 
@@ -222,26 +182,22 @@ internal class MatchPlanBuilder(
         private val matchableNames = allMatchable.map { it.objectInstance.name }.toSet()
         private val variableNames = elements.variables.map { it.variable.name }.toSet()
 
-        // All PAC/NAC expressed uniformly: islands + orphan links in a single list.
-        private val forbidIslands = IslandGrouper.groupIntoIslands(elements.forbidInstances, elements.forbidLinks)
-        private val requireIslands = IslandGrouper.groupIntoIslands(elements.requireInstances, elements.requireLinks)
-        private val forbidOrphanLinks = identifyOrphanLinks(elements.forbidInstances, elements.forbidLinks, matchableNames)
-        private val requireOrphanLinks = identifyOrphanLinks(elements.requireInstances, elements.requireLinks, matchableNames)
+        // All PAC/NAC expressed uniformly: islands (including synthetic orphan-link islands).
+        private val forbidIslands = buildIslandsIncludingOrphanLinks(elements.forbidInstances, elements.forbidLinks, matchableNames)
+        private val requireIslands = buildIslandsIncludingOrphanLinks(elements.requireInstances, elements.requireLinks, matchableNames)
         private val allConditions: List<PendingCondition> = buildAllConditions()
 
         private val baseSteps = mutableListOf<BaseStep>()
-        private val postMatchFilters = mutableListOf<PostMatchFilter>()
         private val coveredInstances = mutableSetOf<String>()
         private val coveredLinks = mutableSetOf<TypedPatternLinkElement>()
         private val emittedConditionIndices = mutableSetOf<Int>()
         private val deferredProperties = mutableListOf<DeferredPropertyInfo>()
+        private val pendingWhereClauses = elements.whereClauses.toMutableList()
 
         private fun buildAllConditions(): List<PendingCondition> {
             val result = mutableListOf<PendingCondition>()
-            forbidIslands.forEach  { result.add(PendingCondition(it, null, isNegative = true)) }
-            requireIslands.forEach { result.add(PendingCondition(it, null, isNegative = false)) }
-            forbidOrphanLinks.forEach  { result.add(PendingCondition(null, it, isNegative = true)) }
-            requireOrphanLinks.forEach { result.add(PendingCondition(null, it, isNegative = false)) }
+            forbidIslands.forEach  { result.add(PendingCondition(it, isNegative = true)) }
+            requireIslands.forEach { result.add(PendingCondition(it, isNegative = false)) }
             return result
         }
 
@@ -260,55 +216,50 @@ internal class MatchPlanBuilder(
             addDeferredPropertyConstraints()
             addWhereClauses()
             addInjectiveConstraints()
-            return MatchPlan(baseSteps, postMatchFilters)
+            return MatchPlan(baseSteps)
         }
 
         /**
-         * Builds the full match traversal order using a **step-level greedy** algorithm.
-         *
-         * At each iteration the algorithm selects the single best next step from:
-         * - **VertexScan**: a fresh scan for any uncovered typed matchable instance.
-         * - **EdgeWalk**: a constrained walk from an already-covered instance to an
-         *   adjacent uncovered instance via a matchable link.
-         *
-         * The selection criterion (applied in order):
-         *
-         * 1. **Pre-bound instances first** (absolute): any instance with a known vertex ID
-         *    is covered immediately, regardless of class priority.
-         *
-         * 2. **Class priority** (primary, higher = better): determined by
-         *    [classPriorities] — composition/inheritance root classes have the highest
-         *    priority.  Matching high-priority classes first reduces initial scan size.
-         *
-         * 3. **NAC/PAC unlock cost** (tiebreaker, lower = better): among candidates with
-         *    equal class priority, prefer the step that makes the cheapest pending
-         *    condition newly evaluatable.  Evaluating NACs/PACs early prunes traversers
-         *    before the next scan/walk.
-         *
-         * 4. **EdgeWalk over VertexScan** (secondary tiebreaker): when class priority
-         *    and NAC unlock cost are equal, prefer an edge walk to a vertex scan.
-         *    An edge walk is strictly more selective (it constrains the new instance to
-         *    neighbours of an already-matched vertex).
-         *
-         * After each new instance is covered, inline property constraints and any
-         * newly-ready application conditions are emitted immediately.
+         * Builds the full match traversal order by:
+         * 1. Greedily selecting structural steps ([buildStructuralOrder]).
+         * 2. Applying the 1-side demotion reordering pass ([applyPostReordering]).
+         * 3. Emitting [BaseStep]s and inline constraints for each structural step ([emitPlanFromStructuralOrder]).
          */
         private fun buildTraversalOrder() {
+            val structural = buildStructuralOrder().toMutableList()
+            applyPostReordering(structural)
+            emitPlanFromStructuralOrder(structural)
+        }
+
+        /**
+         * Greedy step-level algorithm: produces the same ordering as the old [buildTraversalOrder]
+         * but returns [StructuralStep] objects instead of emitting [BaseStep]s.
+         *
+         * Uses local [covered] and [walkedLinks] sets so that [coveredInstances] and
+         * [coveredLinks] are left untouched for [emitPlanFromStructuralOrder] to repopulate.
+         *
+         * Selection criterion (same as before):
+         * 1. Pre-bound instances first.
+         * 2. Highest class priority.
+         * 3. Lowest NAC/PAC unlock cost.
+         * 4. EdgeWalk over VertexScan on tie.
+         */
+        private fun buildStructuralOrder(): List<StructuralStep> {
             val uncovered = allMatchable.toMutableList()
             val availableWalks = mutableListOf<WalkOption>()
-            var currentNode: String? = null
+            val covered = mutableSetOf<String>()
+            val walkedLinks = mutableSetOf<TypedPatternLinkElement>()
+            val result = mutableListOf<StructuralStep>()
 
             while (uncovered.isNotEmpty() || availableWalks.isNotEmpty()) {
                 // Pre-bound instances have absolute priority regardless of class score.
                 val preBound = uncovered.firstOrNull { getVertexId(it.objectInstance.name) != null }
                 if (preBound != null) {
                     val name = preBound.objectInstance.name
-                    baseSteps.add(BaseStep.VertexScan(name, preBound.objectInstance.className, getVertexId(name)))
+                    result.add(StructuralStep.CoverByVertex(name, preBound, getVertexId(name)))
                     uncovered.remove(preBound)
-                    coveredInstances.add(name)
-                    currentNode = name
-                    applyInlineConstraintsAt(name, preBound)
-                    addWalkOptions(name, availableWalks)
+                    covered.add(name)
+                    addWalkOptions(name, availableWalks, covered, walkedLinks)
                     continue
                 }
 
@@ -318,14 +269,14 @@ internal class MatchPlanBuilder(
                     val cls = inst.objectInstance.className ?: continue
                     val prio = classPriorities[cls] ?: 1
                     val name = inst.objectInstance.name
-                    val nacCost = minConditionCostUnlockedBy(coveredInstances + name, coveredInstances)
+                    val nacCost = minConditionCostUnlockedBy(covered + name, covered)
                     candidates.add(ScanCandidate(inst, prio, nacCost))
                 }
                 for (walk in availableWalks) {
-                    if (walk.toInstanceName in coveredInstances) continue  // stale
+                    if (walk.toInstanceName in covered) continue  // stale
                     val cls = walk.toInstance?.objectInstance?.className
                     val prio = if (cls != null) classPriorities[cls] ?: 1 else 1
-                    val nacCost = minConditionCostUnlockedBy(coveredInstances + walk.toInstanceName, coveredInstances)
+                    val nacCost = minConditionCostUnlockedBy(covered + walk.toInstanceName, covered)
                     candidates.add(WalkCandidate(walk, prio, nacCost))
                 }
 
@@ -341,35 +292,162 @@ internal class MatchPlanBuilder(
                     is ScanCandidate -> {
                         val inst = best.instance
                         val name = inst.objectInstance.name
-                        baseSteps.add(BaseStep.VertexScan(name, inst.objectInstance.className, getVertexId(name)))
+                        result.add(StructuralStep.CoverByVertex(name, inst, getVertexId(name)))
                         uncovered.remove(inst)
-                        coveredInstances.add(name)
-                        currentNode = name
-                        applyInlineConstraintsAt(name, inst)
-                        addWalkOptions(name, availableWalks)
+                        covered.add(name)
+                        addWalkOptions(name, availableWalks, covered, walkedLinks)
                     }
                     is WalkCandidate -> {
                         val walk = best.walkOption
-                        baseSteps.add(
-                            BaseStep.EdgeWalk(
-                                link = walk.link,
-                                isReversed = walk.isReversed,
-                                fromInstanceName = walk.fromInstanceName,
-                                toInstanceName = walk.toInstanceName,
-                                toClassName = walk.toInstance?.objectInstance?.className,
-                                toVertexId = getVertexId(walk.toInstanceName),
-                                needsSelect = walk.fromInstanceName != currentNode
-                            )
-                        )
-                        coveredLinks.add(walk.link)
                         val toInst = walk.toInstance
                             ?: uncovered.find { it.objectInstance.name == walk.toInstanceName }
+                        result.add(
+                            StructuralStep.CoverByWalk(
+                                link = walk.link,
+                                isReversed = walk.isReversed,
+                                fromName = walk.fromInstanceName,
+                                toName = walk.toInstanceName,
+                                toInstance = toInst,
+                                toVertexId = getVertexId(walk.toInstanceName),
+                                needsSelect = false  // placeholder; recomputed at emit time
+                            )
+                        )
+                        walkedLinks.add(walk.link)
                         uncovered.removeIf { it.objectInstance.name == walk.toInstanceName }
-                        coveredInstances.add(walk.toInstanceName)
-                        currentNode = walk.toInstanceName
-                        applyInlineConstraintsAt(walk.toInstanceName, toInst)
+                        covered.add(walk.toInstanceName)
                         availableWalks.removeAll { it.link == walk.link }
-                        addWalkOptions(walk.toInstanceName, availableWalks)
+                        addWalkOptions(walk.toInstanceName, availableWalks, covered, walkedLinks)
+                    }
+                }
+            }
+            return result
+        }
+
+        /**
+         * 1-side demotion reordering pass.
+         *
+         * For each [StructuralStep.CoverByWalk] where the destination node is at the
+         * "1-side" of the traversed association (upper multiplicity == 1), attempts to
+         * swap the source's earlier [StructuralStep.CoverByVertex] with a reversed walk
+         * from the destination instead.
+         *
+         * This allows filters on the destination node (property constraints, NACs) to be
+         * applied **before** the lookup of the source node, reducing intermediate state.
+         *
+         * The swap is skipped when:
+         * - The source has no unconditional scan before the walk (it was covered via a walk, or pre-bound).
+         * - Another walk from the source appears between the source's scan and this walk (blocking).
+         * - A pending condition depends only on the source and not the destination (injective safety).
+         */
+        private fun applyPostReordering(structural: MutableList<StructuralStep>) {
+            val assocByProps = metamodelData.associations.associateBy { assoc ->
+                assoc.source.name to assoc.target.name
+            }
+
+            for (k in structural.indices) {
+                val step = structural[k] as? StructuralStep.CoverByWalk ?: continue
+                val fromName = step.fromName
+                val toName = step.toName
+                val link = step.link
+
+                // Find the association for this link
+                val assoc = assocByProps[
+                    link.link.source.propertyName to link.link.target.propertyName
+                ] ?: continue
+
+                // Check whether toName is at the 1-side of the association
+                val toIsOneSide = if (!step.isReversed) {
+                    assoc.target.multiplicity.upper == 1
+                } else {
+                    assoc.source.multiplicity.upper == 1
+                }
+                if (!toIsOneSide) continue
+
+                // Find the unconditional VertexScan for fromName strictly before k
+                val scanIdx = (0 until k).indexOfFirst { i ->
+                    val s = structural[i]
+                    s is StructuralStep.CoverByVertex && s.name == fromName && s.vertexId == null
+                }
+                if (scanIdx < 0) continue
+
+                // Blocking check: another walk from fromName between the scan and this walk
+                val blocked = (scanIdx + 1 until k).any { i ->
+                    val s = structural[i]
+                    s is StructuralStep.CoverByWalk && s.fromName == fromName
+                }
+                if (blocked) continue
+
+                // Injective constraint safety check: no condition that requires fromName
+                // but not toName (deferring fromName would delay that condition unnecessarily)
+                val safetyBlocked = allConditions.any { pending ->
+                    val required = pendingConditionRequiredNodes(pending)
+                    fromName in required && toName !in required
+                }
+                if (safetyBlocked) continue
+
+                // Perform the swap
+                structural[scanIdx] = StructuralStep.CoverByVertex(
+                    name = toName,
+                    instance = instanceMap[toName],
+                    vertexId = getVertexId(toName)
+                )
+                structural[k] = StructuralStep.CoverByWalk(
+                    link = step.link,
+                    isReversed = !step.isReversed,
+                    fromName = toName,
+                    toName = fromName,
+                    toInstance = instanceMap[fromName],
+                    toVertexId = getVertexId(fromName),
+                    needsSelect = false
+                )
+            }
+        }
+
+        /**
+         * Emits [BaseStep]s from the (possibly reordered) structural step list.
+         *
+         * Resets [coveredInstances] and [coveredLinks] before iterating so that
+         * inline constraint emission reflects the new order.
+         *
+         * [needsSelect] for each [StructuralStep.CoverByWalk] is always recomputed from
+         * [currentNode] rather than read from the pre-computed field.
+         */
+        private fun emitPlanFromStructuralOrder(structuralSteps: List<StructuralStep>) {
+            coveredInstances.clear()
+            coveredLinks.clear()
+            var currentNode: String? = null
+
+            for (step in structuralSteps) {
+                when (step) {
+                    is StructuralStep.CoverByVertex -> {
+                        baseSteps.add(
+                            BaseStep.VertexScan(
+                                step.name,
+                                step.instance?.objectInstance?.className,
+                                step.vertexId
+                            )
+                        )
+                        coveredInstances.add(step.name)
+                        currentNode = step.name
+                        applyInlineConstraintsAt(step.name, step.instance)
+                    }
+                    is StructuralStep.CoverByWalk -> {
+                        val needsSelect = step.fromName != currentNode
+                        baseSteps.add(
+                            BaseStep.EdgeWalk(
+                                link = step.link,
+                                isReversed = step.isReversed,
+                                fromInstanceName = step.fromName,
+                                toInstanceName = step.toName,
+                                toClassName = step.toInstance?.objectInstance?.className,
+                                toVertexId = step.toVertexId,
+                                needsSelect = needsSelect
+                            )
+                        )
+                        coveredLinks.add(step.link)
+                        coveredInstances.add(step.toName)
+                        currentNode = step.toName
+                        applyInlineConstraintsAt(step.toName, step.toInstance)
                     }
                 }
             }
@@ -378,19 +456,25 @@ internal class MatchPlanBuilder(
         /**
          * Adds [WalkOption]s to [availableWalks] for each matchable link incident on
          * [newlyCoveredName] that leads to an uncovered instance.
+         *
+         * Uses explicitly supplied [alreadyCovered] and [alreadyWalked] sets so that
+         * this helper can be called from both the greedy-ordering phase ([buildStructuralOrder])
+         * and the emission phase without accessing the shared mutable fields directly.
          */
         private fun addWalkOptions(
             newlyCoveredName: String,
-            availableWalks: MutableList<WalkOption>
+            availableWalks: MutableList<WalkOption>,
+            alreadyCovered: Set<String>,
+            alreadyWalked: Set<TypedPatternLinkElement>
         ) {
             for (link in allMatchableLinks) {
-                if (link in coveredLinks) continue
+                if (link in alreadyWalked) continue
                 val src = link.link.source.objectName
                 val tgt = link.link.target.objectName
                 when {
-                    src == newlyCoveredName && tgt !in coveredInstances && tgt in matchableNames ->
+                    src == newlyCoveredName && tgt !in alreadyCovered && tgt in matchableNames ->
                         availableWalks.add(WalkOption(link, false, src, tgt, instanceMap[tgt]))
-                    tgt == newlyCoveredName && src !in coveredInstances && src in matchableNames ->
+                    tgt == newlyCoveredName && src !in alreadyCovered && src in matchableNames ->
                         availableWalks.add(WalkOption(link, true, tgt, src, instanceMap[src]))
                 }
             }
@@ -432,10 +516,7 @@ internal class MatchPlanBuilder(
          * even though the actual ApplicationCondition doesn't need them.
          */
         private fun pendingConditionRequiredNodes(pending: PendingCondition): Set<String> {
-            if (pending.orphanLink != null) {
-                return setOf(pending.orphanLink.sourceName, pending.orphanLink.targetName)
-            }
-            val island = pending.island ?: return emptySet()
+            val island = pending.island
             val islandNames = island.instances.map { it.objectInstance.name }.toSet()
             val anchors = IslandTraversalUtils.findAnchorNames(island.links, islandNames, matchableNames)
             val isSingleNodeNac = island.instances.size == 1
@@ -456,8 +537,8 @@ internal class MatchPlanBuilder(
          * just for ordering purposes.
          */
         private fun estimatePendingConditionCost(pending: PendingCondition): Int {
-            if (pending.orphanLink != null) return 1  // single-edge check = cheapest
-            val island = pending.island ?: return 1000
+            val island = pending.island
+            if (island.instances.isEmpty()) return 1  // orphan link island: single edge check
             val islandNames = island.instances.map { it.objectInstance.name }.toSet()
             val anchors = IslandTraversalUtils.findAnchorNames(island.links, islandNames, matchableNames)
             val edgeCount = island.links.size
@@ -485,6 +566,8 @@ internal class MatchPlanBuilder(
                 addInlinePropertyConstraints(instance)
             }
             tryInlineConditions(instanceName)
+            tryInlineDeferredProperties()
+            tryInlineWhereClauses()
         }
 
         /**
@@ -544,11 +627,7 @@ internal class MatchPlanBuilder(
 
             for ((index, pending) in allConditions.withIndex()) {
                 if (index in emittedConditionIndices) continue
-                val ac = when {
-                    pending.island != null -> tryBuildIslandCondition(pending.island, pending.isNegative, currentNode)
-                    pending.orphanLink != null -> tryBuildOrphanLinkCondition(pending.orphanLink, pending.isNegative, currentNode)
-                    else -> null
-                } ?: continue
+                val ac = tryBuildIslandCondition(pending.island, pending.isNegative, currentNode) ?: continue
                 readyConditions.add(index to ac)
             }
 
@@ -598,19 +677,6 @@ internal class MatchPlanBuilder(
                 ?: return null
             val needsSelect = bestAnchor != currentNode
             return buildApplicationCondition(island, isNegative, bestAnchor, needsSelect)
-        }
-
-        /**
-         * Tries to build an [BaseStep.ApplicationCondition] for an orphan link if both endpoints
-         * are covered. Returns `null` if not yet ready.
-         */
-        private fun tryBuildOrphanLinkCondition(
-            info: OrphanLinkInfo,
-            isNegative: Boolean,
-            currentNode: String
-        ): BaseStep.ApplicationCondition? {
-            if (info.sourceName !in coveredInstances || info.targetName !in coveredInstances) return null
-            return buildOrphanLinkCondition(info, isNegative, currentNode)
         }
 
         /**
@@ -713,46 +779,6 @@ internal class MatchPlanBuilder(
                 needsSelect = needsSelect,
                 innerSteps = innerSteps,
                 injectiveConstraints = injectiveConstraints
-            )
-        }
-
-        /**
-         * Builds an [BaseStep.ApplicationCondition] for an orphan link (a forbid/require edge
-         * between two main-pattern nodes).
-         *
-         * The traversal direction is chosen so that the end with the lower multiplicity upper
-         * bound is the anchor (fewer expected edge hops). After the edge walk, an
-         * [BaseStep.EqualityFilter] verifies the traversal reached the other outer node.
-         */
-        private fun buildOrphanLinkCondition(
-            info: OrphanLinkInfo,
-            isNegative: Boolean,
-            currentNode: String
-        ): BaseStep.ApplicationCondition {
-            val isReversed = chooseOrphanLinkReversed(info.link)
-            val anchorName = if (isReversed) info.targetName else info.sourceName
-            val otherName  = if (isReversed) info.sourceName else info.targetName
-            val needsSelect = anchorName != currentNode
-
-            val innerSteps = listOf(
-                BaseStep.EdgeWalk(
-                    link = info.link,
-                    isReversed = isReversed,
-                    fromInstanceName = anchorName,
-                    toInstanceName = otherName,
-                    toClassName = null,
-                    toVertexId = null,
-                    needsSelect = false   // inner traversal starts at the anchor
-                ),
-                BaseStep.EqualityFilter(otherName)
-            )
-
-            return BaseStep.ApplicationCondition(
-                isNegative = isNegative,
-                anchorName = anchorName,
-                needsSelect = needsSelect,
-                innerSteps = innerSteps,
-                injectiveConstraints = emptyMap()
             )
         }
 
@@ -878,15 +904,17 @@ internal class MatchPlanBuilder(
                 val srcProp = nacLink.link.source.propertyName
                 val tgtProp = nacLink.link.target.propertyName
 
-                for (orphan in forbidOrphanLinks) {
+                for (orphanIsland in forbidIslands) {
+                    if (orphanIsland.instances.isNotEmpty()) continue  // skip non-orphan islands
+                    val orphanLink = orphanIsland.links.singleOrNull() ?: continue
                     // Same edge label: identical source- and target-property names.
-                    if (orphan.link.link.source.propertyName != srcProp ||
-                        orphan.link.link.target.propertyName != tgtProp) continue
+                    if (orphanLink.link.source.propertyName != srcProp ||
+                        orphanLink.link.target.propertyName != tgtProp) continue
 
                     // Z must occupy the same position in the orphan link as X in the NAC link,
                     // and Yi must be on the other side.
-                    val zOnSameSide = if (xIsSrc) orphan.sourceName == zName else orphan.targetName == zName
-                    val yiOnOtherSide = if (xIsSrc) orphan.targetName == yiName else orphan.sourceName == yiName
+                    val zOnSameSide = if (xIsSrc) orphanLink.link.source.objectName == zName else orphanLink.link.target.objectName == zName
+                    val yiOnOtherSide = if (xIsSrc) orphanLink.link.target.objectName == yiName else orphanLink.link.source.objectName == yiName
 
                     if (zOnSameSide && yiOnOtherSide) return true
                 }
@@ -1033,22 +1061,18 @@ internal class MatchPlanBuilder(
             for ((index, pending) in allConditions.withIndex()) {
                 if (index in emittedConditionIndices) continue
 
-                val ac: BaseStep.ApplicationCondition = if (pending.island != null) {
-                    val island = pending.island
-                    if (island.links.isEmpty()) {
+                val island = pending.island
+                val ac: BaseStep.ApplicationCondition = if (island.links.isEmpty()) {
+                    buildApplicationCondition(island, pending.isNegative, null, false)
+                } else {
+                    val islandNames = island.instances.map { it.objectInstance.name }.toSet()
+                    val anchors = IslandTraversalUtils.findAnchorNames(island.links, islandNames, matchableNames)
+                    val anchor = IslandTraversalUtils.selectBestAnchor(anchors, island.links, metamodelData)
+                    if (anchor == null) {
                         buildApplicationCondition(island, pending.isNegative, null, false)
                     } else {
-                        val islandNames = island.instances.map { it.objectInstance.name }.toSet()
-                        val anchors = IslandTraversalUtils.findAnchorNames(island.links, islandNames, matchableNames)
-                        val anchor = IslandTraversalUtils.selectBestAnchor(anchors, island.links, metamodelData)
-                        if (anchor == null) {
-                            buildApplicationCondition(island, pending.isNegative, null, false)
-                        } else {
-                            buildApplicationCondition(island, pending.isNegative, anchor, needsSelect = true)
-                        }
+                        buildApplicationCondition(island, pending.isNegative, anchor, needsSelect = true)
                     }
-                } else {
-                    buildOrphanLinkCondition(pending.orphanLink!!, pending.isNegative, currentNode = "")
                 }
 
                 remaining.add(index to ac)
@@ -1082,24 +1106,19 @@ internal class MatchPlanBuilder(
         }
 
         /**
-         * Classifies each where-clause as either a [BaseStep.WhereFilter] (references at
-         * most one matchable instance) or a [PostMatchFilter.CrossNodeWhereClause]
-         * (references multiple matchable instances) and appends it accordingly.
+         * Emits any remaining pending where-clause filters as [BaseStep.WhereFilter] steps.
+         *
+         * This is the final sweep; clauses whose dependencies were already met have been
+         * emitted inline earlier via [tryInlineWhereClauses].
          */
         private fun addWhereClauses() {
-            for (clause in elements.whereClauses) {
-                val referencedMatchable = nodeAnalyzer.findReferencedNodes(clause.whereClause.expression)
-                    .filter { it in matchableNames }
-                if (referencedMatchable.size > 1) {
-                    postMatchFilters.add(PostMatchFilter.CrossNodeWhereClause(clause))
-                } else {
-                    baseSteps.add(BaseStep.WhereFilter(clause))
-                }
+            for (clause in pendingWhereClauses) {
+                baseSteps.add(BaseStep.WhereFilter(clause))
             }
         }
 
         /**
-         * Appends [PostMatchFilter.InjectiveConstraint]s for all pairs of matched instances
+         * Appends [BaseStep.InjectiveConstraint]s for all pairs of matched instances
          * that share the same class name, ensuring they bind to distinct vertices.
          */
         private fun addInjectiveConstraints() {
@@ -1108,9 +1127,75 @@ internal class MatchPlanBuilder(
                     val a = allMatchable[i].objectInstance
                     val b = allMatchable[j].objectInstance
                     if (a.name != b.name && a.className != null && a.className == b.className) {
-                        postMatchFilters.add(PostMatchFilter.InjectiveConstraint(a.name, b.name))
+                        baseSteps.add(BaseStep.InjectiveConstraint(a.name, b.name))
                     }
                 }
+            }
+        }
+
+        /**
+         * Groups condition instances+links into islands, PLUS creates synthetic single-link
+         * islands for "orphan links" — forbid/require links whose both endpoints are
+         * main-pattern (matchable) nodes and therefore have no condition-exclusive instances.
+         *
+         * An orphan link {A -- B} (both A, B ∈ matchableNames) is turned into an Island with
+         * instances = [] and links = [the link]. When the island is processed, both A and B
+         * are recognised as anchors (they are in matchableNames), so the condition is emitted
+         * as a 2-anchor, 0-island-node ApplicationCondition — equivalent to the old
+         * buildOrphanLinkCondition behaviour.
+         */
+        private fun buildIslandsIncludingOrphanLinks(
+            conditionInstances: List<TypedPatternObjectInstanceElement>,
+            conditionLinks: List<TypedPatternLinkElement>,
+            matchableNames: Set<String>
+        ): List<Island> {
+            val conditionNames = conditionInstances.map { it.objectInstance.name }.toSet()
+            val regularIslands = IslandGrouper.groupIntoIslands(conditionInstances, conditionLinks)
+            val orphanLinks = conditionLinks.filter { link ->
+                val src = link.link.source.objectName
+                val tgt = link.link.target.objectName
+                src !in conditionNames && src in matchableNames &&
+                tgt !in conditionNames && tgt in matchableNames
+            }
+            val orphanIslands = orphanLinks.map { link -> Island(instances = emptyList(), links = listOf(link)) }
+            return regularIslands + orphanIslands
+        }
+
+        /**
+         * Emits any deferred property constraints whose referenced instances are now all covered.
+         * Removes successfully inlined constraints from [deferredProperties].
+         */
+        private fun tryInlineDeferredProperties() {
+            val iterator = deferredProperties.iterator()
+            while (iterator.hasNext()) {
+                val info = iterator.next()
+                val referencedNodes = nodeAnalyzer.findReferencedNodes(info.property.value)
+                val referencedVars = referencedNodes.filter { it in variableNames }
+                if (referencedVars.isNotEmpty()) continue  // still needs variables — wait for variable binding phase
+                if (!referencedNodes.all { it in coveredInstances }) continue  // not all deps covered yet
+                if (isCollectionExpression(info.property.value)) continue  // keep deferred for collection types
+                baseSteps.add(
+                    BaseStep.InlinePropertyConstraint(
+                        info.instanceName, info.className, info.property, isConstant = false
+                    )
+                )
+                iterator.remove()
+            }
+        }
+
+        /**
+         * Emits any pending where-clause filters whose referenced matchable instances are
+         * now all covered. Removes successfully emitted clauses from [pendingWhereClauses].
+         */
+        private fun tryInlineWhereClauses() {
+            val iterator = pendingWhereClauses.iterator()
+            while (iterator.hasNext()) {
+                val clause = iterator.next()
+                val referenced = nodeAnalyzer.findReferencedNodes(clause.whereClause.expression)
+                    .filter { it in matchableNames }
+                if (!referenced.all { it in coveredInstances }) continue
+                baseSteps.add(BaseStep.WhereFilter(clause))
+                iterator.remove()
             }
         }
     }

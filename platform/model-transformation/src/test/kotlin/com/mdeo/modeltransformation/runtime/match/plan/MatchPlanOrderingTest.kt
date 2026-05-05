@@ -1,5 +1,6 @@
 package com.mdeo.modeltransformation.runtime.match.plan
 
+import com.mdeo.expression.ast.expressions.TypedIntLiteralExpression
 import com.mdeo.metamodel.data.*
 import com.mdeo.modeltransformation.ast.patterns.*
 import com.mdeo.modeltransformation.runtime.match.ExpressionNodeAnalyzer
@@ -482,4 +483,102 @@ class MatchPlanOrderingTest {
             target   = TypedPatternLinkEnd(objectName = targetName, propertyName = targetProp)
         )
     )
+
+    private fun makeConstantExpression(value: Int) =
+        TypedIntLiteralExpression(evalType = 0, value = value.toString())
+
+    // ── Post-reordering tests ───────────────────────────────────────────────────
+
+    @Nested
+    inner class PostReorderingTests {
+
+        /**
+         * Sprint.plan[1] means Sprint is at the “1-side” of the Plan–Sprint composition.
+         * After the greedy picks Plan first (higher class priority) and then walks to Sprint,
+         * the post-reordering should flip: scan Sprint first, apply Sprint’s inline property
+         * filter, then walk Sprint→Plan (1-hop).
+         *
+         * Expected order:
+         * VertexScan(sprint) → InlinePropertyConstraint(sprint.effort) → EdgeWalk(sprint→plan)
+         */
+        @Test
+        fun `1-side node is scanned before its composition root when it has an inline property filter`() {
+            // Metamodel: Plan <>-> Sprint (Plan.sprints[0..*], Sprint.plan[1])
+            val metamodel = MetamodelData(
+                classes = listOf(ClassData("Plan", false), ClassData("Sprint", false)),
+                associations = listOf(
+                    AssociationData(
+                        source = AssociationEndData("Plan",   "sprints", MultiplicityData.many()),
+                        operator = "<>->",
+                        target = AssociationEndData("Sprint", "plan",    MultiplicityData.single())
+                    )
+                )
+            )
+
+            // Pattern: sprint : Sprint [effort == 5], plan : Plan; link plan.sprints <>-> sprint.plan
+            val sprintInstance = TypedPatternObjectInstanceElement(
+                objectInstance = TypedPatternObjectInstance(
+                    modifier = null,
+                    name = "sprint",
+                    className = "Sprint",
+                    properties = listOf(
+                        TypedPatternPropertyAssignment(
+                            propertyName = "effort",
+                            operator     = "==",
+                            value        = makeConstantExpression(5)
+                        )
+                    )
+                )
+            )
+            val planInstance = TypedPatternObjectInstanceElement(
+                objectInstance = TypedPatternObjectInstance(
+                    modifier = null, name = "plan", className = "Plan", properties = emptyList()
+                )
+            )
+            val link = TypedPatternLinkElement(
+                link = TypedPatternLink(
+                    modifier = null,
+                    source = TypedPatternLinkEnd("plan", "sprints"),
+                    target = TypedPatternLinkEnd("sprint", "plan")
+                )
+            )
+
+            val elements = com.mdeo.modeltransformation.runtime.match.PatternCategories(
+                matchableInstances = listOf(planInstance, sprintInstance),
+                matchableLinks = listOf(link),
+                createInstances = emptyList(), deleteInstances = emptyList(),
+                createLinks = emptyList(), deleteLinks = emptyList(),
+                forbidInstances = emptyList(), forbidLinks = emptyList(),
+                requireInstances = emptyList(), requireLinks = emptyList(),
+                variables = emptyList(), whereClauses = emptyList()
+            )
+
+            val plan = MatchPlanBuilder(
+                getVertexId = { null },
+                nodeAnalyzer = ExpressionNodeAnalyzer(setOf("plan", "sprint"), 0),
+                isCollectionExpression = { false },
+                metamodelData = metamodel
+            ).build(elements, emptySet())
+
+            val steps = plan.baseSteps
+
+            val sprintScanIdx = steps.indexOfFirst {
+                it is BaseStep.VertexScan && it.instanceName == "sprint"
+            }
+            val planCoveredIdx = steps.indexOfFirst {
+                it is BaseStep.EdgeWalk && it.toInstanceName == "plan"
+            }
+            val sprintFilterIdx = steps.indexOfFirst {
+                it is BaseStep.InlinePropertyConstraint && it.instanceName == "sprint"
+            }
+
+            assertTrue(sprintScanIdx >= 0, "sprint must be covered by VertexScan")
+            assertTrue(planCoveredIdx >= 0, "plan must be covered by EdgeWalk from sprint")
+            assertTrue(sprintFilterIdx >= 0, "sprint property filter must be present")
+            assertTrue(sprintScanIdx < planCoveredIdx,
+                "sprint scan (idx=\$sprintScanIdx) must come before plan coverage (idx=\$planCoveredIdx)")
+            assertTrue(sprintFilterIdx < planCoveredIdx,
+                "sprint filter (idx=\$sprintFilterIdx) must fire before plan coverage (idx=\$planCoveredIdx)")
+        }
+    }
 }
