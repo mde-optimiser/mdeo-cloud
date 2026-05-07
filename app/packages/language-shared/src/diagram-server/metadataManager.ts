@@ -1,18 +1,21 @@
 import { sharedImport } from "../sharedImport.js";
 import type { EdgeMetadata, GraphMetadata, NodeMetadata } from "./metadata.js";
 import { MultiGraph, type NodeAttributes, type EdgeAttributes } from "./graph-edit-distance/multiGraph.js";
-import {
-    optimizeEditPaths,
-    type NodeEditPath,
-    type EdgeEditPath,
-    type EdgeTuple
-} from "./graph-edit-distance/graphEditDistance.js";
-import { linearSumAssignment } from "./graph-edit-distance/hungarian.js";
+import { type NodeEditPath, type EdgeEditPath, type EdgeTuple } from "./graph-edit-distance/graphEditDistance.js";
+import { runGEDInWorker, type GEDResult, type GEDLoopAssignment } from "./graph-edit-distance/gedWorkerBase.js";
 import type { AstNode } from "langium";
 import { AstReflectionKey, LanguageServicesKey } from "./langiumServices.js";
 import type { AstReflection, LanguageServices } from "@mdeo/language-common";
 
 const { injectable, inject } = sharedImport("inversify");
+
+/**
+ * Maximum absolute difference between the number of nodes in the two pruned
+ * graphs above which the GED computation is skipped entirely.
+ * When the graphs differ by more than this many nodes the combinatorial search
+ * is unlikely to produce useful matches and would be prohibitively expensive.
+ */
+const GED_MAX_NODE_DIFFERENCE = 10;
 
 /**
  * Node attributes with added loops property for self-referential edges.
@@ -57,30 +60,6 @@ export abstract class MetadataManager<T extends AstNode = AstNode> {
     protected abstract verifyMetadata(model: NodeMetadata | EdgeMetadata): object | undefined;
 
     /**
-     * Calculate the cost of transforming one node to another based on their metadata.
-     * If node1 is undefined, it represents a node insertion.
-     * If node2 is undefined, it represents a node deletion.
-     * If both are defined, it represents a node substitution.
-     *
-     * @param node1 the first node's metadata or undefined
-     * @param node2 the second node's metadata or undefined
-     * @return the cost of the operation
-     */
-    protected abstract calculateNodeCost(node1: NodeAttributes | undefined, node2: NodeAttributes | undefined): number;
-
-    /**
-     * Calculate the cost of transforming one edge to another based on their metadata.
-     * If edge1 is undefined, it represents an edge insertion.
-     * If edge2 is undefined, it represents an edge deletion.
-     * If both are defined, it represents an edge substitution.
-     *
-     * @param edge1 the first edge's metadata or undefined
-     * @param edge2 the second edge's metadata or undefined
-     * @return the cost of the operation
-     */
-    protected abstract calculateEdgeCost(edge1: EdgeAttributes | undefined, edge2: EdgeAttributes | undefined): number;
-
-    /**
      * Extracts the graph metadata from the given source model.
      * Implementations should traverse the source model and generate metadata
      * for all nodes and edges that will be visualized.
@@ -89,6 +68,21 @@ export abstract class MetadataManager<T extends AstNode = AstNode> {
      * @returns The computed graph metadata
      */
     protected abstract extractGraphMetadata(sourceModel: T): GraphMetadata;
+
+    /**
+     * Absolute URL of the language-specific GED sub-worker script.
+     *
+     * When defined, the GED computation is offloaded to a dedicated worker
+     * and cancelled after {@link GED_WORKER_TIMEOUT_MS} if it does not finish
+     * in time.  When undefined (the default), no worker is spawned and GED
+     * is skipped entirely.
+     *
+     * Override in subclasses to enable worker-based GED, e.g.:
+     * ```ts
+     * protected override gedWorkerUrl = "/plugin/metamodel/static/gedWorker.js";
+     * ```
+     */
+    protected gedWorkerUrl: string | undefined = undefined;
 
     /**
      * Validates the metadata against the current metadata based on the source model.
@@ -121,19 +115,20 @@ export abstract class MetadataManager<T extends AstNode = AstNode> {
             return newMetadata;
         }
 
-        const lastResult = this.computeGED(currentGraph, newGraph);
+        const gedResult = this.computeGED(currentGraph, newGraph);
 
-        if (lastResult == undefined) {
-            return newMetadata;
+        if (gedResult == undefined) {
+            return this.applyDefaultMetadata(newMetadata, mergedMetadata);
         }
 
-        const [nodePath, edgePath] = lastResult;
+        const { nodePath, edgePath, loopAssignments } = gedResult;
         const { nodes: resultNodes, loopEdges } = this.processNodePaths(
             nodePath,
             newMetadata,
             mergedMetadata,
             currentGraph,
-            newGraph
+            newGraph,
+            loopAssignments
         );
         const resultEdges = this.processEdgePaths(edgePath, newMetadata, mergedMetadata);
 
@@ -331,45 +326,54 @@ export abstract class MetadataManager<T extends AstNode = AstNode> {
     /**
      * Computes the Graph Edit Distance between two graphs.
      *
-     * When either graph exceeds {@link GED_PRUNING_THRESHOLD} nodes, identical
-     * node/edge pairs are pre-matched and removed from both graphs before
-     * running the expensive combinatorial search on the remaining (smaller)
-     * subgraphs.  The pre-matched pairs are merged back into the returned
-     * paths so all downstream processing remains unchanged.
+     * Identical node/edge pairs are first pruned from both graphs so the
+     * expensive combinatorial search operates on a smaller subgraph only.
+     * If the pruned graphs differ by more than {@link GED_MAX_NODE_DIFFERENCE}
+     * nodes the computation is skipped and undefined is returned.
+     *
+     * When {@link gedWorkerUrl} is set the search runs inside a dedicated
+     * sub-worker and is cancelled after one second; otherwise undefined is
+     * returned and no synchronous GED is attempted.
      *
      * @param currentGraph The current graph.
      * @param newGraph The new graph.
-     * @returns The best edit path found or undefined.
+     * @returns A {@link GEDResult} with merged edit paths and loop assignments,
+     *          or `undefined` when skipped or timed out.
      */
     private computeGED(
         currentGraph: MultiGraph,
         newGraph: MultiGraph
-    ): [NodeEditPath, EdgeEditPath, number] | undefined {
+    ): GEDResult | undefined {
         const { prunedCurrent, prunedNew, stableNodeIds, stableEdges } = this.pruneGraphs(currentGraph, newGraph);
+
         const preMatchedNodes: NodeEditPath = [...stableNodeIds].map((id) => [id, id]);
         const preMatchedEdges: EdgeEditPath = stableEdges.map((edge) => [edge, edge]);
 
-        const generator = optimizeEditPaths(prunedCurrent, prunedNew, {
-            nodeSubstCost: (a, b) => this.calculateNodeCost(a, b),
-            nodeDelCost: (a) => this.calculateNodeCost(a, undefined),
-            nodeInsCost: (a) => this.calculateNodeCost(undefined, a),
-            edgeSubstCost: (a, b) => this.calculateEdgeCost(a, b),
-            edgeDelCost: (a) => this.calculateEdgeCost(a, undefined),
-            edgeInsCost: (a) => this.calculateEdgeCost(undefined, a),
-            upperBound: 1000
-        });
-
-        let lastResult: [NodeEditPath, EdgeEditPath, number] | undefined;
-        for (const result of generator) {
-            lastResult = result;
-        }
-
-        if (lastResult === undefined) {
+        // Skip GED when the pruned graphs differ too much in size – the search
+        // space would be too large and no good matching is likely to exist.
+        const nodeDifference = Math.abs(prunedCurrent.numberOfNodes - prunedNew.numberOfNodes);
+        if (nodeDifference > GED_MAX_NODE_DIFFERENCE) {
             return undefined;
         }
 
-        const [nodePath, edgePath, cost] = lastResult;
-        return [[...preMatchedNodes, ...nodePath], [...preMatchedEdges, ...edgePath], cost];
+        if (this.gedWorkerUrl == undefined) {
+            return undefined;
+        }
+
+        const workerResult = runGEDInWorker(this.gedWorkerUrl, prunedCurrent, prunedNew);
+        if (workerResult === undefined) {
+            return undefined;
+        }
+
+        const { nodePath, edgePath, cost, loopAssignments } = workerResult;
+        return {
+            nodePath: [...preMatchedNodes, ...nodePath],
+            edgePath: [...preMatchedEdges, ...edgePath],
+            cost,
+            // Loop assignments cover only the pruned (non-stable) node pairs.
+            // Stable node pairs are handled separately in processNodePaths.
+            loopAssignments
+        };
     }
 
     /**
@@ -507,54 +511,81 @@ export abstract class MetadataManager<T extends AstNode = AstNode> {
     }
 
     /**
-     * Processes the node edit paths to generate the new node metadata and resolve loops.
+     * Processes the node edit paths to generate new node metadata and carry over
+     * loop-edge metadata using the pre-computed {@link GEDLoopAssignment} list.
      *
-     * @param nodePath The node edit path.
-     * @param newMetadata The new metadata.
-     * @param currentMetadata The current metadata.
-     * @param currentGraph The current graph.
-     * @param newGraph The new graph.
-     * @returns The result nodes and loop edges.
+     * Three cases are handled per node pair `[u, v]`:
+     * - **Non-stable matched pair** (`u != null`, `v != null`, assignment exists): the
+     *   worker's Hungarian result is used to map old loop-edge metadata to new IDs.
+     * - **New node** (`u == null`) or **stable matched pair** (no assignment because
+     *   both sides have no loops): existing metadata is carried over by ID when
+     *   possible, otherwise {@link verifyMetadata} supplies defaults.
+     * - **Deleted node** (`v == null`): skipped entirely.
+     *
+     * @param nodePath The node edit path, including pre-matched stable pairs.
+     * @param newMetadata The freshly extracted graph metadata.
+     * @param currentMetadata The merged current+last-valid metadata used as
+     *        the source of existing layout positions.
+     * @param currentGraph The current (merged) graph, used to read loop data for
+     *        stable node pairs.
+     * @param newGraph The new graph, used to read loop data for new/stable nodes.
+     * @param loopAssignments Loop-edge assignments from the sub-worker, covering
+     *        only the non-stable node pairs in the pruned graph.
+     * @returns An object with the resolved node metadata map and loop-edge metadata map.
      */
     private processNodePaths(
         nodePath: NodeEditPath,
         newMetadata: GraphMetadata,
         currentMetadata: GraphMetadata,
         currentGraph: MultiGraph,
-        newGraph: MultiGraph
+        newGraph: MultiGraph,
+        loopAssignments: GEDLoopAssignment[]
     ): { nodes: Record<string, NodeMetadata>; loopEdges: Record<string, EdgeMetadata> } {
         const resultNodes: Record<string, NodeMetadata> = {};
         const loopEdges: Record<string, EdgeMetadata> = {};
+
+        const loopAssignmentMap = new Map<string, GEDLoopAssignment>(
+            loopAssignments.map((la) => [la.newNodeId, la])
+        );
+
         for (const [u, v] of nodePath) {
-            if (v != null) {
-                const newNodeMeta = newMetadata.nodes[v];
-                let candidateMeta: NodeMetadata;
+            if (v == null) {
+                continue;
+            }
 
-                if (u != null) {
-                    const oldNodeMeta = currentMetadata.nodes[u];
-                    candidateMeta = {
-                        ...newNodeMeta,
-                        meta: oldNodeMeta.meta
-                    };
-                } else {
-                    candidateMeta = newNodeMeta;
+            const newNodeMeta = newMetadata.nodes[v];
+            const candidateMeta: NodeMetadata =
+                u != null ? { ...newNodeMeta, meta: currentMetadata.nodes[u]?.meta } : newNodeMeta;
+
+            const correction = this.verifyMetadata(candidateMeta);
+            resultNodes[v] = { ...candidateMeta, meta: correction ?? candidateMeta.meta };
+
+            // Resolve loop edges for this node.
+            const loopAssignment = loopAssignmentMap.get(v);
+            if (loopAssignment !== undefined) {
+                // Non-stable matched pair: transfer metadata according to worker's assignment.
+                for (const [oldEdgeId, newEdgeId] of loopAssignment.pairs) {
+                    const newEdgeMeta = newMetadata.edges[newEdgeId];
+                    if (newEdgeMeta === undefined) continue;
+                    const candidate: EdgeMetadata =
+                        oldEdgeId != null
+                            ? { ...newEdgeMeta, meta: currentMetadata.edges[oldEdgeId]?.meta }
+                            : newEdgeMeta;
+                    const edgeCorrection = this.verifyMetadata(candidate);
+                    loopEdges[newEdgeId] = { ...candidate, meta: edgeCorrection ?? candidate.meta };
                 }
-
-                const correction = this.verifyMetadata(candidateMeta);
-                const finalNodeMeta = {
-                    ...candidateMeta,
-                    meta: correction ?? candidateMeta.meta
-                };
-                resultNodes[v] = finalNodeMeta;
-
-                const oldNodeAttrs = u != null ? (currentGraph.getNodeData(u) as NodeAttributesWithLoops) : undefined;
-                const newNodeAttrs = newGraph.getNodeData(v) as NodeAttributesWithLoops;
-
-                const oldLoopsMap = oldNodeAttrs?.loops || {};
-                const newLoopsMap = newNodeAttrs?.loops || {};
-
-                const processedLoops = this.resolveLoops(oldLoopsMap, newLoopsMap);
-                Object.assign(loopEdges, processedLoops);
+            } else {
+                // Stable matched node (u == v) or matched node with no loops:
+                // carry over metadata by ID, defaulting to verifyMetadata for new entries.
+                const newLoops = (newGraph.getNodeData(v) as NodeAttributesWithLoops).loops ?? {};
+                for (const edgeId of Object.keys(newLoops)) {
+                    const newEdgeMeta = newMetadata.edges[edgeId];
+                    if (newEdgeMeta === undefined) continue;
+                    const existingMeta = currentMetadata.edges[edgeId]?.meta;
+                    const candidate: EdgeMetadata = { ...newEdgeMeta, meta: existingMeta };
+                    const edgeCorrection = this.verifyMetadata(candidate);
+                    loopEdges[edgeId] = { ...candidate, meta: edgeCorrection ?? candidate.meta };
+                }
             }
         }
         return { nodes: resultNodes, loopEdges };
@@ -602,117 +633,35 @@ export abstract class MetadataManager<T extends AstNode = AstNode> {
     }
 
     /**
-     * Resolves the mapping between old and new loops using the Hungarian algorithm.
+     * Applies a best-effort metadata transfer when full GED computation is unavailable
+     * (e.g. graphs differ by more than {@link GED_MAX_NODE_DIFFERENCE} nodes, or the
+     * worker timed out).
      *
-     * @param oldLoops The old loops.
-     * @param newLoops The new loops.
-     * @returns The resolved loop metadata.
-     */
-    private resolveLoops(
-        oldLoops: Record<string, EdgeMetadata>,
-        newLoops: Record<string, EdgeMetadata>
-    ): Record<string, EdgeMetadata> {
-        const oldIds = Object.keys(oldLoops);
-        const newIds = Object.keys(newLoops);
-        const n = oldIds.length;
-        const m = newIds.length;
-
-        if (n === 0 && m === 0) {
-            return {};
-        }
-
-        const matrix = this.buildLoopCostMatrix(oldLoops, newLoops, oldIds, newIds);
-        const [rowInd, colInd] = linearSumAssignment(matrix);
-
-        return this.processLoopAssignment(rowInd, colInd, oldIds, newIds, oldLoops, newLoops);
-    }
-
-    /**
-     * Builds the cost matrix for loop assignment.
+     * For each node and edge in `newMetadata`, the layout metadata from
+     * `mergedMetadata` is carried over when an entry with the same ID exists.
+     * Entries with no existing counterpart receive defaults via {@link verifyMetadata}.
      *
-     * @param oldLoops The old loops.
-     * @param newLoops The new loops.
-     * @param oldIds The IDs of the old loops.
-     * @param newIds The IDs of the new loops.
-     * @returns The cost matrix.
+     * @param newMetadata The freshly extracted graph metadata (positions absent).
+     * @param mergedMetadata The merged current+last-valid metadata used as the
+     *        source of existing layout positions.
+     * @returns A new {@link GraphMetadata} with layout metadata carried over where possible.
      */
-    private buildLoopCostMatrix(
-        oldLoops: Record<string, EdgeMetadata>,
-        newLoops: Record<string, EdgeMetadata>,
-        oldIds: string[],
-        newIds: string[]
-    ): number[][] {
-        const n = oldIds.length;
-        const m = newIds.length;
-        const size = n + m;
-        const matrix: number[][] = Array(size)
-            .fill(0)
-            .map(() => Array(size).fill(0));
-
-        const oldLoopAttrs = oldIds.map((id) => ({ ...oldLoops[id].attrs, id, type: oldLoops[id].type }));
-        const newLoopAttrs = newIds.map((id) => ({ ...newLoops[id].attrs, id, type: newLoops[id].type }));
-
-        for (let i = 0; i < n; i++) {
-            for (let j = 0; j < m; j++) {
-                matrix[i][j] = this.calculateEdgeCost(oldLoopAttrs[i], newLoopAttrs[j]);
-            }
-            for (let k = 0; k < n; k++) {
-                matrix[i][m + k] = i === k ? this.calculateEdgeCost(oldLoopAttrs[i], undefined) : Number.MAX_VALUE;
-            }
+    private applyDefaultMetadata(newMetadata: GraphMetadata, mergedMetadata: GraphMetadata): GraphMetadata {
+        const nodes: Record<string, NodeMetadata> = {};
+        for (const [id, newNode] of Object.entries(newMetadata.nodes)) {
+            const existingMeta = mergedMetadata.nodes[id]?.meta;
+            const candidate: NodeMetadata = { ...newNode, meta: existingMeta };
+            const correction = this.verifyMetadata(candidate);
+            nodes[id] = { ...newNode, meta: correction ?? existingMeta };
         }
-
-        for (let k = 0; k < m; k++) {
-            for (let j = 0; j < m; j++) {
-                matrix[n + k][j] = k === j ? this.calculateEdgeCost(undefined, newLoopAttrs[j]) : Number.MAX_VALUE;
-            }
+        const edges: Record<string, EdgeMetadata> = {};
+        for (const [id, newEdge] of Object.entries(newMetadata.edges)) {
+            const existingMeta = mergedMetadata.edges[id]?.meta;
+            const candidate: EdgeMetadata = { ...newEdge, meta: existingMeta };
+            const correction = this.verifyMetadata(candidate);
+            edges[id] = { ...newEdge, meta: correction ?? existingMeta };
         }
-        return matrix;
-    }
-
-    /**
-     * Processes the loop assignment results.
-     *
-     * @param rowInd The row indices from the assignment.
-     * @param colInd The column indices from the assignment.
-     * @param oldIds The IDs of the old loops.
-     * @param newIds The IDs of the new loops.
-     * @param oldLoops The old loops.
-     * @param newLoops The new loops.
-     * @returns The resolved loop metadata.
-     */
-    private processLoopAssignment(
-        rowInd: number[],
-        colInd: number[],
-        oldIds: string[],
-        newIds: string[],
-        oldLoops: Record<string, EdgeMetadata>,
-        newLoops: Record<string, EdgeMetadata>
-    ): Record<string, EdgeMetadata> {
-        const result: Record<string, EdgeMetadata> = {};
-        const n = oldIds.length;
-        const m = newIds.length;
-
-        for (let k = 0; k < rowInd.length; k++) {
-            const i = rowInd[k];
-            const j = colInd[k];
-
-            if (i < n && j < m) {
-                const oldId = oldIds[i];
-                const newId = newIds[j];
-                const oldMeta = oldLoops[oldId];
-                const newMeta = newLoops[newId];
-
-                const candidate = { ...newMeta, meta: oldMeta.meta };
-                const correction = this.verifyMetadata(candidate);
-                result[newId] = { ...candidate, meta: correction ?? candidate.meta };
-            } else if (i >= n && j < m) {
-                const newId = newIds[j];
-                const newMeta = newLoops[newId];
-                const correction = this.verifyMetadata(newMeta);
-                result[newId] = { ...newMeta, meta: correction ?? newMeta.meta };
-            }
-        }
-        return result;
+        return { nodes, edges };
     }
 
     /**

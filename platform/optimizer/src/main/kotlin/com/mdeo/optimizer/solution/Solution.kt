@@ -15,8 +15,11 @@ import java.util.Collections
  *   operators that have been confirmed to deterministically fail on the current model state.
  *   An operator is recorded here when it fails at the very first match opportunity without
  *   any prior graph modification — meaning re-running it on the same state will always fail.
- *   This set is cleared whenever a successful operator application changes the model state,
- *   since the new state may allow previously failing operators to succeed.
+ *   The set accumulates across mutation rounds for each parent: each time a parent is selected
+ *   for mutation its deep copy inherits the set (skipping known-failed operators), and any
+ *   new deterministic failures found before the first model change are propagated back to the
+ *   parent by [LocalMutationEvaluator]. The child's copy is cleared after propagation, since
+ *   the child's model state has changed and its failures must be re-discovered independently.
  *   Thread-safe: backed by [Collections.synchronizedSet].
  */
 class Solution(
@@ -24,6 +27,17 @@ class Solution(
     val transformationsChain: MutableList<List<String>> = mutableListOf(),
     val failedDeterministicOperators: MutableSet<Int> = Collections.synchronizedSet(HashSet())
 ) : AutoCloseable {
+
+    /**
+     * Total number of [com.mdeo.optimizer.operators.TransformationAttemptRunner.tryApply] calls
+     * made during the most recent [com.mdeo.optimizer.operators.MutationStrategy.mutate] invocation.
+     *
+     * Counts all actual execution attempts — both successful applications and failures
+     * (deterministic or not) — but does NOT include operators that were pre-skipped
+     * because they were already in [failedDeterministicOperators].
+     * Reset to 0 at the start of each [mutate] call; not copied into [deepCopy] or [copy].
+     */
+    var lastMutationAttempts: Int = 0
 
     /**
      * Creates a deep copy of this solution.

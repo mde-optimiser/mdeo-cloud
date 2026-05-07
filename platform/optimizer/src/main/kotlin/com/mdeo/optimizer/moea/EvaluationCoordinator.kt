@@ -13,6 +13,21 @@ import org.moeaframework.core.population.Population
 import org.slf4j.LoggerFactory
 
 /**
+ * Applied and skipped transformation counts for the last completed generation.
+ *
+ * @param appliedTotal Total transformation operators actually applied across all nodes.
+ * @param skippedTotal Total operator slots pre-skipped across all nodes.
+ * @param appliedPerNode Per-node applied transformation counts.
+ * @param skippedPerNode Per-node skipped operator slot counts.
+ */
+data class LastTransformationInfo(
+    val appliedTotal: Int,
+    val skippedTotal: Int,
+    val appliedPerNode: Map<String, Int>,
+    val skippedPerNode: Map<String, Int>
+)
+
+/**
  * Bridges MOEA Framework's synchronous evaluation callbacks into the asynchronous
  * [MutationEvaluator] contract, managing solution references and lifecycle.
  *
@@ -47,6 +62,10 @@ class EvaluationCoordinator(
     private var lastBatchSize = 0
     private var lastBatchPerNode: Map<String, Int> = emptyMap()
     private var lastRebalancedCount = 0
+    private var lastAppliedTransformations = 0
+    private var lastSkippedOperatorSlots = 0
+    private var lastAppliedPerNode: Map<String, Int> = emptyMap()
+    private var lastSkippedPerNode: Map<String, Int> = emptyMap()
 
     /**
      * Identifies solutions removed from the population since the last iteration,
@@ -133,6 +152,18 @@ class EvaluationCoordinator(
      * @return Pair of (total batch size, per-nodeId task count map).
      */
     fun getLastBatchInfo(): Pair<Int, Map<String, Int>> = Pair(lastBatchSize, lastBatchPerNode)
+
+    /**
+     * Returns applied and skipped transformation counts for the last generation.
+     *
+     * @return [LastTransformationInfo] with totals and per-node breakdowns.
+     */
+    fun getLastTransformationInfo(): LastTransformationInfo = LastTransformationInfo(
+        appliedTotal = lastAppliedTransformations,
+        skippedTotal = lastSkippedOperatorSlots,
+        appliedPerNode = lastAppliedPerNode,
+        skippedPerNode = lastSkippedPerNode
+    )
 
     /**
      * Returns the number of solutions moved between nodes during the last generation's rebalancing.
@@ -260,6 +291,10 @@ class EvaluationCoordinator(
         lastBatchSize = results.size
         lastBatchPerNode = results.filter { it.succeeded }.groupBy { it.workerNodeId }.mapValues { it.value.size }
         lastRebalancedCount = rebalancePlan.sumOf { it.solutionIds.size }
+        lastAppliedTransformations = results.sumOf { it.executedTransformations }
+        lastSkippedOperatorSlots = results.sumOf { it.skippedOperatorSlots }
+        lastAppliedPerNode = results.groupBy { it.workerNodeId }.mapValues { entry -> entry.value.sumOf { it.executedTransformations } }
+        lastSkippedPerNode = results.groupBy { it.workerNodeId }.mapValues { entry -> entry.value.sumOf { it.skippedOperatorSlots } }
     }
 
     /**

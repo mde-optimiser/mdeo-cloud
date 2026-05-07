@@ -16,6 +16,10 @@ export default defineConfig({
     server: {
         port: 4242,
         host: "127.0.0.1",
+        headers: {
+            "Cross-Origin-Opener-Policy": "same-origin",
+            "Cross-Origin-Embedder-Policy": "require-corp"
+        },
         proxy: {
             "/plugin/model-transformation": {
                 target: "http://localhost:3003",

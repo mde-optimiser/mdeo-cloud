@@ -59,7 +59,6 @@ export class ModelGModelFactory extends BaseGModelFactory<PartialModel> {
         const extracted = this.extractElements(sourceModel);
         this.createObjectNodes(graph, extracted.objects, idRegistry);
         this.createLinkEdges(graph, extracted.links, idRegistry);
-
         return graph;
     }
 

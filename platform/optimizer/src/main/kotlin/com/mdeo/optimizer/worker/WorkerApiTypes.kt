@@ -109,6 +109,11 @@ data class BatchEvaluationTask(
  * @param objectives Objective values of the new solution.
  * @param constraints Constraint values of the new solution.
  * @param succeeded Whether the mutation and evaluation completed without error.
+ * @param executedTransformations Number of transformation operators actually tried during
+ *   mutation (successful + failed attempts, excluding pre-skipped ones). Zero for failed
+ *   mutations or evaluation-only tasks.
+ * @param skippedOperatorSlots Number of operator slots pre-skipped because they are known to
+ *   deterministically fail on the parent's current model state.
  * @param errorMessage When non-null, indicates that a guidance function (objective or constraint)
  *   threw an exception. The orchestrator must treat this as a fatal evaluation failure.
  */
@@ -119,6 +124,8 @@ data class BatchResult(
     val objectives: List<Double>,
     val constraints: List<Double>,
     val succeeded: Boolean,
+    val executedTransformations: Int = 0,
+    val skippedOperatorSlots: Int = 0,
     val errorMessage: String? = null
 )
 

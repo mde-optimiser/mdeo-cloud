@@ -34,20 +34,22 @@ class ProgressCallbackExtension(
         generation++
 
         val (totalModels, perNodeModels) = coordinator.getMetricsSnapshot()
-        val (batchSize, batchPerNode) = coordinator.getLastBatchInfo()
         val rebalancedCount = coordinator.getLastRebalancedCount()
+        val transformationInfo = coordinator.getLastTransformationInfo()
 
         val perNodeMetrics = perNodeModels.mapValues { (nodeId, totalCount) ->
             NodeGenerationMetrics(
                 totalModels = totalCount,
-                transformationsInGeneration = batchPerNode[nodeId] ?: 0
+                executedTransformations = transformationInfo.appliedPerNode[nodeId] ?: 0,
+                skippedOperatorSlots = transformationInfo.skippedPerNode[nodeId] ?: 0
             )
         }
 
         val metrics = GenerationMetrics(
             generation = generation,
             totalModels = totalModels,
-            transformationsInGeneration = batchSize,
+            executedTransformations = transformationInfo.appliedTotal,
+            skippedOperatorSlots = transformationInfo.skippedTotal,
             rebalancedSolutions = rebalancedCount,
             iterationTimeMs = iterationTimeMs,
             perNode = perNodeMetrics

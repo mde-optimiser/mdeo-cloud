@@ -12,6 +12,7 @@ import com.mdeo.optimizer.solution.Solution
 import org.slf4j.LoggerFactory
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Single-node, in-process implementation of [MutationEvaluator].
@@ -39,6 +40,14 @@ class LocalMutationEvaluator(
 
     private val logger = LoggerFactory.getLogger(LocalMutationEvaluator::class.java)
     private val solutions: ConcurrentHashMap<String, Solution> = ConcurrentHashMap()
+
+    // --- skip-tracking counters (printed at cleanup, readable by tests in same module) ---
+    internal val totalMutations = AtomicLong(0)
+    /** Mutations where the parent already had ≥1 pre-skipped deterministic failure. */
+    internal val mutationsWithSkips = AtomicLong(0)
+    /** Sum of failedDeterministicOperators.size across every mutation call — approximates
+     *  how many tryApply() calls were avoided (one per skipped operator per mutation). */
+    internal val totalSkippedOperatorSlots = AtomicLong(0)
 
     /**
      * Staged incoming [SerializedModel]s pending lazy materialization.
@@ -166,10 +175,12 @@ class LocalMutationEvaluator(
      * Deep-copies the parent solution, applies the mutation strategy, stores the offspring,
      * and returns an [EvaluationResult] with fitness values.
      *
-     * After mutation, any newly discovered deterministic operator failures recorded on the
-     * copy are propagated back to the parent's [Solution.failedDeterministicOperators] set.
-     * This ensures that the parent avoids reattempting operators that are guaranteed to fail
-     * on its model state in future mutation rounds.
+     * The deep copy inherits the parent's [Solution.failedDeterministicOperators] so the
+     * mutation strategy can skip operators known to fail on the parent's model state. After
+     * mutation, failures found before the first model change are propagated back to the
+     * parent (which may survive into the next generation with the same model state). The
+     * child's set is then cleared — the child's model has changed and must re-discover its
+     * own failures independently.
      *
      * @param task The mutation task identifying the parent solution.
      * @return An [EvaluationResult] with [EvaluationResult.succeeded] set accordingly.
@@ -177,6 +188,15 @@ class LocalMutationEvaluator(
     private fun evaluateSingle(task: MutationTask): EvaluationResult {
         val parent = requireSolution(task.solutionId)
         val copy = parent.deepCopy()
+
+        // Track skip statistics before mutation so we measure what the strategy sees.
+        totalMutations.incrementAndGet()
+        val preSkipCount = copy.failedDeterministicOperators.size
+        if (preSkipCount > 0) {
+            mutationsWithSkips.incrementAndGet()
+            totalSkippedOperatorSlots.addAndGet(preSkipCount.toLong())
+        }
+
         val mutated = try {
             mutationStrategy.mutate(copy)
         } catch (e: Throwable) {
@@ -187,14 +207,19 @@ class LocalMutationEvaluator(
                 workerNodeId = nodeId,
                 objectives = emptyList(),
                 constraints = emptyList(),
-                succeeded = false
+                succeeded = false,
+                skippedOperatorSlots = preSkipCount
             )
         }
-        // Propagate any newly discovered deterministic failures from the copy back to the
-        // parent. When the copy's set is non-empty it means no successful operator was ever
-        // applied (the set gets cleared on first success), so the failures apply to the
-        // parent's unchanged model state too.
-        parent.failedDeterministicOperators.addAll(copy.failedDeterministicOperators)
+        val executedTransformations = mutated.lastMutationAttempts
+        // Propagate deterministic failures found before the first successful mutation back
+        // to the parent. Those failures were recorded against the parent's (pre-mutation)
+        // model state, so they are equally valid for the parent in future generations.
+        // Then clear the child's set: the child's model state has changed (mutation was
+        // applied), so the inherited failures no longer describe its new state. The child
+        // will re-discover its own failures in subsequent mutation rounds.
+        parent.failedDeterministicOperators.addAll(mutated.failedDeterministicOperators)
+        mutated.failedDeterministicOperators.clear()
         val newId = generateId()
         solutions[newId] = mutated
         val objectives: List<Double>
@@ -211,6 +236,8 @@ class LocalMutationEvaluator(
                 objectives = emptyList(),
                 constraints = emptyList(),
                 succeeded = false,
+                executedTransformations = executedTransformations,
+                skippedOperatorSlots = preSkipCount,
                 errorMessage = "Guidance function evaluation failed: ${e.message}"
             )
         }
@@ -220,7 +247,9 @@ class LocalMutationEvaluator(
             workerNodeId = nodeId,
             objectives = objectives,
             constraints = constraints,
-            succeeded = true
+            succeeded = true,
+            executedTransformations = executedTransformations,
+            skippedOperatorSlots = preSkipCount
         )
     }
 

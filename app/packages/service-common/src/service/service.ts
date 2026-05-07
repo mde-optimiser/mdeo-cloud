@@ -84,7 +84,10 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
         await fastify.register(fastifyStatic, {
             root: staticPath,
             prefix: staticPrefix,
-            decorateReply: false
+            decorateReply: false,
+            setHeaders: (res) => {
+                res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+            }
         });
     }
 

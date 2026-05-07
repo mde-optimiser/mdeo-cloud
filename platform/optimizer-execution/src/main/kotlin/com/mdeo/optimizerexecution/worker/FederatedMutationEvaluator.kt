@@ -259,6 +259,8 @@ class FederatedMutationEvaluator(
                     objectives = result.objectives,
                     constraints = result.constraints,
                     succeeded = result.succeeded,
+                    executedTransformations = result.executedTransformations,
+                    skippedOperatorSlots = result.skippedOperatorSlots,
                     errorMessage = result.errorMessage
                 )
             }

@@ -50,6 +50,7 @@ class RepetitiveOperatorMutationStrategy(
         val stepTransformations = mutableListOf<String>()
         // True once at least one operator has been successfully applied.
         var anyOperatorApplied = false
+        var attemptCount = 0
 
         for (step in 1..stepSize) {
             do {
@@ -59,12 +60,15 @@ class RepetitiveOperatorMutationStrategy(
                 // After the null-check + break above, Kotlin smart-casts currentOperatorIdx to Int.
                 val operatorPath = operatorPaths[currentOperatorIdx]
 
+                attemptCount++
                 when (attemptRunner.tryApply(solution, operatorPath)) {
                     TransformationAttemptResult.Applied -> {
                         stepTransformations.add(operatorPath)
                         if (!anyOperatorApplied) {
+                            // First successful application: model state has changed, so stop
+                            // recording further failures. Already-recorded failures are kept
+                            // so they can be propagated back to the parent.
                             anyOperatorApplied = true
-                            solution.failedDeterministicOperators.clear()
                         }
                         // Retain currentOperatorIdx for the next step (repetitive behaviour).
                     }
@@ -83,6 +87,7 @@ class RepetitiveOperatorMutationStrategy(
             operatorSelectionStrategy.flushTriedOperators()
         }
 
+        solution.lastMutationAttempts = attemptCount
         solution.recordTransformationStep(stepTransformations)
         return solution
     }

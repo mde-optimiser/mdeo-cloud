@@ -854,7 +854,9 @@ class WorkerSubprocessMain : SubprocessMain() {
                     newSolutionId = result.newSolutionId,
                     objectives = result.objectives,
                     constraints = result.constraints,
-                    succeeded = true
+                    succeeded = true,
+                    executedTransformations = result.executedTransformations,
+                    skippedOperatorSlots = result.skippedOperatorSlots
                 )
             } else {
                 failedResult(task.solutionId, result?.errorMessage)

@@ -7,6 +7,7 @@ export * from "./context-actions/baseContextItemProvider.js";
 export * from "./context-actions/contextActionRequestContext.js";
 export * from "./context-actions/contextItemProvider.js";
 export * from "./context-actions/defaultContextActionsProvider.js";
+export * from "./diagram-server/graph-edit-distance/gedWorkerBase.js";
 export * from "./diagram-server/graph-edit-distance/graphEditDistance.js";
 export * from "./diagram-server/graph-edit-distance/hungarian.js";
 export * from "./diagram-server/graph-edit-distance/multiGraph.js";

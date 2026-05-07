@@ -11,7 +11,6 @@ import {
     NodeLayoutMetadataUtil,
     EdgeLayoutMetadataUtil
 } from "@mdeo/language-shared";
-import type { NodeAttributes, EdgeAttributes } from "@mdeo/language-shared";
 import { ModelTransformationElementType } from "@mdeo/protocol-model-transformation";
 import type {
     ModelTransformationType,
@@ -45,6 +44,8 @@ const { injectable, inject } = sharedImport("inversify");
 export class ModelTransformationMetadataManager extends MetadataManager<ModelTransformationType> {
     @inject(ModelIdProvider)
     protected modelIdProvider!: ModelIdProviderType;
+
+    protected override gedWorkerUrl = "/plugin/model-transformation/static/gedWorker.js";
 
     /**
      * Tracks pattern instances declared in previous matches for reference resolution.
@@ -87,107 +88,6 @@ export class ModelTransformationMetadataManager extends MetadataManager<ModelTra
         }
 
         return undefined;
-    }
-
-    /**
-     * Calculate the cost of transforming one node to another.
-     *
-     * @param node1 First NodeAttributes
-     * @param node2 Second NodeAttributes
-     * @returns Cost of transformation
-     */
-    protected calculateNodeCost(node1: NodeAttributes | undefined, node2: NodeAttributes | undefined): number {
-        if (node1 == undefined || node2 == undefined) {
-            return 1;
-        }
-        if (node1.id === node2.id) {
-            return 0;
-        }
-
-        const type1 = node1.type as string;
-        const type2 = node2.type as string;
-
-        if (type1 !== type2) {
-            return 2;
-        }
-
-        if (type1 === ModelTransformationElementType.NODE_MATCH) {
-            const similarity = this.calculateMatchSimilarity(node1, node2);
-            return 2 - similarity;
-        }
-
-        if (type1 === ModelTransformationElementType.NODE_PATTERN_INSTANCE) {
-            const similarity = this.calculatePatternInstanceSimilarity(node1, node2);
-            return 2 - similarity;
-        }
-
-        return 1;
-    }
-
-    /**
-     * Calculate similarity between two match nodes.
-     *
-     * @param node1 First node
-     * @param node2 Second node
-     * @returns Cost based on similarity
-     */
-    private calculateMatchSimilarity(node1: NodeAttributes, node2: NodeAttributes): number {
-        const label1 = node1.label as string | undefined;
-        const label2 = node2.label as string | undefined;
-
-        if (label1 === label2) {
-            return 1;
-        }
-        return 0;
-    }
-
-    /**
-     * Calculate similarity between two pattern instance nodes.
-     *
-     * @param node1 First node
-     * @param node2 Second node
-     * @returns Cost based on similarity
-     */
-    private calculatePatternInstanceSimilarity(node1: NodeAttributes, node2: NodeAttributes): number {
-        const name1 = node1.name as string | undefined;
-        const name2 = node2.name as string | undefined;
-        const type1Attr = node1.typeName as string | undefined;
-        const type2Attr = node2.typeName as string | undefined;
-
-        if (name1 === name2 && type1Attr === type2Attr) {
-            return 1;
-        }
-
-        if (name1 === name2 || type1Attr === type2Attr) {
-            return 0.5;
-        }
-
-        return 0;
-    }
-
-    /**
-     * Calculate the cost of transforming one edge to another.
-     *
-     * @param edge1 First EdgeAttributes
-     * @param edge2 Second EdgeAttributes
-     * @returns Cost of transformation
-     */
-    protected calculateEdgeCost(edge1: EdgeAttributes | undefined, edge2: EdgeAttributes | undefined): number {
-        if (edge1 == undefined || edge2 == undefined) {
-            return 1;
-        }
-        if (edge1.id === edge2.id) {
-            return 0;
-        }
-
-        const type1 = edge1.type as string;
-        const type2 = edge2.type as string;
-
-        if (type1 !== type2) {
-            return 2;
-        }
-
-        return 1;
     }
 
     /**

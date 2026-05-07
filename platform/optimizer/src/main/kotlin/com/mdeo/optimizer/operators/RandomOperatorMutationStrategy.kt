@@ -46,6 +46,7 @@ class RandomOperatorMutationStrategy(
         // Tracks whether at least one operator has been successfully applied, changing the
         // model state. Before the first success, deterministic failures are recorded.
         var anyOperatorApplied = false
+        var attemptCount = 0
 
         for (step in 1..stepSize) {
             var operatorApplied = false
@@ -54,20 +55,17 @@ class RandomOperatorMutationStrategy(
                 val operatorIdx = operatorSelectionStrategy.getNextOperator(solution) ?: break
                 val operatorPath = operatorPaths[operatorIdx]
 
+                attemptCount++
                 when (attemptRunner.tryApply(solution, operatorPath)) {
                     TransformationAttemptResult.Applied -> {
                         stepTransformations.add(operatorPath)
                         operatorApplied = true
                         if (!anyOperatorApplied) {
-                            // First successful application: clear the failed set since the
-                            // model state has changed and prior failures may no longer hold.
                             anyOperatorApplied = true
-                            solution.failedDeterministicOperators.clear()
                         }
                     }
                     TransformationAttemptResult.DeterministicFailure -> {
                         if (!anyOperatorApplied) {
-                            // Record only before the model state has changed.
                             solution.failedDeterministicOperators.add(operatorIdx)
                         }
                     }
@@ -80,6 +78,7 @@ class RandomOperatorMutationStrategy(
             operatorSelectionStrategy.flushTriedOperators()
         }
 
+        solution.lastMutationAttempts = attemptCount
         solution.recordTransformationStep(stepTransformations)
         return solution
     }

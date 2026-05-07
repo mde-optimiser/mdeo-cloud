@@ -858,8 +858,10 @@ class OptimizerExecutionService(
                     xTitle = "Generation",
                     yTitle = "Transformations",
                     traces = listOf(
-                        PlotTrace("Transformations", generations.map { it.generation }, generations.map { it.transformationsInGeneration })
-                    )
+                        PlotTrace("Executed", generations.map { it.generation }, generations.map { it.executedTransformations }),
+                        PlotTrace("Skipped", generations.map { it.generation }, generations.map { it.skippedOperatorSlots })
+                    ),
+                    stackedBars = true
                 ))
 
                 append("#### Iteration Time\n\n")
@@ -903,7 +905,7 @@ class OptimizerExecutionService(
                             PlotTrace(
                                 "Node $nodeId",
                                 generations.map { it.generation },
-                                generations.map { it.perNode[nodeId]?.transformationsInGeneration ?: 0 }
+                                generations.map { it.perNode[nodeId]?.executedTransformations ?: 0 }
                             )
                         }
                     ))
@@ -942,14 +944,16 @@ class OptimizerExecutionService(
                         addJsonObject {
                             put("generation", gen.generation)
                             put("totalModels", gen.totalModels)
-                            put("transformationsInGeneration", gen.transformationsInGeneration)
+                            put("executedTransformations", gen.executedTransformations)
+                            put("skippedOperatorSlots", gen.skippedOperatorSlots)
                             put("rebalancedSolutions", gen.rebalancedSolutions)
                             put("iterationTimeMs", gen.iterationTimeMs)
                             putJsonObject("perNode") {
                                 gen.perNode.forEach { (nodeId, nodeMetrics) ->
                                     putJsonObject(nodeId) {
                                         put("totalModels", nodeMetrics.totalModels)
-                                        put("transformationsInGeneration", nodeMetrics.transformationsInGeneration)
+                                        put("executedTransformations", nodeMetrics.executedTransformations)
+                                        put("skippedOperatorSlots", nodeMetrics.skippedOperatorSlots)
                                     }
                                 }
                             }
@@ -976,19 +980,28 @@ class OptimizerExecutionService(
      * @param xTitle Label for the x axis.
      * @param yTitle Label for the y axis.
      * @param traces Ordered list of traces to render in the chart.
+     * @param stackedBars When true, renders as a stacked bar chart instead of line chart.
      * @return The rendered ` ```plot ``` ` code block string.
      */
     private fun buildPlotBlock(
         xTitle: String,
         yTitle: String,
-        traces: List<PlotTrace>
+        traces: List<PlotTrace>,
+        stackedBars: Boolean = false
     ): String {
-        val data = traces.joinToString(",") { trace ->
-            """{"x":${trace.x},"y":${trace.y},"type":"scatter","mode":"lines","name":"${trace.name}"}"""
+        val data = if (stackedBars) {
+            traces.joinToString(",") { trace ->
+                """{"x":${trace.x},"y":${trace.y},"type":"bar","name":"${trace.name}"}"""
+            }
+        } else {
+            traces.joinToString(",") { trace ->
+                """{"x":${trace.x},"y":${trace.y},"type":"scatter","mode":"lines","name":"${trace.name}"}"""
+            }
         }
+        val barMode = if (stackedBars) ""","barmode":"stack"""" else ""
         return buildString {
             append("```plot\n")
-            append("""{"data":[$data],"layout":{"xaxis":{"title":"$xTitle"},"yaxis":{"title":"$yTitle"},"margin":{"l":50,"r":30,"t":20,"b":40}}}""")
+            append("""{"data":[$data],"layout":{"xaxis":{"title":"$xTitle"},"yaxis":{"title":"$yTitle"},"margin":{"l":50,"r":30,"t":20,"b":40}$barMode}}""")
             append("\n```\n\n")
         }
     }
