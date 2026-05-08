@@ -84,3 +84,5 @@ Dockerfile
 coverage/
 .nyc_output/
 *.lcov
+
+.kotlin/

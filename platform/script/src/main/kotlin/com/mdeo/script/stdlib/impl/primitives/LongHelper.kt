@@ -249,31 +249,4 @@ object LongHelper {
      */
     @JvmStatic
     fun toString(value: Long): String = value.toString()
-
-    /**
-     * Converts a long to a double.
-     *
-     * @param value the long value
-     * @return the double value
-     */
-    @JvmStatic
-    fun asDouble(value: Long): Double = value.toDouble()
-
-    /**
-     * Converts a long to a float.
-     *
-     * @param value the long value
-     * @return the float value
-     */
-    @JvmStatic
-    fun asFloat(value: Long): Float = value.toFloat()
-
-    /**
-     * Converts a long to an int.
-     *
-     * @param value the long value
-     * @return the int value
-     */
-    @JvmStatic
-    fun asInt(value: Long): Int = value.toInt()
 }

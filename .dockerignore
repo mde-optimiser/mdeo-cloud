@@ -1,0 +1,15 @@
+# Directories not needed by any Dockerfile
+copilot/
+tools/
+
+# Platform build artifacts (rebuilt inside Docker)
+platform/**/build/
+platform/**/.gradle/
+platform/.gradle/
+platform/**/*.jar
+platform/**/*.class
+
+# App dependencies and build outputs (rebuilt inside Docker)
+app/**/node_modules/
+app/**/*.tsbuildinfo
+app/**/dist/

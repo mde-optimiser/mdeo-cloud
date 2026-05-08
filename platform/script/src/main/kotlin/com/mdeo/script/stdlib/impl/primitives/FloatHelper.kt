@@ -178,33 +178,6 @@ object FloatHelper {
     fun toString(value: Float): String = value.toString()
 
     /**
-     * Converts a float to a double.
-     *
-     * @param value the float value
-     * @return the double value
-     */
-    @JvmStatic
-    fun asDouble(value: Float): Double = value.toDouble()
-
-    /**
-     * Converts a float to an int.
-     *
-     * @param value the float value
-     * @return the int value
-     */
-    @JvmStatic
-    fun asInt(value: Float): Int = value.toInt()
-
-    /**
-     * Converts a float to a long.
-     *
-     * @param value the float value
-     * @return the long value
-     */
-    @JvmStatic
-    fun asLong(value: Float): Long = value.toLong()
-
-    /**
      * Checks if the float is NaN.
      *
      * @param value the float value

@@ -165,20 +165,5 @@ fun createIntType(): TypeDefinition {
             )
         }
 
-        staticMethod("asDouble") {
-            overload(
-                "", "(I)D", INT_HELPER,
-                parameterTypes = emptyList(),
-                returnType = BuiltinTypes.DOUBLE
-            )
-        }
-
-        staticMethod("asFloat") {
-            overload(
-                "", "(I)F", INT_HELPER,
-                parameterTypes = emptyList(),
-                returnType = BuiltinTypes.FLOAT
-            )
-        }
     }
 }

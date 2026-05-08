@@ -217,8 +217,6 @@ services:
     build:
       context: ..
       dockerfile: infra/docker/script-execution/Dockerfile
-    ports:
-      - "8080:8080"
     environment:
       SERVER_PORT: "8080"
       DATABASE_URL: "jdbc:postgresql://postgres-script:5432/mdeo"
@@ -243,8 +241,6 @@ services:
     build:
       context: ..
       dockerfile: infra/docker/model-transformation-execution/Dockerfile
-    ports:
-      - "8080:8080"
     environment:
       SERVER_PORT: "8080"
       DATABASE_URL: "jdbc:postgresql://postgres-model-transformation:5432/mdeo"
@@ -333,8 +329,6 @@ services:
     build:
       context: ..
       dockerfile: infra/docker/optimizer-execution/Dockerfile
-    ports:
-      - "8080:8080"
     environment:
       SERVER_PORT: "8080"
       DATABASE_URL: "jdbc:postgresql://postgres-optimizer:5432/mdeo"

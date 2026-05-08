@@ -246,31 +246,4 @@ object IntHelper {
      */
     @JvmStatic
     fun toString(value: Int): String = value.toString()
-
-    /**
-     * Converts an integer to a double.
-     *
-     * @param value the integer value
-     * @return the double value
-     */
-    @JvmStatic
-    fun asDouble(value: Int): Double = value.toDouble()
-
-    /**
-     * Converts an integer to a float.
-     *
-     * @param value the integer value
-     * @return the float value
-     */
-    @JvmStatic
-    fun asFloat(value: Int): Float = value.toFloat()
-
-    /**
-     * Converts an integer to a long.
-     *
-     * @param value the integer value
-     * @return the long value
-     */
-    @JvmStatic
-    fun asLong(value: Int): Long = value.toLong()
 }
