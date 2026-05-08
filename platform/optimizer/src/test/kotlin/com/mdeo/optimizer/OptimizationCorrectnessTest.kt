@@ -8,6 +8,7 @@ import com.mdeo.expression.ast.expressions.TypedMemberCallExpression
 import com.mdeo.metamodel.Metamodel
 import com.mdeo.metamodel.data.*
 import com.mdeo.modeltransformation.ast.TypedAst as TransformationTypedAst
+import com.mdeo.modeltransformation.ast.TransformationOperator
 import com.mdeo.modeltransformation.ast.patterns.TypedPattern
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternLink
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternLinkElement
@@ -292,12 +293,15 @@ class OptimizationCorrectnessTest {
         val metamodel = compiledProgram.metamodel ?: error("No metamodel in compiled program")
 
         val solution = Solution(backend.createModelGraph(modelData, metamodel))
-        val runner = TransformationAttemptRunner(transformations)
+        val runner = TransformationAttemptRunner()
+        val operatorByPath = transformations.keys.sorted().mapIndexed { idx, path ->
+            path to TransformationOperator(id = idx, ast = transformations[path]!!)
+        }.toMap()
 
         val n = 5
         repeat(n) { i ->
             assertTrue(
-                runner.tryApply(solution, "/transformation/addRoom.mt").isApplied,
+                runner.tryApply(solution, operatorByPath["/transformation/addRoom.mt"]!!).isApplied,
                 "addRoom must succeed on iteration ${i + 1}"
             )
         }
@@ -400,7 +404,10 @@ class OptimizationCorrectnessTest {
         )
 
         val mutationStrategy = MutationStrategyFactory.create(
-            config.solver.parameters.mutation, transformations
+            config.solver.parameters.mutation,
+            transformations.keys.sorted().mapIndexed { idx, path ->
+                TransformationOperator(id = idx, ast = transformations[path]!!)
+            }
         )
         val evaluator = LocalMutationEvaluator(
             initialSolutionProvider = initialSolutionProvider,
@@ -497,7 +504,10 @@ class OptimizationCorrectnessTest {
         )
 
         val mutationStrategy = MutationStrategyFactory.create(
-            config.solver.parameters.mutation, transformations
+            config.solver.parameters.mutation,
+            transformations.keys.sorted().mapIndexed { idx, path ->
+                TransformationOperator(id = idx, ast = transformations[path]!!)
+            }
         )
         val evaluator = LocalMutationEvaluator(
             initialSolutionProvider = initialSolutionProvider,

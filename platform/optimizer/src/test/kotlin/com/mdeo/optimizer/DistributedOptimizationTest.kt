@@ -8,6 +8,7 @@ import com.mdeo.expression.ast.expressions.TypedMemberCallExpression
 import com.mdeo.metamodel.SerializedModel
 import com.mdeo.metamodel.data.*
 import com.mdeo.modeltransformation.ast.TypedAst as TransformationTypedAst
+import com.mdeo.modeltransformation.ast.TransformationOperator
 import com.mdeo.modeltransformation.ast.patterns.TypedPattern
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternLink
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternLinkElement
@@ -375,7 +376,12 @@ class DistributedOptimizationTest {
         )
 
         val mutationParams = solverConfig.parameters.mutation
-        val mutationStrategy = MutationStrategyFactory.create(mutationParams, transformations)
+        val mutationStrategy = MutationStrategyFactory.create(
+            mutationParams,
+            transformations.keys.sorted().mapIndexed { idx, path ->
+                TransformationOperator(id = idx, ast = transformations[path]!!)
+            }
+        )
 
         val nodeIds = listOf("node-1", "node-2", "node-3")
         val nodeEvaluators = nodeIds.map { nodeId ->

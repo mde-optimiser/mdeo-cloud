@@ -1,6 +1,6 @@
 package com.mdeo.optimizer.operators
 
-import com.mdeo.modeltransformation.ast.TypedAst
+import com.mdeo.modeltransformation.ast.TransformationOperator
 import com.mdeo.modeltransformation.runtime.TransformationEngine
 import com.mdeo.modeltransformation.runtime.TransformationExecutionResult
 import com.mdeo.optimizer.solution.Solution
@@ -14,18 +14,18 @@ sealed class TransformationAttemptResult {
     object Applied : TransformationAttemptResult()
 
     /**
-     * The transformation failed deterministically: no match was found before any graph
-     * modification, so re-running it on the same model state will always produce the
-     * same result. Safe to skip on future attempts against this model state.
+     * The transformation failed.
+     *
+     * @param isDeterministic `true` when the failure is guaranteed to recur on the same
+     *   model state (no match was found before any graph modification), so the operator
+     *   can be safely skipped on future attempts against this state.
+     *   `false` when the outcome may differ on a re-try (e.g. a later match statement
+     *   failed after some partial modifications, or an unexpected exception occurred).
+     * @param changesWereMade whether the graph may have been modified before the failure.
+     *   For deterministic failures this is always `false`; for non-deterministic failures
+     *   it defaults to `true` (pessimistic).
      */
-    object DeterministicFailure : TransformationAttemptResult()
-
-    /**
-     * The transformation failed but the outcome may differ on a re-try (e.g. a later
-     * match statement failed after some partial modifications, or an unexpected exception
-     * occurred). Not safe to permanently skip.
-     */
-    object NonDeterministicFailure : TransformationAttemptResult()
+    data class Failure(val isDeterministic: Boolean, val changesWereMade: Boolean) : TransformationAttemptResult()
 
     /** `true` when this result represents a successful application. */
     val isApplied: Boolean get() = this is Applied
@@ -39,35 +39,28 @@ sealed class TransformationAttemptResult {
  * match step, so each match within a single transformation execution sees a freshly
  * shuffled vertex iteration order. This prevents earlier matches from constraining
  * the possible outcomes of later ones.
- *
- * @param transformations Map of transformation path to its compiled TypedAst.
  */
-class TransformationAttemptRunner(
-    private val transformations: Map<String, TypedAst>
-) {
+class TransformationAttemptRunner {
     private val logger = LoggerFactory.getLogger(TransformationAttemptRunner::class.java)
 
     /**
-     * Attempts to apply the named transformation to the given solution.
+     * Attempts to apply the given [operator] to the solution's model graph.
      *
      * Creates a [TransformationEngine] in non-deterministic mode and runs the
      * compiled transformation AST against the solution's model graph. On success
-     * the graph is modified in place; on failure the graph is left unchanged.
+     * the graph is modified in place; on failure the graph may have been partially
+     * modified (see [TransformationAttemptResult.Failure.changesWereMade]).
      *
-     * @param solution The candidate solution (modified in place on success).
-     * @param transformationPath Path identifying which transformation to apply.
-     * @return [TransformationAttemptResult.Applied] on success,
-     *   [TransformationAttemptResult.DeterministicFailure] when the failure is guaranteed
-     *   to recur on the same model state, or [TransformationAttemptResult.NonDeterministicFailure]
-     *   otherwise.
+     * @param solution The candidate solution (model graph modified in place on success).
+     * @param operator The compiled [TransformationOperator] to apply.
+     * @return [TransformationAttemptResult.Applied] on success, or
+     *   [TransformationAttemptResult.Failure] with [TransformationAttemptResult.Failure.isDeterministic]
+     *   set accordingly.
      */
-    fun tryApply(solution: Solution, transformationPath: String): TransformationAttemptResult {
-        val typedAst = transformations[transformationPath]
-            ?: throw IllegalArgumentException("Unknown transformation: $transformationPath")
-
+    fun tryApply(solution: Solution, operator: TransformationOperator): TransformationAttemptResult {
         return try {
             val engine = TransformationEngine.create(
-                solution.modelGraph, typedAst, deterministic = false
+                solution.modelGraph, operator.ast, deterministic = false
             )
             val result = engine.execute()
 
@@ -75,14 +68,16 @@ class TransformationAttemptRunner(
                 is TransformationExecutionResult.Success -> TransformationAttemptResult.Applied
                 is TransformationExecutionResult.Stopped ->
                     if (result.isNormalStop) TransformationAttemptResult.Applied
-                    else TransformationAttemptResult.NonDeterministicFailure
+                    else TransformationAttemptResult.Failure(isDeterministic = false, changesWereMade = true)
                 is TransformationExecutionResult.Failure ->
-                    if (result.isDeterministic) TransformationAttemptResult.DeterministicFailure
-                    else TransformationAttemptResult.NonDeterministicFailure
+                    if (result.isDeterministic)
+                        TransformationAttemptResult.Failure(isDeterministic = true, changesWereMade = result.changesWereMade)
+                    else
+                        TransformationAttemptResult.Failure(isDeterministic = false, changesWereMade = result.changesWereMade)
             }
         } catch (e: Exception) {
-            logger.warn("Transformation $transformationPath threw exception: ${e.message}")
-            TransformationAttemptResult.NonDeterministicFailure
+            logger.warn("Transformation operator {} threw exception: {}", operator.id, e.message)
+            TransformationAttemptResult.Failure(isDeterministic = false, changesWereMade = true)
         }
     }
 }

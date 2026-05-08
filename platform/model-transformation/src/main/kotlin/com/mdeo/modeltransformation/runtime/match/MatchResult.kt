@@ -25,6 +25,7 @@ sealed interface MatchResult {
      * @param matchedNodeIds Set of raw vertex IDs that were matched (not created).
      * @param createdNodeIds Set of raw vertex IDs that were created by the pattern.
      * @param deletedNodeIds Set of raw vertex IDs that were deleted by the pattern.
+     * @param edgesModified Whether any edges were created or deleted by the pattern.
      */
     data class Matched(
         val bindings: Map<String, Any?> = emptyMap(),
@@ -32,7 +33,11 @@ sealed interface MatchResult {
         val matchedNodeIds: Set<Any> = emptySet(),
         val createdNodeIds: Set<Any> = emptySet(),
         val deletedNodeIds: Set<Any> = emptySet(),
+        val edgesModified: Boolean = false,
     ) : MatchResult {
+
+        /** Whether this match result itself made any graph changes (nodes or edges). */
+        val changesWereMade: Boolean get() = createdNodeIds.isNotEmpty() || deletedNodeIds.isNotEmpty() || edgesModified
         
         /**
          * Applies this match result to an execution context.

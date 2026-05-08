@@ -28,6 +28,20 @@ interface ModelGraph : AutoCloseable {
     val metamodel: Metamodel
 
     /**
+     * Arbitrary metadata attached to this graph.
+     *
+     * Mutable so that the optimizer can swap in a fresh [ModelMetadata] instance
+     * (e.g. [com.mdeo.optimizer.solution.FailedOperatorsMetadata]) after a
+     * successful mutation without touching the graph state itself.
+     *
+     * Because [ModelMetadata.deepCopy] is a no-op by default, parent and child
+     * graphs produced by [deepCopy] share the same metadata object.  The
+     * optimizer replaces this reference on the child after a successful
+     * mutation to decouple the child's failure tracking from the parent's.
+     */
+    var metadata: ModelMetadata?
+
+    /**
      * Registry mapping vertex IDs to instance names. 
      */
     val nameRegistry: InstanceNameRegistry

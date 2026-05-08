@@ -303,7 +303,8 @@ class MatchExecutor {
                 instanceMappings, matchedNodeIds, createdNodeIds, deletedNodeIds, engine
             )
         }
-        return MatchResult.Matched(bindings, instanceMappings, matchedNodeIds, createdNodeIds, deletedNodeIds)
+        return MatchResult.Matched(bindings, instanceMappings, matchedNodeIds, createdNodeIds, deletedNodeIds,
+            edgesModified = elements.createLinks.isNotEmpty() || elements.deleteLinks.isNotEmpty())
     }
 
     /**

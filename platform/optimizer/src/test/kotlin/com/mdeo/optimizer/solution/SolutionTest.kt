@@ -22,7 +22,7 @@ class SolutionTest {
         )
         modelGraph.traversal().addV("node").next()
         val original = Solution(modelGraph)
-        original.recordTransformationStep(listOf("transform1"))
+        original.recordTransformationStep(listOf(1))
 
         val copy = original.deepCopy()
 
@@ -32,7 +32,7 @@ class SolutionTest {
         assertEquals(2L, copy.modelGraph.traversal().V().count().next())
 
         // Verify independent transformation chain
-        copy.recordTransformationStep(listOf("transform2"))
+        copy.recordTransformationStep(listOf(2))
         assertEquals(1, original.transformationsChain.size)
         assertEquals(2, copy.transformationsChain.size)
 
@@ -48,12 +48,12 @@ class SolutionTest {
         )
         val solution = Solution(modelGraph)
 
-        solution.recordTransformationStep(listOf("t1", "t2"))
-        solution.recordTransformationStep(listOf("t3"))
+        solution.recordTransformationStep(listOf(1, 2))
+        solution.recordTransformationStep(listOf(3))
 
         assertEquals(2, solution.transformationsChain.size)
-        assertEquals(listOf("t1", "t2"), solution.transformationsChain[0])
-        assertEquals(listOf("t3"), solution.transformationsChain[1])
+        assertEquals(listOf(1, 2), solution.transformationsChain[0])
+        assertEquals(listOf(3), solution.transformationsChain[1])
 
         solution.close()
     }

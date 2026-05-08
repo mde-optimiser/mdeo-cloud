@@ -71,7 +71,7 @@ class WhileMatchStatementExecutor(
     ): TransformationExecutionResult {
         val whileMatchStatement = statement as TypedWhileMatchStatement
         
-        var accumulatedResult = TransformationExecutionResult.Success()
+        var accumulatedResult: TransformationExecutionResult.Success? = null
         
         while (true) {
             val whileContext = context.enterScope()
@@ -85,22 +85,27 @@ class WhileMatchStatementExecutor(
             when (matchResult) {
                 is MatchResult.NoMatch -> break
                 is MatchResult.Matched -> {
-                    accumulatedResult = accumulatedResult.merge(matchResult)
+                    val matchSuccess = TransformationExecutionResult.Success(
+                        createdNodes = matchResult.createdNodeIds,
+                        deletedNodes = matchResult.deletedNodeIds,
+                        edgesModified = matchResult.edgesModified
+                    )
+                    accumulatedResult = matchSuccess.merge(accumulatedResult)
                     val matchedContext = matchResult.applyTo(whileContext)
                     val iterationResult = engine.executeBlock(whileMatchStatement.doBlock, matchedContext)
                     
                     when (iterationResult) {
                         is TransformationExecutionResult.Success -> {
-                            accumulatedResult = accumulatedResult.merge(iterationResult)
+                            accumulatedResult = iterationResult.merge(accumulatedResult)
                         }
-                        is TransformationExecutionResult.Failure -> return iterationResult
+                        is TransformationExecutionResult.Failure -> return iterationResult.merge(accumulatedResult)
                         is TransformationExecutionResult.Stopped -> return iterationResult
                     }
                 }
             }
         }
         
-        return accumulatedResult
+        return accumulatedResult ?: TransformationExecutionResult.Success.empty()
     }
     
 }

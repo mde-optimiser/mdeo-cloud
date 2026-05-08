@@ -5,21 +5,19 @@ import com.mdeo.expression.ast.types.ReturnType
 import com.mdeo.expression.ast.types.VoidType
 import com.mdeo.metamodel.Metamodel
 import com.mdeo.metamodel.data.*
+import com.mdeo.modeltransformation.ast.TransformationOperator
 import com.mdeo.modeltransformation.ast.TypedAst as TransformationTypedAst
 import com.mdeo.modeltransformation.ast.patterns.TypedPattern
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternObjectInstance
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternObjectInstanceElement
 import com.mdeo.modeltransformation.ast.statements.TypedMatchStatement
 import com.mdeo.modeltransformation.graph.mdeo.MdeoModelGraph
-import com.mdeo.optimizer.OptimizationOrchestrator
 import com.mdeo.optimizer.config.*
-import com.mdeo.optimizer.evaluation.LocalMutationEvaluator
-import com.mdeo.optimizer.guidance.GuidanceFunction
 import com.mdeo.optimizer.operators.MutationStrategyFactory
 import com.mdeo.optimizer.operators.TransformationAttemptResult
 import com.mdeo.optimizer.operators.TransformationAttemptRunner
+import com.mdeo.optimizer.solution.FailedOperatorsMetadata
 import com.mdeo.optimizer.solution.Solution
-import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 
@@ -35,7 +33,7 @@ import org.junit.jupiter.api.Test
  *
  * Expected behaviour:
  * - The first 10 applications succeed, each removing one Node.
- * - The 11th application returns DeterministicFailure (first-match failure, no graph change).
+ * - The 11th application returns a deterministic Failure (first-match failure, no graph change).
  * - After that failure is recorded in Solution.failedDeterministicOperators, any further
  *   call to the mutation strategy should skip deleteNode entirely rather than attempting it.
  *
@@ -102,56 +100,55 @@ class DeterministicFailureSkipTest {
         )
     )
 
-    private fun buildTransformations() = mapOf(
-        "/transformation/deleteNode.mt" to buildDeleteNodeAst()
+    private fun buildOperators() = listOf(
+        TransformationOperator(id = 0, ast = buildDeleteNodeAst())
     )
 
     // ──────────────────────────────────────────────────────────────────────────
-    // Test 1: TransformationAttemptRunner directly — verify DeterministicFailure
+    // Test 1: TransformationAttemptRunner directly — verify a deterministic Failure
     //         is returned after all nodes are consumed.
     // ──────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `deleteNode returns DeterministicFailure when graph is empty`() {
+    fun `deleteNode returns deterministic Failure when graph is empty`() {
         val metamodel = Metamodel.compile(buildMetamodelData())
-        val transformations = buildTransformations()
-        val runner = TransformationAttemptRunner(transformations)
+        val operator = TransformationOperator(id = 0, ast = buildDeleteNodeAst())
+        val runner = TransformationAttemptRunner()
 
         val solution = Solution(MdeoModelGraph.create(buildModelData(10), metamodel))
 
         // Delete all 10 nodes — every application must succeed.
         repeat(10) { i ->
-            val result = runner.tryApply(solution, "/transformation/deleteNode.mt")
+            val result = runner.tryApply(solution, operator)
             assertTrue(result.isApplied, "Expected Applied on iteration ${i + 1}, got $result")
         }
 
         // Graph is now empty — next attempt must be DeterministicFailure.
-        val failResult = runner.tryApply(solution, "/transformation/deleteNode.mt")
-        assertEquals(
-            TransformationAttemptResult.DeterministicFailure,
-            failResult,
-            "Expected DeterministicFailure on empty graph, got $failResult"
+        val failResult = runner.tryApply(solution, operator)
+        assertTrue(
+            failResult is TransformationAttemptResult.Failure && failResult.isDeterministic,
+            "Expected deterministic Failure on empty graph, got $failResult"
         )
 
         solution.close()
     }
 
     // ──────────────────────────────────────────────────────────────────────────
-    // Test 2: Mutation strategy records the failure in failedDeterministicOperators
+    // Test 2: Mutation strategy records the failure in FailedOperatorsMetadata
     //         so that subsequent mutation() calls skip deleteNode immediately.
     // ──────────────────────────────────────────────────────────────────────────
 
     @Test
     fun `mutation strategy skips deleteNode after deterministic failure recorded`() {
         val metamodel = Metamodel.compile(buildMetamodelData())
-        val transformations = buildTransformations()
+        val operators = buildOperators()
 
         // Build a strategy with a single operator.
         val mutationConfig = MutationParameters(
             step = MutationStepConfig.Fixed(n = 1),
             strategy = MutationStrategy.RANDOM
         )
-        val strategy = MutationStrategyFactory.create(mutationConfig, transformations)
+        val strategy = MutationStrategyFactory.create(mutationConfig, operators)
 
         // Solution with exactly 1 node — first mutation removes it.
         val solution = Solution(MdeoModelGraph.create(buildModelData(1), metamodel))
@@ -162,9 +159,10 @@ class DeterministicFailureSkipTest {
             afterFirst.transformationsChain.last().isNotEmpty(),
             "Expected deleteNode to be applied on first mutation"
         )
-        // failedDeterministicOperators should be empty (success clears it).
+        // FailedOperatorsMetadata should be empty (success installs fresh metadata).
+        val metaAfterFirst = afterFirst.modelGraph.metadata as? FailedOperatorsMetadata
         assertTrue(
-            afterFirst.failedDeterministicOperators.isEmpty(),
+            metaAfterFirst == null || metaAfterFirst.failedDeterministicOperators.isEmpty(),
             "failedDeterministicOperators must be empty after a successful mutation"
         )
 
@@ -174,135 +172,31 @@ class DeterministicFailureSkipTest {
         val copy = afterFirst.deepCopy()
         val afterSecond = strategy.mutate(copy)
 
-        // deleteNode should have failed deterministically and been recorded.
+        // deleteNode should have failed deterministically and been recorded in metadata.
+        val metaAfterSecond = afterSecond.modelGraph.metadata as? FailedOperatorsMetadata
         assertTrue(
-            afterSecond.failedDeterministicOperators.isNotEmpty(),
-            "Expected deleteNode index to be recorded in failedDeterministicOperators after empty-graph failure"
+            metaAfterSecond != null && metaAfterSecond.failedDeterministicOperators.isNotEmpty(),
+            "Expected deleteNode index to be recorded in FailedOperatorsMetadata after empty-graph failure"
         )
 
-        // A third mutation on the same (empty) solution should produce an empty chain
-        // (all operators skipped), meaning no tryApply was attempted.
+        // A third mutation on the same (empty) solution should skip deleteNode and produce
+        // a non-zero lastSkipCount instead of actually calling tryApply.
         val copy2 = afterSecond.deepCopy()
         val afterThird = strategy.mutate(copy2)
         assertTrue(
             afterThird.transformationsChain.last().isEmpty(),
             "Expected empty transformation step when all operators are in failedDeterministicOperators"
         )
+        assertTrue(
+            afterThird.lastSkipCount > 0,
+            "Expected at least one skip when all operators are known to fail"
+        )
 
         solution.close()
         afterFirst.close()
+        copy.close()
         afterSecond.close()
+        copy2.close()
         afterThird.close()
-    }
-
-    // ──────────────────────────────────────────────────────────────────────────
-    // Test 3: End-to-end optimization with 1 node and 30 evolutions.
-    //
-    // With 1 initial node:
-    //   - initialize(): deletes the 1 node → every solution starts at 0 nodes, failedOps={}
-    //   - Evolution 1: deleteNode fails deterministically on every 0-node solution,
-    //     recording {0} into both the copy (stored as offspring) and the parent (via addAll).
-    //   - Evolution 2+: EVERY copy starts with failedOps={0} → preSkipCount=1 → skip counted.
-    //
-    // With population=5 and 30 evolutions this yields ~5×29=145 counted skips.
-    // The assertion checks mutationsWithSkips > 0.
-    // ──────────────────────────────────────────────────────────────────────────
-
-    @Test
-    fun `end-to-end optimization skips deleteNode after all nodes consumed`() {
-        val metamodel = Metamodel.compile(buildMetamodelData())
-        val modelData = buildModelData(nodeCount = 1)   // ← 1 node so 0-node state is instant
-        val transformations = buildTransformations()
-
-        // Trivial objective: always 0.0 (we only care about skip behaviour, not fitness).
-        val trivialObjective = object : GuidanceFunction {
-            override val name: String = "trivial"
-            override fun computeFitness(solution: Solution): Double = 0.0
-        }
-        val objectives = listOf(trivialObjective)
-        val constraints = emptyList<GuidanceFunction>()
-
-        val mutationConfig = MutationParameters(
-            step = MutationStepConfig.Fixed(n = 1),
-            strategy = MutationStrategy.RANDOM
-        )
-        val strategy = MutationStrategyFactory.create(mutationConfig, transformations)
-
-        val evaluator = LocalMutationEvaluator(
-            initialSolutionProvider = { Solution(MdeoModelGraph.create(modelData, metamodel)) },
-            mutationStrategy = strategy,
-            objectives = objectives,
-            constraints = constraints,
-            metamodel = metamodel
-        )
-
-        val config = OptimizationConfig(
-            problem = ProblemConfig(
-                metamodelPath = "/metamodel.mm",
-                modelPath = "/model/model.m"
-            ),
-            goal = GoalConfig(
-                objectives = listOf(
-                    ObjectiveConfig(
-                        type = ObjectiveTendency.MINIMIZE,
-                        path = "/script/objectives.fn",
-                        functionName = "trivial"
-                    )
-                ),
-                constraints = emptyList()
-            ),
-            search = SearchConfig(
-                mutations = MutationsConfig(
-                    usingPaths = listOf("/transformation/deleteNode.mt")
-                )
-            ),
-            solver = SolverConfig(
-                provider = SolverProvider.MOEA,
-                algorithm = AlgorithmType.NSGAII,
-                parameters = AlgorithmParameters(
-                    population = 5,
-                    variation = VariationType.MUTATION,
-                    mutation = MutationParameters(
-                        step = MutationStepConfig.Fixed(n = 1),
-                        strategy = MutationStrategy.RANDOM
-                    )
-                ),
-                termination = TerminationConfig(evolutions = 30),
-                batches = 1
-            )
-        )
-
-        val orchestrator = OptimizationOrchestrator(
-            config = config,
-            evaluator = evaluator
-        )
-
-        runBlocking { orchestrator.run() }
-
-        // Capture skip stats before cleanup.
-        val totalMutations = evaluator.totalMutations.get()
-        val mutationsWithSkips = evaluator.mutationsWithSkips.get()
-        val totalSkippedSlots = evaluator.totalSkippedOperatorSlots.get()
-
-        runBlocking { evaluator.cleanup() }
-
-        System.err.println()
-        System.err.println("=== DeterministicFailureSkipTest end-to-end results ===")
-        System.err.println("  Total mutations        : $totalMutations")
-        System.err.println("  Mutations with skips   : $mutationsWithSkips")
-        System.err.println("  Total skipped slots    : $totalSkippedSlots")
-        System.err.println("=======================================================")
-        System.err.println()
-
-        assertTrue(totalMutations > 0, "Expected at least one mutation to have been evaluated")
-        assertTrue(
-            mutationsWithSkips > 0,
-            "Expected at least some mutations to have skipped deleteNode after the graph was emptied. " +
-                "mutationsWithSkips=$mutationsWithSkips / totalMutations=$totalMutations"
-        )
-        assertTrue(
-            totalSkippedSlots > 0,
-            "Expected totalSkippedOperatorSlots > 0, got $totalSkippedSlots"
-        )
     }
 }

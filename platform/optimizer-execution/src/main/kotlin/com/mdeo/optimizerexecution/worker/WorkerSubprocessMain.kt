@@ -6,6 +6,7 @@ import com.mdeo.expression.ast.statements.TypedStatement
 import com.mdeo.metamodel.Metamodel
 import com.mdeo.metamodel.SerializedModel
 import com.mdeo.modeltransformation.ast.TypedAst as TransformationTypedAst
+import com.mdeo.modeltransformation.ast.TransformationOperator
 import com.mdeo.modeltransformation.ast.expressions.TypedExpressionSerializer as TransformationExpressionSerializer
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternElement
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternElementSerializer
@@ -522,6 +523,11 @@ class WorkerSubprocessMain : SubprocessMain() {
         val transformations: Map<String, TransformationTypedAst> = request.transformationAstJsons
             .mapValues { (_, json) -> transformationJson.decodeFromString<TransformationTypedAst>(json) }
 
+        // Sort paths alphabetically and assign stable numerical IDs so that every node
+        // in a federated setup assigns the same id to the same operator.
+        val operators: List<TransformationOperator> = transformations.keys.sorted()
+            .mapIndexed { idx, path -> TransformationOperator(id = idx, ast = transformations[path]!!) }
+
         val scriptAsts: Map<String, ScriptTypedAst> = request.scriptAstJsons
             .mapValues { (_, json) -> scriptJson.decodeFromString<ScriptTypedAst>(json) }
 
@@ -541,7 +547,7 @@ class WorkerSubprocessMain : SubprocessMain() {
             ScriptGuidanceFunction(clazz, jvmName, System.out, "${con.path}::${con.functionName}")
         }
 
-        val mutationStrategy = MutationStrategyFactory.create(request.solverConfig.parameters.mutation, transformations)
+        val mutationStrategy = MutationStrategyFactory.create(request.solverConfig.parameters.mutation, operators)
 
         val graphBackendType = request.graphBackendType
         val localEvaluator = LocalMutationEvaluator(

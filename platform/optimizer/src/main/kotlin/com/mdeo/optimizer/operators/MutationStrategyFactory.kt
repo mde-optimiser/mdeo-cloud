@@ -1,6 +1,6 @@
 package com.mdeo.optimizer.operators
 
-import com.mdeo.modeltransformation.ast.TypedAst
+import com.mdeo.modeltransformation.ast.TransformationOperator
 import com.mdeo.optimizer.config.MutationParameters
 import com.mdeo.optimizer.config.MutationStepConfig
 import com.mdeo.optimizer.config.MutationStrategy as MutationStrategyEnum
@@ -13,36 +13,31 @@ object MutationStrategyFactory {
     /**
      * Creates a fully-configured [MutationStrategy] from the optimizer config.
      *
-     * Operator paths are **sorted alphabetically** before being assigned numerical
-     * indices. This guarantees that every node in a federated setup — regardless of
-     * the insertion order of the [transformations] map — assigns identical indices to
-     * identical operators, keeping [com.mdeo.optimizer.solution.Solution.failedDeterministicOperators]
-     * consistent across the cluster.
+     * The caller is responsible for assigning stable numerical IDs to operators
+     * (e.g. by sorting paths alphabetically and using the zero-based index as the
+     * [TransformationOperator.id]) so that every node in a federated setup assigns
+     * identical IDs to identical operators.
      *
      * @param params Mutation parameters from config.
-     * @param transformations Map of path to compiled TypedAst for all mutation operators.
+     * @param operators List of compiled [TransformationOperator]s with pre-assigned IDs.
      * @return A configured MutationStrategy.
      */
     fun create(
         params: MutationParameters,
-        transformations: Map<String, TypedAst>
+        operators: List<TransformationOperator>
     ): com.mdeo.optimizer.operators.MutationStrategy {
-        // Sort paths alphabetically so numerical indices are consistent across nodes.
-        val sortedPaths = transformations.keys.sorted()
         val stepSizeStrategy = createStepSizeStrategy(params.step)
-        val selectionFactory: () -> OperatorSelectionStrategy = { RandomOperatorSelection(sortedPaths) }
+        val selectionFactory: () -> OperatorSelectionStrategy = { RandomOperatorSelection(operators.size) }
 
         return when (params.strategy) {
             MutationStrategyEnum.RANDOM -> RandomOperatorMutationStrategy(
-                transformations = transformations,
-                operatorPaths = sortedPaths,
+                operators = operators,
                 stepSizeStrategy = stepSizeStrategy,
                 operatorSelectionStrategyFactory = selectionFactory
             )
             MutationStrategyEnum.REPETITIVE -> {
                 RepetitiveOperatorMutationStrategy(
-                    transformations = transformations,
-                    operatorPaths = sortedPaths,
+                    operators = operators,
                     stepSizeStrategy = stepSizeStrategy,
                     operatorSelectionStrategyFactory = selectionFactory
                 )

@@ -64,7 +64,7 @@ class UntilMatchStatementExecutor(
     ): TransformationExecutionResult {
         val untilMatchStatement = statement as TypedUntilMatchStatement
         
-        var accumulatedResult = TransformationExecutionResult.Success()
+        var accumulatedResult: TransformationExecutionResult.Success? = null
         
         while (true) {
             val matchResult = matchExecutor.executeMatch(
@@ -76,19 +76,21 @@ class UntilMatchStatementExecutor(
             when (matchResult) {
                 is MatchResult.Matched -> {
                     matchResult.applyTo(context)
-                    return TransformationExecutionResult.Success(
-                        createdNodes = accumulatedResult.createdNodes + matchResult.createdNodeIds,
-                        deletedNodes = accumulatedResult.deletedNodes + matchResult.deletedNodeIds
+                    val matchSuccess = TransformationExecutionResult.Success(
+                        createdNodes = matchResult.createdNodeIds,
+                        deletedNodes = matchResult.deletedNodeIds,
+                        edgesModified = matchResult.edgesModified
                     )
+                    return matchSuccess.merge(accumulatedResult)
                 }
                 is MatchResult.NoMatch -> {
                     val blockResult = engine.executeBlock(untilMatchStatement.doBlock, context)
                     
                     when (blockResult) {
                         is TransformationExecutionResult.Success -> {
-                            accumulatedResult = accumulatedResult.merge(blockResult)
+                            accumulatedResult = blockResult.merge(accumulatedResult)
                         }
-                        is TransformationExecutionResult.Failure -> return blockResult
+                        is TransformationExecutionResult.Failure -> return blockResult.merge(accumulatedResult)
                         is TransformationExecutionResult.Stopped -> return blockResult
                     }
                 }

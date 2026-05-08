@@ -1,6 +1,7 @@
 package com.mdeo.optimizer.operators
 
-import com.mdeo.modeltransformation.ast.TypedAst
+import com.mdeo.modeltransformation.ast.TransformationOperator
+import com.mdeo.optimizer.solution.FailedOperatorsMetadata
 import com.mdeo.optimizer.solution.Solution
 import org.slf4j.LoggerFactory
 
@@ -19,66 +20,84 @@ import org.slf4j.LoggerFactory
  * 4. If the operator fails, it is cleared and a new one is selected.
  * 5. Returns the mutated solution.
  *
- * **Deterministic-failure tracking:** Same semantics as [RandomOperatorMutationStrategy]:
- * deterministic failures are recorded into [Solution.failedDeterministicOperators] only
- * before the first successful operator application. Once any operator succeeds and changes
- * the model state, the set is cleared and no further failures are recorded.
+ * **Model-graph copying between attempts:**
+ * Same as [RandomOperatorMutationStrategy]: the caller provides a deep-copied solution
+ * for the first attempt; subsequent attempts deep-copy the model graph unless the
+ * previous failure is known to have made no changes.
  *
- * @param transformations Map of transformation path to its compiled TypedAst.
- * @param operatorPaths Sorted list of all operator paths; indices serve as consistent
- *   numerical operator IDs across federated nodes.
+ * **Deterministic-failure tracking via metadata:**
+ * Same semantics as [RandomOperatorMutationStrategy]: failures are recorded in
+ * [FailedOperatorsMetadata] on the model graph before the first successful mutation.
+ * A fresh empty metadata is installed after the first success.
+ *
+ * **Skip counting:**
+ * Known-failed operators are selected normally, then intercepted and counted as skips
+ * rather than executed.  The exact count is stored in [Solution.lastSkipCount].
+ *
+ * @param operators Sorted list of available [TransformationOperator]s.
  * @param stepSizeStrategy Strategy for determining how many operators to apply per mutation.
- * @param operatorSelectionStrategyFactory Factory that creates a fresh [OperatorSelectionStrategy] per
- *   [mutate] call. A new instance is created on every invocation so that concurrent calls from
- *   different threads each operate on independent, unshared selection state.
+ * @param operatorSelectionStrategyFactory Factory that creates a fresh [OperatorSelectionStrategy]
+ *   per [mutate] call.
  */
 class RepetitiveOperatorMutationStrategy(
-    private val transformations: Map<String, TypedAst>,
-    private val operatorPaths: List<String>,
+    private val operators: List<TransformationOperator>,
     private val stepSizeStrategy: MutationStepSizeStrategy,
     private val operatorSelectionStrategyFactory: () -> OperatorSelectionStrategy
 ) : MutationStrategy {
 
     private val logger = LoggerFactory.getLogger(RepetitiveOperatorMutationStrategy::class.java)
-    private val attemptRunner = TransformationAttemptRunner(transformations)
+    private val attemptRunner = TransformationAttemptRunner()
 
     override fun mutate(solution: Solution): Solution {
         val operatorSelectionStrategy = operatorSelectionStrategyFactory()
         val stepSize = stepSizeStrategy.getNextStepSize(solution)
-        // Index of the currently retained operator (reused across steps on success).
         var currentOperatorIdx: Int? = null
-        val stepTransformations = mutableListOf<String>()
-        // True once at least one operator has been successfully applied.
+        val stepTransformations = mutableListOf<Int>()
         var anyOperatorApplied = false
         var attemptCount = 0
+        var skipCount = 0
+        var copyNeededBeforeNextAttempt = false
+        var cleanGraph = solution.modelGraph
 
         for (step in 1..stepSize) {
             do {
                 if (currentOperatorIdx == null) {
-                    currentOperatorIdx = operatorSelectionStrategy.getNextOperator(solution) ?: break
+                    currentOperatorIdx = operatorSelectionStrategy.getNextOperator() ?: break
                 }
-                // After the null-check + break above, Kotlin smart-casts currentOperatorIdx to Int.
-                val operatorPath = operatorPaths[currentOperatorIdx]
 
+                val failedOps = (solution.modelGraph.metadata as? FailedOperatorsMetadata)
+                    ?.failedDeterministicOperators
+                if (failedOps != null && currentOperatorIdx in failedOps) {
+                    skipCount++
+                    currentOperatorIdx = null
+                    continue
+                }
+
+                if (copyNeededBeforeNextAttempt) {
+                    val oldGraph = solution.modelGraph
+                    solution.modelGraph = cleanGraph.deepCopy()
+                    if (oldGraph !== cleanGraph) {
+                        oldGraph.close()
+                    }
+                }
+
+                val operator = operators[currentOperatorIdx]
                 attemptCount++
-                when (attemptRunner.tryApply(solution, operatorPath)) {
+                when (val result = attemptRunner.tryApply(solution, operator)) {
                     TransformationAttemptResult.Applied -> {
-                        stepTransformations.add(operatorPath)
+                        stepTransformations.add(currentOperatorIdx)
+                        cleanGraph = solution.modelGraph
+                        copyNeededBeforeNextAttempt = true
                         if (!anyOperatorApplied) {
-                            // First successful application: model state has changed, so stop
-                            // recording further failures. Already-recorded failures are kept
-                            // so they can be propagated back to the parent.
                             anyOperatorApplied = true
+                            solution.modelGraph.metadata = FailedOperatorsMetadata()
                         }
-                        // Retain currentOperatorIdx for the next step (repetitive behaviour).
                     }
-                    TransformationAttemptResult.DeterministicFailure -> {
-                        if (!anyOperatorApplied) {
-                            solution.failedDeterministicOperators.add(currentOperatorIdx)
+                    is TransformationAttemptResult.Failure -> {
+                        if (result.isDeterministic && !anyOperatorApplied) {
+                            getOrCreateFailedMetadata(solution).failedDeterministicOperators.add(currentOperatorIdx)
                         }
-                        currentOperatorIdx = null
-                    }
-                    TransformationAttemptResult.NonDeterministicFailure -> {
+                        copyNeededBeforeNextAttempt = result.changesWereMade
                         currentOperatorIdx = null
                     }
                 }
@@ -88,7 +107,16 @@ class RepetitiveOperatorMutationStrategy(
         }
 
         solution.lastMutationAttempts = attemptCount
+        solution.lastSkipCount = skipCount
         solution.recordTransformationStep(stepTransformations)
         return solution
+    }
+
+    private fun getOrCreateFailedMetadata(solution: Solution): FailedOperatorsMetadata {
+        val existing = solution.modelGraph.metadata
+        if (existing is FailedOperatorsMetadata) return existing
+        val newMetadata = FailedOperatorsMetadata()
+        solution.modelGraph.metadata = newMetadata
+        return newMetadata
     }
 }

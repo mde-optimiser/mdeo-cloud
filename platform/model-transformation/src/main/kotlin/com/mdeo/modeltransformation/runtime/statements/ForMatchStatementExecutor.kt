@@ -79,7 +79,7 @@ class ForMatchStatementExecutor(
         )
         
         if (allMatches.isEmpty()) {
-            return TransformationExecutionResult.Success()
+            return TransformationExecutionResult.Success.empty()
         }
         
         return executeIterations(forMatchStatement, allMatches, forContext, context, engine)
@@ -106,23 +106,28 @@ class ForMatchStatementExecutor(
         baseContext: TransformationExecutionContext,
         engine: TransformationEngine
     ): TransformationExecutionResult {
-        var accumulatedResult = TransformationExecutionResult.Success()
+        var accumulatedResult: TransformationExecutionResult.Success? = null
         
         for (matched in matches) {
-            accumulatedResult = accumulatedResult.merge(matched)
+            val matchSuccess = TransformationExecutionResult.Success(
+                createdNodes = matched.createdNodeIds,
+                deletedNodes = matched.deletedNodeIds,
+                edgesModified = matched.edgesModified
+            )
+            accumulatedResult = matchSuccess.merge(accumulatedResult)
             val matchedContext = matched.applyToCopy(forContext)
             val iterationResult = engine.executeBlock(statement.doBlock, matchedContext)
             
             when (iterationResult) {
                 is TransformationExecutionResult.Success -> {
-                    accumulatedResult = accumulatedResult.merge(iterationResult)
+                    accumulatedResult = iterationResult.merge(accumulatedResult)
                 }
-                is TransformationExecutionResult.Failure -> return iterationResult
+                is TransformationExecutionResult.Failure -> return iterationResult.merge(accumulatedResult)
                 is TransformationExecutionResult.Stopped -> return iterationResult
             }
         }
         
-        return accumulatedResult
+        return accumulatedResult ?: TransformationExecutionResult.Success.empty()
     }
     
 }

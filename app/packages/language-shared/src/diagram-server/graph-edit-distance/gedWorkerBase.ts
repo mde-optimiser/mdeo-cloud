@@ -142,9 +142,7 @@ function deserializeGraph(serialized: SerializedGraph): MultiGraph {
  * @returns The loop map, or an empty object when no loops are present.
  */
 function getLoops(graph: MultiGraph, nodeId: string): Record<string, LoopEdge> {
-    return (
-        ((graph.getNodeData(nodeId) as NodeAttributes & { loops?: Record<string, LoopEdge> }).loops) ?? {}
-    );
+    return (graph.getNodeData(nodeId) as NodeAttributes & { loops?: Record<string, LoopEdge> }).loops ?? {};
 }
 
 /**
@@ -196,12 +194,8 @@ function computeLoopAssignments(
             .fill(0)
             .map(() => Array(size).fill(0));
 
-        const oldAttrs = oldIds.map(
-            (id) => ({ ...oldLoops[id].attrs, id, type: oldLoops[id].type }) as EdgeAttributes
-        );
-        const newAttrs = newIds.map(
-            (id) => ({ ...newLoops[id].attrs, id, type: newLoops[id].type }) as EdgeAttributes
-        );
+        const oldAttrs = oldIds.map((id) => ({ ...oldLoops[id].attrs, id, type: oldLoops[id].type }) as EdgeAttributes);
+        const newAttrs = newIds.map((id) => ({ ...newLoops[id].attrs, id, type: newLoops[id].type }) as EdgeAttributes);
 
         for (let i = 0; i < n; i++) {
             for (let j = 0; j < m; j++) {
@@ -249,7 +243,6 @@ function computeLoopAssignments(
  * @param costOptions Language-specific node/edge cost functions (without `upperBound`).
  */
 export function runGEDWorker(costOptions: Omit<GEDOptions, "upperBound">): void {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (self as any).onmessage = (event: MessageEvent<GEDWorkerRequest>) => {
         const { sharedBuffer, currentGraph: serializedCurrent, newGraph: serializedNew } = event.data;
 

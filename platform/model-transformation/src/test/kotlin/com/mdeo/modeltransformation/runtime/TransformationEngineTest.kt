@@ -320,7 +320,7 @@ class TransformationEngineTest {
             engine: TransformationEngine
         ): TransformationExecutionResult {
             called = true
-            return TransformationExecutionResult.Success()
+            return TransformationExecutionResult.Success.empty()
         }
     }
     
@@ -339,9 +339,9 @@ class TransformationEngineTest {
         ): TransformationExecutionResult {
             callCount++
             return if (callCount == failOnCall) {
-                TransformationExecutionResult.Failure("Failed on call $callCount")
+                TransformationExecutionResult.Failure(reason = "Failed on call $callCount", failedAt = null, isDeterministic = false, changesWereMade = false)
             } else {
-                TransformationExecutionResult.Success()
+                TransformationExecutionResult.Success.empty()
             }
         }
     }
@@ -356,7 +356,7 @@ class TransformationEngineTest {
         ): TransformationExecutionResult {
             val counter = ((context.variableScope.getVariable("counter") as? VariableBinding.ValueBinding)?.value as? Int) ?: 0
             context.testBindVariable("counter", counter + 1)
-            return TransformationExecutionResult.Success()
+            return TransformationExecutionResult.Success.empty()
         }
     }
     

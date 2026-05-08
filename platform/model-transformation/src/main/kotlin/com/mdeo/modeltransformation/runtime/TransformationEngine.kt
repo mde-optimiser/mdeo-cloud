@@ -133,27 +133,21 @@ class TransformationEngine(
      */
     fun execute(): TransformationExecutionResult {
         var context = TransformationExecutionContext.emptyWithEnums(metamodelData.enums.map { it.name })
-        var accumulatedResult = TransformationExecutionResult.Success()
+        var accumulatedResult: TransformationExecutionResult.Success? = null
 
         for (statement in ast.statements) {
             val result = executeStatement(statement, context)
 
             when (result) {
                 is TransformationExecutionResult.Success -> {
-                    accumulatedResult = accumulatedResult.merge(result)
+                    accumulatedResult = result.merge(accumulatedResult)
                 }
-                is TransformationExecutionResult.Failure -> {
-                    // A failure is deterministic when no graph modifications have occurred yet:
-                    // the match found no candidates in the current model state, and since the
-                    // graph is unchanged, retrying will always produce the same outcome.
-                    val noChangesSoFar = accumulatedResult.createdNodes.isEmpty() && accumulatedResult.deletedNodes.isEmpty()
-                    return if (noChangesSoFar) result.copy(isDeterministic = true) else result
-                }
+                is TransformationExecutionResult.Failure -> return result.merge(accumulatedResult)
                 is TransformationExecutionResult.Stopped -> return result
             }
         }
 
-        return accumulatedResult
+        return accumulatedResult ?: TransformationExecutionResult.Success.empty()
     }
 
     /**
@@ -190,21 +184,21 @@ class TransformationEngine(
         context: TransformationExecutionContext
     ): TransformationExecutionResult {
         val currentContext = context.enterScope()
-        var accumulatedResult = TransformationExecutionResult.Success()
+        var accumulatedResult: TransformationExecutionResult.Success? = null
 
         for (statement in statements) {
             val result = executeStatement(statement, currentContext)
 
             when (result) {
                 is TransformationExecutionResult.Success -> {
-                    accumulatedResult = accumulatedResult.merge(result)
+                    accumulatedResult = result.merge(accumulatedResult)
                 }
-                is TransformationExecutionResult.Failure -> return result
+                is TransformationExecutionResult.Failure -> return result.merge(accumulatedResult)
                 is TransformationExecutionResult.Stopped -> return result
             }
         }
 
-        return accumulatedResult
+        return accumulatedResult ?: TransformationExecutionResult.Success.empty()
     }
 
     /**

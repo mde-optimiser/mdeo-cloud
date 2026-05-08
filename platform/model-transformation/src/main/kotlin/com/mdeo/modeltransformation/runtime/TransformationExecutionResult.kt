@@ -1,7 +1,5 @@
 package com.mdeo.modeltransformation.runtime
 
-import com.mdeo.modeltransformation.runtime.match.MatchResult
-
 /**
  * Represents the result of executing a model transformation.
  *
@@ -16,11 +14,16 @@ sealed interface TransformationExecutionResult {
      *
      * @param createdNodes Set of vertex IDs that were created during execution.
      * @param deletedNodes Set of vertex IDs that were deleted during execution.
+     * @param edgesModified Whether any edges were created or deleted during execution.
      */
     data class Success(
-        val createdNodes: Set<Any> = emptySet(),
-        val deletedNodes: Set<Any> = emptySet()
+        val createdNodes: Set<Any>,
+        val deletedNodes: Set<Any>,
+        val edgesModified: Boolean
     ) : TransformationExecutionResult {
+
+        /** Returns true if any graph modifications (nodes or edges) were made. */
+        val changesWereMade: Boolean get() = createdNodes.isNotEmpty() || deletedNodes.isNotEmpty() || edgesModified
         
         /**
          * Creates a new Success result with additional created nodes.
@@ -43,35 +46,27 @@ sealed interface TransformationExecutionResult {
         }
         
         /**
-         * Merges another Success result into this one.
+         * Merges this result with a nullable previous accumulator.
          *
-         * All node sets are combined.
+         * `this` is treated as the new result; [acc] is whatever was accumulated before.
+         * If [acc] is `null`, nothing ran before — returns `this` unchanged.
          *
-         * @param other The other Success result to merge.
-         * @return A new Success with merged results.
+         * @param acc The previously accumulated result, or `null` if this is the first result.
+         * @return Combined result, or `this` if [acc] is null.
          */
-        fun merge(other: Success): Success {
+        fun merge(acc: Success?): Success {
+            acc ?: return this
             return Success(
-                createdNodes = createdNodes + other.createdNodes,
-                deletedNodes = deletedNodes + other.deletedNodes
+                createdNodes = createdNodes + acc.createdNodes,
+                deletedNodes = deletedNodes + acc.deletedNodes,
+                edgesModified = edgesModified || acc.edgesModified
             )
         }
 
-        /**
-         * Merges a MatchResult.Matched into this Success result.
-         *
-         * All node sets are combined.
-         *
-         * @param other The MatchResult.Matched to merge.
-         * @return A new Success with merged results.
-         */
-        fun merge(other: MatchResult.Matched): Success {
-            return Success(
-                createdNodes = createdNodes + other.createdNodeIds,
-                deletedNodes = deletedNodes + other.deletedNodeIds
-            )
+        companion object {
+            /** An empty Success result representing no graph modifications. */
+            fun empty(): Success = Success(emptySet(), emptySet(), false)
         }
-        
     }
     
     /**
@@ -83,11 +78,13 @@ sealed interface TransformationExecutionResult {
      *   first match opportunity and no graph modifications had been made yet. A deterministic
      *   failure means re-running the same transformation on the same model state will always
      *   produce the same failure, so there is no benefit in reattempting it.
+     * @param changesWereMade Whether the graph was modified before the failure occurred.
      */
     data class Failure(
         val reason: String,
-        val failedAt: String? = null,
-        val isDeterministic: Boolean = false
+        val failedAt: String?,
+        val isDeterministic: Boolean,
+        val changesWereMade: Boolean
     ) : TransformationExecutionResult {
         
         /**
@@ -98,6 +95,24 @@ sealed interface TransformationExecutionResult {
          */
         fun at(location: String): Failure {
             return copy(failedAt = location)
+        }
+
+        /**
+         * Merges this failure with a nullable previous accumulator.
+         *
+         * - [isDeterministic]: `true` only when both this failure is locally deterministic
+         *   **and** [acc] is `null` (nothing ran before this statement in the sequence).
+         * - [changesWereMade]: `true` if either this failure already implies changes, or the
+         *   accumulated prior results made changes.
+         *
+         * @param acc The previously accumulated result, or `null` if this is the first result.
+         * @return A new Failure with combined flags.
+         */
+        fun merge(acc: Success?): Failure {
+            return copy(
+                isDeterministic = isDeterministic && acc == null,
+                changesWereMade = changesWereMade || (acc?.changesWereMade ?: false)
+            )
         }
     }
     

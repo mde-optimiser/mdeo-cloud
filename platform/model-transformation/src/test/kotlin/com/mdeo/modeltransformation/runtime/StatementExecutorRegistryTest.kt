@@ -230,9 +230,9 @@ class StatementExecutorRegistryTest {
             lastEngine = engine
             
             return if (successResult) {
-                TransformationExecutionResult.Success()
+                TransformationExecutionResult.Success.empty()
             } else {
-                TransformationExecutionResult.Failure("Test failure")
+                TransformationExecutionResult.Failure(reason = "Test failure", failedAt = null, isDeterministic = false, changesWereMade = false)
             }
         }
     }

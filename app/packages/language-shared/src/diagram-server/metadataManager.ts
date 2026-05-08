@@ -340,10 +340,7 @@ export abstract class MetadataManager<T extends AstNode = AstNode> {
      * @returns A {@link GEDResult} with merged edit paths and loop assignments,
      *          or `undefined` when skipped or timed out.
      */
-    private computeGED(
-        currentGraph: MultiGraph,
-        newGraph: MultiGraph
-    ): GEDResult | undefined {
+    private computeGED(currentGraph: MultiGraph, newGraph: MultiGraph): GEDResult | undefined {
         const { prunedCurrent, prunedNew, stableNodeIds, stableEdges } = this.pruneGraphs(currentGraph, newGraph);
 
         const preMatchedNodes: NodeEditPath = [...stableNodeIds].map((id) => [id, id]);
@@ -544,9 +541,7 @@ export abstract class MetadataManager<T extends AstNode = AstNode> {
         const resultNodes: Record<string, NodeMetadata> = {};
         const loopEdges: Record<string, EdgeMetadata> = {};
 
-        const loopAssignmentMap = new Map<string, GEDLoopAssignment>(
-            loopAssignments.map((la) => [la.newNodeId, la])
-        );
+        const loopAssignmentMap = new Map<string, GEDLoopAssignment>(loopAssignments.map((la) => [la.newNodeId, la]));
 
         for (const [u, v] of nodePath) {
             if (v == null) {

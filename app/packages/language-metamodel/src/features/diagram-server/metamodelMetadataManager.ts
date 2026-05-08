@@ -544,5 +544,4 @@ export class MetamodelMetadataManager extends MetadataManager<PartialMetaModel> 
             targetProperty: assoc.target?.name ?? ""
         };
     }
-
 }

@@ -51,7 +51,7 @@ class WhileExpressionStatementExecutor : StatementExecutor {
         engine: TransformationEngine
     ): TransformationExecutionResult {
         val whileStatement = statement as TypedWhileExpressionStatement
-        var accumulatedResult = TransformationExecutionResult.Success()
+        var accumulatedResult: TransformationExecutionResult.Success? = null
         val conditionEvaluator = ConditionEvaluator(engine)
 
         while (true) {
@@ -66,14 +66,14 @@ class WhileExpressionStatementExecutor : StatementExecutor {
             
             when (iterationResult) {
                 is TransformationExecutionResult.Success -> {
-                    accumulatedResult = accumulatedResult.merge(iterationResult)
+                    accumulatedResult = iterationResult.merge(accumulatedResult)
                 }
-                is TransformationExecutionResult.Failure -> return iterationResult
+                is TransformationExecutionResult.Failure -> return iterationResult.merge(accumulatedResult)
                 is TransformationExecutionResult.Stopped -> return iterationResult
             }
         }
 
-        return accumulatedResult
+        return accumulatedResult ?: TransformationExecutionResult.Success.empty()
     }
 
 }

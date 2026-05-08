@@ -15,6 +15,7 @@ import com.mdeo.metamodel.data.ModelDataPropertyValue
 import com.mdeo.metamodel.data.MultiplicityData
 import com.mdeo.metamodel.data.PropertyData
 import com.mdeo.modeltransformation.ast.TypedAst as TransformationTypedAst
+import com.mdeo.modeltransformation.ast.TransformationOperator
 import com.mdeo.modeltransformation.ast.patterns.TypedPattern
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternLink
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternLinkElement
@@ -579,7 +580,8 @@ class ScrumModelTransformationCorrectnessTest {
         val metamodel = Metamodel.compile(buildMetamodelData())
         val modelData = buildModelData()
         val transformations = buildTransformations()
-        val runner = TransformationAttemptRunner(transformations)
+        val runner = TransformationAttemptRunner()
+        val deleteSprintOp = TransformationOperator(id = 0, ast = transformations["/transformation/deleteSprint.mt"]!!)
         val initialSolution = Solution(backend.createModelGraph(modelData, metamodel))
         val initialData = initialSolution.modelGraph.toModelData()
 
@@ -590,7 +592,7 @@ class ScrumModelTransformationCorrectnessTest {
                 repeat(NUM_TRIALS) {
                     val copy = initialSolution.deepCopy()
                     try {
-                        if (runner.tryApply(copy, "/transformation/deleteSprint.mt").isApplied) {
+                        if (runner.tryApply(copy, deleteSprintOp).isApplied) {
                             detectDeletedSprint(initialData, copy.modelGraph.toModelData())
                                 ?.let { found += it }
                         } else {
@@ -622,7 +624,8 @@ class ScrumModelTransformationCorrectnessTest {
         val metamodel = Metamodel.compile(buildMetamodelData())
         val modelData = buildModelData()
         val transformations = buildTransformations()
-        val runner = TransformationAttemptRunner(transformations)
+        val runner = TransformationAttemptRunner()
+        val createSprintOp = TransformationOperator(id = 0, ast = transformations["/transformation/createSprint.mt"]!!)
         val initialSolution = Solution(backend.createModelGraph(modelData, metamodel))
         val initialData = initialSolution.modelGraph.toModelData()
 
@@ -633,7 +636,7 @@ class ScrumModelTransformationCorrectnessTest {
                 repeat(NUM_TRIALS) {
                     val copy = initialSolution.deepCopy()
                     try {
-                        if (runner.tryApply(copy, "/transformation/createSprint.mt").isApplied) {
+                        if (runner.tryApply(copy, createSprintOp).isApplied) {
                             detectCreatedSprintItem(initialData, copy.modelGraph.toModelData())
                                 ?.let { found += it }
                         } else {
@@ -668,7 +671,8 @@ class ScrumModelTransformationCorrectnessTest {
         val metamodel = Metamodel.compile(buildMetamodelData())
         val modelData = buildModelData()
         val transformations = buildTransformations()
-        val runner = TransformationAttemptRunner(transformations)
+        val runner = TransformationAttemptRunner()
+        val addItemOp = TransformationOperator(id = 0, ast = transformations["/transformation/addItemToSprint.mt"]!!)
         val initialSolution = Solution(backend.createModelGraph(modelData, metamodel))
         val initialData = initialSolution.modelGraph.toModelData()
 
@@ -679,7 +683,7 @@ class ScrumModelTransformationCorrectnessTest {
                 repeat(NUM_TRIALS) {
                     val copy = initialSolution.deepCopy()
                     try {
-                        if (runner.tryApply(copy, "/transformation/addItemToSprint.mt").isApplied) {
+                        if (runner.tryApply(copy, addItemOp).isApplied) {
                             detectAddedSprintItem(initialData, copy.modelGraph.toModelData())
                                 ?.let { found += it }
                         } else {
@@ -712,7 +716,8 @@ class ScrumModelTransformationCorrectnessTest {
         val metamodel = Metamodel.compile(buildMetamodelData())
         val modelData = buildModelData()
         val transformations = buildTransformations()
-        val runner = TransformationAttemptRunner(transformations)
+        val runner = TransformationAttemptRunner()
+        val moveItemOp = TransformationOperator(id = 0, ast = transformations["/transformation/moveItemBetweenSprints.mt"]!!)
         val initialSolution = Solution(backend.createModelGraph(modelData, metamodel))
         val initialData = initialSolution.modelGraph.toModelData()
 
@@ -723,7 +728,7 @@ class ScrumModelTransformationCorrectnessTest {
                 repeat(NUM_TRIALS) {
                     val copy = initialSolution.deepCopy()
                     try {
-                        if (runner.tryApply(copy, "/transformation/moveItemBetweenSprints.mt").isApplied) {
+                        if (runner.tryApply(copy, moveItemOp).isApplied) {
                             detectMovedItem(initialData, copy.modelGraph.toModelData())
                                 ?.let { found += it }
                         } else {

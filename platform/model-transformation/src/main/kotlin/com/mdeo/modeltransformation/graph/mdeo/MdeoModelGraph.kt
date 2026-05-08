@@ -7,6 +7,7 @@ import com.mdeo.metamodel.ModelInstance
 import com.mdeo.metamodel.SerializedModel
 import com.mdeo.metamodel.data.ModelData
 import com.mdeo.modeltransformation.graph.ModelGraph
+import com.mdeo.modeltransformation.graph.ModelMetadata
 import com.mdeo.modeltransformation.graph.VertexRef
 import com.mdeo.modeltransformation.runtime.InstanceNameRegistry
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal
@@ -37,6 +38,8 @@ class MdeoModelGraph private constructor(
      */
     private val trackedRefs = mutableListOf<WeakReference<VertexRef>>()
 
+    override var metadata: ModelMetadata? = null
+
     override val metamodel: Metamodel
         get() = graph.metamodel
 
@@ -52,7 +55,9 @@ class MdeoModelGraph private constructor(
     override fun traversal(): GraphTraversalSource = graph.traversal()
 
     override fun deepCopy(): MdeoModelGraph {
-        return MdeoModelGraph(graph.deepCopy(), instanceNameRegistry.copy())
+        return MdeoModelGraph(graph.deepCopy(), instanceNameRegistry.copy()).also {
+            it.metadata = metadata?.deepCopy()
+        }
     }
 
     /**

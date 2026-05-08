@@ -5,6 +5,7 @@ import com.mdeo.metamodel.SerializedModel
 import com.mdeo.metamodel.data.MetamodelData
 import com.mdeo.metamodel.data.ModelData
 import com.mdeo.modeltransformation.graph.ModelGraph
+import com.mdeo.modeltransformation.graph.ModelMetadata
 import com.mdeo.modeltransformation.graph.VertexRef
 import com.mdeo.modeltransformation.runtime.InstanceNameRegistry
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal
@@ -47,6 +48,8 @@ class TinkerModelGraph private constructor(
      */
     private val trackedRefs = mutableListOf<WeakReference<VertexRef>>()
 
+    override var metadata: ModelMetadata? = null
+
     override fun createVertexRef(rawId: Any): VertexRef {
         val ref = VertexRef(rawId)
         trackedRefs.add(WeakReference(ref))
@@ -57,7 +60,9 @@ class TinkerModelGraph private constructor(
 
     override fun deepCopy(): TinkerModelGraph {
         val (newGraph, newRegistry) = copyGraphShuffled()
-        return TinkerModelGraph(newGraph, metamodel, newRegistry, metamodelPath)
+        return TinkerModelGraph(newGraph, metamodel, newRegistry, metamodelPath).also {
+            it.metadata = metadata?.deepCopy()
+        }
     }
 
     override fun resetNondeterminism(): Map<Any, Any> {

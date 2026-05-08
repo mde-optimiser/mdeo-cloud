@@ -32,6 +32,7 @@ import com.mdeo.metamodel.data.ModelDataPropertyValue
 import com.mdeo.metamodel.data.MultiplicityData
 import com.mdeo.metamodel.data.PropertyData
 import com.mdeo.modeltransformation.ast.TypedAst as TransformationTypedAst
+import com.mdeo.modeltransformation.ast.TransformationOperator
 import com.mdeo.modeltransformation.ast.patterns.TypedPattern
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternLink
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternLinkElement
@@ -1201,7 +1202,10 @@ abstract class ScrumOptimizationPerformanceTestBase {
         }
 
         val mutationStrategy = MutationStrategyFactory.create(
-            config.solver.parameters.mutation, transformations
+            config.solver.parameters.mutation,
+            transformations.keys.sorted().mapIndexed { idx, path ->
+                TransformationOperator(id = idx, ast = transformations[path]!!)
+            }
         )
         val evaluator = LocalMutationEvaluator(
             initialSolutionProvider = initialSolutionProvider,

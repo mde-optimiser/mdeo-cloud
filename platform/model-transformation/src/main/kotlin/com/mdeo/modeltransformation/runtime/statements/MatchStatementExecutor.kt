@@ -89,12 +89,19 @@ class MatchStatementExecutor(
         
         return TransformationExecutionResult.Success(
             createdNodes = matched.createdNodeIds,
-            deletedNodes = matched.deletedNodeIds
+            deletedNodes = matched.deletedNodeIds,
+            edgesModified = matched.edgesModified
         )
     }
     
     /**
      * Creates a failure result from a failed match.
+     *
+     * A no-match at the match-step level is always locally deterministic (same model state
+     * → same no-match) and makes no changes.  The outer accumulating executor is responsible
+     * for combining this with the previously accumulated state to decide the global
+     * [TransformationExecutionResult.Failure.isDeterministic] and
+     * [TransformationExecutionResult.Failure.changesWereMade] values.
      *
      * @param noMatch The no-match result.
      * @return A Failure result with the reason.
@@ -103,7 +110,10 @@ class MatchStatementExecutor(
         noMatch: MatchResult.NoMatch
     ): TransformationExecutionResult.Failure {
         return TransformationExecutionResult.Failure(
-            reason = noMatch.reason ?: "Pattern did not match"
-        ).at("match statement")
+            reason = noMatch.reason ?: "Pattern did not match",
+            failedAt = "match statement",
+            isDeterministic = true,
+            changesWereMade = false
+        )
     }
 }

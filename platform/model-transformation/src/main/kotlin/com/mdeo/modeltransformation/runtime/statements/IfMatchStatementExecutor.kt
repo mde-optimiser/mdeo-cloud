@@ -99,17 +99,16 @@ class IfMatchStatementExecutor(
         engine: TransformationEngine
     ): TransformationExecutionResult {
         val matchedContext = matched.applyTo(conditionContext)
-
+        val matchSuccess = TransformationExecutionResult.Success(
+            createdNodes = matched.createdNodeIds,
+            deletedNodes = matched.deletedNodeIds,
+            edgesModified = matched.edgesModified
+        )
         val blockResult = engine.executeBlock(statement.thenBlock, matchedContext)
         
         return when (blockResult) {
-            is TransformationExecutionResult.Success -> {
-                TransformationExecutionResult.Success(
-                    createdNodes = matched.createdNodeIds + blockResult.createdNodes,
-                    deletedNodes = matched.deletedNodeIds + blockResult.deletedNodes
-                )
-            }
-            is TransformationExecutionResult.Failure -> blockResult
+            is TransformationExecutionResult.Success -> blockResult.merge(matchSuccess)
+            is TransformationExecutionResult.Failure -> blockResult.merge(matchSuccess)
             is TransformationExecutionResult.Stopped -> blockResult
         }
     }
@@ -135,7 +134,7 @@ class IfMatchStatementExecutor(
         return if (statement.elseBlock != null) {
             return engine.executeBlock(statement.elseBlock, context)
         } else {
-            TransformationExecutionResult.Success()
+            TransformationExecutionResult.Success.empty()
         }
     }
 }

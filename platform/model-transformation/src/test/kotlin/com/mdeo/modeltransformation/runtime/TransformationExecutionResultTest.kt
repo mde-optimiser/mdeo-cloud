@@ -17,7 +17,7 @@ class TransformationExecutionResultTest {
 
         @Test
         fun `Success with empty context and no modifications`() {
-            val result = TransformationExecutionResult.Success()
+            val result = TransformationExecutionResult.Success.empty()
             
             assertTrue(result.isSuccess())
             assertFalse(result.isFailure())
@@ -31,7 +31,9 @@ class TransformationExecutionResultTest {
         @Test
         fun `Success with created nodes`() {
             val result = TransformationExecutionResult.Success(
-                createdNodes = setOf("new1", "new2")
+                createdNodes = setOf("new1", "new2"),
+                deletedNodes = emptySet(),
+                edgesModified = false
             )
             
             assertEquals(2, result.createdNodes.size)
@@ -42,7 +44,7 @@ class TransformationExecutionResultTest {
 
         @Test
         fun `withCreatedNodes adds nodes`() {
-            val result = TransformationExecutionResult.Success()
+            val result = TransformationExecutionResult.Success.empty()
                 .withCreatedNodes("new1")
             
             assertEquals(1, result.createdNodes.size)
@@ -51,7 +53,7 @@ class TransformationExecutionResultTest {
 
         @Test
         fun `withDeletedNodes adds nodes`() {
-            val result = TransformationExecutionResult.Success()
+            val result = TransformationExecutionResult.Success.empty()
                 .withDeletedNodes("del1", "del2")
             
             assertEquals(2, result.deletedNodes.size)
@@ -61,7 +63,8 @@ class TransformationExecutionResultTest {
         fun `sideeffectsOnly preserves side effects`() {
             val result = TransformationExecutionResult.Success(
                 createdNodes = setOf("new1"),
-                deletedNodes = setOf("del1")
+                deletedNodes = setOf("del1"),
+                edgesModified = false
             )
             
             val sideEffectsOnly = result
@@ -73,13 +76,17 @@ class TransformationExecutionResultTest {
         @Test
         fun `merge combines two Success results`() {
             val result1 = TransformationExecutionResult.Success(
-                createdNodes = setOf("new1")
+                createdNodes = setOf("new1"),
+                deletedNodes = emptySet(),
+                edgesModified = false
             )
             val result2 = TransformationExecutionResult.Success(
-                deletedNodes = setOf("del1")
+                createdNodes = emptySet(),
+                deletedNodes = setOf("del1"),
+                edgesModified = false
             )
             
-            val merged = result1.merge(result2)
+            val merged = result1.merge(result2)  // result1 is new, result2 is acc
             
             assertEquals(1, merged.createdNodes.size)
             assertEquals(1, merged.deletedNodes.size)
@@ -87,7 +94,7 @@ class TransformationExecutionResultTest {
 
         @Test
         fun `successOrNull returns Success`() {
-            val result: TransformationExecutionResult = TransformationExecutionResult.Success()
+            val result: TransformationExecutionResult = TransformationExecutionResult.Success.empty()
             
             val success = result.successOrNull()
             assertIs<TransformationExecutionResult.Success>(success)
@@ -100,7 +107,10 @@ class TransformationExecutionResultTest {
         @Test
         fun `Failure with reason`() {
             val result = TransformationExecutionResult.Failure(
-                reason = "Pattern did not match"
+                reason = "Pattern did not match",
+                failedAt = null,
+                isDeterministic = false,
+                changesWereMade = false
             )
             
             assertFalse(result.isSuccess())
@@ -114,7 +124,9 @@ class TransformationExecutionResultTest {
         fun `Failure with failedAt`() {
             val result = TransformationExecutionResult.Failure(
                 reason = "Error",
-                failedAt = "match house: House"
+                failedAt = "match house: House",
+                isDeterministic = false,
+                changesWereMade = false
             )
             
             assertEquals("match house: House", result.failedAt)
@@ -122,8 +134,9 @@ class TransformationExecutionResultTest {
 
         @Test
         fun `at method adds location`() {
-            val result = TransformationExecutionResult.Failure("Error")
-                .at("line 42")
+            val result = TransformationExecutionResult.Failure(
+                    reason = "Error", failedAt = null, isDeterministic = false, changesWereMade = false
+                ).at("line 42")
             
             assertEquals("line 42", result.failedAt)
         }
@@ -131,7 +144,7 @@ class TransformationExecutionResultTest {
         @Test
         fun `failureOrNull returns Failure`() {
             val result: TransformationExecutionResult = TransformationExecutionResult.Failure(
-                "error"
+                reason = "error", failedAt = null, isDeterministic = false, changesWereMade = false
             )
             
             val failure = result.failureOrNull()
@@ -140,7 +153,7 @@ class TransformationExecutionResultTest {
 
         @Test
         fun `failureOrNull returns null for Success`() {
-            val result: TransformationExecutionResult = TransformationExecutionResult.Success()
+            val result: TransformationExecutionResult = TransformationExecutionResult.Success.empty()
             
             assertNull(result.failureOrNull())
         }
@@ -180,8 +193,8 @@ class TransformationExecutionResultTest {
 
         @Test
         fun `isSuccess returns true only for Success`() {
-            val success: TransformationExecutionResult = TransformationExecutionResult.Success()
-            val failure: TransformationExecutionResult = TransformationExecutionResult.Failure("err")
+            val success: TransformationExecutionResult = TransformationExecutionResult.Success.empty()
+            val failure: TransformationExecutionResult = TransformationExecutionResult.Failure(reason = "err", failedAt = null, isDeterministic = false, changesWereMade = false)
             val stopped: TransformationExecutionResult = TransformationExecutionResult.Stopped("stop")
             
             assertTrue(success.isSuccess())
@@ -191,8 +204,8 @@ class TransformationExecutionResultTest {
 
         @Test
         fun `isFailure returns true only for Failure`() {
-            val success: TransformationExecutionResult = TransformationExecutionResult.Success()
-            val failure: TransformationExecutionResult = TransformationExecutionResult.Failure("err")
+            val success: TransformationExecutionResult = TransformationExecutionResult.Success.empty()
+            val failure: TransformationExecutionResult = TransformationExecutionResult.Failure(reason = "err", failedAt = null, isDeterministic = false, changesWereMade = false)
             val stopped: TransformationExecutionResult = TransformationExecutionResult.Stopped("stop")
             
             assertFalse(success.isFailure())
@@ -202,8 +215,8 @@ class TransformationExecutionResultTest {
 
         @Test
         fun `isStopped returns true only for Stopped`() {
-            val success: TransformationExecutionResult = TransformationExecutionResult.Success()
-            val failure: TransformationExecutionResult = TransformationExecutionResult.Failure("err")
+            val success: TransformationExecutionResult = TransformationExecutionResult.Success.empty()
+            val failure: TransformationExecutionResult = TransformationExecutionResult.Failure(reason = "err", failedAt = null, isDeterministic = false, changesWereMade = false)
             val stopped: TransformationExecutionResult = TransformationExecutionResult.Stopped("stop")
             
             assertFalse(success.isStopped())
@@ -213,7 +226,7 @@ class TransformationExecutionResultTest {
 
         @Test
         fun `successOrNull returns null for non-Success`() {
-            val failure: TransformationExecutionResult = TransformationExecutionResult.Failure("err")
+            val failure: TransformationExecutionResult = TransformationExecutionResult.Failure(reason = "err", failedAt = null, isDeterministic = false, changesWereMade = false)
             
             assertNull(failure.successOrNull())
         }

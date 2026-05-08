@@ -68,7 +68,7 @@ class IfExpressionStatementExecutor : StatementExecutor {
             return engine.executeBlock(ifStatement.elseBlock, context)
         }
         
-        return TransformationExecutionResult.Success()
+        return TransformationExecutionResult.Success.empty()
     }
     
 }

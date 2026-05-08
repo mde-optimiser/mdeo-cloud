@@ -1,30 +1,28 @@
 package com.mdeo.optimizer.operators
 
-import com.mdeo.optimizer.solution.Solution
-
 /**
- * Strategy for selecting which transformation operator to apply next.
+ * Strategy for selecting which transformation operator to try next within a mutation step.
  *
  * Operators are identified by their **numerical index** in the sorted operator list
  * maintained by [com.mdeo.optimizer.operators.MutationStrategyFactory]. Using indices
  * instead of string paths allows compact, consistent serialisation of
- * [Solution.failedDeterministicOperators] across federated nodes (every node sorts the
- * same operator list and thus assigns identical indices).
+ * [com.mdeo.optimizer.solution.FailedOperatorsMetadata.failedDeterministicOperators]
+ * across federated nodes (every node sorts the same operator list and thus assigns
+ * identical indices).
+ *
+ * Filtering of known-failed operators is **not** done here.  Each implementation
+ * returns any untried operator; the mutation strategy is responsible for checking
+ * whether a selected operator should be skipped (and for counting those skips).
  */
 interface OperatorSelectionStrategy {
     /**
      * Returns the index of the next transformation operator to try,
-     * or null if all available operators have been tried in this step.
-     *
-     * Implementations must skip any operator whose index appears in
-     * [Solution.failedDeterministicOperators] on the provided [solution].
+     * or `null` if all operators have already been tried in this step.
      */
-    fun getNextOperator(solution: Solution): Int?
+    fun getNextOperator(): Int?
 
     /**
-     * Whether there are untried operators remaining in this step
-     * (ignoring the [Solution.failedDeterministicOperators] filter — that is handled
-     * inside [getNextOperator]).
+     * Whether there are untried operators remaining in this step.
      */
     fun hasUntriedOperators(): Boolean
 
@@ -36,21 +34,18 @@ interface OperatorSelectionStrategy {
 
 /**
  * Randomly selects operators by index, trying each at most once per step before
- * declaring exhaustion. Operators listed in [Solution.failedDeterministicOperators]
- * are skipped entirely.
+ * declaring exhaustion.
  *
- * @param operatorPaths The sorted list of available transformation operator paths.
- *   The index of each path in this list is the numerical operator ID.
+ * @param operatorCount The total number of available transformation operators.
  */
 class RandomOperatorSelection(
-    val operatorPaths: List<String>
+    private val operatorCount: Int
 ) : OperatorSelectionStrategy {
 
     private val triedOperators = mutableSetOf<Int>()
 
-    override fun getNextOperator(solution: Solution): Int? {
-        val skipped = solution.failedDeterministicOperators
-        val remaining = operatorPaths.indices.filter { it !in triedOperators && it !in skipped }
+    override fun getNextOperator(): Int? {
+        val remaining = (0 until operatorCount).filter { it !in triedOperators }
         if (remaining.isEmpty()) return null
 
         val selected = remaining.random()
@@ -59,7 +54,7 @@ class RandomOperatorSelection(
     }
 
     override fun hasUntriedOperators(): Boolean {
-        return triedOperators.size < operatorPaths.size
+        return triedOperators.size < operatorCount
     }
 
     override fun flushTriedOperators() {

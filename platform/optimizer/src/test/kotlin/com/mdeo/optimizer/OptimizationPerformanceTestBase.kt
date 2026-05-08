@@ -17,6 +17,7 @@ import com.mdeo.expression.ast.statements.TypedIfStatement
 import com.mdeo.expression.ast.statements.TypedReturnStatement
 import com.mdeo.expression.ast.statements.TypedVariableDeclarationStatement
 import com.mdeo.modeltransformation.ast.TypedAst as TransformationTypedAst
+import com.mdeo.modeltransformation.ast.TransformationOperator
 import com.mdeo.metamodel.data.ModelData
 import com.mdeo.metamodel.data.ModelDataInstance
 import com.mdeo.modeltransformation.ast.patterns.TypedPattern
@@ -368,7 +369,10 @@ abstract class OptimizationPerformanceTestBase {
         val config = buildOptimizationConfig()
 
         val mutationStrategy = MutationStrategyFactory.create(
-            config.solver.parameters.mutation, transformations
+            config.solver.parameters.mutation,
+            transformations.keys.sorted().mapIndexed { idx, path ->
+                TransformationOperator(id = idx, ast = transformations[path]!!)
+            }
         )
         val evaluator = LocalMutationEvaluator(
             initialSolutionProvider = initialSolutionProvider,
