@@ -197,6 +197,27 @@ internal class MatchPlanBuilder(
         private val pendingWhereClauses = elements.whereClauses.toMutableList()
 
         /**
+         * All injective pairs that still need to be emitted as [BaseStep.InjectiveConstraint].
+         *
+         * Pre-computed once from [allMatchable] so that [tryInlineInjectiveConstraints]
+         * can emit each pair as soon as both instances are covered, rather than waiting
+         * until the end of the plan.  Pairs are removed from this list upon emission.
+         */
+        private val pendingInjectivePairs: MutableList<Pair<String, String>> = run {
+            val result = mutableListOf<Pair<String, String>>()
+            for (i in allMatchable.indices) {
+                for (j in i + 1 until allMatchable.size) {
+                    val a = allMatchable[i].objectInstance
+                    val b = allMatchable[j].objectInstance
+                    if (a.name != b.name && a.className != null && a.className == b.className) {
+                        result.add(a.name to b.name)
+                    }
+                }
+            }
+            result
+        }
+
+        /**
          * Per-instance priority scores computed from the actual pattern graph.
          *
          * Only regular (no modifier) matchable instances and PAC (require) instances
@@ -651,6 +672,25 @@ internal class MatchPlanBuilder(
             tryInlineConditions(instanceName)
             tryInlineDeferredProperties()
             tryInlineWhereClauses()
+            tryInlineInjectiveConstraints()
+        }
+
+        /**
+         * Emits any injective-constraint pairs whose both instances are now covered.
+         *
+         * Called after each instance is added to [coveredInstances] so that the
+         * constraint fires as early as possible — immediately after the second instance
+         * in the pair is bound — rather than at the very end of the traversal.
+         */
+        private fun tryInlineInjectiveConstraints() {
+            val iterator = pendingInjectivePairs.iterator()
+            while (iterator.hasNext()) {
+                val (nameA, nameB) = iterator.next()
+                if (nameA in coveredInstances && nameB in coveredInstances) {
+                    baseSteps.add(BaseStep.InjectiveConstraint(nameA, nameB))
+                    iterator.remove()
+                }
+            }
         }
 
         /**
@@ -1201,18 +1241,18 @@ internal class MatchPlanBuilder(
         }
 
         /**
-         * Appends [BaseStep.InjectiveConstraint]s for all pairs of matched instances
-         * that share the same class name, ensuring they bind to distinct vertices.
+         * Appends any remaining [BaseStep.InjectiveConstraint]s that were not yet
+         * emitted inline by [tryInlineInjectiveConstraints].
+         *
+         * In the common case all pairs have already been emitted inline immediately
+         * after both their instances were covered, so this method is effectively a
+         * no-op.  It acts as a safety net for pairs whose instances were never covered
+         * during the main traversal order (e.g., fully uncovered instances resolved
+         * only in [addUncoveredInstances]).
          */
         private fun addInjectiveConstraints() {
-            for (i in allMatchable.indices) {
-                for (j in i + 1 until allMatchable.size) {
-                    val a = allMatchable[i].objectInstance
-                    val b = allMatchable[j].objectInstance
-                    if (a.name != b.name && a.className != null && a.className == b.className) {
-                        baseSteps.add(BaseStep.InjectiveConstraint(a.name, b.name))
-                    }
-                }
+            for ((nameA, nameB) in pendingInjectivePairs) {
+                baseSteps.add(BaseStep.InjectiveConstraint(nameA, nameB))
             }
         }
 

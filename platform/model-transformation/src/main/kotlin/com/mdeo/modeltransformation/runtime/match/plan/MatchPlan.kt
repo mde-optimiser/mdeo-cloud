@@ -151,7 +151,9 @@ internal sealed class BaseStep {
     /**
      * Injective constraint: two matched instances must bind to distinct vertices.
      *
-     * Appended at the end of the traversal by `addInjectiveConstraints()`.
+     * Emitted as early as possible — immediately after both instances are covered —
+     * by `tryInlineInjectiveConstraints()`. Any remaining pairs are appended at the
+     * end by `addInjectiveConstraints()`.
      * Translated to `.where(labelA, P.neq(labelB))`.
      */
     data class InjectiveConstraint(

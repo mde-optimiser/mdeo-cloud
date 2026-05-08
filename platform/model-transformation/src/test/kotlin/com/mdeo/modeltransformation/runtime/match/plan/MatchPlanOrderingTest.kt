@@ -641,4 +641,106 @@ class MatchPlanOrderingTest {
                 "sprint filter (idx=\$sprintFilterIdx) must fire before plan coverage (idx=\$planCoveredIdx)")
         }
     }
+
+    // ── Injective constraint ordering tests ────────────────────────────────────
+
+    @Nested
+    inner class InjectiveConstraintOrderingTests {
+
+        /**
+         * Verifies the fix for early injective constraint emission.
+         *
+         * Pattern (move-work-item transformation):
+         * ```
+         * s1 : Sprint {}
+         * s2 : Sprint {}
+         * p  : Plan {}
+         * wi : WorkItem {}   (delete)
+         *
+         * s1 -- p             (plan.sprints <>-> s1.plan)
+         * s2 -- p             (plan.sprints <>-> s2.plan)
+         * delete wi -- s1     (s1.committedItems <--> wi.isPlannedFor)
+         * create wi -- s2     (s2.committedItems <--> wi.isPlannedFor)
+         * ```
+         *
+         * Expected traversal outline:
+         * 1. VertexScan(p)           — Plan has highest instance priority (2 sprints composited)
+         * 2. EdgeWalk(p → s1)
+         * 3. EdgeWalk(p → s2)        — needs select back to p
+         * 4. InjectiveConstraint(s1, s2)  ← must fire HERE, right after s2 is covered
+         * 5. EdgeWalk(s1 → wi)       — or equivalent
+         *
+         * Before the fix, step 4 appeared after step 5 (at the very end of the plan),
+         * meaning the graph was fully traversed before checking s1 ≠ s2.
+         */
+        @Test
+        fun `injective constraint between two sprints fires before workItem is covered`() {
+            val elements = com.mdeo.modeltransformation.runtime.match.PatternCategories(
+                matchableInstances = listOf(
+                    makeInstance(null, "s1", "Sprint"),
+                    makeInstance(null, "s2", "Sprint"),
+                    makeInstance(null, "p",  "Plan")
+                ),
+                matchableLinks = listOf(
+                    makeLink(null, "p", "sprints", "s1", "plan"),
+                    makeLink(null, "p", "sprints", "s2", "plan")
+                ),
+                createInstances = emptyList(),
+                deleteInstances = listOf(makeInstance("delete", "wi", "WorkItem")),
+                createLinks = listOf(
+                    makeLink("create", "s2", "committedItems", "wi", "isPlannedFor")
+                ),
+                deleteLinks = listOf(
+                    makeLink("delete", "s1", "committedItems", "wi", "isPlannedFor")
+                ),
+                forbidInstances = emptyList(),
+                forbidLinks = emptyList(),
+                requireInstances = emptyList(),
+                requireLinks = emptyList(),
+                variables = emptyList(),
+                whereClauses = emptyList()
+            )
+
+            val plan = MatchPlanBuilder(
+                getVertexId = { null },
+                nodeAnalyzer = ExpressionNodeAnalyzer(setOf("s1", "s2", "p", "wi"), 0),
+                isCollectionExpression = { false },
+                metamodelData = scrumMetamodel
+            ).build(elements, emptySet())
+
+            val steps = plan.baseSteps
+
+            // Both s1 and s2 must be covered before the injective constraint fires.
+            val s1Idx = steps.indexOfFirst { step ->
+                (step is BaseStep.VertexScan && step.instanceName == "s1") ||
+                (step is BaseStep.EdgeWalk   && step.toInstanceName == "s1")
+            }
+            val s2Idx = steps.indexOfFirst { step ->
+                (step is BaseStep.VertexScan && step.instanceName == "s2") ||
+                (step is BaseStep.EdgeWalk   && step.toInstanceName == "s2")
+            }
+            val wiIdx = steps.indexOfFirst { step ->
+                (step is BaseStep.VertexScan && step.instanceName == "wi") ||
+                (step is BaseStep.EdgeWalk   && step.toInstanceName == "wi")
+            }
+            val injectiveIdx = steps.indexOfFirst { step ->
+                step is BaseStep.InjectiveConstraint &&
+                ((step.instanceNameA == "s1" && step.instanceNameB == "s2") ||
+                 (step.instanceNameA == "s2" && step.instanceNameB == "s1"))
+            }
+
+            assertTrue(s1Idx >= 0,        "s1 must be covered")
+            assertTrue(s2Idx >= 0,        "s2 must be covered")
+            assertTrue(wiIdx >= 0,        "wi must be covered")
+            assertTrue(injectiveIdx >= 0, "InjectiveConstraint(s1, s2) must be present")
+
+            assertTrue(injectiveIdx > s1Idx,
+                "InjectiveConstraint (idx=\$injectiveIdx) must come after s1 is covered (idx=\$s1Idx)")
+            assertTrue(injectiveIdx > s2Idx,
+                "InjectiveConstraint (idx=\$injectiveIdx) must come after s2 is covered (idx=\$s2Idx)")
+            assertTrue(injectiveIdx < wiIdx,
+                "InjectiveConstraint (idx=\$injectiveIdx) must fire BEFORE wi is covered (idx=\$wiIdx) " +
+                "— s1 ≠ s2 should prune as early as possible")
+        }
+    }
 }
