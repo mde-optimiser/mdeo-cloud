@@ -720,7 +720,8 @@ export class MetamodelGModelFactory extends BaseGModelFactory<PartialMetaModel> 
                 assoc.source,
                 "target",
                 validatedMetadata,
-                sourceEndNavigable
+                sourceEndNavigable,
+                targetKind === AssociationEndKind.COMPOSITION
             );
             edge.children.push(...startNodes);
         }
@@ -734,7 +735,8 @@ export class MetamodelGModelFactory extends BaseGModelFactory<PartialMetaModel> 
                 assoc.target,
                 "source",
                 validatedMetadata,
-                targetEndNavigable
+                targetEndNavigable,
+                sourceKind === AssociationEndKind.COMPOSITION
             );
             edge.children.push(...targetNodes);
         }
@@ -746,7 +748,8 @@ export class MetamodelGModelFactory extends BaseGModelFactory<PartialMetaModel> 
      * Creates nodes for an association endpoint with property name and/or multiplicity.
      *
      * The multiplicity node is always created when the end is navigable, using "0..1"
-     * as the default display text when no explicit multiplicity is defined in the AST.
+     * as the default for composition ends and "0..*" for all other ends when no explicit
+     * multiplicity is defined in the AST.
      * If the end has no property name, the multiplicity label is shown as read-only
      * (since the grammar no longer allows multiplicity without a property name).
      *
@@ -755,6 +758,7 @@ export class MetamodelGModelFactory extends BaseGModelFactory<PartialMetaModel> 
      * @param target Whether this is at "source" or "target" of the association
      * @param validatedMetadata The validated metadata containing node placement
      * @param isNavigable Whether this end is navigable (determines if multiplicity is shown)
+     * @param isComposition Whether this end carries the composition diamond
      * @returns An array of created nodes (property and/or multiplicity)
      */
     private createAssociationEndNodes(
@@ -762,7 +766,8 @@ export class MetamodelGModelFactory extends BaseGModelFactory<PartialMetaModel> 
         associationEnd: PartialAssociationEnd,
         target: "source" | "target",
         validatedMetadata: GraphMetadata,
-        isNavigable: boolean
+        isNavigable: boolean,
+        isComposition: boolean
     ): GModelElement[] {
         const nodes: GModelElement[] = [];
         const property = associationEnd.name;
@@ -799,7 +804,7 @@ export class MetamodelGModelFactory extends BaseGModelFactory<PartialMetaModel> 
                     ? multiplicityMeta.meta
                     : NodeLayoutMetadataUtil.create(0, 0);
 
-            const multiplicityText = multiplicity != undefined ? this.formatMultiplicity(multiplicity) : "0..1";
+            const multiplicityText = multiplicity != undefined ? this.formatMultiplicity(multiplicity) : isComposition ? "0..1" : "0..*";
             // Only allow editing the multiplicity if the end has a property name.
             // Without a property name, the grammar does not permit explicit multiplicity.
             const multiplicityReadonly = property == undefined;

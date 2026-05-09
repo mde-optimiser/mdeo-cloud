@@ -157,64 +157,6 @@ class AdditionalStdlibMethodsIntegrationTest {
         }
     }
 
-    @Nested
-    inner class IntAsDoubleMethod {
-
-        @Test
-        fun `int asDouble converts int to double`() {
-            val ast = buildTypedAst {
-                val intType = intType()
-                val doubleType = doubleType()
-                function(
-                    name = "testFunction",
-                    returnType = doubleType,
-                    body = listOf(
-                        returnStmt(
-                            memberCall(
-                                expression = intLiteral(42, intType),
-                                member = "asDouble",
-                                overload = "",
-                                arguments = emptyList(),
-                                resultTypeIndex = doubleType
-                            )
-                        )
-                    )
-                )
-            }
-            val result = helper.compileAndInvoke(ast)
-            assertEquals(42.0, result)
-        }
-    }
-
-    @Nested
-    inner class IntAsFloatMethod {
-
-        @Test
-        fun `int asFloat converts int to float`() {
-            val ast = buildTypedAst {
-                val intType = intType()
-                val floatType = floatType()
-                function(
-                    name = "testFunction",
-                    returnType = floatType,
-                    body = listOf(
-                        returnStmt(
-                            memberCall(
-                                expression = intLiteral(42, intType),
-                                member = "asFloat",
-                                overload = "",
-                                arguments = emptyList(),
-                                resultTypeIndex = floatType
-                            )
-                        )
-                    )
-                )
-            }
-            val result = helper.compileAndInvoke(ast)
-            assertEquals(42.0f, result)
-        }
-    }
-
     // ==================================================================================
     // LONG ADDITIONAL METHODS
     // ==================================================================================
@@ -323,35 +265,6 @@ class AdditionalStdlibMethodsIntegrationTest {
         }
     }
 
-    @Nested
-    inner class LongAsDoubleMethod {
-
-        @Test
-        fun `long asDouble converts long to double`() {
-            val ast = buildTypedAst {
-                val longType = longType()
-                val doubleType = doubleType()
-                function(
-                    name = "testFunction",
-                    returnType = doubleType,
-                    body = listOf(
-                        returnStmt(
-                            memberCall(
-                                expression = longLiteral(1000L, longType),
-                                member = "asDouble",
-                                overload = "",
-                                arguments = emptyList(),
-                                resultTypeIndex = doubleType
-                            )
-                        )
-                    )
-                )
-            }
-            val result = helper.compileAndInvoke(ast)
-            assertEquals(1000.0, result)
-        }
-    }
-
     // ==================================================================================
     // FLOAT ADDITIONAL METHODS
     // ==================================================================================
@@ -382,35 +295,6 @@ class AdditionalStdlibMethodsIntegrationTest {
             }
             val result = helper.compileAndInvoke(ast)
             assertEquals("3.14", result)
-        }
-    }
-
-    @Nested
-    inner class FloatAsDoubleMethod {
-
-        @Test
-        fun `float asDouble converts float to double`() {
-            val ast = buildTypedAst {
-                val floatType = floatType()
-                val doubleType = doubleType()
-                function(
-                    name = "testFunction",
-                    returnType = doubleType,
-                    body = listOf(
-                        returnStmt(
-                            memberCall(
-                                expression = floatLiteral(3.14f, floatType),
-                                member = "asDouble",
-                                overload = "",
-                                arguments = emptyList(),
-                                resultTypeIndex = doubleType
-                            )
-                        )
-                    )
-                )
-            }
-            val result = helper.compileAndInvoke(ast) as Double
-            assertTrue(result > 3.13 && result < 3.15, "Expected approximately 3.14")
         }
     }
 

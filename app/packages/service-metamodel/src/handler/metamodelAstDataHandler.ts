@@ -1,5 +1,5 @@
 import type { AssociationEndType, MetamodelServices } from "@mdeo/language-metamodel";
-import { Association, Class, Enum, EnumTypeReference, MetaModel, RangeMultiplicity } from "@mdeo/language-metamodel";
+import { Association, Class, Enum, EnumTypeReference, MetaModel, MetamodelAssociationOperators, RangeMultiplicity } from "@mdeo/language-metamodel";
 import type { SingleMultiplicityType, RangeMultiplicityType } from "@mdeo/language-metamodel";
 import { hasErrors, type FileDataHandler } from "@mdeo/service-common";
 import { resolveRelativePath } from "@mdeo/language-shared";
@@ -132,9 +132,12 @@ export interface MetamodelAstData {
     importedMetamodelPaths: string[];
 }
 
-function convertMultiplicity(mult: SingleMultiplicityType | RangeMultiplicityType | undefined): MultiplicityData {
+function convertMultiplicity(
+    mult: SingleMultiplicityType | RangeMultiplicityType | undefined,
+    defaultMultiplicity: MultiplicityData = { lower: 1, upper: 1 }
+): MultiplicityData {
     if (mult == undefined) {
-        return { lower: 1, upper: 1 };
+        return defaultMultiplicity;
     }
 
     if (mult.$type === RangeMultiplicity.name) {
@@ -228,10 +231,25 @@ export const metamodelAstDataHandler: FileDataHandler<MetamodelAstData | null, M
                 entries: (element.entries ?? []).map((entry) => entry.name ?? "")
             });
         } else if (reflection.isInstance(element, Association)) {
-            const mapEnd = (end: AssociationEndType): AssociationEndData => {
+            const compositionSourceOperators: string[] = [
+                MetamodelAssociationOperators.COMPOSITION_SOURCE,
+                MetamodelAssociationOperators.COMPOSITION_SOURCE_NAVIGABLE_TARGET
+            ];
+            const compositionTargetOperators: string[] = [
+                MetamodelAssociationOperators.COMPOSITION_TARGET,
+                MetamodelAssociationOperators.COMPOSITION_TARGET_NAVIGABLE_SOURCE
+            ];
+            const operator = element.operator ?? "";
+            const sourceIsComposition = compositionSourceOperators.includes(operator);
+            const targetIsComposition = compositionTargetOperators.includes(operator);
+
+            const mapEnd = (end: AssociationEndType, isComposition: boolean): AssociationEndData => {
+                const defaultMultiplicity: MultiplicityData = isComposition
+                    ? { lower: 0, upper: 1 }
+                    : { lower: 0, upper: -1 };
                 const result: AssociationEndData = {
                     className: end.class?.$refText ?? "",
-                    multiplicity: convertMultiplicity(end.multiplicity)
+                    multiplicity: convertMultiplicity(end.multiplicity, defaultMultiplicity)
                 };
                 if (end.name != undefined) {
                     result.name = end.name;
@@ -240,9 +258,9 @@ export const metamodelAstDataHandler: FileDataHandler<MetamodelAstData | null, M
             };
 
             associations.push({
-                source: mapEnd(element.source),
-                operator: element.operator ?? "",
-                target: mapEnd(element.target)
+                source: mapEnd(element.source, targetIsComposition),
+                operator,
+                target: mapEnd(element.target, sourceIsComposition)
             });
         }
     }
