@@ -88,7 +88,8 @@ export function createMdeoContributionPlugin(): ConfigContributionPlugin {
             {
                 name: "search",
                 ruleName: SearchSectionContentRule.name,
-                interfaceName: SearchSection.name
+                interfaceName: SearchSection.name,
+                executable: false
             },
             {
                 name: "solver",
@@ -99,7 +100,8 @@ export function createMdeoContributionPlugin(): ConfigContributionPlugin {
             {
                 name: "runtime",
                 ruleName: RuntimeSectionContentRule.name,
-                interfaceName: RuntimeSection.name
+                interfaceName: RuntimeSection.name,
+                executable: false
             }
         ],
         dependencies: ["config-optimization"],

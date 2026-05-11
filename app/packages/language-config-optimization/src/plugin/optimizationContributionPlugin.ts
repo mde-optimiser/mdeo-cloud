@@ -71,12 +71,14 @@ export function createOptimizationContributionPlugin(): ConfigContributionPlugin
             {
                 name: "problem",
                 ruleName: ProblemSectionContentRule.name,
-                interfaceName: ProblemSection.name
+                interfaceName: ProblemSection.name,
+                executable: false
             },
             {
                 name: "goal",
                 ruleName: GoalSectionContentRule.name,
-                interfaceName: GoalSection.name
+                interfaceName: GoalSection.name,
+                executable: false
             }
         ],
         dependencies: ["config-metamodel", "config-script"],

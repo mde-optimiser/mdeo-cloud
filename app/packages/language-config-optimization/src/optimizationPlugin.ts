@@ -23,7 +23,7 @@ import { OptimizationScopeProvider } from "./features/optimizationScopeProvider.
 import { OptimizationExternalReferenceCollector } from "./features/optimizationExternalReferenceCollector.js";
 import { registerOptimizationSerializers } from "./features/optimizationSerializers.js";
 import { createOptimizationContributionPlugin } from "./plugin/optimizationContributionPlugin.js";
-import { Class, Property } from "@mdeo/language-metamodel";
+import { AssociationEnd, Class, Property } from "@mdeo/language-metamodel";
 import { Function } from "@mdeo/language-script";
 import { registerOptimizationValidationChecks } from "./validation/optimizationValidator.js";
 import { OptimizationCompletionProvider } from "./features/optimizationCompletionProvider.js";
@@ -34,7 +34,7 @@ import { OptimizationCompletionProvider } from "./features/optimizationCompletio
  * so the optimization grammar can be deserialized from its serialized form.
  */
 const optimizationDeserializationContext = GrammarDeserializationContext.create(
-    [Class, Function, Property],
+    [Class, Function, Property, AssociationEnd],
     [],
     [ID, NEWLINE, HIDDEN_NEWLINE, INT, FLOAT, STRING]
 );

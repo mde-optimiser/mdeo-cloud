@@ -58,7 +58,7 @@ export interface LanguagePlugin {
      */
     icon: IconNode;
     /**
-     * Indicates whether this language plugin was generated automatically
+     * Indicates whether this language was generated automatically
      */
     isGenerated: boolean;
 }

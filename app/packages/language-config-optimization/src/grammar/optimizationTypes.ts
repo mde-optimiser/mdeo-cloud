@@ -8,7 +8,7 @@ import {
     type ASTType
 } from "@mdeo/language-common";
 import { FileScopingConfig, generateImportTypes } from "@mdeo/language-shared";
-import type { ClassType, PropertyType } from "@mdeo/language-metamodel";
+import type { AssociationEndType, ClassType, PropertyType } from "@mdeo/language-metamodel";
 import type { FunctionType } from "@mdeo/language-script";
 
 /**
@@ -28,6 +28,17 @@ export const MetamodelClass = createExternalInterface<ClassType>("Class");
  * Used for referencing properties in refinements.
  */
 export const Property = createExternalInterface<PropertyType>("Property");
+
+/**
+ * External reference to AssociationEnd interface from language-metamodel
+ * Used for referencing association ends in refinements
+ */
+export const AssociationEnd = createExternalInterface<AssociationEndType>("AssociationEnd");
+
+/**
+ * Union type for property or association end references in refinements.
+ */
+export const PropertyOrAssociationEnd = createType("PropertyOrAssociationEnd").types(Property, AssociationEnd);
 
 /**
  * Single multiplicity specification.
@@ -145,7 +156,7 @@ export type ObjectiveType = ASTType<typeof Objective>;
  */
 export const Refinement = createInterface("ConfigRefinement").attrs({
     class: Ref(() => MetamodelClass),
-    field: Ref(() => Property),
+    field: Ref(() => PropertyOrAssociationEnd),
     multiplicity: Multiplicity
 });
 

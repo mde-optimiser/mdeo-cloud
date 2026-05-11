@@ -6,7 +6,7 @@ import type { LanguagePlugin, LanguageServerPlugin, ServerContributionPlugin } f
  */
 export interface ServerPlugin extends LanguageServerPlugin, Pick<LanguagePlugin, "id" | "extension"> {
     /**
-     * Registered contribution plugins for this langauge
+     * Registered contribution plugins for this language
      */
     contributionPlugins: ServerContributionPlugin[];
 }

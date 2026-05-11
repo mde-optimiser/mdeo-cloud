@@ -1,5 +1,13 @@
 import type { AssociationEndType, MetamodelServices } from "@mdeo/language-metamodel";
-import { Association, Class, Enum, EnumTypeReference, MetaModel, MetamodelAssociationOperators, RangeMultiplicity } from "@mdeo/language-metamodel";
+import {
+    Association,
+    Class,
+    Enum,
+    EnumTypeReference,
+    MetaModel,
+    MetamodelAssociationOperators,
+    RangeMultiplicity
+} from "@mdeo/language-metamodel";
 import type { SingleMultiplicityType, RangeMultiplicityType } from "@mdeo/language-metamodel";
 import { hasErrors, type FileDataHandler } from "@mdeo/service-common";
 import { resolveRelativePath } from "@mdeo/language-shared";

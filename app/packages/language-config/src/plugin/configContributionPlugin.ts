@@ -29,7 +29,7 @@ export interface ConfigSection {
      * If true, the config language can expose the regular "run" file action
      * when this section is present in a config file.
      */
-    executable?: boolean;
+    executable: boolean;
 }
 
 /**

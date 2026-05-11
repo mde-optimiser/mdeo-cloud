@@ -28,14 +28,14 @@ export class CustomTypeGraph extends TypeGraph {
     override removeNode(typeToRemove: Type, key?: string): void {
         const mapKey = key ?? typeToRemove.getIdentifier();
         if (this.getNode(mapKey) === undefined) {
-            throw new Error(`Type does not exist: ${mapKey}`);
+            return;
         }
 
         const dependentsToRemove = this.collectDependents(typeToRemove);
         for (const dependent of dependentsToRemove) {
             const dependentKey = dependent.getIdentifier();
             if (this.getNode(dependentKey) !== undefined) {
-                super.removeNode(dependent);
+                this.removeNode(dependent);
             }
         }
 
