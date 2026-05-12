@@ -76,9 +76,11 @@ export type ModelTransformationServices = {
 /**
  * Creates the Model Transformation language plugin.
  *
+ * @param importMetaUrl The `import.meta.url` of the plugin entry module, forwarded
+ *                      to the diagram module for GED worker URL resolution.
  * @returns The Model Transformation language plugin.
  */
-function createModelTransformationPlugin(): LangiumLanguagePlugin<ModelTransformationServices> {
+function createModelTransformationPlugin(languageJsUrl?: string): LangiumLanguagePlugin<ModelTransformationServices> {
     const { rule } = generateModelTransformationRules();
 
     return {
@@ -147,7 +149,7 @@ function createModelTransformationPlugin(): LangiumLanguagePlugin<ModelTransform
             registerExpressionSerializers(services, expressionTypes);
             registerModelTransformationSerializers(services);
             registerModelTransformationValidationChecks(services);
-            services.shared.glsp.serverModule.configureDiagramModule(new ModelTransformationDiagramModule(services));
+            services.shared.glsp.serverModule.configureDiagramModule(new ModelTransformationDiagramModule(services, languageJsUrl));
             addExternalReferenceCollectionPhase(services);
         }
     };
@@ -157,7 +159,7 @@ function createModelTransformationPlugin(): LangiumLanguagePlugin<ModelTransform
  * Provider for the Model Transformation language plugin.
  */
 export const modelTransformationPluginProvider: LangiumLanguagePluginProvider<ModelTransformationServices> = {
-    create(): LangiumLanguagePlugin<ModelTransformationServices> {
-        return createModelTransformationPlugin();
+    create(_contributionPlugins, languageJsUrl): LangiumLanguagePlugin<ModelTransformationServices> {
+        return createModelTransformationPlugin(languageJsUrl);
     }
 };

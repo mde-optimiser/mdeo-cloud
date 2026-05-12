@@ -1,3 +1,7 @@
+export * from "./graph-edit-distance/gedWorkerBase.js";
+export * from "./graph-edit-distance/graphEditDistance.js";
+export * from "./graph-edit-distance/hungarian.js";
+export * from "./graph-edit-distance/multiGraph.js";
 export * from "./glsp/configureGLSPServer.js";
 export * from "./glsp/customLauncher.js";
 export * from "./glsp/glspModule.js";

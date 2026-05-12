@@ -25,8 +25,6 @@ export class ModelMetadataManager extends MetadataManager<PartialModel> {
     @inject(ModelIdProvider)
     protected modelIdProvider!: ModelIdProviderType;
 
-    protected override gedWorkerUrl = "/plugin/model/static/gedWorker.js";
-
     /**
      * Verifies and corrects invalid metadata for nodes and edges.
      *

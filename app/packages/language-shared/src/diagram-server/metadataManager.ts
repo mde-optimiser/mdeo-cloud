@@ -1,13 +1,13 @@
 import { sharedImport } from "../sharedImport.js";
 import type { EdgeMetadata, GraphMetadata, NodeMetadata } from "./metadata.js";
-import { MultiGraph, type NodeAttributes, type EdgeAttributes } from "./graph-edit-distance/multiGraph.js";
-import { type NodeEditPath, type EdgeEditPath, type EdgeTuple } from "./graph-edit-distance/graphEditDistance.js";
-import { runGEDInWorker, type GEDResult, type GEDLoopAssignment } from "./graph-edit-distance/gedWorkerBase.js";
+import { MultiGraph, type NodeAttributes, type EdgeAttributes } from "@mdeo/language-common";
+import { type NodeEditPath, type EdgeEditPath, type EdgeTuple } from "@mdeo/language-common";
+import { runGEDInWorker, type GEDResult, type GEDLoopAssignment } from "@mdeo/language-common";
 import type { AstNode } from "langium";
-import { AstReflectionKey, LanguageServicesKey } from "./langiumServices.js";
+import { AstReflectionKey, GedWorkerBaseUrl, LanguageServicesKey } from "./langiumServices.js";
 import type { AstReflection, LanguageServices } from "@mdeo/language-common";
 
-const { injectable, inject } = sharedImport("inversify");
+const { injectable, inject, optional } = sharedImport("inversify");
 
 /**
  * Maximum absolute difference between the number of nodes in the two pruned
@@ -50,6 +50,16 @@ export abstract class MetadataManager<T extends AstNode = AstNode> {
     protected reflection!: AstReflection;
 
     /**
+     * Optionally injected HTTP URL of the plugin's `language.js` entry file.
+     * When bound, {@link gedWorkerUrl} resolves to `./gedWorker.js` relative to
+     * this URL, pointing to the GED worker script regardless of the versioned
+     * static path used in production.
+     */
+    @optional()
+    @inject(GedWorkerBaseUrl)
+    private readonly languageJsUrl: string | undefined;
+
+    /**
      * Verifies the metadata for a given model element.
      * If the metadata is invalid, return a corrected version.
      * If the metadata is valid, return undefined.
@@ -72,17 +82,19 @@ export abstract class MetadataManager<T extends AstNode = AstNode> {
     /**
      * Absolute URL of the language-specific GED sub-worker script.
      *
-     * When defined, the GED computation is offloaded to a dedicated worker
-     * and cancelled after {@link GED_WORKER_TIMEOUT_MS} if it does not finish
-     * in time.  When undefined (the default), no worker is spawned and GED
-     * is skipped entirely.
+     * Derived at runtime from the injected {@link languageJsUrl} (the HTTP URL
+     * of the plugin's `language.js` entry file) by resolving `./gedWorker.js`
+     * relative to it.
      *
-     * Override in subclasses to enable worker-based GED, e.g.:
-     * ```ts
-     * protected override gedWorkerUrl = "/plugin/metamodel/static/gedWorker.js";
-     * ```
+     * Returns `undefined` when `GedWorkerBaseUrl` is not bound in the
+     * container, which disables worker-based GED entirely.
      */
-    protected gedWorkerUrl: string | undefined = undefined;
+    protected get gedWorkerUrl(): string | undefined {
+        if (this.languageJsUrl === undefined) {
+            return undefined;
+        }
+        return new URL("./gedWorker.js", this.languageJsUrl).href;
+    }
 
     /**
      * Validates the metadata against the current metadata based on the source model.
@@ -94,11 +106,11 @@ export abstract class MetadataManager<T extends AstNode = AstNode> {
      * @param lastValidMetadata The last valid graph metadata for an error-free model
      * @returns Updated metadata or undefined if valid
      */
-    validateMetadata(
+    async validateMetadata(
         sourceModel: T,
         currentMetadata: GraphMetadata,
         lastValidMetadata: GraphMetadata
-    ): GraphMetadata | undefined {
+    ): Promise<GraphMetadata | undefined> {
         const newMetadata = this.extractGraphMetadata(sourceModel);
         this.checkMetadataConsistency(newMetadata);
 
@@ -115,7 +127,7 @@ export abstract class MetadataManager<T extends AstNode = AstNode> {
             return newMetadata;
         }
 
-        const gedResult = this.computeGED(currentGraph, newGraph);
+        const gedResult = await this.computeGED(currentGraph, newGraph);
 
         if (gedResult == undefined) {
             return this.applyDefaultMetadata(newMetadata, mergedMetadata);
@@ -340,14 +352,12 @@ export abstract class MetadataManager<T extends AstNode = AstNode> {
      * @returns A {@link GEDResult} with merged edit paths and loop assignments,
      *          or `undefined` when skipped or timed out.
      */
-    private computeGED(currentGraph: MultiGraph, newGraph: MultiGraph): GEDResult | undefined {
+    private async computeGED(currentGraph: MultiGraph, newGraph: MultiGraph): Promise<GEDResult | undefined> {
         const { prunedCurrent, prunedNew, stableNodeIds, stableEdges } = this.pruneGraphs(currentGraph, newGraph);
 
         const preMatchedNodes: NodeEditPath = [...stableNodeIds].map((id) => [id, id]);
         const preMatchedEdges: EdgeEditPath = stableEdges.map((edge) => [edge, edge]);
 
-        // Skip GED when the pruned graphs differ too much in size – the search
-        // space would be too large and no good matching is likely to exist.
         const nodeDifference = Math.abs(prunedCurrent.numberOfNodes - prunedNew.numberOfNodes);
         if (nodeDifference > GED_MAX_NODE_DIFFERENCE) {
             return undefined;
@@ -357,7 +367,7 @@ export abstract class MetadataManager<T extends AstNode = AstNode> {
             return undefined;
         }
 
-        const workerResult = runGEDInWorker(this.gedWorkerUrl, prunedCurrent, prunedNew);
+        const workerResult = await runGEDInWorker(this.gedWorkerUrl, prunedCurrent, prunedNew);
         if (workerResult === undefined) {
             return undefined;
         }
@@ -367,8 +377,6 @@ export abstract class MetadataManager<T extends AstNode = AstNode> {
             nodePath: [...preMatchedNodes, ...nodePath],
             edgePath: [...preMatchedEdges, ...edgePath],
             cost,
-            // Loop assignments cover only the pruned (non-stable) node pairs.
-            // Stable node pairs are handled separately in processNodePaths.
             loopAssignments
         };
     }
@@ -379,14 +387,15 @@ export abstract class MetadataManager<T extends AstNode = AstNode> {
      *
      * A node is considered stable (identical) when:
      *  - It exists in both graphs with the same ID and type.
-     *  - Every edge incident to it in either graph connects exclusively to
-     *    other stable nodes, and each such edge has a matching counterpart
-     *    (same key and type) in the other graph.
+     *  - Every incident edge has a matching counterpart (same key and type)
+     *    in the other graph.
+     *  - No incident edge connects to a truly changed node (a node that was
+     *    added, deleted, or had its type changed).
      *
-     * The second condition is enforced iteratively: nodes whose incident
-     * edges violate it are evicted from the stable set until convergence.
-     * This guarantees the stable set forms a self-contained closed subgraph,
-     * so removed nodes leave no dangling edges in the pruned graphs.
+     * Crucially, eviction is NOT transitive: a node is only evicted when it
+     * is directly connected to a truly changed node or has an edge mismatch.
+     * Nodes that became unstable for other reasons do not cause their
+     * neighbours to be evicted in turn.
      *
      * @param currentGraph The current graph.
      * @param newGraph The new graph.
@@ -403,56 +412,52 @@ export abstract class MetadataManager<T extends AstNode = AstNode> {
         stableEdges: Array<EdgeTuple>;
     } {
         const newGraphNodeSet = new Set(newGraph.nodes);
-        const candidateStable = new Set<string>();
+        const initialCandidates = new Set<string>();
         for (const id of currentGraph.nodes) {
             if (newGraphNodeSet.has(id) && currentGraph.getNodeData(id).type === newGraph.getNodeData(id).type) {
-                candidateStable.add(id);
+                initialCandidates.add(id);
             }
         }
 
-        let changed = true;
-        while (changed) {
-            changed = false;
-            for (const nodeId of [...candidateStable]) {
-                if (this.hasCandidateEdgeMismatch(nodeId, candidateStable, currentGraph, newGraph)) {
-                    candidateStable.delete(nodeId);
-                    changed = true;
-                }
+        const stableNodeIds = new Set<string>();
+        for (const nodeId of initialCandidates) {
+            if (!this.hasCandidateEdgeMismatch(nodeId, initialCandidates, currentGraph, newGraph)) {
+                stableNodeIds.add(nodeId);
             }
         }
 
         const stableEdges: Array<EdgeTuple> = [];
         for (const [from, to, key] of currentGraph.edges) {
-            if (candidateStable.has(from) && candidateStable.has(to)) {
+            if (stableNodeIds.has(from) && stableNodeIds.has(to)) {
                 stableEdges.push([from, to, key]);
             }
         }
 
         const prunedCurrent = new MultiGraph();
         for (const id of currentGraph.nodes) {
-            if (!candidateStable.has(id)) {
+            if (!stableNodeIds.has(id)) {
                 prunedCurrent.addNode(id, currentGraph.getNodeData(id));
             }
         }
         for (const [from, to, key] of currentGraph.edges) {
-            if (!candidateStable.has(from) && !candidateStable.has(to)) {
+            if (!stableNodeIds.has(from) && !stableNodeIds.has(to)) {
                 prunedCurrent.addEdge(from, to, key, currentGraph.getEdgeData(from, to, key));
             }
         }
 
         const prunedNew = new MultiGraph();
         for (const id of newGraph.nodes) {
-            if (!candidateStable.has(id)) {
+            if (!stableNodeIds.has(id)) {
                 prunedNew.addNode(id, newGraph.getNodeData(id));
             }
         }
         for (const [from, to, key] of newGraph.edges) {
-            if (!candidateStable.has(from) && !candidateStable.has(to)) {
+            if (!stableNodeIds.has(from) && !stableNodeIds.has(to)) {
                 prunedNew.addEdge(from, to, key, newGraph.getEdgeData(from, to, key));
             }
         }
 
-        return { prunedCurrent, prunedNew, stableNodeIds: candidateStable, stableEdges };
+        return { prunedCurrent, prunedNew, stableNodeIds, stableEdges };
     }
 
     /**
@@ -461,13 +466,14 @@ export abstract class MetadataManager<T extends AstNode = AstNode> {
      *
      * A mismatch occurs when:
      *  - An edge incident to the node connects to a node outside the
-     *    candidate set (edge would become dangling after pruning).
+     *    initial candidate set, i.e. a truly changed node (added, deleted,
+     *    or type-changed).
      *  - An edge present in one graph has no counterpart (same key) in the
      *    other graph.
      *  - A matching edge exists in both graphs but with different types.
      *
      * @param nodeId The candidate node to check.
-     * @param candidates The current stable candidate set.
+     * @param candidates The initial candidate set (nodes present in both graphs with the same type).
      * @param currentGraph The current graph.
      * @param newGraph The new graph.
      */

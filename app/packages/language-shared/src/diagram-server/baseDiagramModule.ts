@@ -15,7 +15,7 @@ import { GModelIndex } from "./modelIndex.js";
 import { SourceModelStorage } from "./sourceModelStorage.js";
 import type { LanguageServices } from "@mdeo/language-common";
 import type { interfaces } from "inversify";
-import { AstReflectionKey, LanguageServicesKey } from "./langiumServices.js";
+import { AstReflectionKey, GedWorkerBaseUrl, LanguageServicesKey } from "./langiumServices.js";
 import { ModelIdProvider } from "./modelIdProvider.js";
 import { ChangeBoundsOperationHandler } from "./handler/changeBoundsOperationHandler.js";
 import { PartialChangeBoundsOperationHandler } from "./handler/partialChangeBoundsOperationHandler.js";
@@ -57,8 +57,15 @@ export abstract class BaseDiagramModule extends DiagramModule {
      * Creates a new diagram module with the given language services.
      *
      * @param services The language services to bind into the GLSP container
+     * @param languageJsUrl The HTTP URL of the plugin's `language.js` entry file,
+     *                      used to resolve the GED worker script URL at runtime.
+     *                      When provided, `GedWorkerBaseUrl` is bound in the container
+     *                      so that the metadata manager can derive the correct worker path.
      */
-    constructor(protected readonly services: LanguageServices) {
+    constructor(
+        protected readonly services: LanguageServices,
+        protected readonly languageJsUrl?: string
+    ) {
         super();
     }
 
@@ -83,6 +90,9 @@ export abstract class BaseDiagramModule extends DiagramModule {
         const context = { bind, unbind, isBound, rebind };
         bindOrRebind(context, LanguageServicesKey).toConstantValue(this.services);
         bindOrRebind(context, AstReflectionKey).toConstantValue(this.services.shared.AstReflection);
+        if (this.languageJsUrl !== undefined) {
+            bindOrRebind(context, GedWorkerBaseUrl).toConstantValue(this.languageJsUrl);
+        }
         applyBindingTarget(context, ModelIdProvider, this.bindModelIdProvider()).inSingletonScope();
         applyBindingTarget(context, MetadataManager, this.bindMetadataManager()).inSingletonScope();
         applyBindingTarget(context, BaseLayoutEngine, this.bindCustomLayoutEngine()).inSingletonScope();

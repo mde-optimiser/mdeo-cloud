@@ -97,7 +97,7 @@ export interface ConfigExecutionRoutingMetadata {
     /**
      * Contribution plugin short name.
      */
-    pluginShortName: string;
+    pluginName: string;
 }
 
 /**

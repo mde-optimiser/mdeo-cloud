@@ -81,7 +81,7 @@ export function createMdeoContributionPlugin(): ConfigContributionPlugin {
     return {
         id: MDEO_PLUGIN_ID,
         type: ConfigContributionPlugin.TYPE,
-        shortName: MDEO_PLUGIN_NAME,
+        name: MDEO_PLUGIN_NAME,
         languageKey: CONFIG_MDEO_LANGUAGE_KEY,
         grammar: createMdeoGrammar(),
         sections: [

@@ -40,10 +40,11 @@ export type MetamodelServices = ExternalReferenceAdditionalServices & ActionHand
  * The plugin for the Metamodel language.
  * Configures the language with newline-aware lexing and custom parsing behavior.
  */
-const metamodelPlugin: LangiumLanguagePlugin<MetamodelServices> = {
-    rootRule: MetaModelRule,
-    additionalTerminals: [WS, HIDDEN_NEWLINE, ML_COMMENT, SL_COMMENT],
-    module: {
+function createMetamodelPlugin(languageJsUrl?: string): LangiumLanguagePlugin<MetamodelServices> {
+    return {
+        rootRule: MetaModelRule,
+        additionalTerminals: [WS, HIDDEN_NEWLINE, ML_COMMENT, SL_COMMENT],
+        module: {
         parser: {
             TokenBuilder: () => new NewlineAwareTokenBuilder(new Set(["{"]), new Set(["("]), new Set(["}", ")"])),
             ValueConverter: () => new IdValueConverter(),
@@ -79,16 +80,17 @@ const metamodelPlugin: LangiumLanguagePlugin<MetamodelServices> = {
         registerDefaultTokenSerializers(services);
         registerMetamodelSerializers(services);
         registerMetamodelValidationChecks(services);
-        services.shared.glsp.serverModule.configureDiagramModule(new MetamodelDiagramModule(services));
+        services.shared.glsp.serverModule.configureDiagramModule(new MetamodelDiagramModule(services, languageJsUrl));
         addExternalReferenceCollectionPhase(services);
     }
 };
+}
 
 /**
  * Provider for the Metamodel language plugin.
  */
 export const metamodelPluginProvider: LangiumLanguagePluginProvider<MetamodelServices> = {
-    create(): LangiumLanguagePlugin<MetamodelServices> {
-        return metamodelPlugin;
+    create(_contributionPlugins, languageJsUrl): LangiumLanguagePlugin<MetamodelServices> {
+        return createMetamodelPlugin(languageJsUrl);
     }
 };

@@ -58,7 +58,14 @@ export interface LangiumLanguagePlugin<T> {
  * @template T The type of the language's additional services
  */
 export interface LangiumLanguagePluginProvider<T> {
-    create(contributionPlugins: ServerContributionPlugin[]): LangiumLanguagePlugin<T>;
+    /**
+     * @param contributionPlugins The server contribution plugins to include
+     * @param languageJsUrl The HTTP URL of the plugin's served `language.js` file.
+     *                      When provided it is forwarded to the diagram module so
+     *                      the metadata manager can derive the correct GED worker
+     *                      URL at runtime, even when static files are versioned.
+     */
+    create(contributionPlugins: ServerContributionPlugin[], languageJsUrl?: string): LangiumLanguagePlugin<T>;
 }
 
 /**

@@ -29,6 +29,3 @@ export class EditorSettingsService {
         this.settings = settings;
     }
 }
-
-// Re-export the action for convenience when consuming this service.
-export { UpdateEditorSettingsAction };

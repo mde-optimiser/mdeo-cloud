@@ -255,8 +255,8 @@ class ConfigPluginResolver {
         ruleMap: Map<string, ParserRule<AstNode>>,
         interfaceMap: Map<string, Interface<AstNode>>
     ): void {
-        const pluginShortName = plugin.shortName;
-        const qualifiedName = `${section.name}.${pluginShortName}`;
+        const pluginName = plugin.name;
+        const qualifiedName = `${section.name}.${pluginName}`;
         const requiresQualifiedName = (this.sectionNameCounts.get(section.name) ?? 0) > 1;
 
         const sectionRule = ruleMap.get(section.ruleName);
@@ -323,23 +323,23 @@ class ConfigPluginResolver {
         sectionRule: ParserRule<AstNode>,
         sectionInterface: Interface<AstNode>
     ): { wrapperInterface: Interface<AstNode>; wrapperRule: ParserRule<AstNode> } {
-        const pluginShortName = plugin.shortName;
-        const wrapperInterfaceName = getWrapperInterfaceName(section.name, pluginShortName);
+        const pluginName = plugin.name;
+        const wrapperInterfaceName = getWrapperInterfaceName(section.name, pluginName);
         const wrapperInterface = createInterface(wrapperInterfaceName).extends(BaseConfigSection).attrs({
             content: sectionInterface
         });
 
-        const wrapperRuleName = getWrapperRuleName(section.name, pluginShortName);
+        const wrapperRuleName = getWrapperRuleName(section.name, pluginName);
 
         let wrapperRule: ParserRule<AstNode>;
         if (requiresQualifiedName) {
             wrapperRule = createRule(wrapperRuleName)
                 .returns(wrapperInterface)
-                .as(({ set }) => [`${section.name}.${pluginShortName}`, set("content", sectionRule)]);
+                .as(({ set }) => [`${section.name}.${pluginName}`, set("content", sectionRule)]);
         } else {
             wrapperRule = createRule(wrapperRuleName)
                 .returns(wrapperInterface)
-                .as(({ set }) => [or(section.name, `${section.name}.${pluginShortName}`), set("content", sectionRule)]);
+                .as(({ set }) => [or(section.name, `${section.name}.${pluginName}`), set("content", sectionRule)]);
         }
 
         return { wrapperInterface, wrapperRule };
@@ -351,22 +351,22 @@ class ConfigPluginResolver {
  * The wrapper interface extends BaseConfigSection and holds the section content.
  *
  * @param sectionName The section name (e.g., "problem")
- * @param pluginShortName The short name of the plugin (e.g., "optimization")
+ * @param pluginName The short name of the plugin (e.g., "optimization")
  * @returns The wrapper interface name (e.g., "ConfigProblemSection_optimization")
  */
-export function getWrapperInterfaceName(sectionName: string, pluginShortName: string): string {
-    return `Config${sectionName.charAt(0).toUpperCase()}${sectionName.slice(1)}Section_${pluginShortName}`;
+export function getWrapperInterfaceName(sectionName: string, pluginName: string): string {
+    return `Config${sectionName.charAt(0).toUpperCase()}${sectionName.slice(1)}Section_${pluginName}`;
 }
 
 /**
  * Returns the wrapper parser rule name for a given section and plugin.
  *
  * @param sectionName The section name (e.g., "problem")
- * @param pluginShortName The short name of the plugin (e.g., "optimization")
+ * @param pluginName The short name of the plugin (e.g., "optimization")
  * @returns The wrapper rule name (e.g., "ConfigProblemSectionWrapper_optimization")
  */
-export function getWrapperRuleName(sectionName: string, pluginShortName: string): string {
-    return `Config${sectionName.charAt(0).toUpperCase()}${sectionName.slice(1)}SectionWrapper_${pluginShortName}`;
+export function getWrapperRuleName(sectionName: string, pluginName: string): string {
+    return `Config${sectionName.charAt(0).toUpperCase()}${sectionName.slice(1)}SectionWrapper_${pluginName}`;
 }
 
 /**
@@ -419,8 +419,8 @@ export function generateContributionPluginGrammar(
             );
         }
 
-        const wrapperInterfaceName = getWrapperInterfaceName(section.name, plugin.shortName);
-        const wrapperRuleName = getWrapperRuleName(section.name, plugin.shortName);
+        const wrapperInterfaceName = getWrapperInterfaceName(section.name, plugin.name);
+        const wrapperRuleName = getWrapperRuleName(section.name, plugin.name);
 
         const wrapperInterface = createInterface(wrapperInterfaceName).extends(BaseConfigSection).attrs({
             content: sectionInterface
@@ -433,7 +433,7 @@ export function generateContributionPluginGrammar(
         wrapperRules.push(wrapperRule);
     }
 
-    return createRule(`${plugin.shortName.charAt(0).toUpperCase()}${plugin.shortName.slice(1)}PluginConfigRule`)
+    return createRule(`${plugin.name.charAt(0).toUpperCase()}${plugin.name.slice(1)}PluginConfigRule`)
         .returns(Config)
         .as(({ add }) => [many(or(...wrapperRules.map((r) => add("sections", r)), NEWLINE))]);
 }

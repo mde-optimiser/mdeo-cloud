@@ -17,8 +17,6 @@ import { optimizeEditPaths, type GEDOptions, type NodeEditPath, type EdgeEditPat
 import type { NodeAttributes, EdgeAttributes } from "./multiGraph.js";
 import { linearSumAssignment } from "./hungarian.js";
 
-export { MultiGraph };
-
 /** Offset of the signal Int32 within the shared buffer. */
 const SIGNAL_OFFSET = 0;
 /** Offset of the result-length Int32 within the shared buffer. */
@@ -243,7 +241,9 @@ function computeLoopAssignments(
  * @param costOptions Language-specific node/edge cost functions (without `upperBound`).
  */
 export function runGEDWorker(costOptions: Omit<GEDOptions, "upperBound">): void {
+    console.log("GED worker started with options");
     (self as any).onmessage = (event: MessageEvent<GEDWorkerRequest>) => {
+        console.log("GED worker received request");
         const { sharedBuffer, currentGraph: serializedCurrent, newGraph: serializedNew } = event.data;
 
         const signalArray = new Int32Array(sharedBuffer, SIGNAL_OFFSET, 1);
@@ -299,11 +299,11 @@ export function runGEDWorker(costOptions: Omit<GEDOptions, "upperBound">): void 
  *          within the timeout, or `undefined` if the worker timed out or
  *          SharedArrayBuffer is unavailable.
  */
-export function runGEDInWorker(
+export async function runGEDInWorker(
     workerUrl: string,
     currentGraph: MultiGraph,
     newGraph: MultiGraph
-): GEDResult | undefined {
+): Promise<GEDResult | undefined> {
     if (typeof SharedArrayBuffer === "undefined") {
         return undefined;
     }
@@ -321,9 +321,11 @@ export function runGEDInWorker(
         currentGraph: serializeGraph(currentGraph),
         newGraph: serializeGraph(newGraph)
     };
+    console.log("Posting GED worker request");
     worker.postMessage(request);
 
-    const waitResult = Atomics.wait(signalArray, 0, 0, GED_WORKER_TIMEOUT_MS);
+    const { async: isAsync, value } = Atomics.waitAsync(signalArray, 0, 0, GED_WORKER_TIMEOUT_MS);
+    const waitResult = isAsync ? await value : value;
 
     if (waitResult === "timed-out") {
         worker.terminate();
@@ -338,6 +340,6 @@ export function runGEDInWorker(
     }
 
     const dataBytes = new Uint8Array(sharedBuffer, DATA_OFFSET, byteLength);
-    const json = new TextDecoder().decode(dataBytes);
+    const json = new TextDecoder().decode(dataBytes.slice());
     return JSON.parse(json) as GEDResult;
 }

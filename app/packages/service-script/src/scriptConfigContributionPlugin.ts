@@ -28,7 +28,7 @@ export function createScriptConfigContributionPlugin(): ConfigContributionPlugin
     return {
         id: SCRIPT_CONFIG_PLUGIN_ID,
         type: ConfigContributionPlugin.TYPE,
-        shortName: "script",
+        name: "script",
         languageKey: SCRIPT_LANGUAGE_KEY,
         grammar: serializer.grammar,
         sections: [],

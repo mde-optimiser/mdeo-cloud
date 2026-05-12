@@ -99,18 +99,18 @@ export class MetamodelGModelFactory extends BaseGModelFactory<PartialMetaModel> 
      * @param idRegistry The ID registry for AST node ID generation
      * @returns The created GLSP model root
      */
-    override createModelInternal(sourceModel: PartialMetaModel, idRegistry: ModelIdRegistry): GModelRoot {
+    override async createModelInternal(sourceModel: PartialMetaModel, idRegistry: ModelIdRegistry): Promise<GModelRoot> {
         const graph = GGraph.builder().id("metamodel-graph").addCssClass("editor-metamodel").build();
 
         const extracted = this.extractElements(sourceModel);
-        this.createClassNodes(graph, extracted.localClasses, idRegistry, false);
-        this.createClassNodes(graph, extracted.importedClasses, idRegistry, true);
-        this.createEnumNodes(graph, extracted.localEnums, idRegistry, false);
-        this.createEnumNodes(graph, extracted.importedEnums, idRegistry, true);
+        await this.createClassNodes(graph, extracted.localClasses, idRegistry, false);
+        await this.createClassNodes(graph, extracted.importedClasses, idRegistry, true);
+        await this.createEnumNodes(graph, extracted.localEnums, idRegistry, false);
+        await this.createEnumNodes(graph, extracted.importedEnums, idRegistry, true);
         const allClasses = [...extracted.localClasses, ...extracted.importedClasses];
         const allAssociations = [...extracted.localAssociations, ...extracted.importedAssociations];
-        this.createInheritanceEdges(graph, allClasses, idRegistry);
-        this.createAssociationEdges(graph, allAssociations, idRegistry);
+        await this.createInheritanceEdges(graph, allClasses, idRegistry);
+        await this.createAssociationEdges(graph, allAssociations, idRegistry);
 
         return graph;
     }
@@ -289,13 +289,13 @@ export class MetamodelGModelFactory extends BaseGModelFactory<PartialMetaModel> 
      * @param idRegistry The ID registry for AST node ID generation
      * @param readonly Whether the nodes should be readonly (for imported entities)
      */
-    private createClassNodes(
+    private async createClassNodes(
         graph: GGraphType,
         classes: PartialClass[],
         idRegistry: ModelIdRegistry,
         readonly: boolean
-    ): void {
-        const validatedMetadata = this.modelState.getValidatedMetadata();
+    ): Promise<void> {
+        const validatedMetadata = await this.modelState.getValidatedMetadata();
 
         for (const cls of classes) {
             if (cls == undefined) {
@@ -393,13 +393,13 @@ export class MetamodelGModelFactory extends BaseGModelFactory<PartialMetaModel> 
      * @param idRegistry The ID registry for AST node ID generation
      * @param readonly Whether the nodes should be readonly (for imported entities)
      */
-    private createEnumNodes(
+    private async createEnumNodes(
         graph: GGraphType,
         enums: PartialEnum[],
         idRegistry: ModelIdRegistry,
         readonly: boolean
-    ): void {
-        const validatedMetadata = this.modelState.getValidatedMetadata();
+    ): Promise<void> {
+        const validatedMetadata = await this.modelState.getValidatedMetadata();
 
         for (const enumDef of enums) {
             if (enumDef == undefined) {
@@ -589,8 +589,8 @@ export class MetamodelGModelFactory extends BaseGModelFactory<PartialMetaModel> 
      * @param classes Array of classes with extends relationships
      * @param idRegistry The ID registry for AST node ID generation
      */
-    private createInheritanceEdges(graph: GGraphType, classes: PartialClass[], idRegistry: ModelIdRegistry): void {
-        const validatedMetadata = this.modelState.getValidatedMetadata();
+    private async createInheritanceEdges(graph: GGraphType, classes: PartialClass[], idRegistry: ModelIdRegistry): Promise<void> {
+        const validatedMetadata = await this.modelState.getValidatedMetadata();
 
         for (const cls of classes) {
             if (cls == undefined) {
@@ -648,12 +648,12 @@ export class MetamodelGModelFactory extends BaseGModelFactory<PartialMetaModel> 
      * @param associations Array of associations to create edges for
      * @param idRegistry The ID registry for AST node ID generation
      */
-    private createAssociationEdges(
+    private async createAssociationEdges(
         graph: GGraphType,
         associations: PartialAssociation[],
         idRegistry: ModelIdRegistry
-    ): void {
-        const validatedMetadata = this.modelState.getValidatedMetadata();
+    ): Promise<void> {
+        const validatedMetadata = await this.modelState.getValidatedMetadata();
 
         for (const assoc of associations) {
             if (assoc == undefined || assoc.source == undefined || assoc.target == undefined) {

@@ -64,7 +64,7 @@ export function createOptimizationContributionPlugin(): ConfigContributionPlugin
     return {
         id: OPTIMIZATION_PLUGIN_ID,
         type: ConfigContributionPlugin.TYPE,
-        shortName: OPTIMIZATION_PLUGIN_NAME,
+        name: OPTIMIZATION_PLUGIN_NAME,
         languageKey: CONFIG_OPTIMIZATION_LANGUAGE_KEY,
         grammar: createOptimizationGrammar(),
         sections: [

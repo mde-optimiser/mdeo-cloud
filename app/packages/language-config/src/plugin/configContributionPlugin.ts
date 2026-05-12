@@ -46,7 +46,7 @@ export interface ConfigContributionPlugin extends ServerContributionPlugin {
      * The short name of the plugin, used for qualified section names (e.g., "optimization").
      * Qualified names allow disambiguation when multiple plugins contribute sections with the same name.
      */
-    shortName: string;
+    name: string;
 
     /**
      * The language key used to get language services for this plugin.

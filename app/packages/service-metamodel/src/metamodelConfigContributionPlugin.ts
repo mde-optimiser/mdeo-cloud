@@ -57,7 +57,7 @@ export function createMetamodelConfigContributionPlugin(): ConfigContributionPlu
     return {
         id: METAMODEL_CONFIG_PLUGIN_ID,
         type: ConfigContributionPlugin.TYPE,
-        shortName: "metamodel",
+        name: "metamodel",
         languageKey: METAMODEL_LANGUAGE_KEY,
         grammar: serializer.grammar,
         sections: [],

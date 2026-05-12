@@ -32,7 +32,7 @@ interface SectionTypeInfo {
      */
     plugin: ConfigContributionPlugin;
     /**
-     * The qualified name of the section (sectionName.pluginShortName).
+     * The qualified name of the section (sectionName.pluginName).
      */
     qualifiedName: string;
 }
@@ -47,10 +47,10 @@ function buildSectionTypeMap(plugins: ConfigContributionPlugin[]): Map<string, S
     const map = new Map<string, SectionTypeInfo>();
     for (const plugin of plugins) {
         for (const section of plugin.sections) {
-            const type = getWrapperInterfaceName(section.name, plugin.shortName);
+            const type = getWrapperInterfaceName(section.name, plugin.name);
             map.set(type, {
                 plugin,
-                qualifiedName: `${section.name}.${plugin.shortName}`
+                qualifiedName: `${section.name}.${plugin.name}`
             });
         }
     }
@@ -118,7 +118,7 @@ function hasMissingSectionDependencies(config: ConfigType, sectionTypeMap: Map<s
  * @returns Plugins sorted so that dependencies are processed before dependents
  */
 function sortBySectionDependencies(plugins: ConfigContributionPlugin[]): ConfigContributionPlugin[] {
-    const pluginByName = new Map(plugins.map((plugin) => [plugin.shortName, plugin]));
+    const pluginByName = new Map(plugins.map((plugin) => [plugin.name, plugin]));
     const sorted: ConfigContributionPlugin[] = [];
     const visited = new Set<string>();
     const visiting = new Set<string>();
@@ -147,7 +147,7 @@ function sortBySectionDependencies(plugins: ConfigContributionPlugin[]): ConfigC
     }
 
     for (const plugin of plugins) {
-        visit(plugin.shortName);
+        visit(plugin.name);
     }
 
     return sorted;
@@ -219,7 +219,7 @@ export const configDataHandler: FileDataHandler<ConfigFileData | null, ConfigAdd
             continue;
         }
         for (const pluginSection of plugin.sections) {
-            const section = sectionLookup.get(getWrapperInterfaceName(pluginSection.name, plugin.shortName));
+            const section = sectionLookup.get(getWrapperInterfaceName(pluginSection.name, plugin.name));
             if (section == undefined) {
                 continue;
             }
@@ -261,7 +261,7 @@ export const configDataHandler: FileDataHandler<ConfigFileData | null, ConfigAdd
             };
         }
 
-        result[plugin.shortName] = pluginResponse.data;
+        result[plugin.name] = pluginResponse.data;
     }
 
     const trackedRequests = serverApi.getTrackedRequests();

@@ -92,8 +92,8 @@ export abstract class BaseLayoutEngine {
      * @param graph the ELK graph to extract metadata from
      * @returns the extracted metadata edits
      */
-    protected extractMetadata(graph: ElkNode): MetadataEdits {
-        const currentMetadata = this.modelState.getValidatedMetadata();
+    protected async extractMetadata(graph: ElkNode): Promise<MetadataEdits> {
+        const currentMetadata = await this.modelState.getValidatedMetadata();
         const edits: Required<MetadataEdits> = {
             nodes: {},
             edges: {}

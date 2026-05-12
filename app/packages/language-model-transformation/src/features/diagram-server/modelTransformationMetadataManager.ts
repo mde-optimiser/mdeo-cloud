@@ -45,8 +45,6 @@ export class ModelTransformationMetadataManager extends MetadataManager<ModelTra
     @inject(ModelIdProvider)
     protected modelIdProvider!: ModelIdProviderType;
 
-    protected override gedWorkerUrl = "/plugin/model-transformation/static/gedWorker.js";
-
     /**
      * Tracks pattern instances declared in previous matches for reference resolution.
      * Maps instance name to the node ID of the pattern instance.

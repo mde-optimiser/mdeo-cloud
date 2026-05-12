@@ -105,7 +105,7 @@ const resolvedPlugins: ResolvedServerLanguagePlugin[] = await Promise.all(
         const module = (await import(/* @vite-ignore */ plugin.import)).default as LangiumLanguagePluginProvider<any>;
         return {
             ...plugin,
-            languagePlugin: module.create(plugin.contributionPlugins)
+            languagePlugin: module.create(plugin.contributionPlugins, new URL(plugin.import, self.location.href).href)
         };
     })
 );

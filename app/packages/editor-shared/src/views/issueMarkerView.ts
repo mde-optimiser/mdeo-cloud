@@ -6,8 +6,6 @@ import { sharedImport } from "../sharedImport.js";
 import { findViewportZoom } from "../base/findViewportZoom.js";
 import { ISSUE_MARKER_SIZE } from "../features/decoration/issueMarker.js";
 
-export { ISSUE_MARKER_SIZE, isIssueMarker, getSeverityDisplayConfig } from "../features/decoration/issueMarker.js";
-
 const { injectable } = sharedImport("inversify");
 const { svg } = sharedImport("@eclipse-glsp/sprotty");
 const { getSeverity } = sharedImport("@eclipse-glsp/client");

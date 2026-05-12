@@ -7,7 +7,7 @@ import {
     EdgeLayoutMetadataUtil,
     NodeLayoutMetadataUtil
 } from "@mdeo/language-shared";
-import type { ModelIdRegistry } from "@mdeo/language-shared";
+import type { ModelIdRegistry, GraphMetadata } from "@mdeo/language-shared";
 import type { NodeLayoutMetadata, EdgeLayoutMetadata } from "@mdeo/protocol-common";
 import type { PartialGeneratedModel } from "../../../grammar/generatedModelPartialTypes.js";
 import type { ModelData, ModelDataInstance, ModelDataLink, ModelDataPropertyValue } from "../../modelData.js";
@@ -39,7 +39,7 @@ export class GeneratedModelGModelFactory extends BaseGModelFactory<PartialGenera
      * @param idRegistry The ID registry for element ID generation
      * @returns The created GModelRoot
      */
-    override createModelInternal(sourceModel: PartialGeneratedModel, idRegistry: ModelIdRegistry): GModelRoot {
+    override async createModelInternal(sourceModel: PartialGeneratedModel, idRegistry: ModelIdRegistry): Promise<GModelRoot> {
         const graph = GGraph.builder().id("model-graph").addCssClass("editor-model").build();
 
         const modelData = this.parseModelData(sourceModel);
@@ -47,8 +47,8 @@ export class GeneratedModelGModelFactory extends BaseGModelFactory<PartialGenera
             return graph;
         }
 
-        this.createInstanceNodes(graph, modelData.instances, idRegistry);
-        this.createLinkEdges(graph, modelData.links, modelData.instances, idRegistry);
+        await this.createInstanceNodes(graph, modelData.instances, idRegistry);
+        await this.createLinkEdges(graph, modelData.links, modelData.instances, idRegistry);
 
         return graph;
     }
@@ -79,8 +79,8 @@ export class GeneratedModelGModelFactory extends BaseGModelFactory<PartialGenera
      * @param instances Array of instances to create nodes for
      * @param idRegistry The ID registry for element ID generation
      */
-    private createInstanceNodes(graph: GGraphType, instances: ModelDataInstance[], _idRegistry: ModelIdRegistry): void {
-        const validatedMetadata = this.modelState.getValidatedMetadata();
+    private async createInstanceNodes(graph: GGraphType, instances: ModelDataInstance[], _idRegistry: ModelIdRegistry): Promise<void> {
+        const validatedMetadata = await this.modelState.getValidatedMetadata();
 
         for (const instance of instances) {
             const nodeId = `GeneratedModel_instance_${instance.name}`;
@@ -227,13 +227,13 @@ export class GeneratedModelGModelFactory extends BaseGModelFactory<PartialGenera
      * @param instances Array of instances for resolving references
      * @param idRegistry The ID registry for element ID generation
      */
-    private createLinkEdges(
+    private async createLinkEdges(
         graph: GGraphType,
         links: ModelDataLink[],
         _instances: ModelDataInstance[],
         _idRegistry: ModelIdRegistry
-    ): void {
-        const validatedMetadata = this.modelState.getValidatedMetadata();
+    ): Promise<void> {
+        const validatedMetadata = await this.modelState.getValidatedMetadata();
 
         for (let i = 0; i < links.length; i++) {
             const link = links[i];
@@ -241,7 +241,7 @@ export class GeneratedModelGModelFactory extends BaseGModelFactory<PartialGenera
             const metadata = validatedMetadata.edges[edgeId]?.meta as EdgeLayoutMetadata | undefined;
             const edgeMeta: EdgeLayoutMetadata = metadata ?? EdgeLayoutMetadataUtil.create();
 
-            const edge = this.createLinkEdge(link, edgeId, edgeMeta);
+            const edge = await this.createLinkEdge(link, edgeId, edgeMeta);
             if (edge != undefined) {
                 graph.children.push(edge);
             }
@@ -269,7 +269,7 @@ export class GeneratedModelGModelFactory extends BaseGModelFactory<PartialGenera
      * @param metadata The edge layout metadata
      * @returns The created GLinkEdge or undefined if invalid
      */
-    private createLinkEdge(link: ModelDataLink, edgeId: string, metadata: EdgeLayoutMetadata): GLinkEdge | undefined {
+    private async createLinkEdge(link: ModelDataLink, edgeId: string, metadata: EdgeLayoutMetadata): Promise<GLinkEdge | undefined> {
         const sourceId = `GeneratedModel_instance_${link.sourceName}`;
         const targetId = `GeneratedModel_instance_${link.targetName}`;
 
@@ -283,7 +283,7 @@ export class GeneratedModelGModelFactory extends BaseGModelFactory<PartialGenera
         }
 
         const edge = edgeBuilder.build();
-        this.addLinkLabels(edge, edgeId, link.sourceProperty, link.targetProperty);
+        await this.addLinkLabels(edge, edgeId, link.sourceProperty, link.targetProperty);
 
         return edge;
     }
@@ -296,13 +296,13 @@ export class GeneratedModelGModelFactory extends BaseGModelFactory<PartialGenera
      * @param sourceProperty Optional source property name
      * @param targetProperty Optional target property name
      */
-    private addLinkLabels(
+    private async addLinkLabels(
         edge: GLinkEdge,
         edgeId: string,
         sourceProperty: string | null,
         targetProperty: string | null
-    ): void {
-        const validatedMetadata = this.modelState.getValidatedMetadata();
+    ): Promise<void> {
+        const validatedMetadata = await this.modelState.getValidatedMetadata();
 
         if (sourceProperty) {
             const sourceNodes = this.createLinkEndNodes(edgeId, sourceProperty, "target", validatedMetadata);
@@ -329,7 +329,7 @@ export class GeneratedModelGModelFactory extends BaseGModelFactory<PartialGenera
         edgeId: string,
         property: string,
         end: "source" | "target",
-        validatedMetadata: ReturnType<typeof this.modelState.getValidatedMetadata>
+        validatedMetadata: GraphMetadata
     ): GModelElement[] {
         const nodes: GModelElement[] = [];
 

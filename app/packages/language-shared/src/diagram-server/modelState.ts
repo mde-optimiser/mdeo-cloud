@@ -135,14 +135,14 @@ export class ModelState<T extends AstNode = AstNode> extends DefaultModelState {
      *
      * @returns The validated graph metadata
      */
-    getValidatedMetadata(): GraphMetadata {
+    async getValidatedMetadata(): Promise<GraphMetadata> {
         if (this.sourceModel == undefined) {
             throw new Error("Cannot validate metadata.");
         }
         if (this.isMetadataValidated) {
             return this._metadata;
         }
-        const validatedMetadata = this.metadataManager.validateMetadata(
+        const validatedMetadata = await this.metadataManager.validateMetadata(
             this._sourceModel!,
             this._metadata,
             this.lastValidMetadata

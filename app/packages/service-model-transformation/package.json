@@ -22,6 +22,7 @@
         "@mdeo/language-model-transformation": "^0.1.0",
         "@mdeo/language-shared": "^0.1.0",
         "@mdeo/plugin": "^0.1.0",
+        "@mdeo/protocol-model-transformation": "^0.1.0",
         "@mdeo/service-common": "^0.1.0"
     },
     "devDependencies": {

@@ -35,8 +35,6 @@ export class MetamodelMetadataManager extends MetadataManager<PartialMetaModel> 
     @inject(ModelIdProvider)
     protected modelIdProvider!: ModelIdProviderType;
 
-    protected override gedWorkerUrl = "/plugin/metamodel/static/gedWorker.js";
-
     protected override verifyMetadata(model: NodeMetadata | EdgeMetadata): object | undefined {
         if (model.type === MetamodelElementType.NODE_CLASS || model.type === MetamodelElementType.NODE_ENUM) {
             return NodeLayoutMetadataUtil.verify(model.meta, 250);

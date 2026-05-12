@@ -25,6 +25,7 @@
     },
     "dependencies": {
         "@mdeo/plugin": "^0.1.0",
-        "lucide": "^0.575.0"
+        "lucide": "^0.575.0",
+        "munkres": "^2.0.4"
     }
 }

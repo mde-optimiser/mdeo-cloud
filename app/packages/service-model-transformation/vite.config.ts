@@ -7,10 +7,7 @@ export default defineConfig({
             entry: {
                 language: resolve(__dirname, "src/served/language.ts"),
                 editor: resolve(__dirname, "src/served/editor.ts"),
-                gedWorker: resolve(
-                    __dirname,
-                    "../language-model-transformation/src/features/diagram-server/gedWorker.ts"
-                )
+                gedWorker: resolve(__dirname, "src/served/gedWorker.ts")
             },
             formats: ["es"],
             cssFileName: "styles"

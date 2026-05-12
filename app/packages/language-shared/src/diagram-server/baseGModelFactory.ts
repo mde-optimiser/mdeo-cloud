@@ -42,12 +42,16 @@ export abstract class BaseGModelFactory<T extends AstNode> implements GModelFact
     }
 
     createModel(): void {
+        throw new Error("Use createModelAsync instead.");
+    }
+
+    async createModelAsync(): Promise<void> {
         const sourceModel = this.modelState.sourceModel;
         if (sourceModel == undefined) {
             return;
         }
         const idRegistry = new DefaultModelIdRegistry(sourceModel, this.modelIdProvider);
-        const gRoot = this.createModelInternal(sourceModel, idRegistry);
+        const gRoot = await this.createModelInternal(sourceModel, idRegistry);
         this.modelIndex.indexSourceModelRoot(sourceModel, idRegistry);
         this.modelState.updateRoot(gRoot);
     }
@@ -59,5 +63,5 @@ export abstract class BaseGModelFactory<T extends AstNode> implements GModelFact
      * @param idRegistry the model ID registry
      * @returns the created graph model root
      */
-    abstract createModelInternal(sourceModel: T, idRegistry: ModelIdRegistry): GModelRoot;
+    abstract createModelInternal(sourceModel: T, idRegistry: ModelIdRegistry): GModelRoot | Promise<GModelRoot>;
 }

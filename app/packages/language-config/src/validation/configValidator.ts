@@ -204,7 +204,7 @@ export class ConfigValidator {
         accept: ValidationAcceptor
     ): void {
         for (const dep of namingInfo.plugin.sectionDependencies) {
-            const depPlugin = this.plugins.find((p) => p.shortName === dep.pluginName);
+            const depPlugin = this.plugins.find((p) => p.name === dep.pluginName);
             if (depPlugin == undefined) {
                 continue;
             }

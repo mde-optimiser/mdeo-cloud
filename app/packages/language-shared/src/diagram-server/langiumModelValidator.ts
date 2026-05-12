@@ -13,8 +13,6 @@ const { injectable, inject } = sharedImport("inversify");
 const { ModelState: ModelStateKey, GModelIndex: GModelIndexKey, ModelValidator } = sharedImport("@eclipse-glsp/server");
 const { MarkerKind } = sharedImport("@eclipse-glsp/protocol");
 
-export { ModelValidator };
-
 /**
  * Internal representation of a validation issue that retains the reference to the originating AST node.
  * This bridges the LSP {@link Diagnostic} world (stored on the document) with the AST node hierarchy.

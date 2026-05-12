@@ -30,10 +30,11 @@ export type ModelServices = ExternalReferenceAdditionalServices & ActionHandlerR
  * The plugin for the Model language.
  * Provides minimal language server functionality for .m files.
  */
-const modelPlugin: LangiumLanguagePlugin<ModelServices> = {
-    rootRule: ModelRule,
-    additionalTerminals: ModelTerminals,
-    module: {
+function createModelPlugin(languageJsUrl?: string): LangiumLanguagePlugin<ModelServices> {
+    return {
+        rootRule: ModelRule,
+        additionalTerminals: ModelTerminals,
+        module: {
         parser: {
             TokenBuilder: () => new NewlineAwareTokenBuilder(new Set(["{"]), new Set(["("]), new Set(["}", ")"])),
             ValueConverter: () => new IdValueConverter(),
@@ -66,16 +67,17 @@ const modelPlugin: LangiumLanguagePlugin<ModelServices> = {
         registerDefaultTokenSerializers(services);
         registerModelSerializers(services);
         registerModelValidationChecks(services);
-        services.shared.glsp.serverModule.configureDiagramModule(new ModelDiagramModule(services));
+        services.shared.glsp.serverModule.configureDiagramModule(new ModelDiagramModule(services, languageJsUrl));
         addExternalReferenceCollectionPhase(services);
     }
 };
+}
 
 /**
  * Provider for the Model language plugin.
  */
 export const modelPluginProvider: LangiumLanguagePluginProvider<ModelServices> = {
-    create(): LangiumLanguagePlugin<ModelServices> {
-        return modelPlugin;
+    create(_contributionPlugins, languageJsUrl): LangiumLanguagePlugin<ModelServices> {
+        return createModelPlugin(languageJsUrl);
     }
 };

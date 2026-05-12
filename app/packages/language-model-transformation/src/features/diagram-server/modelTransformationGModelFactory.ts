@@ -82,17 +82,17 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
      * @param idRegistry The model ID registry
      * @returns The created graph model root
      */
-    override createModelInternal(sourceModel: ModelTransformationType, idRegistry: ModelIdRegistry): GModelRoot {
+    override async createModelInternal(sourceModel: ModelTransformationType, idRegistry: ModelIdRegistry): Promise<GModelRoot> {
         const graph = GGraph.builder().id("transformation-graph").addCssClass("editor-model-transformation").build();
 
         const converter = new ModelTransformationControlFlowConverter(sourceModel, idRegistry, this.reflection);
         const cfg = converter.convert();
 
         for (const node of cfg.nodes) {
-            this.createCFGNode(graph, node, idRegistry);
+            await this.createCFGNode(graph, node, idRegistry);
         }
         for (const edge of cfg.edges) {
-            this.createControlFlowEdge(graph, edge.sourceId, edge.targetId, edge.label, edge.labelElementId);
+            await this.createControlFlowEdge(graph, edge.sourceId, edge.targetId, edge.label, edge.labelElementId);
         }
 
         return graph;
@@ -105,8 +105,8 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
      * @param node The control-flow node to render.
      * @param idRegistry The model ID registry, required for match-node pattern content.
      */
-    private createCFGNode(graph: GGraphType, node: ControlFlowNode, idRegistry: ModelIdRegistry): void {
-        const validatedMetadata = this.modelState.getValidatedMetadata();
+    private async createCFGNode(graph: GGraphType, node: ControlFlowNode, idRegistry: ModelIdRegistry): Promise<void> {
+        const validatedMetadata = await this.modelState.getValidatedMetadata();
         switch (node.kind) {
             case "start": {
                 const metadata = this.getNodeMetadata(validatedMetadata, node.id);
@@ -122,16 +122,16 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
             }
             case "match": {
                 const cfgMatchNode = node as ControlFlowMatchNode;
-                this.createMatchNode(graph, cfgMatchNode, idRegistry);
+                await this.createMatchNode(graph, cfgMatchNode, idRegistry);
                 break;
             }
             case "split": {
                 const cfgSplitNode = node as ControlFlowSplitNode;
-                this.createSplitNode(graph, cfgSplitNode.id, cfgSplitNode.conditionText);
+                await this.createSplitNode(graph, cfgSplitNode.id, cfgSplitNode.conditionText);
                 break;
             }
             case "merge": {
-                this.createMergeNode(graph, node.id);
+                await this.createMergeNode(graph, node.id);
                 break;
             }
         }
@@ -144,8 +144,8 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
      * @param cfgMatchNode The control flow match node to render
      * @param idRegistry The model ID registry
      */
-    private createMatchNode(graph: GGraphType, cfgMatchNode: ControlFlowMatchNode, idRegistry: ModelIdRegistry): void {
-        const validatedMetadata = this.modelState.getValidatedMetadata();
+    private async createMatchNode(graph: GGraphType, cfgMatchNode: ControlFlowMatchNode, idRegistry: ModelIdRegistry): Promise<void> {
+        const validatedMetadata = await this.modelState.getValidatedMetadata();
         const metadata = this.getNodeMetadata(validatedMetadata, cfgMatchNode.id);
 
         const node = GMatchNode.builder().id(cfgMatchNode.id).multiple(cfgMatchNode.multiple).meta(metadata).build();
@@ -203,14 +203,14 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
         if (cfgMatchNode.pattern?.elements != undefined) {
             for (const element of cfgMatchNode.pattern.elements) {
                 if (this.reflection.isInstance(element, PatternObjectInstance)) {
-                    this.addPatternInstanceNode(node, element, idRegistry);
+                    await this.addPatternInstanceNode(node, element, idRegistry);
                 }
             }
         }
 
         for (const [instanceName, reference] of referencedInstanceNodes) {
             if (!localInstances.has(instanceName) && !deletedInstances.has(instanceName)) {
-                this.createReferencedInstanceNode(
+                await this.createReferencedInstanceNode(
                     node,
                     instanceName,
                     cfgMatchNode.matchName,
@@ -222,14 +222,14 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
 
         for (const [instanceName, deleteElement] of deletedInstanceNodes) {
             if (!localInstances.has(instanceName)) {
-                this.createDeletedInstanceNode(node, instanceName, deleteElement, idRegistry);
+                await this.createDeletedInstanceNode(node, instanceName, deleteElement, idRegistry);
             }
         }
 
         if (cfgMatchNode.pattern?.elements != undefined) {
             for (const element of cfgMatchNode.pattern.elements) {
                 if (this.reflection.isInstance(element, PatternLink)) {
-                    this.createPatternLinkEdge(node, element, idRegistry);
+                    await this.createPatternLinkEdge(node, element, idRegistry);
                 }
             }
         }
@@ -325,13 +325,13 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
      * @param instance The pattern object instance AST node to create the visual node for
      * @param idRegistry The model ID registry, used to obtain the unique node ID for the instance
      */
-    private addPatternInstanceNode(
+    private async addPatternInstanceNode(
         parent: GMatchNode,
         instance: PatternObjectInstanceType,
         idRegistry: ModelIdRegistry
-    ): void {
+    ): Promise<void> {
         const nodeId = idRegistry.getId(instance);
-        const validatedMetadata = this.modelState.getValidatedMetadata();
+        const validatedMetadata = await this.modelState.getValidatedMetadata();
         const metadata = this.getNodeMetadata(validatedMetadata, nodeId);
         parent.children.push(this.createPatternInstanceNode(instance, nodeId, metadata, idRegistry));
     }
@@ -391,18 +391,18 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
      * @param reference     The `PatternObjectInstanceReference` AST node, or `undefined` if unresolved.
      * @param idRegistry    The model ID registry used to obtain the element's graph ID.
      */
-    private createReferencedInstanceNode(
+    private async createReferencedInstanceNode(
         parent: GMatchNode,
         instanceName: string,
         matchName: string,
         reference: PatternObjectInstanceReferenceType | undefined,
         idRegistry: ModelIdRegistry
-    ): void {
+    ): Promise<void> {
         const nodeId =
             reference != undefined
                 ? idRegistry.getId(reference)
                 : `PatternObjectInstanceReference_${matchName}_ref_${instanceName}`;
-        const validatedMetadata = this.modelState.getValidatedMetadata();
+        const validatedMetadata = await this.modelState.getValidatedMetadata();
         const metadata = this.getNodeMetadata(validatedMetadata, nodeId);
 
         const node = this.createReferenceInstanceNode(instanceName, nodeId, metadata, idRegistry, reference);
@@ -471,14 +471,14 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
      * @param deleteElement The PatternObjectInstanceDelete AST node, used to look up the registry ID
      * @param idRegistry The model ID registry
      */
-    private createDeletedInstanceNode(
+    private async createDeletedInstanceNode(
         parent: GMatchNode,
         instanceName: string,
         deleteElement: PatternObjectInstanceDeleteType,
         idRegistry: ModelIdRegistry
-    ): void {
+    ): Promise<void> {
         const nodeId = idRegistry.getId(deleteElement);
-        const validatedMetadata = this.modelState.getValidatedMetadata();
+        const validatedMetadata = await this.modelState.getValidatedMetadata();
         const metadata = this.getNodeMetadata(validatedMetadata, nodeId);
 
         const node = this.createDeleteInstanceNode(instanceName, nodeId, metadata, deleteElement);
@@ -663,7 +663,7 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
      * @param link The pattern link
      * @param idRegistry The model ID registry
      */
-    private createPatternLinkEdge(parent: GMatchNode, link: PatternLinkType, idRegistry: ModelIdRegistry): void {
+    private async createPatternLinkEdge(parent: GMatchNode, link: PatternLinkType, idRegistry: ModelIdRegistry): Promise<void> {
         const edgeId = idRegistry.getId(link);
 
         const sourceInstanceRef = link.source?.object?.ref;
@@ -684,7 +684,7 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
         const sourceProperty = link.source?.property?.$refText;
         const targetProperty = link.target?.property?.$refText;
 
-        const validatedMetadata = this.modelState.getValidatedMetadata();
+        const validatedMetadata = await this.modelState.getValidatedMetadata();
         const rawEdgeMeta = validatedMetadata.edges[edgeId]?.meta;
         const edgeMeta =
             rawEdgeMeta != undefined && EdgeLayoutMetadataUtil.isValid(rawEdgeMeta)
@@ -726,7 +726,7 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
 
         const edge = edgeBuilder.build();
 
-        this.addPatternLinkLabels(edge, edgeId, sourceProperty, targetProperty);
+        await this.addPatternLinkLabels(edge, edgeId, sourceProperty, targetProperty);
 
         if (modifier !== PatternModifierKind.NONE) {
             const modifierNodeId = `${edgeId}#modifier-node`;
@@ -780,13 +780,13 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
      * @param sourceProperty The optional source property
      * @param targetProperty The optional target property
      */
-    private addPatternLinkLabels(
+    private async addPatternLinkLabels(
         edge: GPatternLinkEdge,
         edgeId: string,
         sourceProperty: string | undefined,
         targetProperty: string | undefined
-    ): void {
-        const validatedMetadata = this.modelState.getValidatedMetadata();
+    ): Promise<void> {
+        const validatedMetadata = await this.modelState.getValidatedMetadata();
 
         if (sourceProperty != undefined) {
             const nodeId = `${edgeId}#source-node`;
@@ -828,8 +828,8 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
      * @param nodeId The node ID
      * @param expression The condition expression text
      */
-    private createSplitNode(graph: GGraphType, nodeId: string, expression: string): void {
-        const validatedMetadata = this.modelState.getValidatedMetadata();
+    private async createSplitNode(graph: GGraphType, nodeId: string, expression: string): Promise<void> {
+        const validatedMetadata = await this.modelState.getValidatedMetadata();
         const metadata = this.getNodeMetadata(validatedMetadata, nodeId);
 
         const node = GSplitNode.builder().id(nodeId).expression(expression).meta(metadata).build();
@@ -842,8 +842,8 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
      * @param graph The graph to add the node to
      * @param nodeId The node ID
      */
-    private createMergeNode(graph: GGraphType, nodeId: string): void {
-        const validatedMetadata = this.modelState.getValidatedMetadata();
+    private async createMergeNode(graph: GGraphType, nodeId: string): Promise<void> {
+        const validatedMetadata = await this.modelState.getValidatedMetadata();
         const metadata = this.getNodeMetadata(validatedMetadata, nodeId);
 
         const node = GMergeNode.builder().id(nodeId).meta(metadata).build();
@@ -859,15 +859,15 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
      * @param label The optional edge label
      * @param labelId When provided, use as the label element's ID and make it editable
      */
-    private createControlFlowEdge(
+    private async createControlFlowEdge(
         graph: GGraphType,
         sourceId: string,
         targetId: string,
         label: string | undefined,
         labelId?: string
-    ): void {
+    ): Promise<void> {
         const edgeId = ModelTransformationIdGenerator.controlFlowEdge(sourceId, targetId, label);
-        const validatedMetadata = this.modelState.getValidatedMetadata();
+        const validatedMetadata = await this.modelState.getValidatedMetadata();
         const metadata = validatedMetadata.edges[edgeId]?.meta;
         const edgeMeta =
             metadata != undefined && EdgeLayoutMetadataUtil.isValid(metadata)

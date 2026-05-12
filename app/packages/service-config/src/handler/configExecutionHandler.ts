@@ -69,7 +69,7 @@ export class ConfigExecutionHandler implements ExecutionHandler<ExecuteResponse>
         const routingMetadata: ConfigExecutionRoutingMetadata = {
             languageId: executableSection.plugin.languageKey,
             sectionName: executableSection.sectionName,
-            pluginShortName: executableSection.plugin.shortName
+            pluginName: executableSection.plugin.name
         };
 
         await context.serverApi.updateExecutionMetadata(context.executionId, {
@@ -83,7 +83,7 @@ export class ConfigExecutionHandler implements ExecutionHandler<ExecuteResponse>
         )) as ExecuteResponse | null;
         if (result == undefined || result == null) {
             throw new Error(
-                `Execution forwarding for section '${executableSection.sectionName}.${executableSection.plugin.shortName}' returned no result`
+                `Execution forwarding for section '${executableSection.sectionName}.${executableSection.plugin.name}' returned no result`
             );
         }
 
@@ -162,7 +162,7 @@ export class ConfigExecutionHandler implements ExecutionHandler<ExecuteResponse>
                 if (section.executable !== true) {
                     continue;
                 }
-                sectionTypeMap.set(getWrapperInterfaceName(section.name, plugin.shortName), {
+                sectionTypeMap.set(getWrapperInterfaceName(section.name, plugin.name), {
                     plugin,
                     sectionName: section.name
                 });
@@ -180,7 +180,7 @@ export class ConfigExecutionHandler implements ExecutionHandler<ExecuteResponse>
 
         if (executableSections.length > 1) {
             const names = executableSections
-                .map((section) => `${section.sectionName}.${section.plugin.shortName}`)
+                .map((section) => `${section.sectionName}.${section.plugin.name}`)
                 .join(", ");
             throw new Error(`Only one executable section can be executed, but found: ${names}`);
         }

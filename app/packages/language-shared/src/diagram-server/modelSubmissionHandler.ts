@@ -1,5 +1,6 @@
 import type { DirtyStateChangeReason, Action } from "@eclipse-glsp/protocol";
 import { sharedImport } from "../sharedImport.js";
+import { BaseGModelFactory } from "./baseGModelFactory.js";
 
 const { injectable } = sharedImport("inversify");
 const { ModelSubmissionHandler: BaseModelSubmissionHandler } = sharedImport("@eclipse-glsp/server");
@@ -16,7 +17,7 @@ export class ModelSubmissionHandler extends BaseModelSubmissionHandler {
     private lastSubmissionTime = 0;
 
     override async submitModel(reason?: DirtyStateChangeReason): Promise<Action[]> {
-        this.modelFactory.createModel();
+        await (this.modelFactory as BaseGModelFactory<any>).createModelAsync();
 
         const revision = this.requestModelAction ? 0 : this.modelState.root.revision! + 1;
         this.modelState.root.revision = revision;
