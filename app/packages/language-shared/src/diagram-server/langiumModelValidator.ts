@@ -10,7 +10,7 @@ import { GEdge } from "./model/edge.js";
 import { sharedImport } from "../sharedImport.js";
 
 const { injectable, inject } = sharedImport("inversify");
-const { ModelState: ModelStateKey, GModelIndex: GModelIndexKey, ModelValidator } = sharedImport("@eclipse-glsp/server");
+const { ModelState: ModelStateKey, GModelIndex: GModelIndexKey } = sharedImport("@eclipse-glsp/server");
 const { MarkerKind } = sharedImport("@eclipse-glsp/protocol");
 
 /**

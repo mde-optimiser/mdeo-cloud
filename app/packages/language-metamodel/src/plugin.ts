@@ -45,45 +45,47 @@ function createMetamodelPlugin(languageJsUrl?: string): LangiumLanguagePlugin<Me
         rootRule: MetaModelRule,
         additionalTerminals: [WS, HIDDEN_NEWLINE, ML_COMMENT, SL_COMMENT],
         module: {
-        parser: {
-            TokenBuilder: () => new NewlineAwareTokenBuilder(new Set(["{"]), new Set(["("]), new Set(["}", ")"])),
-            ValueConverter: () => new IdValueConverter(),
-            ParserConfig: () => ({
-                maxLookahead: 4
-            })
-        },
-        references: {
-            ScopeProvider: (services) => new MetamodelScopeProvider(services),
-            NameProvider: (services) => new MetamodelNameProvider(services),
-            ScopeComputation: (services) => new MetamodelScopeComputation(services),
-            ExternalReferenceCollector: () => new MetamodelExternalReferenceCollector()
-        },
-        lsp: {
-            CompletionProvider: (services) => new MetamodelCompletionProvider(services as any),
-            Formatter: (services) => new SerializerFormatter(services),
-            CodeActionProvider: (services) => new MetamodelCodeActionProvider(services)
-        },
-        AstSerializer: (services) => new DefaultAstSerializer(services),
-        action: {
-            ActionHandlerRegistry: (services) => {
-                const registry = new ActionHandlerRegistry();
-                registry.register("import-file", new ImportFileActionHandler(services));
-                return registry;
+            parser: {
+                TokenBuilder: () => new NewlineAwareTokenBuilder(new Set(["{"]), new Set(["("]), new Set(["}", ")"])),
+                ValueConverter: () => new IdValueConverter(),
+                ParserConfig: () => ({
+                    maxLookahead: 4
+                })
             },
-            ActionProvider: () => new DefaultActionProvider()
+            references: {
+                ScopeProvider: (services) => new MetamodelScopeProvider(services),
+                NameProvider: (services) => new MetamodelNameProvider(services),
+                ScopeComputation: (services) => new MetamodelScopeComputation(services),
+                ExternalReferenceCollector: () => new MetamodelExternalReferenceCollector()
+            },
+            lsp: {
+                CompletionProvider: (services) => new MetamodelCompletionProvider(services as any),
+                Formatter: (services) => new SerializerFormatter(services),
+                CodeActionProvider: (services) => new MetamodelCodeActionProvider(services)
+            },
+            AstSerializer: (services) => new DefaultAstSerializer(services),
+            action: {
+                ActionHandlerRegistry: (services) => {
+                    const registry = new ActionHandlerRegistry();
+                    registry.register("import-file", new ImportFileActionHandler(services));
+                    return registry;
+                },
+                ActionProvider: () => new DefaultActionProvider()
+            },
+            workspace: {
+                WorkspaceEdit: (services) => new DefaultWorkspaceEditService(services)
+            }
         },
-        workspace: {
-            WorkspaceEdit: (services) => new DefaultWorkspaceEditService(services)
+        postCreate(services) {
+            registerDefaultTokenSerializers(services);
+            registerMetamodelSerializers(services);
+            registerMetamodelValidationChecks(services);
+            services.shared.glsp.serverModule.configureDiagramModule(
+                new MetamodelDiagramModule(services, languageJsUrl)
+            );
+            addExternalReferenceCollectionPhase(services);
         }
-    },
-    postCreate(services) {
-        registerDefaultTokenSerializers(services);
-        registerMetamodelSerializers(services);
-        registerMetamodelValidationChecks(services);
-        services.shared.glsp.serverModule.configureDiagramModule(new MetamodelDiagramModule(services, languageJsUrl));
-        addExternalReferenceCollectionPhase(services);
-    }
-};
+    };
 }
 
 /**

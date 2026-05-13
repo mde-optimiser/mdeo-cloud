@@ -1,5 +1,4 @@
 import { sharedImport } from "../sharedImport.js";
-import { UpdateEditorSettingsAction } from "@mdeo/protocol-common";
 import type { EditorSettings } from "@mdeo/protocol-common";
 
 const { injectable } = sharedImport("inversify");

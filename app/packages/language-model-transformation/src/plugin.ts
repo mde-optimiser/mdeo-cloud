@@ -149,7 +149,9 @@ function createModelTransformationPlugin(languageJsUrl?: string): LangiumLanguag
             registerExpressionSerializers(services, expressionTypes);
             registerModelTransformationSerializers(services);
             registerModelTransformationValidationChecks(services);
-            services.shared.glsp.serverModule.configureDiagramModule(new ModelTransformationDiagramModule(services, languageJsUrl));
+            services.shared.glsp.serverModule.configureDiagramModule(
+                new ModelTransformationDiagramModule(services, languageJsUrl)
+            );
             addExternalReferenceCollectionPhase(services);
         }
     };

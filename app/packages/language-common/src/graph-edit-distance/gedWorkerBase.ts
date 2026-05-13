@@ -241,9 +241,7 @@ function computeLoopAssignments(
  * @param costOptions Language-specific node/edge cost functions (without `upperBound`).
  */
 export function runGEDWorker(costOptions: Omit<GEDOptions, "upperBound">): void {
-    console.log("GED worker started with options");
     (self as any).onmessage = (event: MessageEvent<GEDWorkerRequest>) => {
-        console.log("GED worker received request");
         const { sharedBuffer, currentGraph: serializedCurrent, newGraph: serializedNew } = event.data;
 
         const signalArray = new Int32Array(sharedBuffer, SIGNAL_OFFSET, 1);
@@ -321,7 +319,6 @@ export async function runGEDInWorker(
         currentGraph: serializeGraph(currentGraph),
         newGraph: serializeGraph(newGraph)
     };
-    console.log("Posting GED worker request");
     worker.postMessage(request);
 
     const { async: isAsync, value } = Atomics.waitAsync(signalArray, 0, 0, GED_WORKER_TIMEOUT_MS);

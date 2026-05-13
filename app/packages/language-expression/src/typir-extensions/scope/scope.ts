@@ -214,7 +214,7 @@ export class DefaultScope<Specifics extends TypirSpecifics> implements Scope<Spe
      * @param parent the optional parent scope
      * @param entriesProvider provider for the local scope entries
      * @param controlFlowEntriesProvider provider for the control flow entries in this scope
-     * @param localInitializedEntries a map of entry names to the position at which they are initialized in this scope
+     * @param localInitializations a map of entry names to the position at which they are initialized in this scope
      * @param languageNode the language AST node that this scope is associated with
      */
     constructor(
@@ -228,7 +228,7 @@ export class DefaultScope<Specifics extends TypirSpecifics> implements Scope<Spe
             this.localEntryLookup.set(entry.name, entry);
         }
         for (const init of localInitializations) {
-            const entry = this.localEntryLookup.get(init.name);
+            const entry = this.getEntry(init.name, init.position);
             if (entry != undefined) {
                 this.updateInitializationLookup(entry, init.position);
             }

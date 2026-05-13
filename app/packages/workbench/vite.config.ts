@@ -85,7 +85,7 @@ export default defineConfig({
                 rewriteWsOrigin: true,
                 configure: addCoopCoepHeaders
             }
-        },
+        }
     },
     build: {
         rollupOptions: {

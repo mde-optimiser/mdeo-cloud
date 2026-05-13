@@ -82,7 +82,10 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
      * @param idRegistry The model ID registry
      * @returns The created graph model root
      */
-    override async createModelInternal(sourceModel: ModelTransformationType, idRegistry: ModelIdRegistry): Promise<GModelRoot> {
+    override async createModelInternal(
+        sourceModel: ModelTransformationType,
+        idRegistry: ModelIdRegistry
+    ): Promise<GModelRoot> {
         const graph = GGraph.builder().id("transformation-graph").addCssClass("editor-model-transformation").build();
 
         const converter = new ModelTransformationControlFlowConverter(sourceModel, idRegistry, this.reflection);
@@ -144,7 +147,11 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
      * @param cfgMatchNode The control flow match node to render
      * @param idRegistry The model ID registry
      */
-    private async createMatchNode(graph: GGraphType, cfgMatchNode: ControlFlowMatchNode, idRegistry: ModelIdRegistry): Promise<void> {
+    private async createMatchNode(
+        graph: GGraphType,
+        cfgMatchNode: ControlFlowMatchNode,
+        idRegistry: ModelIdRegistry
+    ): Promise<void> {
         const validatedMetadata = await this.modelState.getValidatedMetadata();
         const metadata = this.getNodeMetadata(validatedMetadata, cfgMatchNode.id);
 
@@ -663,7 +670,11 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
      * @param link The pattern link
      * @param idRegistry The model ID registry
      */
-    private async createPatternLinkEdge(parent: GMatchNode, link: PatternLinkType, idRegistry: ModelIdRegistry): Promise<void> {
+    private async createPatternLinkEdge(
+        parent: GMatchNode,
+        link: PatternLinkType,
+        idRegistry: ModelIdRegistry
+    ): Promise<void> {
         const edgeId = idRegistry.getId(link);
 
         const sourceInstanceRef = link.source?.object?.ref;

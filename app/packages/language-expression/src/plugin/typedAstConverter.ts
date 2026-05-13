@@ -508,7 +508,7 @@ export abstract class TypedAstConverter {
         return {
             kind: "longLiteral",
             evalType: this.getTypeIndex(expr),
-            value: expr.value
+            value: expr.value.replace(/[Ll]$/, "")
         };
     }
 
@@ -536,7 +536,7 @@ export abstract class TypedAstConverter {
         return {
             kind: "doubleLiteral",
             evalType: this.doubleTypeIndex,
-            value: expr.value
+            value: expr.value.replace(/[Dd]$/, "")
         };
     }
 

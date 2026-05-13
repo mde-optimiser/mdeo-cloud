@@ -99,7 +99,10 @@ export class MetamodelGModelFactory extends BaseGModelFactory<PartialMetaModel> 
      * @param idRegistry The ID registry for AST node ID generation
      * @returns The created GLSP model root
      */
-    override async createModelInternal(sourceModel: PartialMetaModel, idRegistry: ModelIdRegistry): Promise<GModelRoot> {
+    override async createModelInternal(
+        sourceModel: PartialMetaModel,
+        idRegistry: ModelIdRegistry
+    ): Promise<GModelRoot> {
         const graph = GGraph.builder().id("metamodel-graph").addCssClass("editor-metamodel").build();
 
         const extracted = this.extractElements(sourceModel);
@@ -589,7 +592,11 @@ export class MetamodelGModelFactory extends BaseGModelFactory<PartialMetaModel> 
      * @param classes Array of classes with extends relationships
      * @param idRegistry The ID registry for AST node ID generation
      */
-    private async createInheritanceEdges(graph: GGraphType, classes: PartialClass[], idRegistry: ModelIdRegistry): Promise<void> {
+    private async createInheritanceEdges(
+        graph: GGraphType,
+        classes: PartialClass[],
+        idRegistry: ModelIdRegistry
+    ): Promise<void> {
         const validatedMetadata = await this.modelState.getValidatedMetadata();
 
         for (const cls of classes) {

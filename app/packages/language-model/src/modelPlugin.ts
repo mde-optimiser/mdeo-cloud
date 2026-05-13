@@ -35,42 +35,42 @@ function createModelPlugin(languageJsUrl?: string): LangiumLanguagePlugin<ModelS
         rootRule: ModelRule,
         additionalTerminals: ModelTerminals,
         module: {
-        parser: {
-            TokenBuilder: () => new NewlineAwareTokenBuilder(new Set(["{"]), new Set(["("]), new Set(["}", ")"])),
-            ValueConverter: () => new IdValueConverter(),
-            ParserConfig: () => ({
-                maxLookahead: 4
-            })
-        },
-        references: {
-            ScopeProvider: (services) => new ModelScopeProvider(services),
-            ExternalReferenceCollector: () => new ModelExternalReferenceCollector()
-        },
-        lsp: {
-            CompletionProvider: (services) => new ModelCompletionProvider(services as any),
-            Formatter: (services) => new SerializerFormatter(services)
-        },
-        AstSerializer: (services) => new DefaultAstSerializer(services),
-        action: {
-            ActionHandlerRegistry: (services) => {
-                const registry = new ActionHandlerRegistry();
-                registry.register("new-file", new NewFileActionHandler(services.shared));
-                return registry;
+            parser: {
+                TokenBuilder: () => new NewlineAwareTokenBuilder(new Set(["{"]), new Set(["("]), new Set(["}", ")"])),
+                ValueConverter: () => new IdValueConverter(),
+                ParserConfig: () => ({
+                    maxLookahead: 4
+                })
             },
-            ActionProvider: () => new DefaultActionProvider()
+            references: {
+                ScopeProvider: (services) => new ModelScopeProvider(services),
+                ExternalReferenceCollector: () => new ModelExternalReferenceCollector()
+            },
+            lsp: {
+                CompletionProvider: (services) => new ModelCompletionProvider(services as any),
+                Formatter: (services) => new SerializerFormatter(services)
+            },
+            AstSerializer: (services) => new DefaultAstSerializer(services),
+            action: {
+                ActionHandlerRegistry: (services) => {
+                    const registry = new ActionHandlerRegistry();
+                    registry.register("new-file", new NewFileActionHandler(services.shared));
+                    return registry;
+                },
+                ActionProvider: () => new DefaultActionProvider()
+            },
+            workspace: {
+                WorkspaceEdit: (services) => new DefaultWorkspaceEditService(services)
+            }
         },
-        workspace: {
-            WorkspaceEdit: (services) => new DefaultWorkspaceEditService(services)
+        postCreate(services) {
+            registerDefaultTokenSerializers(services);
+            registerModelSerializers(services);
+            registerModelValidationChecks(services);
+            services.shared.glsp.serverModule.configureDiagramModule(new ModelDiagramModule(services, languageJsUrl));
+            addExternalReferenceCollectionPhase(services);
         }
-    },
-    postCreate(services) {
-        registerDefaultTokenSerializers(services);
-        registerModelSerializers(services);
-        registerModelValidationChecks(services);
-        services.shared.glsp.serverModule.configureDiagramModule(new ModelDiagramModule(services, languageJsUrl));
-        addExternalReferenceCollectionPhase(services);
-    }
-};
+    };
 }
 
 /**

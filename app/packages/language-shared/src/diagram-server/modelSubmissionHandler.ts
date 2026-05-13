@@ -1,6 +1,6 @@
 import type { DirtyStateChangeReason, Action } from "@eclipse-glsp/protocol";
 import { sharedImport } from "../sharedImport.js";
-import { BaseGModelFactory } from "./baseGModelFactory.js";
+import type { BaseGModelFactory } from "./baseGModelFactory.js";
 
 const { injectable } = sharedImport("inversify");
 const { ModelSubmissionHandler: BaseModelSubmissionHandler } = sharedImport("@eclipse-glsp/server");

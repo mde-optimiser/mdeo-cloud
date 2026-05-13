@@ -97,7 +97,11 @@ export class ModelGModelFactory extends BaseGModelFactory<PartialModel> {
      * @param objects Array of objects to create nodes for
      * @param idRegistry The ID registry for AST node ID generation
      */
-    private async createObjectNodes(graph: GGraphType, objects: PartialObjectInstance[], idRegistry: ModelIdRegistry): Promise<void> {
+    private async createObjectNodes(
+        graph: GGraphType,
+        objects: PartialObjectInstance[],
+        idRegistry: ModelIdRegistry
+    ): Promise<void> {
         const validatedMetadata = await this.modelState.getValidatedMetadata();
 
         for (const obj of objects) {
