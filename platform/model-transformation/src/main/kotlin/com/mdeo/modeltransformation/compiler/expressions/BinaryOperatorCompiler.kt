@@ -356,7 +356,7 @@ class BinaryOperatorCompiler(
         context: CompilationContext,
         initialTraversal: GraphTraversal<*, *>?
     ): CompilationResult {
-        val leftResult = registry.compile(expr.left, context, initialTraversal)
+        val leftResult = registry.compile(expr.left, context, null)
         val rightResult = registry.compile(expr.right, context, null)
 
         val traversal = buildDynamicComparisonTraversal(
@@ -467,50 +467,38 @@ class BinaryOperatorCompiler(
      * @return A traversal producing a boolean comparison result
      * @throws IllegalStateException if an unexpected operator is provided
      */
-    @Suppress("UNCHECKED_CAST")
+@Suppress("UNCHECKED_CAST")
     private fun buildDynamicComparisonTraversal(
         operator: String,
         leftTraversal: GraphTraversal<Any, Any>,
         rightTraversal: GraphTraversal<Any, Any>,
         context: CompilationContext
     ): GraphTraversal<Any, Boolean> {
-        val (effectiveOperator, invertResult) = if (operator == OPERATOR_NOT_EQUALS) {
-            OPERATOR_EQUALS to true
-        } else {
-            operator to false
-        }
-
-        val predicate: P<Double> = when (effectiveOperator) {
-            OPERATOR_EQUALS -> P.eq(0.0)
-            OPERATOR_LESS_THAN -> P.lt(0.0)
-            OPERATOR_GREATER_THAN -> P.gt(0.0)
-            OPERATOR_LESS_THAN_OR_EQUAL -> P.lte(0.0)
-            OPERATOR_GREATER_THAN_OR_EQUAL -> P.gte(0.0)
-            else -> throw IllegalStateException("Unexpected comparison operator: $effectiveOperator")
-        }
-
+        
+        // 1. Generate your strictly required unique IDs
         val leftLabel = context.getUniqueId()
         val rightLabel = context.getUniqueId()
-        val baseTraversal = leftTraversal
-            .`as`(leftLabel)
-            .map(rightTraversal)
-            .`as`(rightLabel)
-            .math("$leftLabel - $rightLabel")
+
+        // 2. Point the predicate directly at the dynamic rightLabel
+        val predicate: P<String> = when (operator) {
+            OPERATOR_EQUALS -> P.eq(rightLabel)
+            OPERATOR_NOT_EQUALS -> P.neq(rightLabel)
+            OPERATOR_LESS_THAN -> P.lt(rightLabel)
+            OPERATOR_GREATER_THAN -> P.gt(rightLabel)
+            OPERATOR_LESS_THAN_OR_EQUAL -> P.lte(rightLabel)
+            OPERATOR_GREATER_THAN_OR_EQUAL -> P.gte(rightLabel)
+            else -> throw IllegalStateException("Unexpected comparison operator: $operator")
+        }
+
+        // 3. Project using the dynamic labels, evaluate with `where`, and map to boolean
+        return AnonymousTraversal.project<Any, Any>(leftLabel, rightLabel)
+            .by(leftTraversal)
+            .by(rightTraversal)
             .choose(
-                AnonymousTraversal.`is`(predicate),
+                AnonymousTraversal.where<Any>(leftLabel, predicate),
                 AnonymousTraversal.constant<Any>(true),
                 AnonymousTraversal.constant<Any>(false)
-            )
-
-        return if (invertResult) {
-            baseTraversal.choose(
-                AnonymousTraversal.`is`(P.eq(true)),
-                AnonymousTraversal.constant(false),
-                AnonymousTraversal.constant(true)
             ) as GraphTraversal<Any, Boolean>
-        } else {
-            baseTraversal as GraphTraversal<Any, Boolean>
-        }
     }
 
     /**

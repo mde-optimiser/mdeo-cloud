@@ -4,7 +4,6 @@ import com.mdeo.expression.ast.types.ValueType
 import com.mdeo.expression.ast.types.ClassTypeRef
 import com.mdeo.modeltransformation.compiler.registry.TypeRegistry
 import org.apache.tinkerpop.gremlin.structure.VertexProperty
-import org.apache.tinkerpop.gremlin.process.traversal.P
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.`__` as AnonymousTraversal
 
@@ -87,24 +86,26 @@ object EqualityCompilerUtil {
             return AnonymousTraversal.constant<Any>(result) as GraphTraversal<Any, Boolean>
         }
         
-        val predicate: P<String> = when (operator) {
-            "==" -> P.eq(rightLabel)
-            "!=" -> P.neq(rightLabel)
-            else -> throw IllegalArgumentException("Unsupported equality operator: $operator. Expected '==' or '!='")
-        }
-
         val leftIsCollection = isCollectionType(leftType, registry)
         val rightIsCollection = isCollectionType(rightType, registry)
 
-        return (if (leftIsCollection) leftTraversal.fold() else leftTraversal)
-            .`as`(leftLabel)
-            .map(if (rightIsCollection) rightTraversal.fold() else rightTraversal)
-            .`as`(rightLabel)
-            .choose(
-                AnonymousTraversal.where<Any>(leftLabel, predicate),
-                AnonymousTraversal.constant(true),
-                AnonymousTraversal.constant(false)
-            ) as GraphTraversal<Any, Boolean>
+        val foldedLeft = if (leftIsCollection) leftTraversal.fold() else leftTraversal
+        val foldedRight = if (rightIsCollection) rightTraversal.fold() else rightTraversal
+        // project() evaluates both operands from the same initial context traverser, so
+        // barrier steps on one side (e.g. fold()) cannot deprive the other of path-labeled
+        // variables. A lambda compares the results to avoid interference from TinkerPop's
+        // traversal optimizer which can pull WherePredicateStep out of the map context.
+        val isEq = (operator == "==")
+        return AnonymousTraversal.project<Any, Any>(leftLabel, rightLabel)
+            .by(foldedLeft as GraphTraversal<*, *>)
+            .by(foldedRight as GraphTraversal<*, *>)
+            .map { traverser ->
+                @Suppress("UNCHECKED_CAST")
+                val map = traverser.get() as Map<String, Any?>
+                val lv = map[leftLabel]
+                val rv = map[rightLabel]
+                if (isEq) lv == rv else lv != rv
+            } as GraphTraversal<Any, Boolean>
     }
 
     /**

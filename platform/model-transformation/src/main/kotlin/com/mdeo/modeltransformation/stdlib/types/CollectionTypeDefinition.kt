@@ -62,7 +62,11 @@ fun createCollectionType(): GremlinTypeDefinition {
             CompilationResult.of(traversal as GraphTraversal<Any, Any>)
         }
         .method("sum", "", 0) { receiver, _ ->
-            val traversal = (receiver as GraphTraversal<Any, Any>).unfold<Any>().sum<Number>()
+            val traversal = (receiver as GraphTraversal<Any, Any>).unfold<Any>().fold()
+                .coalesce(
+                    AnonymousTraversal.unfold<Any>().sum<Number>(),
+                    AnonymousTraversal.constant(0.0)
+                )
             CompilationResult.of(traversal as GraphTraversal<Any, Any>)
         }
         .method("first", "", 0) { receiver, _ ->

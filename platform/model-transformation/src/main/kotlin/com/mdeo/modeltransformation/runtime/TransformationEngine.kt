@@ -257,9 +257,8 @@ class TransformationEngine(
                 val otherEnd = if (isSource) assoc.target else assoc.source
                 
                 val propertyName = thisEnd.name ?: continue
-                val oppositePropertyName = otherEnd.name
                 
-                val edgeLabel = EdgeLabelUtils.computeEdgeLabel(propertyName, oppositePropertyName)
+                val edgeLabel = EdgeLabelUtils.computeEdgeLabel(assoc.source.name, assoc.target.name)
                 builder.association(
                     propertyName = propertyName,
                     edgeLabel = edgeLabel,

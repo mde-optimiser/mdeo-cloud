@@ -104,7 +104,12 @@ internal class GraphModificationApplier(
                     result
                 }
             } else {
-                result.property(graphKey, compiled.traversal) as GraphTraversal<Vertex, Map<String, Any>>
+                @Suppress("UNCHECKED_CAST")
+                val propTraversal = compiled.traversal as GraphTraversal<Any, Any>
+                result.sideEffect(
+                    AnonymousTraversal.select<Any, Any>(VariableBinding.stepLabel(instanceName))
+                        .property(graphKey, propTraversal)
+                ) as GraphTraversal<Vertex, Map<String, Any>>
             }
         }
 
@@ -174,10 +179,22 @@ internal class GraphModificationApplier(
                 val listResult = expressionSupport.compilePropertyExpression(property.value, matchedInstanceNames)
                 if (listResult != null) { result = setListPropertyViaSideEffect(result, name, graphKey, listResult) }
             } else {
-                val value = expressionSupport.getPropertyValue(property.value, matchedInstanceNames)
-                result = result.sideEffect(
-                    AnonymousTraversal.select<Any, Any>(stepLabel).property(graphKey, value)
-                ) as GraphTraversal<Vertex, Map<String, Any>>
+                val compiled = expressionSupport.compilePropertyExpression(property.value, matchedInstanceNames)!!
+                result = if (compiled is CompilationResult.ValueResult) {
+                    if (compiled.value != null) {
+                        result.sideEffect(
+                            AnonymousTraversal.select<Any, Any>(stepLabel).property(graphKey, compiled.value)
+                        ) as GraphTraversal<Vertex, Map<String, Any>>
+                    } else {
+                        result
+                    }
+                } else {
+                    @Suppress("UNCHECKED_CAST")
+                    val propTraversal = compiled.traversal as GraphTraversal<Any, Any>
+                    result.sideEffect(
+                        AnonymousTraversal.select<Any, Any>(stepLabel).property(graphKey, propTraversal)
+                    ) as GraphTraversal<Vertex, Map<String, Any>>
+                }
             }
         }
         return result
