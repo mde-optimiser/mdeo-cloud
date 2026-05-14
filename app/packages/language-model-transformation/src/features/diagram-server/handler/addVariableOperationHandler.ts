@@ -6,7 +6,6 @@ import {
     sharedImport
 } from "@mdeo/language-shared";
 import type { Command, GModelElement } from "@eclipse-glsp/server";
-import { Pattern, type PatternType } from "../../../grammar/modelTransformationTypes.js";
 import type { AddVariableOperation } from "@mdeo/protocol-model-transformation";
 import { ModelTransformationElementType } from "@mdeo/protocol-model-transformation";
 import type { ContextActionRequestContext, ContextItemProvider } from "@mdeo/language-shared";
@@ -14,6 +13,7 @@ import type { ContextItem } from "@mdeo/protocol-common";
 import { InsertNewLabelAction } from "@mdeo/protocol-common";
 import { GMatchNodeCompartments } from "../model/matchNodeCompartments.js";
 import { GVariableLabel } from "../model/variableLabel.js";
+import { getPatternFromMatchNode } from "../modelTransformationPatternUtils.js";
 
 const { injectable } = sharedImport("inversify");
 const { GrammarUtils } = sharedImport("langium");
@@ -49,11 +49,14 @@ export class AddVariableOperationHandler extends BaseOperationHandler implements
         }
 
         const astNode = this.index.getAstNode(gmodelElement);
-        if (astNode == undefined || !this.reflection.isInstance(astNode, Pattern)) {
+        if (astNode == undefined) {
             return undefined;
         }
 
-        const patternNode = astNode as PatternType;
+        const patternNode = getPatternFromMatchNode(astNode, this.reflection);
+        if (patternNode == undefined) {
+            return undefined;
+        }
         const cstNode = patternNode.$cstNode;
         if (cstNode == undefined) {
             return undefined;
@@ -111,16 +114,16 @@ export class AddVariableOperationHandler extends BaseOperationHandler implements
             .newLabelParentElementId(nodeId)
             .build();
 
-        const compartmentsId = `${nodeId}#compartments`;
-        const variablesId = `${nodeId}#variables`;
-        const whereClausesId = `${nodeId}#where-clauses`;
+        const compartmentsId = `${nodeId}__compartments`;
+        const variablesId = `${nodeId}__variables`;
+        const whereClausesId = `${nodeId}__where-clauses`;
 
         const compartmentsContainer = element.children.find((c) => c.id === compartmentsId);
 
         if (compartmentsContainer == undefined) {
             const topDivider = GHorizontalDivider.builder()
                 .type(ModelTransformationElementType.DIVIDER)
-                .id(`${nodeId}#compartments-top-divider`)
+                .id(`${nodeId}__compartments-top-divider`)
                 .build();
 
             const variablesCompartment = GCompartment.builder()
@@ -158,7 +161,7 @@ export class AddVariableOperationHandler extends BaseOperationHandler implements
         if (whereClausesCompartment != undefined) {
             const divider = GHorizontalDivider.builder()
                 .type(ModelTransformationElementType.DIVIDER)
-                .id(`${nodeId}#compartment-divider-1`)
+                .id(`${nodeId}__compartment-divider-1`)
                 .build();
             templates.push(divider);
         }

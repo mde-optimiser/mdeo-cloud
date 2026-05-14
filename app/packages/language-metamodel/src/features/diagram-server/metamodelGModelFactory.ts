@@ -428,10 +428,10 @@ export class MetamodelGModelFactory extends BaseGModelFactory<PartialMetaModel> 
      * @returns An array with the title compartment GModelElement
      */
     private createEnumTitle(nodeId: string, name: string | undefined, readonly: boolean): GModelElement[] {
-        const titleCompartment = GEnumTitleCompartment.builder().id(`${nodeId}#title-compartment`).build();
+        const titleCompartment = GEnumTitleCompartment.builder().id(`${nodeId}__title-compartment`).build();
 
         const nameLabel = GEnumLabel.builder()
-            .id(`${nodeId}#name`)
+            .id(`${nodeId}__name`)
             .text(name ?? "Unnamed")
             .readonly(readonly)
             .build();
@@ -461,12 +461,15 @@ export class MetamodelGModelFactory extends BaseGModelFactory<PartialMetaModel> 
             return children;
         }
 
-        const divider = GHorizontalDivider.builder().type(MetamodelElementType.DIVIDER).id(`${nodeId}#divider`).build();
+        const divider = GHorizontalDivider.builder()
+            .type(MetamodelElementType.DIVIDER)
+            .id(`${nodeId}__divider`)
+            .build();
         children.push(divider);
 
         const entriesCompartment = GCompartment.builder()
             .type(MetamodelElementType.COMPARTMENT)
-            .id(`${nodeId}#entries-compartment`)
+            .id(`${nodeId}__entries-compartment`)
             .build();
 
         for (const entry of entries) {
@@ -496,11 +499,11 @@ export class MetamodelGModelFactory extends BaseGModelFactory<PartialMetaModel> 
     private createClassTitle(nodeId: string, name: string | undefined, readonly: boolean): GModelElement[] {
         const titleCompartment = GCompartment.builder()
             .type(MetamodelElementType.COMPARTMENT)
-            .id(`${nodeId}#title-compartment`)
+            .id(`${nodeId}__title-compartment`)
             .build();
 
         const nameLabel = GClassLabel.builder()
-            .id(`${nodeId}#name`)
+            .id(`${nodeId}__name`)
             .text(name ?? "Unnamed")
             .readonly(readonly)
             .build();
@@ -530,12 +533,15 @@ export class MetamodelGModelFactory extends BaseGModelFactory<PartialMetaModel> 
             return children;
         }
 
-        const divider = GHorizontalDivider.builder().type(MetamodelElementType.DIVIDER).id(`${nodeId}#divider`).build();
+        const divider = GHorizontalDivider.builder()
+            .type(MetamodelElementType.DIVIDER)
+            .id(`${nodeId}__divider`)
+            .build();
         children.push(divider);
 
         const propertiesCompartment = GCompartment.builder()
             .type(MetamodelElementType.COMPARTMENT)
-            .id(`${nodeId}#properties-compartment`)
+            .id(`${nodeId}__properties-compartment`)
             .build();
 
         for (const prop of properties) {
@@ -795,7 +801,7 @@ export class MetamodelGModelFactory extends BaseGModelFactory<PartialMetaModel> 
                 .build();
 
             const propertyLabel = GAssociationPropertyLabel.builder()
-                .id(`${associationEndId}#property-label`)
+                .id(`${associationEndId}__property-label`)
                 .text(property)
                 .build();
 
@@ -804,7 +810,7 @@ export class MetamodelGModelFactory extends BaseGModelFactory<PartialMetaModel> 
         }
 
         if (isNavigable) {
-            const multiplicityNodeId = `${associationEndId}#multiplicity`;
+            const multiplicityNodeId = `${associationEndId}__multiplicity`;
             const multiplicityMeta = validatedMetadata.nodes[multiplicityNodeId];
             const metadata =
                 multiplicityMeta?.meta != undefined && NodeLayoutMetadataUtil.isValid(multiplicityMeta.meta)
@@ -818,7 +824,7 @@ export class MetamodelGModelFactory extends BaseGModelFactory<PartialMetaModel> 
             const multiplicityReadonly = property == undefined;
 
             const multiplicityLabel = GAssociationMultiplicityLabel.builder()
-                .id(`${associationEndId}#multiplicity-label`)
+                .id(`${associationEndId}__multiplicity-label`)
                 .text(multiplicityText)
                 .readonly(multiplicityReadonly)
                 .build();

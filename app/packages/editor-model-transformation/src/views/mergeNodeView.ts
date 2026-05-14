@@ -36,7 +36,8 @@ export class GMergeNodeView extends GNodeView {
         const offset = (size - innerSize) / 2;
         const innerDiamond = html("div", {
             class: {
-                "bg-foreground": true,
+                "border-2": true,
+                "border-foreground": true,
                 "box-border": true
             },
             style: {

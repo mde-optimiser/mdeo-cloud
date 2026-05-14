@@ -176,7 +176,7 @@ export class ModelTransformationMetadataManager extends MetadataManager<ModelTra
             attrs: { label: edge.label }
         };
         if (edge.label != undefined) {
-            nodes[`${edge.id}#label-node`] = {
+            nodes[`${edge.id}__label-node`] = {
                 type: ModelTransformationElementType.NODE_CONTROL_FLOW_LABEL,
                 attrs: {}
             };
@@ -397,13 +397,13 @@ export class ModelTransformationMetadataManager extends MetadataManager<ModelTra
         };
 
         if (link.source?.property != undefined) {
-            nodes[`${edgeId}#source-node`] = {
+            nodes[`${edgeId}__source-node`] = {
                 type: ModelTransformationElementType.NODE_PATTERN_LINK_END,
                 attrs: {}
             };
         }
         if (link.target?.property != undefined) {
-            nodes[`${edgeId}#target-node`] = {
+            nodes[`${edgeId}__target-node`] = {
                 type: ModelTransformationElementType.NODE_PATTERN_LINK_END,
                 attrs: {}
             };

@@ -58,7 +58,7 @@ export class ModelTransformationApplyLabelEditOperationHandler extends BaseApply
         }
         if (this.reflection.isInstance(node, PatternObjectInstance)) {
             const labelId = operation.labelId ?? "";
-            if (labelId.endsWith("#modifier-label")) {
+            if (labelId.endsWith("__modifier-label")) {
                 return await this.createPatternModifierEdit(node as PatternObjectInstanceType, operation.text);
             }
             return await this.createInstanceNameEdit(node as PatternObjectInstanceType, operation.text);

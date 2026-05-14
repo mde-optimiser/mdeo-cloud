@@ -1,3 +1,5 @@
+import { BaseModelIdProvider } from "@mdeo/language-shared";
+
 /**
  * Centralized ID generator for model transformation diagram elements.
  * Provides stable, deterministic ID generation for synthetic elements based on source element IDs.
@@ -18,7 +20,8 @@ export class ModelTransformationIdGenerator {
      */
     static controlFlowEdge(sourceId: string, targetId: string, label?: string): string {
         if (label != undefined) {
-            return `${sourceId}_to_${targetId}_label_${label}`;
+            const safeLabel = BaseModelIdProvider.escapeIdPart(label);
+            return `${sourceId}_to_${targetId}_label_${safeLabel}`;
         }
         return `${sourceId}_to_${targetId}`;
     }

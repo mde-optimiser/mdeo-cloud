@@ -6,7 +6,6 @@ import {
     sharedImport
 } from "@mdeo/language-shared";
 import type { Command, GModelElement } from "@eclipse-glsp/server";
-import { Pattern, type PatternType } from "../../../grammar/modelTransformationTypes.js";
 import type { AddWhereClauseOperation } from "@mdeo/protocol-model-transformation";
 import { ModelTransformationElementType } from "@mdeo/protocol-model-transformation";
 import type { ContextActionRequestContext, ContextItemProvider } from "@mdeo/language-shared";
@@ -14,6 +13,7 @@ import type { ContextItem } from "@mdeo/protocol-common";
 import { InsertNewLabelAction } from "@mdeo/protocol-common";
 import { GMatchNodeCompartments } from "../model/matchNodeCompartments.js";
 import { GWhereClauseLabel } from "../model/whereClauseLabel.js";
+import { getPatternFromMatchNode } from "../modelTransformationPatternUtils.js";
 
 const { injectable } = sharedImport("inversify");
 const { GrammarUtils } = sharedImport("langium");
@@ -49,11 +49,14 @@ export class AddWhereClauseOperationHandler extends BaseOperationHandler impleme
         }
 
         const astNode = this.index.getAstNode(gmodelElement);
-        if (astNode == undefined || !this.reflection.isInstance(astNode, Pattern)) {
+        if (astNode == undefined) {
             return undefined;
         }
 
-        const patternNode = astNode as PatternType;
+        const patternNode = getPatternFromMatchNode(astNode, this.reflection);
+        if (patternNode == undefined) {
+            return undefined;
+        }
         const cstNode = patternNode.$cstNode;
         if (cstNode == undefined) {
             return undefined;
@@ -96,13 +99,13 @@ export class AddWhereClauseOperationHandler extends BaseOperationHandler impleme
      * Builds an {@link InsertNewLabelAction} for inserting a new where-clause label on the
      * given match node.
      *
-     * Where-clauses must appear **before** variables in the `#compartments` container.
+     * Where-clauses must appear **before** variables in the `__compartments` container.
      * The method handles three cases:
-     * - No `#compartments` container: creates the full container tree.
-     * - `#compartments` exists but `#where-clauses` does not: inserts a new `#where-clauses`
-     *   compartment **before** any existing `#variables` compartment (at index 1, after the
+     * - No `__compartments` container: creates the full container tree.
+     * - `__compartments` exists but `__where-clauses` does not: inserts a new `__where-clauses`
+     *   compartment **before** any existing `__variables` compartment (at index 1, after the
      *   top-divider), and also inserts an inter-compartment divider.
-     * - `#where-clauses` already exists: appends the label to the end of that compartment.
+     * - `__where-clauses` already exists: appends the label to the end of that compartment.
      *
      * @param element The match-node GModel element.
      * @returns The {@link InsertNewLabelAction} to dispatch.
@@ -120,16 +123,16 @@ export class AddWhereClauseOperationHandler extends BaseOperationHandler impleme
             .build();
         label.editMode = true;
 
-        const compartmentsId = `${nodeId}#compartments`;
-        const whereClausesId = `${nodeId}#where-clauses`;
-        const variablesId = `${nodeId}#variables`;
+        const compartmentsId = `${nodeId}__compartments`;
+        const whereClausesId = `${nodeId}__where-clauses`;
+        const variablesId = `${nodeId}__variables`;
 
         const compartmentsContainer = element.children.find((c) => c.id === compartmentsId);
 
         if (compartmentsContainer == undefined) {
             const topDivider = GHorizontalDivider.builder()
                 .type(ModelTransformationElementType.DIVIDER)
-                .id(`${nodeId}#compartments-top-divider`)
+                .id(`${nodeId}__compartments-top-divider`)
                 .build();
 
             const whereClausesCompartment = GCompartment.builder()
@@ -173,7 +176,7 @@ export class AddWhereClauseOperationHandler extends BaseOperationHandler impleme
         if (variablesCompartment != undefined) {
             const divider = GHorizontalDivider.builder()
                 .type(ModelTransformationElementType.DIVIDER)
-                .id(`${nodeId}#compartment-divider-1`)
+                .id(`${nodeId}__compartment-divider-1`)
                 .build();
             templates.push(divider);
         }

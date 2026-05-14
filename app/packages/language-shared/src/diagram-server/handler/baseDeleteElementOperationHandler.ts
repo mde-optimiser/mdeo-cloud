@@ -7,7 +7,6 @@ import type { EdgeMetadata, NodeMetadata } from "../metadata.js";
 import type { ContextItemProvider } from "../../context-actions/contextItemProvider.js";
 import type { ContextActionRequestContext } from "../../context-actions/contextActionRequestContext.js";
 import type { ContextItem } from "@mdeo/protocol-common";
-import { DeleteNodeEdgeOperation } from "@mdeo/protocol-common";
 
 const { injectable, inject } = sharedImport("inversify");
 const { DeleteElementOperation } = sharedImport("@eclipse-glsp/protocol");
@@ -60,7 +59,7 @@ export abstract class BaseDeleteElementOperationHandler extends BaseOperationHan
                 label: "Delete",
                 icon: "trash",
                 sortString: "z",
-                action: DeleteNodeEdgeOperation.create({ elementId: element.id })
+                action: DeleteElementOperation.create([element.id])
             }
         ];
     }

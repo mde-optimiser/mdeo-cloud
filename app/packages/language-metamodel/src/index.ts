@@ -39,6 +39,7 @@ export * from "./features/diagram-server/metamodelMetadataManager.js";
 export * from "./features/diagram-server/metamodelModelIdProvider.js";
 export * from "./features/diagram-server/metamodelToolPaletteItemProvider.js";
 export * from "./features/importHelpers.js";
+export * from "./features/metamodelCodeActionProvider.js";
 export * from "./features/metamodelCompletionProvider.js";
 export * from "./features/metamodelExternalReferenceCollector.js";
 export * from "./features/metamodelNameProvider.js";

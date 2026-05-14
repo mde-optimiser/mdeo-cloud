@@ -161,10 +161,10 @@ export class ModelGModelFactory extends BaseGModelFactory<PartialModel> {
     private createObjectHeader(nodeId: string, name: string, typeName: string): GModelElement[] {
         const headerCompartment = GCompartment.builder()
             .type(ModelElementType.COMPARTMENT)
-            .id(`${nodeId}#header-compartment`)
+            .id(`${nodeId}__header-compartment`)
             .build();
 
-        const combinedLabel = GObjectNameLabel.builder().id(`${nodeId}#name`).text(`${name} : ${typeName}`).build();
+        const combinedLabel = GObjectNameLabel.builder().id(`${nodeId}__name`).text(`${name} : ${typeName}`).build();
 
         headerCompartment.children.push(combinedLabel);
         return [headerCompartment];
@@ -190,12 +190,12 @@ export class ModelGModelFactory extends BaseGModelFactory<PartialModel> {
             return children;
         }
 
-        const divider = GHorizontalDivider.builder().type(ModelElementType.DIVIDER).id(`${nodeId}#divider`).build();
+        const divider = GHorizontalDivider.builder().type(ModelElementType.DIVIDER).id(`${nodeId}__divider`).build();
         children.push(divider);
 
         const propertiesCompartment = GCompartment.builder()
             .type(ModelElementType.COMPARTMENT)
-            .id(`${nodeId}#properties-compartment`)
+            .id(`${nodeId}__properties-compartment`)
             .build();
 
         for (const prop of properties) {
@@ -445,7 +445,7 @@ export class ModelGModelFactory extends BaseGModelFactory<PartialModel> {
     ): GModelElement[] {
         const nodes: GModelElement[] = [];
 
-        const nodeId = `${edgeId}#${end}-node`;
+        const nodeId = `${edgeId}__${end}-node`;
         const nodeMeta = validatedMetadata.nodes[nodeId];
         const metadata =
             nodeMeta?.meta != undefined && NodeLayoutMetadataUtil.isValid(nodeMeta.meta)
@@ -454,7 +454,7 @@ export class ModelGModelFactory extends BaseGModelFactory<PartialModel> {
 
         const endNode = GLinkEndNode.builder().id(nodeId).end(end).meta(metadata).build();
 
-        const endLabel = GLinkEndLabel.builder().id(`${edgeId}#${end}-label`).text(property).readonly(true).build();
+        const endLabel = GLinkEndLabel.builder().id(`${edgeId}__${end}-label`).text(property).readonly(true).build();
 
         endNode.children.push(endLabel);
         nodes.push(endNode);

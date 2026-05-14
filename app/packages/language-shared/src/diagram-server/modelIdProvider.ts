@@ -52,14 +52,17 @@ export abstract class BaseModelIdProvider implements ModelIdProvider {
 
     /**
      * Escapes a string for safe use as part of a diagram element ID.
-     * Replaces characters that are problematic in IDs (e.g. in CSS selectors or URLs):
-     * - `@` is replaced with `_at_`
-     * - `:` is replaced with `_colon_`
+     * Only characters in [a-zA-Z0-9_-] are kept; every other character is
+     * replaced with a single underscore `_`.  This keeps IDs safe for use
+     * in CSS selectors, URLs, and similar contexts.
+     *
+     * Note: this may produce ID collisions when two different raw strings
+     * collapse to the same escaped form; that is an accepted trade-off.
      *
      * @param s The raw string to escape
      * @returns The escaped string safe for use in IDs
      */
     static escapeIdPart(s: string): string {
-        return s.replace(/@/g, "_at_").replace(/:/g, "_colon_");
+        return s.replace(/[^a-zA-Z0-9_-]/g, "_");
     }
 }

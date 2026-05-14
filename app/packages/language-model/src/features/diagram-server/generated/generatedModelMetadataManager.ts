@@ -98,14 +98,14 @@ export class GeneratedModelMetadataManager extends ModelMetadataManager {
             };
 
             if (link.sourceProperty != null) {
-                nodes[`${edgeId}#target-node`] = {
+                nodes[`${edgeId}__target-node`] = {
                     type: ModelElementType.NODE_LINK_END,
                     attrs: {}
                 };
             }
 
             if (link.targetProperty != null) {
-                nodes[`${edgeId}#source-node`] = {
+                nodes[`${edgeId}__source-node`] = {
                     type: ModelElementType.NODE_LINK_END,
                     attrs: {}
                 };

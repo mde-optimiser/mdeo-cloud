@@ -156,7 +156,7 @@ export interface ControlFlowEdge {
     readonly label?: string;
     /**
      * When set, the GModel label element on this edge should use this ID instead of
-     * the default "${edgeId}#label".  Setting this makes the label editable in the
+     * the default "${edgeId}__label".  Setting this makes the label editable in the
      * diagram editor and ties the edit to the corresponding AST node.
      *
      * This field is relevant only for the GModel factory; the metadata manager

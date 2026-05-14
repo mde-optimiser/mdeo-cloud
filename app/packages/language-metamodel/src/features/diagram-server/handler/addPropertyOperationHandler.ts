@@ -120,7 +120,7 @@ export class AddPropertyOperationHandler extends BaseOperationHandler implements
             .newLabelParentElementId(nodeId)
             .build();
 
-        const compartmentId = `${nodeId}#properties-compartment`;
+        const compartmentId = `${nodeId}__properties-compartment`;
         const existingCompartment = element.children.find((c) => c.id === compartmentId);
 
         if (existingCompartment != undefined) {
@@ -132,7 +132,10 @@ export class AddPropertyOperationHandler extends BaseOperationHandler implements
             });
         }
 
-        const divider = GHorizontalDivider.builder().type(MetamodelElementType.DIVIDER).id(`${nodeId}#divider`).build();
+        const divider = GHorizontalDivider.builder()
+            .type(MetamodelElementType.DIVIDER)
+            .id(`${nodeId}__divider`)
+            .build();
 
         const compartment = GCompartment.builder().type(MetamodelElementType.COMPARTMENT).id(compartmentId).build();
         compartment.children.push(label);

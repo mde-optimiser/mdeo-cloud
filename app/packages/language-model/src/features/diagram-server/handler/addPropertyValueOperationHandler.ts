@@ -160,7 +160,7 @@ export class AddPropertyValueOperationHandler extends BaseOperationHandler imple
             .newLabelParentElementId(nodeId)
             .build();
 
-        const compartmentId = `${nodeId}#properties-compartment`;
+        const compartmentId = `${nodeId}__properties-compartment`;
         const existingCompartment = element.children.find((c) => c.id === compartmentId);
 
         if (existingCompartment != undefined) {
@@ -172,7 +172,7 @@ export class AddPropertyValueOperationHandler extends BaseOperationHandler imple
             });
         }
 
-        const divider = GHorizontalDivider.builder().type(ModelElementType.DIVIDER).id(`${nodeId}#divider`).build();
+        const divider = GHorizontalDivider.builder().type(ModelElementType.DIVIDER).id(`${nodeId}__divider`).build();
 
         const compartment = GCompartment.builder().type(ModelElementType.COMPARTMENT).id(compartmentId).build();
         compartment.children.push(label);

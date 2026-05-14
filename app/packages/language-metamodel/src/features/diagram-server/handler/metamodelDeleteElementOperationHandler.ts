@@ -344,7 +344,7 @@ export class MetamodelDeleteNodeOperationHandler extends BaseDeleteElementOperat
                 if (associationEnd != undefined) {
                     const endElement = this.findGModelElementForAstNode(associationEnd);
                     if (endElement != undefined) {
-                        const multiplicityElement = this.modelState.index.find(`${endElement.id}#multiplicity`);
+                        const multiplicityElement = this.modelState.index.find(`${endElement.id}__multiplicity`);
                         if (multiplicityElement != undefined) {
                             gmodelElements.push(multiplicityElement);
                         }

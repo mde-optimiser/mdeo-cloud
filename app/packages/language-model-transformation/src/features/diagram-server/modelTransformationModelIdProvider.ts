@@ -67,7 +67,7 @@ export class ModelTransformationModelIdProvider extends BaseModelIdProvider {
         }
 
         if (this.reflection.isInstance(node, PatternObjectInstance)) {
-            return ModelTransformationModelIdProvider.escapeIdPart(node.name ?? "unnamed");
+            return BaseModelIdProvider.escapeIdPart(node.name ?? "unnamed");
         }
         if (this.reflection.isInstance(node, PatternObjectInstanceReference)) {
             return this.getPatternObjectInstanceReferenceName(node, registry);
@@ -188,7 +188,7 @@ export class ModelTransformationModelIdProvider extends BaseModelIdProvider {
         node: PatternObjectInstanceReferenceType,
         registry: ModelIdRegistry
     ): string {
-        const instanceRefName = ModelTransformationModelIdProvider.escapeIdPart(
+        const instanceRefName = BaseModelIdProvider.escapeIdPart(
             node.instance.ref?.name ?? node.instance.$refText ?? "unnamed"
         );
         const container = node.$container;
@@ -218,7 +218,7 @@ export class ModelTransformationModelIdProvider extends BaseModelIdProvider {
         node: PatternObjectInstanceDeleteType,
         registry: ModelIdRegistry
     ): string {
-        const instanceRefName = ModelTransformationModelIdProvider.escapeIdPart(
+        const instanceRefName = BaseModelIdProvider.escapeIdPart(
             node.instance.ref?.name ?? node.instance.$refText ?? "unnamed"
         );
         const container = node.$container;
@@ -269,8 +269,8 @@ export class ModelTransformationModelIdProvider extends BaseModelIdProvider {
         }
 
         const obj = objectRef.ref as PatternObjectInstanceType;
-        const objectName = obj.name ?? "unnamed";
-        const property = linkEnd.property?.$refText ?? "";
+        const objectName = BaseModelIdProvider.escapeIdPart(obj.name ?? "unnamed");
+        const property = BaseModelIdProvider.escapeIdPart(linkEnd.property?.$refText ?? "");
 
         if (property) {
             return `${objectName}_${property}`;
@@ -311,7 +311,7 @@ export class ModelTransformationModelIdProvider extends BaseModelIdProvider {
 
         if (parent != undefined && this.reflection.isInstance(parent, PatternObjectInstance)) {
             const parentObj = parent as PatternObjectInstanceType;
-            return `${ModelTransformationModelIdProvider.escapeIdPart(parentObj.name ?? "unnamed")}_prop_${ModelTransformationModelIdProvider.escapeIdPart(propName)}`;
+            return `${BaseModelIdProvider.escapeIdPart(parentObj.name ?? "unnamed")}_prop_${BaseModelIdProvider.escapeIdPart(propName)}`;
         }
 
         return propName;
@@ -345,7 +345,7 @@ export class ModelTransformationModelIdProvider extends BaseModelIdProvider {
      * @returns The variable's declared name, or "unnamed" if absent
      */
     private getPatternVariableName(node: PatternVariableType): string {
-        return ModelTransformationModelIdProvider.escapeIdPart(node.name ?? "unnamed");
+        return BaseModelIdProvider.escapeIdPart(node.name ?? "unnamed");
     }
 
     /**

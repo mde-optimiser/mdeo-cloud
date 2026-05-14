@@ -299,17 +299,17 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
 
         if (modifier !== PatternModifierKind.NONE) {
             const modifierCompartment = GPatternModifierTitleCompartment.builder()
-                .id(`${nodeId}#modifier-title`)
+                .id(`${nodeId}__modifier-title`)
                 .build();
 
             const modifierLabel = GPatternModifierLabel.builder()
-                .id(`${nodeId}#modifier-label`)
+                .id(`${nodeId}__modifier-label`)
                 .text(`\u00ab${modifier}\u00bb`)
                 .build();
             modifierCompartment.children.push(modifierLabel);
 
             const labelText = typeName != undefined ? `${name} : ${typeName}` : name;
-            const label = GPatternInstanceNameLabel.builder().id(`${nodeId}#name`).text(labelText).build();
+            const label = GPatternInstanceNameLabel.builder().id(`${nodeId}__name`).text(labelText).build();
             modifierCompartment.children.push(label);
             node.children.push(modifierCompartment);
         } else {
@@ -450,16 +450,16 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
             node.classHierarchy = classHierarchyForDel;
         }
 
-        const modifierCompartment = GPatternModifierTitleCompartment.builder().id(`${nodeId}#modifier-title`).build();
+        const modifierCompartment = GPatternModifierTitleCompartment.builder().id(`${nodeId}__modifier-title`).build();
 
         const modifierLabel = GPatternModifierLabel.builder()
-            .id(`${nodeId}#modifier-label`)
+            .id(`${nodeId}__modifier-label`)
             .text(`\u00ab${PatternModifierKind.DELETE}\u00bb`)
             .readonly(true)
             .build();
         modifierCompartment.children.push(modifierLabel);
 
-        const label = GPatternInstanceNameLabel.builder().id(`${nodeId}#name`).text(instanceName).build();
+        const label = GPatternInstanceNameLabel.builder().id(`${nodeId}__name`).text(instanceName).build();
         modifierCompartment.children.push(label);
         node.children.push(modifierCompartment);
 
@@ -504,11 +504,11 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
     private createPatternInstanceHeader(nodeId: string, name: string, typeName: string | undefined): GModelElement[] {
         const compartment = GCompartment.builder()
             .type(ModelTransformationElementType.COMPARTMENT)
-            .id(`${nodeId}#header`)
+            .id(`${nodeId}__header`)
             .build();
 
         const labelText = typeName != undefined ? `${name} : ${typeName}` : name;
-        const label = GPatternInstanceNameLabel.builder().id(`${nodeId}#name`).text(labelText).build();
+        const label = GPatternInstanceNameLabel.builder().id(`${nodeId}__name`).text(labelText).build();
 
         compartment.children.push(label);
         return [compartment];
@@ -535,7 +535,7 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
 
         const compartment = GCompartment.builder()
             .type(ModelTransformationElementType.COMPARTMENT)
-            .id(`${nodeId}#properties`)
+            .id(`${nodeId}__properties`)
             .build();
 
         for (const prop of properties) {
@@ -560,7 +560,7 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
 
         const divider = GHorizontalDivider.builder()
             .type(ModelTransformationElementType.DIVIDER)
-            .id(`${nodeId}#divider`)
+            .id(`${nodeId}__divider`)
             .build();
 
         children.push(divider);
@@ -620,7 +620,7 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
         if (whereClauseLabels.length > 0) {
             const compartment = GCompartment.builder()
                 .type(ModelTransformationElementType.COMPARTMENT)
-                .id(`${nodeId}#where-clauses`)
+                .id(`${nodeId}__where-clauses`)
                 .build();
 
             compartment.children.push(...whereClauseLabels);
@@ -630,7 +630,7 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
         if (variableLabels.length > 0) {
             const compartment = GCompartment.builder()
                 .type(ModelTransformationElementType.COMPARTMENT)
-                .id(`${nodeId}#variables`)
+                .id(`${nodeId}__variables`)
                 .build();
 
             compartment.children.push(...variableLabels);
@@ -641,11 +641,11 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
             return undefined;
         }
 
-        const container = GMatchNodeCompartments.builder().id(`${nodeId}#compartments`).build();
+        const container = GMatchNodeCompartments.builder().id(`${nodeId}__compartments`).build();
 
         const topDivider = GHorizontalDivider.builder()
             .type(ModelTransformationElementType.DIVIDER)
-            .id(`${nodeId}#compartments-top-divider`)
+            .id(`${nodeId}__compartments-top-divider`)
             .build();
         container.children.push(topDivider);
 
@@ -653,7 +653,7 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
             if (i > 0) {
                 const divider = GHorizontalDivider.builder()
                     .type(ModelTransformationElementType.DIVIDER)
-                    .id(`${nodeId}#compartment-divider-${i}`)
+                    .id(`${nodeId}__compartment-divider-${i}`)
                     .build();
                 container.children.push(divider);
             }
@@ -740,7 +740,7 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
         await this.addPatternLinkLabels(edge, edgeId, sourceProperty, targetProperty);
 
         if (modifier !== PatternModifierKind.NONE) {
-            const modifierNodeId = `${edgeId}#modifier-node`;
+            const modifierNodeId = `${edgeId}__modifier-node`;
             const modifierNodeMetadata = this.getNodeMetadata(validatedMetadata, modifierNodeId);
 
             const modifierNode = GPatternLinkModifierNode.builder()
@@ -750,7 +750,7 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
                 .build();
 
             const modifierLabel = GPatternLinkModifierLabel.builder()
-                .id(`${edgeId}#modifier-label`)
+                .id(`${edgeId}__modifier-label`)
                 .text(`\u00ab${modifier}\u00bb`)
                 .build();
 
@@ -800,13 +800,13 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
         const validatedMetadata = await this.modelState.getValidatedMetadata();
 
         if (sourceProperty != undefined) {
-            const nodeId = `${edgeId}#source-node`;
+            const nodeId = `${edgeId}__source-node`;
             const metadata = this.getNodeMetadata(validatedMetadata, nodeId);
 
             const endNode = GPatternLinkEndNode.builder().id(nodeId).end("target").meta(metadata).build();
 
             const label = GPatternLinkEndLabel.builder()
-                .id(`${edgeId}#source-label`)
+                .id(`${edgeId}__source-label`)
                 .text(sourceProperty)
                 .readonly(true)
                 .build();
@@ -816,13 +816,13 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
         }
 
         if (targetProperty != undefined) {
-            const nodeId = `${edgeId}#target-node`;
+            const nodeId = `${edgeId}__target-node`;
             const metadata = this.getNodeMetadata(validatedMetadata, nodeId);
 
             const endNode = GPatternLinkEndNode.builder().id(nodeId).end("source").meta(metadata).build();
 
             const label = GPatternLinkEndLabel.builder()
-                .id(`${edgeId}#target-label`)
+                .id(`${edgeId}__target-label`)
                 .text(targetProperty)
                 .readonly(true)
                 .build();
@@ -890,12 +890,12 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
         edge.meta = edgeMeta;
 
         if (label != undefined) {
-            const labelNodeId = `${edgeId}#label-node`;
+            const labelNodeId = `${edgeId}__label-node`;
             const labelMetadata = this.getNodeMetadata(validatedMetadata, labelNodeId);
 
             const labelNode = GControlFlowLabelNode.builder().id(labelNodeId).end("source").meta(labelMetadata).build();
 
-            const actualLabelId = labelId ?? `${edgeId}#label`;
+            const actualLabelId = labelId ?? `${edgeId}__label`;
             const isReadonly = labelId == undefined;
             const labelElement = GControlFlowLabel.builder().id(actualLabelId).text(label).readonly(isReadonly).build();
 

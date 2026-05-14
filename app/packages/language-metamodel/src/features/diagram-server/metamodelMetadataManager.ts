@@ -410,13 +410,13 @@ export class MetamodelMetadataManager extends MetadataManager<PartialMetaModel> 
         if (assoc.source != undefined) {
             const startId = idRegistry.getId(assoc.source);
             if (assoc.source.name != undefined) {
-                nodes[`${startId}#property`] = {
+                nodes[`${startId}__property`] = {
                     type: MetamodelElementType.NODE_ASSOCIATION_PROPERTY,
                     attrs: {}
                 };
             }
             if (assoc.source.multiplicity != undefined) {
-                nodes[`${startId}#multiplicity`] = {
+                nodes[`${startId}__multiplicity`] = {
                     type: MetamodelElementType.NODE_ASSOCIATION_MULTIPLICITY,
                     attrs: {}
                 };
@@ -426,13 +426,13 @@ export class MetamodelMetadataManager extends MetadataManager<PartialMetaModel> 
         if (assoc.target != undefined) {
             const targetId = idRegistry.getId(assoc.target);
             if (assoc.target.name != undefined) {
-                nodes[`${targetId}#property`] = {
+                nodes[`${targetId}__property`] = {
                     type: MetamodelElementType.NODE_ASSOCIATION_PROPERTY,
                     attrs: {}
                 };
             }
             if (assoc.target.multiplicity != undefined) {
-                nodes[`${targetId}#multiplicity`] = {
+                nodes[`${targetId}__multiplicity`] = {
                     type: MetamodelElementType.NODE_ASSOCIATION_MULTIPLICITY,
                     attrs: {}
                 };

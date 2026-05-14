@@ -129,7 +129,7 @@ export class AddPropertyValueComparisonOperationHandler extends BaseOperationHan
      * {@code propName = } so the user only has to type the value or comparison expression.
      * When omitted the label starts empty and the user types the full expression from scratch.
      *
-     * If a properties compartment already exists (id {@code ${nodeId}#properties}) the label
+     * If a properties compartment already exists (id {@code ${nodeId}__properties}) the label
      * is appended directly to it.  Otherwise a horizontal divider and a new compartment
      * (containing the label) are appended to the node, mirroring what the
      * {@link ModelTransformationGModelFactory} would produce for a persisted assignment.
@@ -160,7 +160,7 @@ export class AddPropertyValueComparisonOperationHandler extends BaseOperationHan
             .newLabelParentElementId(nodeId)
             .build();
 
-        const compartmentId = `${nodeId}#properties`;
+        const compartmentId = `${nodeId}__properties`;
         const existingCompartment = element.children.find((c) => c.id === compartmentId);
 
         if (existingCompartment != undefined) {
@@ -174,7 +174,7 @@ export class AddPropertyValueComparisonOperationHandler extends BaseOperationHan
 
         const divider = GHorizontalDivider.builder()
             .type(ModelTransformationElementType.DIVIDER)
-            .id(`${nodeId}#divider`)
+            .id(`${nodeId}__divider`)
             .build();
 
         const compartment = GCompartment.builder()

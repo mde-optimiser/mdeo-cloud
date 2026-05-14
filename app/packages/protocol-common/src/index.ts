@@ -6,7 +6,6 @@ export * from "./actions/revealSourceAction.js";
 export * from "./context-actions/contextActionsOperation.js";
 export * from "./context-actions/contextActionsTypes.js";
 export * from "./operations/createEdgeOperation.js";
-export * from "./operations/deleteNodeEdgeOperation.js";
 export * from "./operations/insertNewLabelOperation.js";
 export * from "./operations/layoutOperation.js";
 export * from "./operations/newLabelOperations.js";

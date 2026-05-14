@@ -158,7 +158,7 @@ export class ModelCreateEdgeSchemaResolver extends CreateEdgeSchemaResolver {
         const edge = edgeBuilder.build();
 
         if (label != undefined) {
-            const nodeId = `${edgeId}#${label.end}-node`;
+            const nodeId = `${edgeId}__${label.end}-node`;
 
             const endNode = GLinkEndNode.builder()
                 .id(nodeId)
@@ -167,7 +167,7 @@ export class ModelCreateEdgeSchemaResolver extends CreateEdgeSchemaResolver {
                 .build();
 
             const endLabel = GLinkEndLabel.builder()
-                .id(`${edgeId}#${label.end}-label`)
+                .id(`${edgeId}__${label.end}-label`)
                 .text(label.text)
                 .readonly(true)
                 .build();

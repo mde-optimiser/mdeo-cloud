@@ -174,14 +174,14 @@ export class ModelMetadataManager extends MetadataManager<PartialModel> {
      */
     private extractLinkLabelMetadata(link: PartialLink, edgeId: string, nodes: Record<string, NodeMetadata>): void {
         if (link.source?.property != undefined) {
-            nodes[`${edgeId}#source-node`] = {
+            nodes[`${edgeId}__source-node`] = {
                 type: ModelElementType.NODE_LINK_END,
                 attrs: {}
             };
         }
 
         if (link.target?.property != undefined) {
-            nodes[`${edgeId}#target-node`] = {
+            nodes[`${edgeId}__target-node`] = {
                 type: ModelElementType.NODE_LINK_END,
                 attrs: {}
             };

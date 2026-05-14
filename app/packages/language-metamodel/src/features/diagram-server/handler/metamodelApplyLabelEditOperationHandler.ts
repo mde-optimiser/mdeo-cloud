@@ -212,13 +212,13 @@ export class MetamodelApplyLabelEditOperationHandler extends BaseApplyLabelEditO
         const labelId = operation.labelId;
         const text = operation.text.trim();
 
-        if (labelId.endsWith("#property-label")) {
+        if (labelId.endsWith("__property-label")) {
             const propertyNode = GrammarUtils.findNodeForProperty(node.$cstNode, "name");
             if (propertyNode == undefined) {
                 throw new Error("Property CST node not found.");
             }
             return this.createRenameWorkspaceEdit(propertyNode, parseIdentifier(text));
-        } else if (labelId.endsWith("#multiplicity-label")) {
+        } else if (labelId.endsWith("__multiplicity-label")) {
             return await this.updateAssociationMultiplicity(node, text);
         } else {
             throw new Error(`Unknown label ID type: ${labelId}`);

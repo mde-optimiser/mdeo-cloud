@@ -264,7 +264,7 @@ export class MetamodelCreateEdgeSchemaResolver extends CreateEdgeSchemaResolver 
             .build();
 
         if (precomputedTargetLabel !== undefined) {
-            const nodeId = `${edgeId}#target-node`;
+            const nodeId = `${edgeId}__target-node`;
             const endNode = GAssociationPropertyNode.builder()
                 .id(nodeId)
                 .end("source")
@@ -367,7 +367,7 @@ export class MetamodelCreateEdgeSchemaResolver extends CreateEdgeSchemaResolver 
             .build();
 
         if (sourceLabel !== undefined) {
-            const nodeId = `${edgeId}#source-node`;
+            const nodeId = `${edgeId}__source-node`;
             const endNode = GAssociationPropertyNode.builder()
                 .id(nodeId)
                 .end("target")
@@ -379,7 +379,7 @@ export class MetamodelCreateEdgeSchemaResolver extends CreateEdgeSchemaResolver 
         }
 
         if (targetLabel !== undefined) {
-            const nodeId = `${edgeId}#target-node`;
+            const nodeId = `${edgeId}__target-node`;
             const endNode = GAssociationPropertyNode.builder()
                 .id(nodeId)
                 .end("source")
