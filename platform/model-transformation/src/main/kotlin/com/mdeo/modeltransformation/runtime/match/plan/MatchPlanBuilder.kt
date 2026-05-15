@@ -1307,15 +1307,21 @@ internal class MatchPlanBuilder(
         }
 
         /**
-         * Emits any pending where-clause filters whose referenced matchable instances are
-         * now all covered. Removes successfully emitted clauses from [pendingWhereClauses].
+         * Emits any pending where-clause filters whose referenced instances are now all covered.
+         * Removes successfully emitted clauses from [pendingWhereClauses].
+         *
+         * Uses a single expression scan via [ExpressionNodeAnalyzer.findReferencedNodes], which
+         * covers matchable instances, pattern variables, and outer-scope referenced instances
+         * alike (all registered in the analyzer's [matchNodeNames]). Variable names are excluded
+         * from the coverage check because variables are bound later by [addVariableBindings];
+         * only instance names (both inner-pattern and outer-scope) must be covered first.
          */
         private fun tryInlineWhereClauses() {
             val iterator = pendingWhereClauses.iterator()
             while (iterator.hasNext()) {
                 val clause = iterator.next()
                 val referenced = nodeAnalyzer.findReferencedNodes(clause.whereClause.expression)
-                    .filter { it in matchableNames }
+                    .filterNot { it in variableNames }
                 if (!referenced.all { it in coveredInstances }) continue
                 baseSteps.add(BaseStep.WhereFilter(clause))
                 iterator.remove()

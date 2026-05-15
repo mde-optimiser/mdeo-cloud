@@ -15,7 +15,9 @@ import com.mdeo.modeltransformation.ast.expressions.TypedLambdaExpression
  * reference only when its declared scope level is at or below the current
  * analysis scope, and its name is present in the known match node set.
  *
- * @param matchNodeNames Names of all match nodes known in the current pattern.
+ * @param matchNodeNames Names of all nodes visible in the current pattern, including
+ *   inner-pattern matchable instances, pattern variables, and any outer-scope instance
+ *   references that must be treated as dependencies (e.g. from enclosing if-match scopes).
  * @param currentScopeIndex The scope index at or below which identifiers are considered potential node references.
  */
 internal class ExpressionNodeAnalyzer(
@@ -27,13 +29,15 @@ internal class ExpressionNodeAnalyzer(
      *
      * Recursively traverses the expression tree, collecting identifiers whose scope
      * is at or below [currentScopeIndex] and whose name appears in [matchNodeNames].
+     * This includes inner-pattern matchable instances, pattern variables, and any
+     * outer-scope instance references that were registered at construction time.
      *
      * @param expression The expression tree to analyze.
      * @return Set of match node names that are directly referenced in the expression.
      */
     fun findReferencedNodes(expression: TypedExpression): Set<String> {
         val result = mutableSetOf<String>()
-        collect(expression, result)
+        collect(expression, matchNodeNames, result)
         return result
     }
 
@@ -63,74 +67,60 @@ internal class ExpressionNodeAnalyzer(
     }
 
     /**
-     * Recursively collects match node names from the expression tree into [result].
+     * Recursively collects names from [names] that are referenced as identifiers in [expression],
+     * accumulating matches into [result].
+     *
+     * An identifier matches when its scope is at or below [currentScopeIndex] and its name is
+     * present in [names].
      *
      * @param expression The expression subtree to traverse.
-     * @param result The mutable set to accumulate referenced node names into.
+     * @param names The name set to check membership against.
+     * @param result The mutable set to accumulate referenced names into.
      */
-    private fun collect(expression: TypedExpression, result: MutableSet<String>) {
+    private fun collect(expression: TypedExpression, names: Set<String>, result: MutableSet<String>) {
         when (expression) {
             is TypedIdentifierExpression -> {
-                if (expression.scope <= currentScopeIndex && expression.name in matchNodeNames) {
+                if (expression.scope <= currentScopeIndex && expression.name in names) {
                     result.add(expression.name)
                 }
             }
-            is TypedMemberAccessExpression -> {
-                collect(expression.expression, result)
-            }
+            is TypedMemberAccessExpression -> collect(expression.expression, names, result)
             is TypedBinaryExpression -> {
-                collect(expression.left, result)
-                collect(expression.right, result)
+                collect(expression.left, names, result)
+                collect(expression.right, names, result)
             }
-            is TypedUnaryExpression -> {
-                collect(expression.expression, result)
-            }
+            is TypedUnaryExpression -> collect(expression.expression, names, result)
             is TypedMemberCallExpression -> {
-                collect(expression.expression, result)
-                expression.arguments.forEach { collect(it.value, result) }
+                collect(expression.expression, names, result)
+                expression.arguments.forEach { collect(it.value, names, result) }
             }
-            is TypedFunctionCallExpression -> {
-                expression.arguments.forEach { collect(it.value, result) }
-            }
+            is TypedFunctionCallExpression ->
+                expression.arguments.forEach { collect(it.value, names, result) }
             is TypedExpressionCallExpression -> {
-                collect(expression.expression, result)
-                expression.arguments.forEach { collect(it.value, result) }
+                collect(expression.expression, names, result)
+                expression.arguments.forEach { collect(it.value, names, result) }
             }
-            is TypedExtensionCallExpression -> {
-                expression.arguments.forEach { collect(it.value, result) }
-            }
+            is TypedExtensionCallExpression ->
+                expression.arguments.forEach { collect(it.value, names, result) }
             is TypedTernaryExpression -> {
-                collect(expression.condition, result)
-                collect(expression.trueExpression, result)
-                collect(expression.falseExpression, result)
+                collect(expression.condition, names, result)
+                collect(expression.trueExpression, names, result)
+                collect(expression.falseExpression, names, result)
             }
-            is TypedListLiteralExpression -> {
-                expression.elements.forEach { collect(it, result) }
-            }
-            is TypedTypeCheckExpression -> {
-                collect(expression.expression, result)
-            }
-            is TypedTypeCastExpression -> {
-                collect(expression.expression, result)
-            }
-            is TypedAssertNonNullExpression -> {
-                collect(expression.expression, result)
-            }
-            is TypedLambdaExpression -> {
-                collect(expression.body, result)
-            }
+            is TypedListLiteralExpression ->
+                expression.elements.forEach { collect(it, names, result) }
+            is TypedTypeCheckExpression -> collect(expression.expression, names, result)
+            is TypedTypeCastExpression -> collect(expression.expression, names, result)
+            is TypedAssertNonNullExpression -> collect(expression.expression, names, result)
+            is TypedLambdaExpression -> collect(expression.body, names, result)
             is TypedStringLiteralExpression,
             is TypedIntLiteralExpression,
             is TypedLongLiteralExpression,
             is TypedFloatLiteralExpression,
             is TypedDoubleLiteralExpression,
             is TypedBooleanLiteralExpression,
-            is TypedNullLiteralExpression -> {
-                // Literals never reference match nodes
-            }
-            else -> {
-                throw IllegalArgumentException("Unsupported expression type: ${expression::class}")
-            }
+            is TypedNullLiteralExpression -> { /* literals reference nothing */ }
+            else -> throw IllegalArgumentException("Unsupported expression type: ${expression::class}")
         }
     }
 }

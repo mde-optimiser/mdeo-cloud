@@ -3,6 +3,7 @@ package com.mdeo.modeltransformation.compiler.expressions
 import com.mdeo.expression.ast.types.ValueType
 import com.mdeo.expression.ast.types.ClassTypeRef
 import com.mdeo.modeltransformation.compiler.registry.TypeRegistry
+import org.apache.tinkerpop.gremlin.process.traversal.P
 import org.apache.tinkerpop.gremlin.structure.VertexProperty
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.`__` as AnonymousTraversal
@@ -91,21 +92,15 @@ object EqualityCompilerUtil {
 
         val foldedLeft = if (leftIsCollection) leftTraversal.fold() else leftTraversal
         val foldedRight = if (rightIsCollection) rightTraversal.fold() else rightTraversal
-        // project() evaluates both operands from the same initial context traverser, so
-        // barrier steps on one side (e.g. fold()) cannot deprive the other of path-labeled
-        // variables. A lambda compares the results to avoid interference from TinkerPop's
-        // traversal optimizer which can pull WherePredicateStep out of the map context.
         val isEq = (operator == "==")
+        @Suppress("UNCHECKED_CAST")
         return AnonymousTraversal.project<Any, Any>(leftLabel, rightLabel)
             .by(foldedLeft as GraphTraversal<*, *>)
             .by(foldedRight as GraphTraversal<*, *>)
-            .map { traverser ->
-                @Suppress("UNCHECKED_CAST")
-                val map = traverser.get() as Map<String, Any?>
-                val lv = map[leftLabel]
-                val rv = map[rightLabel]
-                if (isEq) lv == rv else lv != rv
-            } as GraphTraversal<Any, Boolean>
+            .choose<Boolean>(AnonymousTraversal.where<Any>(leftLabel, if (isEq) P.eq(rightLabel) else P.neq(rightLabel)),
+                AnonymousTraversal.constant<Boolean>(true),
+                AnonymousTraversal.constant<Boolean>(false)
+            ) as GraphTraversal<Any, Boolean>
     }
 
     /**

@@ -111,7 +111,7 @@ class MatchExecutor {
         val matchableNames = allMatchable.map { it.objectInstance.name }.toSet()
 
         val variableNames = elements.variables.map { it.variable.name }.toSet()
-        val nodeAnalyzer = ExpressionNodeAnalyzer(matchableNames + variableNames, context.variableScope.scopeIndex)
+        val nodeAnalyzer = ExpressionNodeAnalyzer(matchableNames + variableNames + referencedInstances, context.variableScope.scopeIndex)
 
         val matchPlan = MatchPlanBuilder(
             getVertexId = { name ->

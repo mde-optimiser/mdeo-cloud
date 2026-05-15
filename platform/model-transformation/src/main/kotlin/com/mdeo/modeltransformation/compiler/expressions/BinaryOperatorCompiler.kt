@@ -236,7 +236,7 @@ class BinaryOperatorCompiler(
             return compileRuntimeStringConcatenation(leftResult, rightResult, context)
         }
 
-        val leftResult = registry.compile(expr.left, context, initialTraversal)
+        val leftResult = registry.compile(expr.left, context, null)
         val rightResult = registry.compile(expr.right, context, null)
 
         val mathSymbol = MATH_OPERATOR_SYMBOLS[expr.operator]
@@ -244,11 +244,17 @@ class BinaryOperatorCompiler(
 
         val leftLabel = context.getUniqueId()
         val rightLabel = context.getUniqueId()
-        val traversal = (leftResult.traversal as GraphTraversal<Any, Any>)
-            .`as`(leftLabel)
-            .map(rightResult.traversal as GraphTraversal<Any, Any>)
-            .`as`(rightLabel)
+        val projectTraversal = AnonymousTraversal.project<Any, Any>(leftLabel, rightLabel)
+            .by(leftResult.traversal as GraphTraversal<Any, Any>)
+            .by(rightResult.traversal as GraphTraversal<Any, Any>)
             .math("$leftLabel $mathSymbol $rightLabel")
+
+        @Suppress("UNCHECKED_CAST")
+        val traversal = if (initialTraversal != null) {
+            (initialTraversal as GraphTraversal<Any, Any>).flatMap(projectTraversal)
+        } else {
+            projectTraversal
+        }
 
         return CompilationResult.of(traversal)
     }
@@ -320,21 +326,11 @@ class BinaryOperatorCompiler(
     ): CompilationResult {
         val leftLabel = context.getUniqueId()
         val rightLabel = context.getUniqueId()
-        val traversal = (leftResult.traversal as GraphTraversal<Any, Any>)
-            .`as`(leftLabel)
-            .flatMap<Any>(rightResult.traversal as GraphTraversal<Any, Any>)
-            .`as`(rightLabel)
-            .map<String> { traverser ->
-                val pathObjects = traverser.path().objects()
-                val leftVal = if (pathObjects.size >= 2) {
-                    pathObjects[pathObjects.size - 2].toString()
-                } else {
-                    pathObjects.firstOrNull()?.toString() ?: ""
-                }
-                val rightVal = traverser.get().toString()
-                leftVal + rightVal
-            }
-        
+        val traversal = AnonymousTraversal.project<Any, Any>(leftLabel, rightLabel)
+            .by(leftResult.traversal as GraphTraversal<Any, Any>)
+            .by(rightResult.traversal as GraphTraversal<Any, Any>)
+            .format("%{$leftLabel}%{$rightLabel}")
+
         return CompilationResult.of(traversal)
     }
 
@@ -389,7 +385,7 @@ class BinaryOperatorCompiler(
         context: CompilationContext,
         initialTraversal: GraphTraversal<*, *>?
     ): CompilationResult {
-        val leftResult = registry.compile(expr.left, context, initialTraversal)
+        val leftResult = registry.compile(expr.left, context, null)
         val rightResult = registry.compile(expr.right, context, null)
 
         val leftType = context.resolveTypeOrNull(expr.left.evalType)
@@ -467,7 +463,7 @@ class BinaryOperatorCompiler(
      * @return A traversal producing a boolean comparison result
      * @throws IllegalStateException if an unexpected operator is provided
      */
-@Suppress("UNCHECKED_CAST")
+    @Suppress("UNCHECKED_CAST")
     private fun buildDynamicComparisonTraversal(
         operator: String,
         leftTraversal: GraphTraversal<Any, Any>,
@@ -475,11 +471,9 @@ class BinaryOperatorCompiler(
         context: CompilationContext
     ): GraphTraversal<Any, Boolean> {
         
-        // 1. Generate your strictly required unique IDs
         val leftLabel = context.getUniqueId()
         val rightLabel = context.getUniqueId()
 
-        // 2. Point the predicate directly at the dynamic rightLabel
         val predicate: P<String> = when (operator) {
             OPERATOR_EQUALS -> P.eq(rightLabel)
             OPERATOR_NOT_EQUALS -> P.neq(rightLabel)
@@ -490,7 +484,6 @@ class BinaryOperatorCompiler(
             else -> throw IllegalStateException("Unexpected comparison operator: $operator")
         }
 
-        // 3. Project using the dynamic labels, evaluate with `where`, and map to boolean
         return AnonymousTraversal.project<Any, Any>(leftLabel, rightLabel)
             .by(leftTraversal)
             .by(rightTraversal)
