@@ -5,14 +5,13 @@ import com.mdeo.execution.common.subprocess.SubprocessPool
 import com.mdeo.execution.common.subprocess.SubprocessResult
 import com.mdeo.execution.common.subprocess.SubprocessRunner
 import com.mdeo.metamodel.SerializedModel
+import com.mdeo.optimizer.config.GraphBackendType
 import com.mdeo.optimizer.worker.*
 import com.mdeo.optimizerexecution.database.OptimizerExecutionsTable
 import io.ktor.websocket.*
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.asCoroutineDispatcher
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.ExperimentalSerializationApi
@@ -34,22 +33,14 @@ import kotlin.uuid.toKotlinUuid
  * Each optimization execution runs its mutations and evaluations in a dedicated child JVM
  * ([WorkerSubprocessMain]) started via [SubprocessRunner].
  *
- * **WebSocket mode** (default for federated / remote nodes): The subprocess opens a WebSocket
- * connection directly back to the orchestrator and handles all generation traffic
- * (imports, mutations, discards) in-process. The parent stores solution bytes for crash
- * recovery and keeps discards in sync via [SubprocessChannelMessage]s.
+ * **WebSocket mode** (for remote nodes): The subprocess opens a WebSocket connection
+ * directly back to the orchestrator and handles all generation traffic in-process.
  *
  * **Local-channel mode** (for the local node in a federated run): The subprocess receives
  * orchestrator requests through the subprocess stdin/stdout pipe as
  * [SubprocessChannelMessage.OrchestratorRequest] channel messages and replies via
- * [SubprocessChannelMessage.OrchestratorResponses]. This service acts as a forwarder:
- * it accepts the orchestrator's WebSocket connection, serialises each incoming [WorkerWsMessage]
- * into an [OrchestratorRequest], forwards it to the subprocess, collects the
- * [OrchestratorResponses] reply, and echoes each response frame back to the orchestrator.
- * This avoids a second network connection (even to localhost).
- *
- * In both modes, solutions are stored as raw CBOR bytes in the parent process for model
- * fetch requests and crash diagnostics.
+ * [SubprocessChannelMessage.OrchestratorResponses]. [WorkerClient] calls [dispatchToSubprocess]
+ * directly; no WebSocket is established.
  *
  * @param workerThreads Number of blocking I/O threads per execution for subprocess communication.
  * @param scriptTimeoutMs Per-script-invocation timeout budget in milliseconds.
@@ -90,13 +81,13 @@ class WorkerService(
 
     /**
      * Returns metadata describing this worker node's local thread capacity and
-     * the algorithm backends it supports.
+     * the backends it supports.
      *
      * @return A [WorkerMetadata] instance with current configuration values.
      */
     fun getMetadata(): WorkerMetadata = WorkerMetadata(
         threadCount = workerThreads,
-        supportedBackends = SUPPORTED_BACKENDS
+        supportedBackends = SUPPORTED_GRAPH_BACKENDS
     )
 
     /**
@@ -294,58 +285,37 @@ class WorkerService(
     }
 
     /**
-     * Services a long-lived WebSocket connection from the orchestrator.
+     * Registers a callback to receive unsolicited subprocess notices (e.g. [WorkerShutdownNotice])
+     * for the given execution. Used by [WorkerClient] in local-channel mode.
      *
-     * **Legacy mode**: Each incoming [WorkerWsMessage] is dispatched via
-     * [handleOrchestratorMessage], which drives the subprocess through stdin/stdout commands.
-     *
-     * **Local-channel mode**: Each message is forwarded to the subprocess as a
-     * [SubprocessChannelMessage.OrchestratorRequest] and the matching
-     * [SubprocessChannelMessage.OrchestratorResponses] is awaited and echoed back.
-     *
-     * In WebSocket subprocess mode the subprocess connects directly to the orchestrator
-     * and this method is not used.
-     *
-     * @param executionId The execution this session is associated with.
-     * @param session The Ktor WebSocket session opened by the orchestrator.
+     * @param executionId The execution whose notices should be forwarded.
+     * @param callback Invoked on the subprocess runner's reader thread when a notice arrives.
      */
-    suspend fun handleOrchestratorSession(executionId: String, session: DefaultWebSocketSession) {
-        logger.info("Orchestrator WebSocket connected for execution {}", executionId)
-        val state = executions[executionId]
-        state?.orchestratorSession = session
-        try {
-            supervisorScope {
-                for (frame in session.incoming) {
-                    if (frame !is Frame.Binary) {
-                        continue
-                    }
-                    val bytes = frame.readBytes()
-                    val msg = try {
-                        cbor.decodeFromByteArray<WorkerWsMessage>(bytes)
-                    } catch (e: Exception) {
-                        logger.warn("Ignoring malformed WS frame for execution {}: {}", executionId, e.message)
-                        continue
-                    }
-                    launch {
-                        if (msg is WorkerShutdownAck && state != null) {
-                            forwardAckToSubprocess(state, bytes)
-                            return@launch
-                        }
-                        val responses = if (state != null) {
-                            sendViaLocalChannel(state, msg)
-                        } else {
-                            emptyList()
-                        }
-                        for (response in responses) {
-                            session.send(Frame.Binary(true, cbor.encodeToByteArray<WorkerWsMessage>(response)))
-                        }
-                    }
-                }
-            }
-        } finally {
-            state?.orchestratorSession = null
-            logger.info("Orchestrator WebSocket disconnected for execution {}", executionId)
-        }
+    internal fun registerNoticeCallback(executionId: String, callback: (WorkerWsMessage) -> Unit) {
+        executions[executionId]?.noticeCallback = callback
+    }
+
+    /**
+     * Removes the unsolicited notice callback for the given execution.
+     *
+     * @param executionId The execution whose callback should be removed.
+     */
+    internal fun removeNoticeCallback(executionId: String) {
+        executions[executionId]?.noticeCallback = null
+    }
+
+    /**
+     * Forwards a raw CBOR-encoded [WorkerShutdownAck] to the subprocess as a
+     * [SubprocessChannelMessage.OrchestratorRequest], without expecting a response.
+     *
+     * Called by [WorkerClient] in local-channel mode after receiving a [WorkerShutdownNotice].
+     *
+     * @param executionId The execution whose subprocess should receive the ack.
+     * @param rawAckBytes CBOR-encoded [WorkerShutdownAck] payload.
+     */
+    internal fun forwardShutdownAck(executionId: String, rawAckBytes: ByteArray) {
+        val state = executions[executionId] ?: return
+        forwardAckToSubprocess(state, rawAckBytes)
     }
 
     /**
@@ -425,7 +395,7 @@ class WorkerService(
      *
      * Routes [OrchestratorResponses] back to the pending [CompletableDeferred] registered
      * by [sendViaLocalChannel] and forwards unsolicited [OrchestratorNotice] messages to
-     * the current orchestrator WebSocket session (if one is open).
+     * the registered [WorkerExecutionState.noticeCallback] (if any).
      *
      * @param executionId Execution identifier for logging.
      * @return The channel message callback.
@@ -445,21 +415,13 @@ class WorkerService(
                     }
                     is SubprocessChannelMessage.OrchestratorNotice -> {
                         val state = executions[executionId]
-                        val session = state?.orchestratorSession
-                        if (session != null) {
-                            kotlinx.coroutines.runBlocking {
-                                try {
-                                    session.send(Frame.Binary(true, msg.payload))
-                                } catch (e: Exception) {
-                                    logger.warn(
-                                        "Failed to forward OrchestratorNotice for execution {}: {}",
-                                        executionId, e.message
-                                    )
-                                }
-                            }
+                        val callback = state?.noticeCallback
+                        if (callback != null) {
+                            val notice = cbor.decodeFromByteArray<WorkerWsMessage>(msg.payload)
+                            callback(notice)
                         } else {
                             logger.warn(
-                                "Received OrchestratorNotice for execution {} but no active session",
+                                "Received OrchestratorNotice for execution {} but no notice callback registered",
                                 executionId
                             )
                         }
@@ -565,17 +527,16 @@ class WorkerService(
         val dispatcher: ExecutorCoroutineDispatcher
     ) {
         /**
-         * The currently active orchestrator WebSocket session, or `null` when no session
-         * is open (e.g. in WebSocket-subprocess mode where the subprocess connects directly
-         * to the remote orchestrator and [WorkerService] is not involved).
+         * Callback invoked (on the subprocess reader thread) when an unsolicited
+         * [SubprocessChannelMessage.OrchestratorNotice] arrives from the subprocess.
          *
-         * Set by [handleOrchestratorSession] when the orchestrator connects and cleared
-         * when it disconnects. Used by the channel message handler to forward unsolicited
-         * messages (e.g. [SubprocessChannelMessage.OrchestratorNotice]) back to the
-         * orchestrator without going through the normal request-response path.
+         * Registered by [WorkerClient] in local-channel mode during [allocate] and
+         * cleared during [cleanup]. `null` when no listener is registered (e.g. in
+         * remote-WebSocket mode where the subprocess communicates directly with the
+         * orchestrator over its own WS connection).
          */
         @Volatile
-        var orchestratorSession: DefaultWebSocketSession? = null
+        var noticeCallback: ((WorkerWsMessage) -> Unit)? = null
 
         /**
          * Stops subprocess and releases thread pool. 
@@ -616,11 +577,10 @@ class WorkerService(
 
     companion object {
         /**
-         * Algorithm backend identifiers supported by this worker.
-         * Must stay in sync with [com.mdeo.optimizer.moea.DelegatingAlgorithmProvider].
+         * Graph backend types supported by this worker.
          */
-        val SUPPORTED_BACKENDS: List<String> = listOf(
-            "NSGAII", "SPEA2", "IBEA", "SMSEMOA", "VEGA", "PESA2", "PAES", "RANDOM"
+        val SUPPORTED_GRAPH_BACKENDS: List<GraphBackendType> = listOf(
+            GraphBackendType.MDEO, GraphBackendType.Tinker
         )
 
         /**

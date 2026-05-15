@@ -18,6 +18,7 @@ import com.mdeo.optimizer.worker.NodeWorkBatchResponse
 import com.mdeo.optimizer.worker.WorkerAllocationRequest
 import com.mdeo.optimizerexecution.routes.workerRoutes
 import com.mdeo.optimizerexecution.service.OrchestratorRegistry
+import com.mdeo.optimizerexecution.worker.LocalWorkerClient
 import com.mdeo.script.ast.TypedAst
 import com.mdeo.script.ast.TypedFunction
 import com.mdeo.script.ast.TypedImport
@@ -285,13 +286,11 @@ class WorkerServiceTest {
         server.start()
 
         val scope = CoroutineScope(Dispatchers.Default + Job())
-        val client = WorkerClient(
+        val client = LocalWorkerClient(
             nodeId = "0",
             baseUrl = "http://localhost:$port",
-            scope = scope,
-            orchestratorRegistry = null,
-            orchestratorWsBaseUrl = null,
-            useLocalChannel = true
+            workerService = workerService,
+            scope = scope
         )
         try {
             val conPath = "test://con.fn"

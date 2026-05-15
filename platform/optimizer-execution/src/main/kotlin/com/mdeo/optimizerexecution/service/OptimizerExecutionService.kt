@@ -29,7 +29,10 @@ import com.mdeo.optimizerexecution.config.AppConfig
 import com.mdeo.optimizerexecution.database.OptimizerExecutionsTable
 import com.mdeo.optimizerexecution.database.OptimizerResultFilesTable
 import com.mdeo.optimizerexecution.worker.FederatedMutationEvaluator
+import com.mdeo.optimizerexecution.worker.LocalWorkerClient
+import com.mdeo.optimizerexecution.worker.RemoteWorkerClient
 import com.mdeo.optimizerexecution.worker.WorkerClient
+import com.mdeo.optimizerexecution.worker.WorkerService
 import com.mdeo.script.ast.TypedAst as ScriptTypedAst
 import com.mdeo.script.ast.expressions.TypedExpressionSerializer as ScriptExpressionSerializer
 import com.mdeo.script.ast.statements.TypedStatementSerializer
@@ -84,7 +87,8 @@ class OptimizerExecutionService(
     private val apiClient: OptimizerApiClient,
     private val executionScope: CoroutineScope,
     private val appConfig: AppConfig,
-    private val orchestratorRegistry: OrchestratorRegistry = OrchestratorRegistry()
+    private val orchestratorRegistry: OrchestratorRegistry = OrchestratorRegistry(),
+    private val workerService: WorkerService? = null
 ) : ExecutionServiceWithFileTree {
     /**
      * Logger instance for this service. 
@@ -441,7 +445,8 @@ class OptimizerExecutionService(
         scriptAsts: Map<String, ScriptTypedAst>
     ): FederatedMutationEvaluator {
         val resources = config.runtime.resources
-        val workerAndBudgets = createWorkerClients(executionScope, resources)
+        val requiredBackend = config.runtime.backend ?: GraphBackendType.MDEO
+        val workerAndBudgets = createWorkerClients(executionScope, resources, requiredBackend)
         val workers = workerAndBudgets.map { it.first }
         val workerThreadBudgets = workerAndBudgets.associate { (client, budget) -> client.nodeId to budget }
         val allocationRequest = buildAllocationRequest(
@@ -515,7 +520,8 @@ class OptimizerExecutionService(
      */
     private suspend fun createWorkerClients(
         scope: CoroutineScope,
-        resources: RuntimeConfig.ResourcesConfig? = null
+        resources: RuntimeConfig.ResourcesConfig? = null,
+        requiredBackend: GraphBackendType = GraphBackendType.MDEO
     ): List<Pair<WorkerClient, Int>> {
         val clients = mutableListOf<Pair<WorkerClient, Int>>()
         var nextId = 0
@@ -527,57 +533,77 @@ class OptimizerExecutionService(
             .replace("http://", "ws://")
 
         if (appConfig.workerThreads > 0 && clients.size < maxNodes) {
-            val localThreads = minOf(
-                appConfig.workerThreads,
-                resources?.threadsPerNode ?: Int.MAX_VALUE,
-                remainingThreads
-            )
-            if (localThreads > 0) {
-                clients.add(
-                    WorkerClient(
-                        nodeId = nextId.toString(),
-                        baseUrl = appConfig.nodeUrl,
-                        scope = scope,
-                        orchestratorRegistry = orchestratorRegistry,
-                        orchestratorWsBaseUrl = orchestratorWsBase,
-                        useLocalChannel = true
-                    ) to localThreads
+            val svc = requireNotNull(workerService) { "workerService must be provided when appConfig.workerThreads > 0" }
+            val localMetadata = svc.getMetadata()
+            if (requiredBackend in localMetadata.supportedBackends) {
+                val localThreads = minOf(
+                    appConfig.workerThreads,
+                    resources?.threadsPerNode ?: Int.MAX_VALUE,
+                    remainingThreads
                 )
-                nextId++
-                remainingThreads -= localThreads
+                if (localThreads > 0) {
+                    clients.add(LocalWorkerClient(nodeId = nextId.toString(), baseUrl = appConfig.nodeUrl, workerService = svc, scope = scope) to localThreads)
+                    nextId++
+                    remainingThreads -= localThreads
+                }
+            } else {
+                logger.warn(
+                    "Local node does not support required backend {}; skipping",
+                    requiredBackend
+                )
             }
         }
 
-        for (url in appConfig.peers) {
-            if (clients.size >= maxNodes) {
-                break
-            }
-            val peerClient = WorkerClient(
-                nodeId = nextId.toString(),
+        // Collect metadata for all peers and sort by usable threads descending
+        // so we use the fewest nodes possible in asymmetric setups
+        data class PeerInfo(val url: String, val threads: Int)
+        val peerInfos = appConfig.peers.mapNotNull { url ->
+            val probe = RemoteWorkerClient(
+                nodeId = "probe",
                 baseUrl = url,
                 scope = scope,
-                orchestratorRegistry = orchestratorRegistry,
-                orchestratorWsBaseUrl = orchestratorWsBase
+                registry = orchestratorRegistry,
+                wsBaseUrl = orchestratorWsBase
             )
-            val peerThreads = try {
-                val metadata = peerClient.getMetadata()
-                resources?.threadsPerNode?.let { minOf(it, metadata.threadCount) } ?: metadata.threadCount
+            val info = try {
+                val metadata = probe.getMetadata()
+                if (requiredBackend !in metadata.supportedBackends) {
+                    logger.warn(
+                        "Peer {} does not support required backend {}; skipping",
+                        url, requiredBackend
+                    )
+                    probe.close()
+                    return@mapNotNull null
+                }
+                val usable = resources?.threadsPerNode?.let { minOf(it, metadata.threadCount) } ?: metadata.threadCount
+                PeerInfo(url, usable)
             } catch (e: Exception) {
                 logger.warn(
                     "Could not fetch metadata from peer {} ({}); using local workerThreads as estimate: {}",
-                    nextId, url, e.message
+                    url, e.message
                 )
-                resources?.threadsPerNode ?: appConfig.workerThreads
+                val estimate = resources?.threadsPerNode ?: appConfig.workerThreads
+                PeerInfo(url, estimate)
+            } finally {
+                probe.close()
             }
-            if (peerThreads > 0 && peerThreads > remainingThreads) {
-                peerClient.close()
-                break
-            }
-            clients.add(peerClient to peerThreads)
+            info
+        }.sortedByDescending { it.threads }
+
+        for (peer in peerInfos) {
+            if (clients.size >= maxNodes || remainingThreads <= 0) break
+            val allocated = minOf(peer.threads, remainingThreads)
+            if (allocated <= 0) continue
+            val peerClient = RemoteWorkerClient(
+                nodeId = nextId.toString(),
+                baseUrl = peer.url,
+                scope = scope,
+                registry = orchestratorRegistry,
+                wsBaseUrl = orchestratorWsBase
+            )
+            clients.add(peerClient to allocated)
             nextId++
-            if (peerThreads > 0) {
-                remainingThreads -= peerThreads
-            }
+            remainingThreads -= allocated
         }
 
         return clients

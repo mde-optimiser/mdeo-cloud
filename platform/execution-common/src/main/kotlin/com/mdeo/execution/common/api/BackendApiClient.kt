@@ -68,8 +68,6 @@ open class BackendApiClient(
         jwtToken: String
     ): Boolean {
         return try {
-            logger.info("Updating backend state for execution $executionId to $state")
-
             val response = client.patch("$baseUrl/executions/$executionId/state") {
                 contentType(ContentType.Application.Json)
                 header(HttpHeaders.Authorization, "Bearer $jwtToken")

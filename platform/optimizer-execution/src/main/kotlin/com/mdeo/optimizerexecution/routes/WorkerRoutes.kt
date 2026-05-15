@@ -23,10 +23,10 @@ private val logger = LoggerFactory.getLogger("WorkerRoutes")
 private val cbor = Cbor { ignoreUnknownKeys = true }
 
 /**
- * Registers worker API routes under `/api/worker`, `/ws/worker`, and `/ws/subprocess`.
+ * Registers worker API routes under `/api/worker`, `/ws/peer`, and `/ws/subprocess`.
  *
  * HTTP routes handle the initial allocation handshake, solution data retrieval, and cleanup.
- * The legacy `/ws/worker` route supports orchestrator-initiated WebSocket connections.
+ * The `/ws/peer` route accepts direct solution-push connections from peer subprocesses.
  * The `/ws/subprocess` route accepts reverse connections from worker subprocesses,
  * completing the [OrchestratorRegistry] deferred so the orchestrator-side [WorkerClient]
  * can start communicating with the subprocess directly.
@@ -47,10 +47,6 @@ fun Route.workerRoutes(workerService: WorkerService, orchestratorRegistry: Orche
 
     metadataRoute(workerService)
 
-    route("/ws/worker/executions/{id}") {
-        orchestratorWsRoute(workerService)
-    }
-
     route("/ws/peer/executions/{id}") {
         peerWsRoute(workerService)
     }
@@ -63,9 +59,6 @@ fun Route.workerRoutes(workerService: WorkerService, orchestratorRegistry: Orche
 /**
  * GET `/api/worker/metadata` — returns thread count and supported algorithm backends.
  *
- * Orchestrators call this endpoint before or during node selection to determine the
- * actual resource capacity of each worker, avoiding reliance on configuration estimates.
- *
  * @param workerService The worker service from which metadata is derived.
  */
 private fun Route.metadataRoute(workerService: WorkerService) {
@@ -77,9 +70,6 @@ private fun Route.metadataRoute(workerService: WorkerService) {
 
 /**
  * POST `/api/worker/executions` — allocates resources for a new optimization execution.
- *
- * If the request contains an `orchestratorWsUrl`, the subprocess will connect back
- * to the orchestrator via WebSocket (new mode). Otherwise, legacy mode is used.
  *
  * @param workerService The worker service to delegate allocation to.
  */
@@ -162,28 +152,6 @@ private fun Route.peerWsRoute(workerService: WorkerService) {
         workerService.handlePeerSession(executionId, this)
     }
 }
-
-/**
- * WebSocket `/ws/worker/executions/{id}` — long-lived orchestrator session.
- *
- * The orchestrator connects here after successful HTTP allocation and keeps this
- * connection open for the entire execution. Binary CBOR frames carry [WorkerWsMessage]
- * values encoding unified per-generation work batches ([NodeWorkBatchRequest]) and
- * solution batch fetch requests ([SolutionBatchFetchRequest]).
- *
- * @param workerService The worker service that drives the session.
- */
-private fun Route.orchestratorWsRoute(workerService: WorkerService) {
-    webSocket {
-        val executionId = call.parameters["id"]
-        if (executionId == null) {
-            close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "Missing execution ID"))
-            return@webSocket
-        }
-        workerService.handleOrchestratorSession(executionId, this)
-    }
-}
-
 
 /**
  * WebSocket `/ws/subprocess/executions/{executionId}/{nodeId}` — subprocess reverse connection.

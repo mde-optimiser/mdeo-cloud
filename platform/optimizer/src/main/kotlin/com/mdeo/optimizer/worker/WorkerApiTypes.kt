@@ -137,11 +137,11 @@ data class BatchResult(
  * on local configuration estimates.
  *
  * @param threadCount Number of worker threads available on this node for evaluation.
- * @param supportedBackends Algorithm backend identifiers supported by this node
- *        (e.g. `["NSGAII", "SPEA2", "IBEA"]`).
+ * @param supportedBackends Graph backend types supported by this node.
+ *        Defaults to all known backends for backward compatibility with older workers.
  */
 @Serializable
 data class WorkerMetadata(
     val threadCount: Int,
-    val supportedBackends: List<String>
+    val supportedBackends: List<GraphBackendType> = listOf(GraphBackendType.MDEO, GraphBackendType.Tinker)
 )
