@@ -13,6 +13,31 @@ export const OrderedCollectionType = classType("OrderedCollection")
             s.param("index", typeRef("builtin", DefaultTypeNames.Int).build()).returns(genericTypeRef("T"))
         )
     )
+    .method("sort", (m) =>
+        m
+            .signature("natural", (s) =>
+                s.returns(
+                    typeRef("builtin", "OrderedCollection")
+                        .withTypeArgs({ T: genericTypeRef("T") })
+                        .build()
+                )
+            )
+            .signature("comparator", (s) =>
+                s
+                    .param(
+                        "comparator",
+                        lambdaType()
+                            .param("a", genericTypeRef("T"))
+                            .param("b", genericTypeRef("T"))
+                            .returns(typeRef("builtin", DefaultTypeNames.Int).build())
+                    )
+                    .returns(
+                        typeRef("builtin", "OrderedCollection")
+                            .withTypeArgs({ T: genericTypeRef("T") })
+                            .build()
+                    )
+            )
+    )
     .method("sortBy", (m) =>
         m.signature((s) =>
             s

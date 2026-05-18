@@ -1,6 +1,7 @@
 package com.mdeo.script.stdlib.impl.collections
 
 import com.mdeo.script.runtime.interfaces.Func1
+import com.mdeo.script.runtime.interfaces.Func2
 
 /**
  * Abstract base class for ordered collections that maintain element order.
@@ -48,6 +49,17 @@ abstract class AbstractOrderedCollection<T, C : MutableList<T>>(
             throw IndexOutOfBoundsException("Index: $index, Size: ${backing.size}")
         }
         return backing.removeAt(index)
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    override fun sort(): OrderedCollection<T> {
+        backing.sortWith { a, b -> (a as Comparable<Any>).compareTo(b as Any) }
+        return this
+    }
+
+    override fun sort(comparator: Func2<T, T, Int>): OrderedCollection<T> {
+        backing.sortWith { a, b -> comparator.call(a, b) }
+        return this
     }
 
     override fun <U : Comparable<U>> sortBy(keyExtractor: Func1<T, U>): OrderedCollection<T> {

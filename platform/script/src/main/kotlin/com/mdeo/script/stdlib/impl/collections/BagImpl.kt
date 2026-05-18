@@ -3,6 +3,7 @@ package com.mdeo.script.stdlib.impl.collections
 import org.apache.commons.collections4.bag.HashBag
 import com.mdeo.script.runtime.interfaces.Action1
 import com.mdeo.script.runtime.interfaces.Func1
+import com.mdeo.script.runtime.interfaces.Func2
 import com.mdeo.script.runtime.interfaces.Predicate1
 import java.util.concurrent.ThreadLocalRandom
 
@@ -357,6 +358,25 @@ class BagImpl<T> : Bag<T> {
             sorted.add(element)
         }
         sorted.sortWith { a, b -> keyExtractor.call(a).compareTo(keyExtractor.call(b)) }
+        return ListImpl(sorted)
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    override fun sorted(): ReadonlyOrderedCollection<T> {
+        val sorted = ArrayList<T>()
+        for (element in backing) {
+            sorted.add(element)
+        }
+        sorted.sortWith { a, b -> (a as Comparable<Any>).compareTo(b as Any) }
+        return ListImpl(sorted)
+    }
+
+    override fun sorted(comparator: Func2<T, T, Int>): ReadonlyOrderedCollection<T> {
+        val sorted = ArrayList<T>()
+        for (element in backing) {
+            sorted.add(element)
+        }
+        sorted.sortWith { a, b -> comparator.call(a, b) }
         return ListImpl(sorted)
     }
 

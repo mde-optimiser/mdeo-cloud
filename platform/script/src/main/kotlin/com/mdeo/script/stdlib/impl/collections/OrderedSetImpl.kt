@@ -1,6 +1,7 @@
 package com.mdeo.script.stdlib.impl.collections
 
 import com.mdeo.script.runtime.interfaces.Func1
+import com.mdeo.script.runtime.interfaces.Func2
 import com.mdeo.script.runtime.interfaces.Predicate1
 
 /**
@@ -99,6 +100,23 @@ class OrderedSetImpl<T> : AbstractCollection<T, LinkedHashSet<T>>, OrderedSet<T>
             i++
         }
         throw IndexOutOfBoundsException("Index: $index, Size: ${backing.size}")
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    override fun sort(): OrderedCollection<T> {
+        val sorted = ArrayList(backing)
+        sorted.sortWith { a, b -> (a as Comparable<Any>).compareTo(b as Any) }
+        backing.clear()
+        backing.addAll(sorted)
+        return this
+    }
+
+    override fun sort(comparator: Func2<T, T, Int>): OrderedCollection<T> {
+        val sorted = ArrayList(backing)
+        sorted.sortWith { a, b -> comparator.call(a, b) }
+        backing.clear()
+        backing.addAll(sorted)
+        return this
     }
 
     override fun <U : Comparable<U>> sortBy(keyExtractor: Func1<T, U>): OrderedCollection<T> {

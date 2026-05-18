@@ -216,6 +216,15 @@ fun createReadonlyCollectionType(): TypeDefinition {
                 parameterTypes = listOf(BuiltinTypes.function()), returnType = BuiltinTypes.READONLY_ORDERED_COLLECTION)
         }
 
+        instanceMethod("sorted") {
+            overload("natural", "()Lcom/mdeo/script/stdlib/impl/collections/ReadonlyOrderedCollection;",
+                READONLY_COLLECTION, isInterface = true,
+                parameterTypes = emptyList(), returnType = BuiltinTypes.READONLY_ORDERED_COLLECTION)
+            overload("comparator", "(Lcom/mdeo/script/runtime/interfaces/Func2;)Lcom/mdeo/script/stdlib/impl/collections/ReadonlyOrderedCollection;",
+                READONLY_COLLECTION, isInterface = true,
+                parameterTypes = listOf(BuiltinTypes.biFunction()), returnType = BuiltinTypes.READONLY_ORDERED_COLLECTION)
+        }
+
         instanceMethod("count") {
             overload("lambda", "(Lcom/mdeo/script/runtime/interfaces/Predicate1;)I", READONLY_COLLECTION, isInterface = true,
                 parameterTypes = listOf(BuiltinTypes.predicate()), returnType = BuiltinTypes.INT)

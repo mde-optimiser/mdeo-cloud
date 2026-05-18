@@ -27,6 +27,21 @@ fun createOrderedCollectionType(): TypeDefinition {
             )
         }
 
+        instanceMethod("sort") {
+            overload(
+                "natural", "()Lcom/mdeo/script/stdlib/impl/collections/OrderedCollection;",
+                ORDERED_COLLECTION, isInterface = true,
+                parameterTypes = emptyList(),
+                returnType = BuiltinTypes.ORDERED_COLLECTION
+            )
+            overload(
+                "comparator", "(Lcom/mdeo/script/runtime/interfaces/Func2;)Lcom/mdeo/script/stdlib/impl/collections/OrderedCollection;",
+                ORDERED_COLLECTION, isInterface = true,
+                parameterTypes = listOf(BuiltinTypes.biFunction()),
+                returnType = BuiltinTypes.ORDERED_COLLECTION
+            )
+        }
+
         instanceMethod("sortBy") {
             overload(
                 "",

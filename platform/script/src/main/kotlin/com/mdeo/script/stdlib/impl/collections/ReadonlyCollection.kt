@@ -2,6 +2,7 @@ package com.mdeo.script.stdlib.impl.collections
 
 import com.mdeo.script.runtime.interfaces.Action1
 import com.mdeo.script.runtime.interfaces.Func1
+import com.mdeo.script.runtime.interfaces.Func2
 import com.mdeo.script.runtime.interfaces.Predicate1
 
 /**
@@ -268,6 +269,20 @@ interface ReadonlyCollection<out T> : ScriptIterable<T> {
      * @param keyExtractor the function to extract the sort key
      */
     fun <U : Comparable<U>> sortedBy(keyExtractor: Func1<@UnsafeVariance T, U>): ReadonlyOrderedCollection<@UnsafeVariance T>
+
+    /**
+     * Returns a new ordered collection with elements sorted in natural order.
+     * Elements must implement [Comparable].
+     */
+    fun sorted(): ReadonlyOrderedCollection<@UnsafeVariance T>
+
+    /**
+     * Returns a new ordered collection with elements sorted using the given comparator.
+     *
+     * @param comparator a function that returns a negative integer, zero, or a positive integer
+     *   when the first argument is less than, equal to, or greater than the second
+     */
+    fun sorted(comparator: Func2<@UnsafeVariance T, @UnsafeVariance T, Int>): ReadonlyOrderedCollection<@UnsafeVariance T>
 
     /**
      * Maps each element to a collection and flattens the results into a single collection.

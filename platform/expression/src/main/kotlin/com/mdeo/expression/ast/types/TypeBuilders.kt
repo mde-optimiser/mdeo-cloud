@@ -163,4 +163,15 @@ object BuiltinTypes {
      */
     fun function(paramType: ValueType = NULLABLE_ANY, returnType: ReturnType = NULLABLE_ANY): LambdaType =
         lambdaType(returnType, false, "it" to paramType)
+
+    /**
+     * Creates a bi-function lambda type: (T1, T2) -> R
+     *
+     * @param param1Type The type of the first parameter.
+     * @param param2Type The type of the second parameter.
+     * @param returnType The return type of the function.
+     * @return A LambdaType for a bi-function.
+     */
+    fun biFunction(param1Type: ValueType = NULLABLE_ANY, param2Type: ValueType = NULLABLE_ANY, returnType: ReturnType = NULLABLE_ANY): LambdaType =
+        lambdaType(returnType, false, "a" to param1Type, "b" to param2Type)
 }

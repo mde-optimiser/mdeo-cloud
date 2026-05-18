@@ -947,4 +947,78 @@ class ReadonlyCollectionMethodsTest {
         val list = ListImpl.of<Int>()
         assertEquals(null, list.firstOrNull())
     }
+
+    // ==================== sorted() tests ====================
+
+    @Test
+    fun `sorted returns elements in natural ascending order`() {
+        val list = ListImpl.of(3, 1, 4, 1, 5, 9, 2, 6)
+        val result = list.sorted()
+        val elements = result.toList()
+        assertEquals(listOf(1, 1, 2, 3, 4, 5, 6, 9), (0 until elements.size()).map { elements.at(it) })
+    }
+
+    @Test
+    fun `sorted does not modify original collection`() {
+        val list = ListImpl.of(3, 1, 2)
+        list.sorted()
+        assertEquals(3, list.at(0))
+        assertEquals(1, list.at(1))
+        assertEquals(2, list.at(2))
+    }
+
+    @Test
+    fun `sorted returns ReadonlyOrderedCollection`() {
+        val list = ListImpl.of(3, 1, 2)
+        val result = list.sorted()
+        assertNotNull(result)
+        assertEquals(3, result.size())
+    }
+
+    @Test
+    fun `sorted works on empty collection`() {
+        val list = ListImpl.of<Int>()
+        val result = list.sorted()
+        assertEquals(0, result.size())
+    }
+
+    @Test
+    fun `sorted works on single element collection`() {
+        val list = ListImpl.of(42)
+        val result = list.sorted()
+        assertEquals(1, result.size())
+        assertEquals(42, result.first())
+    }
+
+    @Test
+    fun `sorted with comparator sorts ascending`() {
+        val list = ListImpl.of(3, 1, 4, 1, 5)
+        val result = list.sorted(com.mdeo.script.runtime.interfaces.Func2 { a, b -> a.compareTo(b) })
+        val elements = result.toList()
+        assertEquals(1, elements.at(0))
+        assertEquals(5, elements.at(4))
+    }
+
+    @Test
+    fun `sorted with comparator sorts descending`() {
+        val list = ListImpl.of(3, 1, 4, 1, 5)
+        val result = list.sorted(com.mdeo.script.runtime.interfaces.Func2 { a, b -> b.compareTo(a) })
+        val elements = result.toList()
+        assertEquals(5, elements.at(0))
+        assertEquals(1, elements.at(4))
+    }
+
+    @Test
+    fun `sorted with comparator does not modify original`() {
+        val list = ListImpl.of(3, 1, 2)
+        list.sorted(com.mdeo.script.runtime.interfaces.Func2 { a, b -> a.compareTo(b) })
+        assertEquals(3, list.at(0))
+    }
+
+    @Test
+    fun `sorted with comparator works on empty collection`() {
+        val list = ListImpl.of<Int>()
+        val result = list.sorted(com.mdeo.script.runtime.interfaces.Func2 { a, b -> a.compareTo(b) })
+        assertEquals(0, result.size())
+    }
 }
