@@ -53,15 +53,12 @@ internal object MetamodelClassPriority {
 
         val allClasses = metamodelData.classes.map { it.name }.toSet()
 
-        // Classes that are already the target of a real composition cannot be
-        // pseudo-composition children (condition c).
         val realCompositionTargets = metamodelData.associations
             .filter { it.operator == CONTAINMENT_OPERATOR }
             .map { it.target.className }
             .filter { it in allClasses }
             .toSet()
 
-        // ── Step 1: collect seed edges (compositions + inheritance) ────────────
         val seedEdges = mutableSetOf<Pair<String, String>>()
         for (assoc in metamodelData.associations) {
             if (assoc.operator == CONTAINMENT_OPERATOR) {
@@ -77,10 +74,8 @@ internal object MetamodelClassPriority {
             }
         }
 
-        // ── Step 2: make cycle-free (back-edges removed, cross-edges kept) ─────
         val dagEdges = makeCycleFree(seedEdges, allClasses)
 
-        // ── Step 3: add pseudo-composition edges ───────────────────────────────
         val pseudoCandidates = metamodelData.associations
             .filter { it.operator != CONTAINMENT_OPERATOR }
             .sortedWith(compareBy({ it.source.className }, { it.target.className }))
@@ -92,8 +87,6 @@ internal object MetamodelClassPriority {
             val srcUpper = assoc.source.multiplicity.upper
             val tgtUpper = assoc.target.multiplicity.upper
 
-            // Condition a+b: finite upper AND strictly lower than the other end.
-            // Condition c: not already a real composition target.
             val tgtIsChild = tgtUpper != -1 &&
                 (srcUpper == -1 || tgtUpper < srcUpper) &&
                 tgt !in realCompositionTargets
@@ -103,9 +96,9 @@ internal object MetamodelClassPriority {
                 src !in realCompositionTargets
 
             val edge: Pair<String, String>? = when {
-                tgtIsChild && !srcIsChild -> src to tgt   // src is parent
-                srcIsChild && !tgtIsChild -> tgt to src   // tgt is parent
-                else -> null                               // both or neither qualify
+                tgtIsChild && !srcIsChild -> src to tgt
+                srcIsChild && !tgtIsChild -> tgt to src
+                else -> null
             }
 
             if (edge != null && !wouldCreateCycle(dagEdges, edge.first, edge.second)) {

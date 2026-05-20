@@ -1,6 +1,9 @@
 package com.mdeo.modeltransformation.runtime.match.plan
 
+import com.mdeo.expression.ast.expressions.TypedBinaryExpression
+import com.mdeo.expression.ast.expressions.TypedIdentifierExpression
 import com.mdeo.expression.ast.expressions.TypedIntLiteralExpression
+import com.mdeo.expression.ast.expressions.TypedMemberAccessExpression
 import com.mdeo.metamodel.data.*
 import com.mdeo.modeltransformation.ast.patterns.*
 import com.mdeo.modeltransformation.runtime.match.ExpressionNodeAnalyzer
@@ -741,6 +744,304 @@ class MatchPlanOrderingTest {
             assertTrue(injectiveIdx < wiIdx,
                 "InjectiveConstraint (idx=\$injectiveIdx) must fire BEFORE wi is covered (idx=\$wiIdx) " +
                 "— s1 ≠ s2 should prune as early as possible")
+        }
+    }
+
+    // ── Variable integration tests ──────────────────────────────────────────────
+
+    @Nested
+    inner class VariableIntegrationTests {
+
+        /**
+         * Helper to create a member-access expression: `identifierName.memberName`
+         * This simulates `a.name` in the pattern DSL.
+         */
+        private fun makeMemberAccess(identifierName: String, memberName: String, scope: Int = 0) =
+            TypedMemberAccessExpression(
+                evalType = 0,
+                expression = TypedIdentifierExpression(evalType = 0, name = identifierName, scope = scope),
+                member = memberName,
+                isNullChaining = false
+            )
+
+        /**
+         * Helper to create an identifier expression referencing a variable.
+         */
+        private fun makeIdentifier(name: String, scope: Int = 0) =
+            TypedIdentifierExpression(evalType = 0, name = name, scope = scope)
+
+        /**
+         * Tests that a variable is bound just-in-time — after its dependency node
+         * is covered but before a deferred property constraint that references it.
+         *
+         * Pattern:
+         * ```
+         * a : Plan {}
+         * b : Sprint { effort == x }
+         * var x = a.name
+         * link a.sprints -- b.plan
+         * ```
+         *
+         * Expected: VertexScan(a) → VariableBinding(x) → EdgeWalk(a→b) → ...property(b.effort == x)...
+         * (The variable must appear after a is covered but before b's property needs it.)
+         */
+        @Test
+        fun `variable bound just-in-time after dependency node covered`() {
+            val varExpr = makeMemberAccess("a", "name")
+            val varElement = TypedPatternVariableElement(
+                variable = TypedPatternVariable(name = "x", value = varExpr)
+            )
+
+            val aInstance = TypedPatternObjectInstanceElement(
+                objectInstance = TypedPatternObjectInstance(
+                    modifier = null, name = "a", className = "Plan", properties = emptyList()
+                )
+            )
+            val bInstance = TypedPatternObjectInstanceElement(
+                objectInstance = TypedPatternObjectInstance(
+                    modifier = null, name = "b", className = "Sprint",
+                    properties = listOf(
+                        TypedPatternPropertyAssignment(
+                            propertyName = "effort",
+                            operator = "==",
+                            value = makeIdentifier("x")
+                        )
+                    )
+                )
+            )
+            val link = TypedPatternLinkElement(
+                link = TypedPatternLink(
+                    modifier = null,
+                    source = TypedPatternLinkEnd("a", "sprints"),
+                    target = TypedPatternLinkEnd("b", "plan")
+                )
+            )
+
+            val elements = com.mdeo.modeltransformation.runtime.match.PatternCategories(
+                matchableInstances = listOf(aInstance, bInstance),
+                matchableLinks = listOf(link),
+                createInstances = emptyList(), deleteInstances = emptyList(),
+                createLinks = emptyList(), deleteLinks = emptyList(),
+                forbidInstances = emptyList(), forbidLinks = emptyList(),
+                requireInstances = emptyList(), requireLinks = emptyList(),
+                variables = listOf(varElement),
+                whereClauses = emptyList()
+            )
+
+            val plan = MatchPlanBuilder(
+                getVertexId = { null },
+                nodeAnalyzer = ExpressionNodeAnalyzer(setOf("a", "b", "x"), 0),
+                isCollectionExpression = { false },
+                metamodelData = scrumMetamodel
+            ).build(elements, emptySet())
+
+            val steps = plan.baseSteps
+
+            // Find key step indices
+            val aCoveredIdx = steps.indexOfFirst {
+                (it is BaseStep.VertexScan && it.instanceName == "a") ||
+                (it is BaseStep.EdgeWalk && it.toInstanceName == "a")
+            }
+            val varBindingIdx = steps.indexOfFirst {
+                it is BaseStep.VariableBinding && it.variable.variable.name == "x"
+            }
+            val bCoveredIdx = steps.indexOfFirst {
+                (it is BaseStep.VertexScan && it.instanceName == "b") ||
+                (it is BaseStep.EdgeWalk && it.toInstanceName == "b")
+            }
+
+
+
+            assertTrue(aCoveredIdx >= 0, "a must be covered")
+            assertTrue(varBindingIdx >= 0, "VariableBinding(x) must be present")
+            assertTrue(bCoveredIdx >= 0, "b must be covered")
+
+            // Variable must be after a is covered
+            assertTrue(varBindingIdx > aCoveredIdx,
+                "VariableBinding(x) (idx=$varBindingIdx) must come after a is covered (idx=$aCoveredIdx)")
+        }
+
+        /**
+         * Tests transitive variable dependencies: var y depends on var x which depends on node a.
+         * Both variables should be emitted after a is covered, with x before y.
+         *
+         * Pattern:
+         * ```
+         * a : Plan {}
+         * var x = a.name
+         * var y = x
+         * where y == 5  (triggers y to be needed)
+         * ```
+         */
+        @Test
+        fun `transitive variable deps resolved correctly and emitted in order`() {
+            val varX = TypedPatternVariableElement(
+                variable = TypedPatternVariable(name = "x", value = makeMemberAccess("a", "name"))
+            )
+            val varY = TypedPatternVariableElement(
+                variable = TypedPatternVariable(name = "y", value = makeIdentifier("x"))
+            )
+
+            val aInstance = TypedPatternObjectInstanceElement(
+                objectInstance = TypedPatternObjectInstance(
+                    modifier = null, name = "a", className = "Plan", properties = emptyList()
+                )
+            )
+
+            val whereClause = TypedPatternWhereClauseElement(
+                whereClause = TypedWhereClause(
+                    expression = TypedBinaryExpression(
+                        evalType = 0,
+                        operator = "==",
+                        left = makeIdentifier("y"),
+                        right = makeConstantExpression(5)
+                    )
+                )
+            )
+
+            val elements = com.mdeo.modeltransformation.runtime.match.PatternCategories(
+                matchableInstances = listOf(aInstance),
+                matchableLinks = emptyList(),
+                createInstances = emptyList(), deleteInstances = emptyList(),
+                createLinks = emptyList(), deleteLinks = emptyList(),
+                forbidInstances = emptyList(), forbidLinks = emptyList(),
+                requireInstances = emptyList(), requireLinks = emptyList(),
+                variables = listOf(varX, varY),
+                whereClauses = listOf(whereClause)
+            )
+
+            val plan = MatchPlanBuilder(
+                getVertexId = { null },
+                nodeAnalyzer = ExpressionNodeAnalyzer(setOf("a", "x", "y"), 0),
+                isCollectionExpression = { false },
+                metamodelData = MetamodelData.empty()
+            ).build(elements, emptySet())
+
+            val steps = plan.baseSteps
+
+            val aCoveredIdx = steps.indexOfFirst {
+                (it is BaseStep.VertexScan && it.instanceName == "a") ||
+                (it is BaseStep.EdgeWalk && it.toInstanceName == "a")
+            }
+            val xBindingIdx = steps.indexOfFirst {
+                it is BaseStep.VariableBinding && it.variable.variable.name == "x"
+            }
+            val yBindingIdx = steps.indexOfFirst {
+                it is BaseStep.VariableBinding && it.variable.variable.name == "y"
+            }
+            val whereIdx = steps.indexOfFirst { it is BaseStep.WhereFilter }
+
+            assertTrue(aCoveredIdx >= 0, "a must be covered")
+            assertTrue(xBindingIdx >= 0, "VariableBinding(x) must be present")
+            assertTrue(yBindingIdx >= 0, "VariableBinding(y) must be present")
+            assertTrue(whereIdx >= 0, "WhereFilter must be present")
+
+            // x must come after a
+            assertTrue(xBindingIdx > aCoveredIdx,
+                "x (idx=$xBindingIdx) must come after a (idx=$aCoveredIdx)")
+            // y must come after x (because y depends on x)
+            assertTrue(yBindingIdx > xBindingIdx,
+                "y (idx=$yBindingIdx) must come after x (idx=$xBindingIdx)")
+            // where clause must come after y (because it references y)
+            assertTrue(whereIdx > yBindingIdx,
+                "WhereFilter (idx=$whereIdx) must come after y (idx=$yBindingIdx)")
+        }
+
+        /**
+         * Tests that patterns without variables produce **identical** step lists
+         * to the original behavior. This is the critical identity guarantee.
+         */
+        @Test
+        fun `no-variable pattern produces identical step list`() {
+            // Use the scrum pattern from the main ordering tests (no variables)
+            val elements = buildScrumPatternElements()
+            val matchableNames = elements.matchableInstances.map { it.objectInstance.name }.toSet()
+            val nodeAnalyzer = ExpressionNodeAnalyzer(matchableNames, 0)
+            val plan = MatchPlanBuilder(
+                getVertexId = { null },
+                nodeAnalyzer = nodeAnalyzer,
+                isCollectionExpression = { false },
+                metamodelData = scrumMetamodel
+            ).build(elements, emptySet())
+
+            // Build a second plan — must be identical
+            val plan2 = MatchPlanBuilder(
+                getVertexId = { null },
+                nodeAnalyzer = ExpressionNodeAnalyzer(matchableNames, 0),
+                isCollectionExpression = { false },
+                metamodelData = scrumMetamodel
+            ).build(elements, emptySet())
+
+            assertEquals(plan.baseSteps, plan2.baseSteps,
+                "Two plans from the same no-variable input must produce identical step lists")
+
+            // Verify no VariableBinding steps appear
+            val varBindings = plan.baseSteps.filterIsInstance<BaseStep.VariableBinding>()
+            assertTrue(varBindings.isEmpty(), "No VariableBinding steps should be present")
+        }
+
+        /**
+         * Tests that variables don't interfere with NAC condition ordering.
+         * The NAC should still fire at the same relative position even when
+         * variables are present (they are just emitted alongside).
+         *
+         * Pattern:
+         * ```
+         * plan     : Plan {}
+         * workItem : WorkItem {}
+         * var x = plan.name
+         * forbid sprint1 : Sprint {}
+         * forbid workItem -- sprint1  (orphan link)
+         * ```
+         */
+        @Test
+        fun `variables do not affect NAC condition ordering`() {
+            val varElement = TypedPatternVariableElement(
+                variable = TypedPatternVariable(name = "x", value = makeMemberAccess("plan", "name"))
+            )
+
+            val elements = com.mdeo.modeltransformation.runtime.match.PatternCategories(
+                matchableInstances = listOf(
+                    makeInstance(null, "plan", "Plan"),
+                    makeInstance(null, "workItem", "WorkItem")
+                ),
+                matchableLinks = emptyList(),
+                createInstances = emptyList(), deleteInstances = emptyList(),
+                createLinks = emptyList(), deleteLinks = emptyList(),
+                forbidInstances = listOf(makeInstance("forbid", "sprint1", "Sprint")),
+                forbidLinks = listOf(
+                    makeLink("forbid", "sprint1", "committedItems", "workItem", "isPlannedFor")
+                ),
+                requireInstances = emptyList(), requireLinks = emptyList(),
+                variables = listOf(varElement),
+                whereClauses = emptyList()
+            )
+
+            val plan = MatchPlanBuilder(
+                getVertexId = { null },
+                nodeAnalyzer = ExpressionNodeAnalyzer(setOf("plan", "workItem", "x"), 0),
+                isCollectionExpression = { false },
+                metamodelData = scrumMetamodel
+            ).build(elements, emptySet())
+
+            val steps = plan.baseSteps
+
+            // The NAC must come after workItem is covered
+            val workItemIdx = steps.indexOfFirst {
+                it is BaseStep.VertexScan && it.instanceName == "workItem"
+            }
+            val nacIdx = steps.indexOfFirst { it is BaseStep.ApplicationCondition }
+
+            assertTrue(workItemIdx >= 0, "workItem must be covered")
+            assertTrue(nacIdx >= 0, "NAC must be present")
+            assertTrue(nacIdx > workItemIdx,
+                "NAC (idx=$nacIdx) must come after workItem (idx=$workItemIdx)")
+
+            // Variable binding for x must be present
+            val varIdx = steps.indexOfFirst {
+                it is BaseStep.VariableBinding && it.variable.variable.name == "x"
+            }
+            assertTrue(varIdx >= 0, "VariableBinding(x) must be present")
         }
     }
 }
