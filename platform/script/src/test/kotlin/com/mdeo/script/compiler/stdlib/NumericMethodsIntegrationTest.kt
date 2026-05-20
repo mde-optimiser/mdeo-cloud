@@ -14,7 +14,7 @@ import kotlin.math.abs
  * types is called at least once in the context of a compiled program.
  * 
  * Methods covered:
- * - abs, ceiling, floor, log, log10, max, min, pow, round
+ * - abs, ceil, floor, log, log10, max, min, pow, round
  * - Int/Long specific: iota, mod, to, toBinary, toHex
  */
 class NumericMethodsIntegrationTest {
@@ -102,10 +102,10 @@ class NumericMethodsIntegrationTest {
     }
 
     @Nested
-    inner class IntCeilingMethod {
+    inner class IntCeilMethod {
 
         @Test
-        fun `int ceiling returns same value`() {
+        fun `int ceil returns same value`() {
             val ast = buildTypedAst {
                 val intType = intType()
                 function(
@@ -115,7 +115,7 @@ class NumericMethodsIntegrationTest {
                         returnStmt(
                             memberCall(
                                 expression = intLiteral(42, intType),
-                                member = "ceiling",
+                                member = "ceil",
                                 overload = "",
                                 arguments = emptyList(),
                                 resultTypeIndex = intType
@@ -617,7 +617,7 @@ class NumericMethodsIntegrationTest {
         }
 
         @Test
-        fun `long ceiling returns same value`() {
+        fun `long ceil returns same value`() {
             val ast = buildTypedAst {
                 val longType = longType()
                 function(
@@ -627,7 +627,7 @@ class NumericMethodsIntegrationTest {
                         returnStmt(
                             memberCall(
                                 expression = longLiteral(42L, longType),
-                                member = "ceiling",
+                                member = "ceil",
                                 overload = "",
                                 arguments = emptyList(),
                                 resultTypeIndex = longType
@@ -919,7 +919,7 @@ class NumericMethodsIntegrationTest {
         }
 
         @Test
-        fun `float ceiling returns ceiling value`() {
+        fun `float ceil returns ceil value`() {
             val ast = buildTypedAst {
                 val floatType = floatType()
                 val intType = intType()
@@ -930,7 +930,7 @@ class NumericMethodsIntegrationTest {
                         returnStmt(
                             memberCall(
                                 expression = floatLiteral(3.2f, floatType),
-                                member = "ceiling",
+                                member = "ceil",
                                 overload = "",
                                 arguments = emptyList(),
                                 resultTypeIndex = intType
@@ -1148,7 +1148,7 @@ class NumericMethodsIntegrationTest {
         }
 
         @Test
-        fun `double ceiling returns ceiling value`() {
+        fun `double ceil returns ceil value`() {
             val ast = buildTypedAst {
                 val doubleType = doubleType()
                 val longType = longType()
@@ -1159,7 +1159,7 @@ class NumericMethodsIntegrationTest {
                         returnStmt(
                             memberCall(
                                 expression = doubleLiteral(3.2, doubleType),
-                                member = "ceiling",
+                                member = "ceil",
                                 overload = "",
                                 arguments = emptyList(),
                                 resultTypeIndex = longType

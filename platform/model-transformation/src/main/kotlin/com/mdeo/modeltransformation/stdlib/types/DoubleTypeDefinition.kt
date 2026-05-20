@@ -15,7 +15,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal
  * ## Supported Operations
  * - `abs()` - Absolute value of the double
  * - `floor()` - Rounds down to the nearest integer
- * - `ceiling()` - Rounds up to the nearest integer
+ * - `ceil()` - Rounds up to the nearest integer
  * - `round()` - Rounds to the nearest integer (uses floor(x + 0.5))
  * - `log()` - Natural logarithm (base e)
  * - `log10()` - Base-10 logarithm
@@ -39,7 +39,7 @@ fun createDoubleType(): GremlinTypeDefinition {
             val traversal = (receiver as GraphTraversal<Any, Any>).math("floor(_)")
             CompilationResult.of(traversal as GraphTraversal<Any, Any>)
         }
-        .method("ceiling", "", 0) { receiver, _ ->
+        .method("ceil", "", 0) { receiver, _ ->
             val traversal = (receiver as GraphTraversal<Any, Any>).math("ceil(_)")
             CompilationResult.of(traversal as GraphTraversal<Any, Any>)
         }

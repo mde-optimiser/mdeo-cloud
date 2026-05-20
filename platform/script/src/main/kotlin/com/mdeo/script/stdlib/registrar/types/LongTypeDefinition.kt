@@ -19,7 +19,7 @@ fun createLongType(): TypeDefinition {
             overload("", "(J)J", LONG_HELPER, parameterTypes = emptyList(), returnType = BuiltinTypes.LONG)
         }
 
-        staticMethod("ceiling") {
+        staticMethod("ceil") {
             overload("", "(J)J", LONG_HELPER, parameterTypes = emptyList(), returnType = BuiltinTypes.LONG)
         }
 

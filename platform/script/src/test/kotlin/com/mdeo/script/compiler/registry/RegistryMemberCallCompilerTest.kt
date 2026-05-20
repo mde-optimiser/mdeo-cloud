@@ -86,11 +86,11 @@ class RegistryMemberCallCompilerTest {
         }
 
         @Test
-        fun `can lookup float ceiling method`() {
-            // Float.ceiling() returns int
+        fun `can lookup float ceil method`() {
+            // Float.ceil() returns int
             val method = TypeRegistry.GLOBAL.lookupMethod(
                 ClassTypeRef("builtin", "float", false),
-                "ceiling",
+                "ceil",
                 ""
             )
             assertNotNull(method)
@@ -191,12 +191,12 @@ class RegistryMemberCallCompilerTest {
         fun `double has multiple arithmetic methods`() {
             val abs = TypeRegistry.GLOBAL.lookupMethod(ClassTypeRef("builtin", "double", false), "abs", "")
             val floor = TypeRegistry.GLOBAL.lookupMethod(ClassTypeRef("builtin", "double", false), "floor", "")
-            val ceiling = TypeRegistry.GLOBAL.lookupMethod(ClassTypeRef("builtin", "double", false), "ceiling", "")
+            val ceil = TypeRegistry.GLOBAL.lookupMethod(ClassTypeRef("builtin", "double", false), "ceil", "")
             val round = TypeRegistry.GLOBAL.lookupMethod(ClassTypeRef("builtin", "double", false), "round", "")
 
             assertNotNull(abs)
             assertNotNull(floor)
-            assertNotNull(ceiling)
+            assertNotNull(ceil)
             assertNotNull(round)
         }
     }

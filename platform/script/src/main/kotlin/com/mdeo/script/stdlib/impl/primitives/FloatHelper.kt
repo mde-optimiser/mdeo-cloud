@@ -34,13 +34,13 @@ object FloatHelper {
     fun abs(value: Float): Float = kotlin.math.abs(value)
 
     /**
-     * Returns the ceiling of a float as an int.
+     * Returns the ceil of a float as an int.
      *
      * @param value the float value
      * @return the smallest integer greater than or equal to the value
      */
     @JvmStatic
-    fun ceiling(value: Float): Int = ceil(value.toDouble()).toInt()
+    fun ceil(value: Float): Int = ceil(value.toDouble()).toInt()
 
     /**
      * Returns the floor of a float as an int.

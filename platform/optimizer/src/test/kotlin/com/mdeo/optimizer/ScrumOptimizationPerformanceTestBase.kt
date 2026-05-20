@@ -720,7 +720,7 @@ abstract class ScrumOptimizationPerformanceTestBase {
                         thenBlock = listOf(
                             TypedAssignmentStatement(left = TypedIdentifierExpression(evalType = 2, name = "desiredSprints", scope = 3), right = TypedMemberCallExpression(
                                     evalType = 15, expression = TypedIdentifierExpression(evalType = 2, name = "desiredSprints", scope = 3),
-                                    member = "ceiling", isNullChaining = false, overload = "",
+                                    member = "ceil", isNullChaining = false, overload = "",
                                     arguments = emptyList()
                                 )),
                         ),

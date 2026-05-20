@@ -8,7 +8,7 @@ export const modelTransformationDoubleType: ClassType = classTypeFrom(doubleType
     .keepMembers(
         "abs",
         "floor",
-        "ceiling",
+        "ceil",
         "round",
         "log",
         "log10",

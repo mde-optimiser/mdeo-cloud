@@ -341,8 +341,8 @@ class RegistryMemberCallBugTest {
         }
 
         @Test
-        fun `float ceiling returns int`() {
-            // 3.2f.ceiling() should return 4
+        fun `float ceil returns int`() {
+            // 3.2f.ceil() should return 4
             val ast = buildTypedAst {
                 val floatType = floatType()
                 val intType = intType()
@@ -354,7 +354,7 @@ class RegistryMemberCallBugTest {
                         returnStmt(
                             memberCall(
                                 expression = floatLiteral(3.2f, floatType),
-                                member = "ceiling",
+                                member = "ceil",
                                 overload = "",
                                 arguments = emptyList(),
                                 resultTypeIndex = intType

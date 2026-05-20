@@ -23,7 +23,7 @@ fun createIntType(): TypeDefinition {
             )
         }
 
-        staticMethod("ceiling") {
+        staticMethod("ceil") {
             overload(
                 "", "(I)I", INT_HELPER,
                 parameterTypes = emptyList(),

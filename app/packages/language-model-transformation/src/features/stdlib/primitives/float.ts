@@ -8,7 +8,7 @@ export const modelTransformationFloatType: ClassType = classTypeFrom(floatType)
     .keepMembers(
         "abs",
         "floor",
-        "ceiling",
+        "ceil",
         "round",
         "log",
         "log10",

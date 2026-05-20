@@ -34,13 +34,13 @@ object DoubleHelper {
     fun abs(value: Double): Double = kotlin.math.abs(value)
 
     /**
-     * Returns the ceiling of a double as a long.
+     * Returns the ceil of a double as a long.
      *
      * @param value the double value
      * @return the smallest long greater than or equal to the value
      */
     @JvmStatic
-    fun ceiling(value: Double): Long = ceil(value).toLong()
+    fun ceil(value: Double): Long = kotlin.math.ceil(value).toLong()
 
     /**
      * Returns the floor of a double as a long.

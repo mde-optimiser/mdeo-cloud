@@ -38,30 +38,30 @@ class LongHelperTest {
         assertEquals(Long.MIN_VALUE, LongHelper.abs(Long.MIN_VALUE))
     }
 
-    // ==================== ceiling() tests ====================
+    // ==================== ceil() tests ====================
     @Test
-    fun `ceiling of long returns same`() {
-        assertEquals(5L, LongHelper.ceiling(5L))
+    fun `ceil of long returns same`() {
+        assertEquals(5L, LongHelper.ceil(5L))
     }
 
     @Test
-    fun `ceiling of negative returns same`() {
-        assertEquals(-5L, LongHelper.ceiling(-5L))
+    fun `ceil of negative returns same`() {
+        assertEquals(-5L, LongHelper.ceil(-5L))
     }
 
     @Test
-    fun `ceiling of zero returns zero`() {
-        assertEquals(0L, LongHelper.ceiling(0L))
+    fun `ceil of zero returns zero`() {
+        assertEquals(0L, LongHelper.ceil(0L))
     }
 
     @Test
-    fun `ceiling of large number returns same`() {
-        assertEquals(1000000000000L, LongHelper.ceiling(1000000000000L))
+    fun `ceil of large number returns same`() {
+        assertEquals(1000000000000L, LongHelper.ceil(1000000000000L))
     }
 
     @Test
-    fun `ceiling is identity for long`() {
-        assertEquals(42L, LongHelper.ceiling(42L))
+    fun `ceil is identity for long`() {
+        assertEquals(42L, LongHelper.ceil(42L))
     }
 
     // ==================== floor() tests ====================

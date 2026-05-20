@@ -14,7 +14,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal
  *
  * ## Supported Operations
  * - `abs()` - Absolute value of the integer
- * - `floor()`, `ceiling()`, `round()` - Identity operations for integers (no change)
+ * - `floor()`, `ceil()`, `round()` - Identity operations for integers (no change)
  * - `log()` - Natural logarithm (base e)
  * - `log10()` - Base-10 logarithm
  * - `pow(exp)` - Raises the integer to the power of exp
@@ -37,7 +37,7 @@ fun createIntType(): GremlinTypeDefinition {
         .method("floor", "", 0) { receiver, _ ->
             CompilationResult.of(receiver as GraphTraversal<Any, Any>)
         }
-        .method("ceiling", "", 0) { receiver, _ ->
+        .method("ceil", "", 0) { receiver, _ ->
             CompilationResult.of(receiver as GraphTraversal<Any, Any>)
         }
         .method("round", "", 0) { receiver, _ ->

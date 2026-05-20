@@ -19,7 +19,7 @@ fun createFloatType(): TypeDefinition {
             overload("", "(F)F", FLOAT_HELPER, parameterTypes = emptyList(), returnType = BuiltinTypes.FLOAT)
         }
 
-        staticMethod("ceiling") {
+        staticMethod("ceil") {
             overload("", "(F)I", FLOAT_HELPER, parameterTypes = emptyList(), returnType = BuiltinTypes.INT)
         }
 

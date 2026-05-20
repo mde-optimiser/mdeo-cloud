@@ -163,7 +163,7 @@ class LocalMutationEvaluator(
     fun getSolutionFailedOperators(solutionId: String): Set<Int> {
         val solution = solutions[solutionId] ?: return emptySet()
         val meta = solution.modelGraph.metadata as? FailedOperatorsMetadata ?: return emptySet()
-        return synchronized(meta.failedDeterministicOperators) { meta.failedDeterministicOperators.toSet() }
+        return meta.failedDeterministicOperators.toSet()
     }
 
     /**
@@ -326,9 +326,6 @@ class LocalMutationEvaluator(
             }
             solution
         }
-        // Notify any task thread that entered awaitSolutionAvailable during the materialization
-        // window (i.e., after the staged bytes were removed but before the solution was placed
-        // into `solutions`). Without this signal that thread would wait for the full 60 s timeout.
         onSolutionMaterialized?.invoke(solutionId)
         return result
     }

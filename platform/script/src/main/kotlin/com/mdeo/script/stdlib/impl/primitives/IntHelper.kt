@@ -23,13 +23,13 @@ object IntHelper {
     fun abs(value: Int): Int = kotlin.math.abs(value)
 
     /**
-     * Returns the ceiling of an integer (the integer itself).
+     * Returns the ceil of an integer (the integer itself).
      *
      * @param value the integer value
-     * @return the integer value (ceiling of an integer is itself)
+     * @return the integer value (ceil of an integer is itself)
      */
     @JvmStatic
-    fun ceiling(value: Int): Int = value
+    fun ceil(value: Int): Int = value
 
     /**
      * Returns the floor of an integer (the integer itself).

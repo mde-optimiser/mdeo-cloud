@@ -7,7 +7,7 @@ import { classType, typeRef } from "../../typir-extensions/config/typeBuilder.js
 export const intType = classType(DefaultTypeNames.Int)
     .extends(DefaultTypeNames.Any)
     .method("abs", (m) => m.signature((s) => s.returns(typeRef("builtin", DefaultTypeNames.Int).build())))
-    .method("ceiling", (m) => m.signature((s) => s.returns(typeRef("builtin", DefaultTypeNames.Int).build())))
+    .method("ceil", (m) => m.signature((s) => s.returns(typeRef("builtin", DefaultTypeNames.Int).build())))
     .method("floor", (m) => m.signature((s) => s.returns(typeRef("builtin", DefaultTypeNames.Int).build())))
     .method("log", (m) => m.signature((s) => s.returns(typeRef("builtin", DefaultTypeNames.Float).build())))
     .method("log10", (m) => m.signature((s) => s.returns(typeRef("builtin", DefaultTypeNames.Float).build())))

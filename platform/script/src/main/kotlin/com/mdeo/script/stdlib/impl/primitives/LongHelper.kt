@@ -26,13 +26,13 @@ object LongHelper {
     fun abs(value: Long): Long = kotlin.math.abs(value)
 
     /**
-     * Returns the ceiling of a long (the long itself).
+     * Returns the ceil of a long (the long itself).
      *
      * @param value the long value
-     * @return the long value (ceiling of a long is itself)
+     * @return the long value (ceil of a long is itself)
      */
     @JvmStatic
-    fun ceiling(value: Long): Long = value
+    fun ceil(value: Long): Long = value
 
     /**
      * Returns the floor of a long (the long itself).

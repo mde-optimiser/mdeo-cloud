@@ -19,7 +19,7 @@ fun createDoubleType(): TypeDefinition {
             overload("", "(D)D", DOUBLE_HELPER, parameterTypes = emptyList(), returnType = BuiltinTypes.DOUBLE)
         }
 
-        staticMethod("ceiling") {
+        staticMethod("ceil") {
             overload("", "(D)J", DOUBLE_HELPER, parameterTypes = emptyList(), returnType = BuiltinTypes.LONG)
         }
 

@@ -36,30 +36,30 @@ class FloatHelperTest {
         assertEquals(0.0001f, FloatHelper.abs(-0.0001f), 0.00001f)
     }
 
-    // ==================== ceiling() tests ====================
+    // ==================== ceil() tests ====================
     @Test
-    fun `ceiling of 5_3 is 6`() {
-        assertEquals(6, FloatHelper.ceiling(5.3f))
+    fun `ceil of 5_3 is 6`() {
+        assertEquals(6, FloatHelper.ceil(5.3f))
     }
 
     @Test
-    fun `ceiling of 5_0 is 5`() {
-        assertEquals(5, FloatHelper.ceiling(5.0f))
+    fun `ceil of 5_0 is 5`() {
+        assertEquals(5, FloatHelper.ceil(5.0f))
     }
 
     @Test
-    fun `ceiling of negative 5_7 is -5`() {
-        assertEquals(-5, FloatHelper.ceiling(-5.7f))
+    fun `ceil of negative 5_7 is -5`() {
+        assertEquals(-5, FloatHelper.ceil(-5.7f))
     }
 
     @Test
-    fun `ceiling of 0_1 is 1`() {
-        assertEquals(1, FloatHelper.ceiling(0.1f))
+    fun `ceil of 0_1 is 1`() {
+        assertEquals(1, FloatHelper.ceil(0.1f))
     }
 
     @Test
-    fun `ceiling of zero is zero`() {
-        assertEquals(0, FloatHelper.ceiling(0.0f))
+    fun `ceil of zero is zero`() {
+        assertEquals(0, FloatHelper.ceil(0.0f))
     }
 
     // ==================== floor() tests ====================

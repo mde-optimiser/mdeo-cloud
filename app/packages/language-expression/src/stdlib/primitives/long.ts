@@ -7,7 +7,7 @@ import { classType, typeRef } from "../../typir-extensions/config/typeBuilder.js
 export const longType = classType(DefaultTypeNames.Long)
     .extends(DefaultTypeNames.Any)
     .method("abs", (m) => m.signature((s) => s.returns(typeRef("builtin", DefaultTypeNames.Long).build())))
-    .method("ceiling", (m) => m.signature((s) => s.returns(typeRef("builtin", DefaultTypeNames.Long).build())))
+    .method("ceil", (m) => m.signature((s) => s.returns(typeRef("builtin", DefaultTypeNames.Long).build())))
     .method("floor", (m) => m.signature((s) => s.returns(typeRef("builtin", DefaultTypeNames.Long).build())))
     .method("log", (m) => m.signature((s) => s.returns(typeRef("builtin", DefaultTypeNames.Double).build())))
     .method("log10", (m) => m.signature((s) => s.returns(typeRef("builtin", DefaultTypeNames.Double).build())))

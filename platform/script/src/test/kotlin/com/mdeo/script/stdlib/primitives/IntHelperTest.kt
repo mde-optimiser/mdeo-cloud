@@ -38,30 +38,30 @@ class IntHelperTest {
         assertEquals(Int.MAX_VALUE, IntHelper.abs(Int.MAX_VALUE))
     }
 
-    // ==================== ceiling() tests ====================
+    // ==================== ceil() tests ====================
     @Test
-    fun `ceiling of int returns same`() {
-        assertEquals(5, IntHelper.ceiling(5))
+    fun `ceil of int returns same`() {
+        assertEquals(5, IntHelper.ceil(5))
     }
 
     @Test
-    fun `ceiling of negative returns same`() {
-        assertEquals(-5, IntHelper.ceiling(-5))
+    fun `ceil of negative returns same`() {
+        assertEquals(-5, IntHelper.ceil(-5))
     }
 
     @Test
-    fun `ceiling of zero returns zero`() {
-        assertEquals(0, IntHelper.ceiling(0))
+    fun `ceil of zero returns zero`() {
+        assertEquals(0, IntHelper.ceil(0))
     }
 
     @Test
-    fun `ceiling of large number returns same`() {
-        assertEquals(1000000, IntHelper.ceiling(1000000))
+    fun `ceil of large number returns same`() {
+        assertEquals(1000000, IntHelper.ceil(1000000))
     }
 
     @Test
-    fun `ceiling is identity for int`() {
-        assertEquals(42, IntHelper.ceiling(42))
+    fun `ceil is identity for int`() {
+        assertEquals(42, IntHelper.ceil(42))
     }
 
     // ==================== floor() tests ====================

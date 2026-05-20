@@ -132,8 +132,8 @@ class StdlibRegistrarTest {
         }
 
         @Test
-        fun `float has ceiling method`() {
-            val method = registry.lookupMethod(ClassTypeRef("builtin", "float", false), "ceiling", "")
+        fun `float has ceil method`() {
+            val method = registry.lookupMethod(ClassTypeRef("builtin", "float", false), "ceil", "")
             assertNotNull(method)
         }
 
