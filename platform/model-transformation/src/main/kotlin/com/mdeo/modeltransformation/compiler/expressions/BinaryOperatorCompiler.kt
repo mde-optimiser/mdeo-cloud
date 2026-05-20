@@ -442,20 +442,6 @@ class BinaryOperatorCompiler(
     /**
      * Builds a traversal for dynamic comparison where the right operand is not constant.
      *
-     * Uses the same pattern as arithmetic: store left with unique ID, compute right with
-     * map() and store with unique ID, then use math step to compute difference
-     * and check the result against zero with the appropriate predicate.
-     *
-     * Pattern:
-     * ```
-     * leftTraversal.as(leftLabel)
-     *     .map(rightTraversal).as(rightLabel)
-     *     .math("leftLabel - rightLabel")
-     *     .choose(__.is(P.op(0)), __.constant(true), __.constant(false))
-     * ```
-     *
-     * For inequality (!=), we invert the logic after comparison.
-     *
      * @param operator The comparison operator (<, >, <=, >=, ==, or !=)
      * @param leftTraversal The traversal producing the left operand value
      * @param rightTraversal The traversal producing the right operand value

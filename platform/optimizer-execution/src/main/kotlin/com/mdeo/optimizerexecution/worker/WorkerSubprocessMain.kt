@@ -407,7 +407,7 @@ class WorkerSubprocessMain : SubprocessMain() {
     private var evaluator: LocalMutationEvaluator? = null
 
     /**
-     * Active orchestrator channel (WebSocket or stdio), or `null` in legacy mode.
+     * Active orchestrator channel (WebSocket or stdio).
      * Assigned by [startOrchestratorChannel] and cleared by [closeOrchestratorChannel].
      */
     @Volatile

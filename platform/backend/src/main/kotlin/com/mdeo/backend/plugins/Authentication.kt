@@ -47,11 +47,9 @@ fun Application.configureAuthentication(jwtService: JwtService, userService: Use
                 val now = Instant.now().epochSecond
                 val age = now - session.createdAt
                 if (session.createdAt == 0L || age >= sessionConfig.maxAbsoluteSeconds) {
-                    // Expired or legacy session without createdAt – clear the cookie and reject.
                     sessions.clear<UserSession>()
                     null
                 } else {
-                    // Valid session: refresh the cookie so the idle window slides forward.
                     sessions.set(session)
                     session
                 }
