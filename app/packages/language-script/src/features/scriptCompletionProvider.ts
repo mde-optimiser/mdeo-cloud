@@ -97,7 +97,7 @@ export class ScriptCompletionProvider extends ExpressionCompletionProvider {
     constructor(
         services: { typir: ScriptTypirServices } & ExtendedLangiumServices & AstSerializerAdditionalServices,
         expressionTypes: ExpressionTypes,
-        typeTypes?: TypeTypes
+        typeTypes: TypeTypes
     ) {
         super(services, expressionTypes, typeTypes);
         this.langiumDocuments = services.shared.workspace.LangiumDocuments;
@@ -113,7 +113,7 @@ export class ScriptCompletionProvider extends ExpressionCompletionProvider {
         next: NextFeature,
         acceptor: CompletionAcceptor
     ): Promise<void> {
-        super.completionFor(context, next, acceptor);
+        await super.completionFor(context, next, acceptor);
 
         if (next.type === this.expressionTypes.identifierExpressionType.name) {
             await this.completionForUnimportedFunctions(context, acceptor);

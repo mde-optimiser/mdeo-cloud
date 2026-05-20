@@ -274,7 +274,7 @@ export class TypePartialTypeSystem<Specifics extends TypirLangiumSpecifics> exte
             if (providedGenericCount < expectedGenericCount) {
                 accept({
                     $problem: this.validationProblem,
-                    severity: "warning",
+                    severity: "error",
                     languageNode: node,
                     message: `Type '${fullTypeName}' expects ${expectedGenericCount} generic parameter(s), but only ${providedGenericCount} were provided.`,
                     subProblems: []

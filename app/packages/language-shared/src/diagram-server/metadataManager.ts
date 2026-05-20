@@ -123,8 +123,8 @@ export abstract class MetadataManager<T extends AstNode = AstNode> {
         const currentGraph = this.convertToMultiGraph(mergedMetadata);
         const newGraph = this.convertToMultiGraph(newMetadata);
 
-        if (currentGraph.numberOfNodes === 0) {
-            return newMetadata;
+        if (newGraph.numberOfNodes === 0 || currentGraph.numberOfNodes === 0) {
+            return this.applyDefaultMetadata(newMetadata, mergedMetadata);
         }
 
         const gedResult = await this.computeGED(currentGraph, newGraph);

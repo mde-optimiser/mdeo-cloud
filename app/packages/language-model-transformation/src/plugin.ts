@@ -123,7 +123,8 @@ function createModelTransformationPlugin(languageJsUrl?: string): LangiumLanguag
                 ) as ModelTransformationTypirServices;
             },
             lsp: {
-                CompletionProvider: (services) => new ModelTransformationCompletionProvider(services, expressionTypes),
+                CompletionProvider: (services) =>
+                    new ModelTransformationCompletionProvider(services, expressionTypes, typeTypes),
                 HoverProvider: (services) => new ExpressionHoverProvider(services, expressionTypes, typeTypes),
                 Formatter: (services) => new SerializerFormatter(services),
                 CodeActionProvider: (services) => new ModelTransformationCodeActionProvider(services)
