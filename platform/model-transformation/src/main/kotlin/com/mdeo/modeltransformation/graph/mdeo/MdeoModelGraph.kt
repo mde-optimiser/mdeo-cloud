@@ -12,7 +12,6 @@ import com.mdeo.modeltransformation.graph.VertexRef
 import com.mdeo.modeltransformation.runtime.InstanceNameRegistry
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource
-import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.LazyBarrierStrategy
 import org.apache.tinkerpop.gremlin.structure.Vertex
 import java.lang.ref.WeakReference
 import java.util.IdentityHashMap
@@ -53,8 +52,17 @@ class MdeoModelGraph private constructor(
         return ref
     }
 
-    override fun traversal(): GraphTraversalSource =
-        graph.traversal().withoutStrategies(LazyBarrierStrategy::class.java)
+    /**
+     * Cached [GraphTraversalSource] for this graph.
+     *
+     * [MdeoGraph]'s global strategy cache already excludes [LazyBarrierStrategy], so no
+     * per-call strategy manipulation is required. The source is safe to reuse across
+     * traversals: [GraphTraversalSource] is stateless with respect to individual traversals
+     * and the underlying [MdeoGraph] instance is never replaced for [MdeoModelGraph].
+     */
+    private val traversalSource: GraphTraversalSource by lazy { graph.traversal() }
+
+    override fun traversal(): GraphTraversalSource = traversalSource
 
     override fun deepCopy(): MdeoModelGraph {
         return MdeoModelGraph(graph.deepCopy(), instanceNameRegistry.copy()).also {

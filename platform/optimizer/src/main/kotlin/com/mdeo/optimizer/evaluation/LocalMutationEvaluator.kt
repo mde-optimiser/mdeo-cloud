@@ -183,7 +183,7 @@ class LocalMutationEvaluator(
      */
     private fun evaluateSingle(task: MutationTask): EvaluationResult {
         val parent = requireSolution(task.solutionId)
-        val copy = parent.deepCopy()
+        val copy = parent.copy()
 
         val mutated = try {
             mutationStrategy.mutate(copy)

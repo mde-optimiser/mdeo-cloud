@@ -58,7 +58,8 @@ class RandomOperatorMutationStrategy(
         var attemptCount = 0
         var skipCount = 0
         var copyNeededBeforeNextAttempt = false
-        var cleanGraph = solution.modelGraph.deepCopy() 
+        var cleanGraph = solution.modelGraph
+        solution.modelGraph = cleanGraph.deepCopy()
 
         for (step in 1..stepSize) {
             var operatorApplied = false

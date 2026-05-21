@@ -6,6 +6,7 @@ import com.mdeo.metamodel.ModelInstance
 import com.mdeo.modeltransformation.ast.EdgeLabelUtils
 import com.mdeo.modeltransformation.runtime.InstanceNameRegistry
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategies
+import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.LazyBarrierStrategy
 import org.apache.tinkerpop.gremlin.structure.Edge
 import org.apache.tinkerpop.gremlin.structure.Graph
 import org.apache.tinkerpop.gremlin.structure.Transaction
@@ -65,9 +66,9 @@ class MdeoGraph private constructor(
         init {
             TraversalStrategies.GlobalCache.registerStrategies(
                 MdeoGraph::class.java,
-                TraversalStrategies.GlobalCache.getStrategies(Graph::class.java).clone().addStrategies(
-                    MdeoGraphStepStrategy.instance()
-                )
+                TraversalStrategies.GlobalCache.getStrategies(Graph::class.java).clone()
+                    .addStrategies(MdeoGraphStepStrategy.instance())
+                    .removeStrategies(LazyBarrierStrategy::class.java)
             )
         }
 

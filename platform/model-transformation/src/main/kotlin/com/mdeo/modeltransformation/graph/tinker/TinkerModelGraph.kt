@@ -8,6 +8,7 @@ import com.mdeo.modeltransformation.graph.ModelGraph
 import com.mdeo.modeltransformation.graph.ModelMetadata
 import com.mdeo.modeltransformation.graph.VertexRef
 import com.mdeo.modeltransformation.runtime.InstanceNameRegistry
+import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategies
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.LazyBarrierStrategy
@@ -57,8 +58,15 @@ class TinkerModelGraph private constructor(
         return ref
     }
 
-    override fun traversal(): GraphTraversalSource =
-        graph.traversal().withoutStrategies(LazyBarrierStrategy::class.java)
+    /**
+     * Returns a [GraphTraversalSource] for the current underlying graph.
+     *
+     * [LazyBarrierStrategy] is disabled globally for [TinkerGraph] via the companion
+     * object initializer, so no per-call strategy manipulation is needed here. A new
+     * source is created on each call because [resetNondeterminism] may replace the
+     * underlying [graph] instance, making any cached source stale.
+     */
+    override fun traversal(): GraphTraversalSource = graph.traversal()
 
     override fun deepCopy(): TinkerModelGraph {
         val (newGraph, newRegistry) = copyGraphShuffled()
@@ -172,6 +180,16 @@ class TinkerModelGraph private constructor(
     }
 
     companion object {
+
+        init {
+            // Remove LazyBarrierStrategy globally for TinkerGraph to avoid the per-call
+            // overhead of withoutStrategies(). This mirrors the pattern used in MdeoGraph.
+            TraversalStrategies.GlobalCache.registerStrategies(
+                TinkerGraph::class.java,
+                TraversalStrategies.GlobalCache.getStrategies(TinkerGraph::class.java).clone()
+                    .removeStrategies(LazyBarrierStrategy::class.java)
+            )
+        }
 
         /**
          * Creates a [TinkerModelGraph] by loading [ModelData] into a fresh TinkerGraph.
