@@ -36,7 +36,6 @@ import com.mdeo.optimizerexecution.worker.WorkerService
 import com.mdeo.script.ast.TypedAst as ScriptTypedAst
 import com.mdeo.script.ast.expressions.TypedExpressionSerializer as ScriptExpressionSerializer
 import com.mdeo.script.ast.statements.TypedStatementSerializer
-
 import com.mdeo.metamodel.Model
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -62,6 +61,8 @@ import java.util.*
 import kotlin.uuid.Uuid
 import kotlin.uuid.toJavaUuid
 import kotlin.uuid.toKotlinUuid
+import kotlin.time.measureTimedValue
+
 
 /**
  * Service for executing optimization runs.
@@ -151,6 +152,14 @@ class OptimizerExecutionService(
          * MIME type used for Markdown result files. 
          */
         private const val MIME_TYPE_MARKDOWN = "text/markdown"
+        /**
+         * Interval in milliseconds for checking cancellation during optimization. 
+         */
+        private const val CANCELLATION_CHECK_INTERVAL_MS = 2000L
+        /**
+         * Interval in milliseconds for sending progress updates during optimization. 
+         */
+        private const val PROGRESS_UPDATE_INTERVAL_MS = 100L
     }
 
     /**
@@ -383,21 +392,29 @@ class OptimizerExecutionService(
     ) {
         val orchestrator = OptimizationOrchestrator(config = config, evaluator = evaluator)
 
-        val startTimeMs = System.currentTimeMillis()
+        var lastProgressUpdateTime = System.currentTimeMillis()
+        var lastCancelCheckTime = lastProgressUpdateTime
         try {
-            val result = try {
-                orchestrator.run { generation ->
-                    val approxEvaluations = generation * config.solver.parameters.population
-                    // Fire-and-forget: state persistence and backend notification must not
-                    // block the optimization loop from advancing to the next generation.
-                    executionScope.launch {
-                        updateProgress(
-                            executionId,
-                            "Generation $generation (~$approxEvaluations evaluations)",
-                            jwtToken
-                        )
+            val (result, duration) = try {
+                measureTimedValue {
+                    orchestrator.run { generation ->
+                        val now = System.currentTimeMillis()
+                        if (now - lastProgressUpdateTime >= PROGRESS_UPDATE_INTERVAL_MS) {
+                            lastProgressUpdateTime = now
+                            executionScope.launch {
+                                val approxEvaluations = generation * config.solver.parameters.population
+                                updateProgress(
+                                    executionId,
+                                    "Generation $generation (~$approxEvaluations evaluations)",
+                                    jwtToken
+                                )
+                            }
+                        }
+                        if (now - lastCancelCheckTime >= CANCELLATION_CHECK_INTERVAL_MS) {
+                            lastCancelCheckTime = now
+                            checkCancelled(executionId)
+                        }
                     }
-                    checkCancelled(executionId)
                 }
             } catch (e: CancellationException) {
                 logger.info("Optimizer execution $executionId stopped: ${e.message}")
@@ -409,15 +426,13 @@ class OptimizerExecutionService(
                 return
             }
 
-            val durationMs = System.currentTimeMillis() - startTimeMs
-            storeResults(executionId, config, result, metamodel, evaluator, durationMs)
+            storeResults(executionId, config, result, metamodel, evaluator, duration.inWholeMilliseconds)
             updateState(executionId, ExecutionState.COMPLETED, "Completed successfully", jwtToken)
             logger.info("Optimizer execution $executionId completed")
         } finally {
             evaluator.cleanup()
         }
     }
-
 
     /**
      * Creates a [FederatedMutationEvaluator] wrapping WebSocket connections to worker peers.
