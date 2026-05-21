@@ -10,6 +10,7 @@ import com.mdeo.modeltransformation.graph.VertexRef
 import com.mdeo.modeltransformation.runtime.InstanceNameRegistry
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource
+import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.LazyBarrierStrategy
 import org.apache.tinkerpop.gremlin.structure.T
 import org.apache.tinkerpop.gremlin.structure.Vertex
 import org.apache.tinkerpop.gremlin.structure.VertexProperty
@@ -56,7 +57,8 @@ class TinkerModelGraph private constructor(
         return ref
     }
 
-    override fun traversal(): GraphTraversalSource = graph.traversal()
+    override fun traversal(): GraphTraversalSource =
+        graph.traversal().withoutStrategies(LazyBarrierStrategy::class.java)
 
     override fun deepCopy(): TinkerModelGraph {
         val (newGraph, newRegistry) = copyGraphShuffled()

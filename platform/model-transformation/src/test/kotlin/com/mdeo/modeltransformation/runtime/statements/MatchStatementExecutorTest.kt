@@ -19,6 +19,12 @@ import com.mdeo.modeltransformation.runtime.TransformationExecutionResult
 import com.mdeo.modeltransformation.runtime.isFailure
 import com.mdeo.modeltransformation.runtime.isSuccess
 import com.mdeo.modeltransformation.runtime.testHasInstance
+import com.mdeo.metamodel.Metamodel
+import com.mdeo.metamodel.data.AssociationData
+import com.mdeo.metamodel.data.AssociationEndData
+import com.mdeo.metamodel.data.ClassData
+import com.mdeo.metamodel.data.MetamodelData
+import com.mdeo.metamodel.data.MultiplicityData
 import org.apache.tinkerpop.gremlin.tinkergraph.structure.TinkerGraph
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
@@ -386,12 +392,43 @@ class MatchStatementExecutorTest {
     @Nested
     inner class DeleteEdgeTests {
 
+        private val metamodelData = MetamodelData(
+            classes = listOf(
+                ClassData(name = "Person", isAbstract = false),
+                ClassData(name = "House", isAbstract = false)
+            ),
+            associations = listOf(
+                AssociationData(
+                    source = AssociationEndData(
+                        className = "Person",
+                        name = "livesIn",
+                        multiplicity = MultiplicityData.many()
+                    ),
+                    operator = "->",
+                    target = AssociationEndData(
+                        className = "House",
+                        name = null,
+                        multiplicity = MultiplicityData.single()
+                    )
+                )
+            )
+        )
+        private val metamodel = Metamodel.compile(metamodelData)
+
         @Test
         fun `deletes edge between matched vertices`() {
-            val person = graph.addVertex("Person")
-            val house = graph.addVertex("House")
+            val g = TinkerGraph.open()
+            val person = g.addVertex("Person")
+            val house = g.addVertex("House")
             person.addEdge("`livesIn`_``", house)
-            
+
+            val deleteEngine = TransformationEngine(
+                modelGraph = TinkerModelGraph.wrap(g, metamodel),
+                ast = TypedAst(types = emptyList(), metamodelPath = "", statements = emptyList()),
+                expressionCompilerRegistry = ExpressionCompilerRegistry.createDefaultRegistry(),
+                statementExecutorRegistry = StatementExecutorRegistry.createDefaultRegistry()
+            )
+
             val statement = TypedMatchStatement(
                 pattern = TypedPattern(
                     elements = listOf(
@@ -421,16 +458,17 @@ class MatchStatementExecutorTest {
                     )
                 )
             )
-            
-            val result = executor.execute(statement, context, engine)
-            
+
+            val result = deleteEngine.executeStatement(statement, context)
+
             assertIs<TransformationExecutionResult.Success>(result)
-            
-            // Verify edge is deleted but vertices still exist
-            val g = engine.traversalSource
-            assertEquals(0, g.E().hasLabel("`livesIn`_``").count().next())
-            assertEquals(1, g.V().hasLabel("Person").count().next())
-            assertEquals(1, g.V().hasLabel("House").count().next())
+
+            val traversal = deleteEngine.traversalSource
+            assertEquals(0, traversal.E().hasLabel("`livesIn`_``").count().next())
+            assertEquals(1, traversal.V().hasLabel("Person").count().next())
+            assertEquals(1, traversal.V().hasLabel("House").count().next())
+
+            g.close()
         }
     }
 }

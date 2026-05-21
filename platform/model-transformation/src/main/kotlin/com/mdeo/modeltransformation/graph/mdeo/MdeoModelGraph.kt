@@ -12,6 +12,7 @@ import com.mdeo.modeltransformation.graph.VertexRef
 import com.mdeo.modeltransformation.runtime.InstanceNameRegistry
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource
+import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.LazyBarrierStrategy
 import org.apache.tinkerpop.gremlin.structure.Vertex
 import java.lang.ref.WeakReference
 import java.util.IdentityHashMap
@@ -52,7 +53,8 @@ class MdeoModelGraph private constructor(
         return ref
     }
 
-    override fun traversal(): GraphTraversalSource = graph.traversal()
+    override fun traversal(): GraphTraversalSource =
+        graph.traversal().withoutStrategies(LazyBarrierStrategy::class.java)
 
     override fun deepCopy(): MdeoModelGraph {
         return MdeoModelGraph(graph.deepCopy(), instanceNameRegistry.copy()).also {

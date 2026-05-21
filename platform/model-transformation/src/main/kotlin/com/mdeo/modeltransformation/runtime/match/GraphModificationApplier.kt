@@ -1,5 +1,6 @@
 package com.mdeo.modeltransformation.runtime.match
 
+import com.mdeo.metamodel.data.AssociationData
 import com.mdeo.modeltransformation.ast.EdgeLabelUtils
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternLinkElement
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternObjectInstanceElement
@@ -268,6 +269,9 @@ internal class GraphModificationApplier(
     /**
      * Adds `.sideEffect(drop())` steps for delete links and delete instances.
      *
+     * The association index is built once and shared across all delete-link steps
+     * in this applier invocation so that per-link lookups remain O(1).
+     *
      * @param traversal The current traversal.
      * @return The traversal with deletion side-effects appended.
      */
@@ -276,8 +280,10 @@ internal class GraphModificationApplier(
         traversal: GraphTraversal<Vertex, Map<String, Any>>
     ): GraphTraversal<Vertex, Map<String, Any>> {
         var result = traversal
+        val assocByProps = expressionSupport.engine.metamodelData.associations
+            .associateBy { it.source.name to it.target.name }
         for (link in elements.deleteLinks) {
-            result = addDeleteEdgeStep(result, link)
+            result = addDeleteEdgeStep(result, link, assocByProps)
         }
         for (instance in elements.deleteInstances) {
             result = result.sideEffect(
@@ -288,27 +294,63 @@ internal class GraphModificationApplier(
     }
 
     /**
-     * Adds a side-effect that drops the edge between two matched instances.
+     * Adds a side-effect that drops the edge between two matched instances, choosing
+     * the traversal direction based on metamodel multiplicity to minimise fan-out.
+     *
+     * The decision rule mirrors the composition-aware logic already used by
+     * [IslandTraversalUtils.orderLinksByBFS]:
+     * - Look up the [AssociationData] for this link via the `(sourcePropName, targetPropName)` key.
+     * - Compare the **source-end upper bound** (fan-out when starting from `src` via `outE`)
+     *   with the **target-end upper bound** (fan-out when starting from `tgt` via `inE`).
+     * - Traverse from the end whose upper bound is smaller (i.e. fewer edges to inspect).
+     * - An unbounded multiplicity (`upper == -1`) is treated as [Int.MAX_VALUE].
+     *
+     * **Example**: deleting the `rooms` edge between a `House` (container, 1 side) and a
+     * `Room` (item, 0..* side). The source end (`House.rooms`, upper = -1) is cheaper to
+     * reach from `Room` via `inE` (upper = 1 on the target/`Room.house` side), so the
+     * traversal becomes `tgt --inE→ where(outV == src) → drop()`.
      *
      * @param traversal The current traversal.
      * @param link The delete link element describing the edge to remove.
+     * @param assocByProps Pre-built index of associations keyed by (sourcePropName, targetPropName).
      * @return The traversal with the edge deletion side-effect appended.
      */
     @Suppress("UNCHECKED_CAST")
     private fun addDeleteEdgeStep(
         traversal: GraphTraversal<Vertex, Map<String, Any>>,
-        link: TypedPatternLinkElement
+        link: TypedPatternLinkElement,
+        assocByProps: Map<Pair<String?, String?>, AssociationData>
     ): GraphTraversal<Vertex, Map<String, Any>> {
         val src = link.link.source.objectName
         val tgt = link.link.target.objectName
         val edgeLabel = EdgeLabelUtils.computeEdgeLabel(
             link.link.source.propertyName, link.link.target.propertyName
         )
-        return traversal.sideEffect(
+
+        val assoc = assocByProps[link.link.source.propertyName to link.link.target.propertyName]
+            ?: throw IllegalStateException(
+                "No metamodel association found for link " +
+                "'${link.link.source.propertyName}' → '${link.link.target.propertyName}'. " +
+                "Every delete link must correspond to a declared association in the metamodel."
+            )
+
+        val srcUpper = assoc.source.multiplicity.upper
+        val tgtUpper = assoc.target.multiplicity.upper
+        val srcCost = if (srcUpper == -1) Int.MAX_VALUE else srcUpper
+        val tgtCost = if (tgtUpper == -1) Int.MAX_VALUE else tgtUpper
+
+        val sideEffectTraversal = if (tgtCost < srcCost) {
+            AnonymousTraversal.select<Any, Any>(VariableBinding.stepLabel(tgt))
+                .inE(edgeLabel)
+                .where(AnonymousTraversal.outV().`as`(VariableBinding.stepLabel(src)))
+                .drop()
+        } else {
             AnonymousTraversal.select<Any, Any>(VariableBinding.stepLabel(src))
                 .outE(edgeLabel)
                 .where(AnonymousTraversal.inV().`as`(VariableBinding.stepLabel(tgt)))
                 .drop()
-        ) as GraphTraversal<Vertex, Map<String, Any>>
+        }
+
+        return traversal.sideEffect(sideEffectTraversal) as GraphTraversal<Vertex, Map<String, Any>>
     }
 }

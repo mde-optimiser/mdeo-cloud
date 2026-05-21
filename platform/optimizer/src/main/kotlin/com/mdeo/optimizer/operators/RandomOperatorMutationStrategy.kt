@@ -4,6 +4,7 @@ import com.mdeo.modeltransformation.ast.TransformationOperator
 import com.mdeo.optimizer.solution.FailedOperatorsMetadata
 import com.mdeo.optimizer.solution.Solution
 import org.slf4j.LoggerFactory
+import kotlin.system.measureTimeMillis
 
 /**
  * Mutation strategy that randomly selects and applies transformation operators.
