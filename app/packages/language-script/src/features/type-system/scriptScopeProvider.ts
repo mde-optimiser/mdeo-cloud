@@ -206,7 +206,8 @@ export class ScriptScopeProvider extends StatementsScopeProvider<ScriptTypirSpec
                             type: enumInfo.name,
                             isNullable: false
                         }),
-                    readonly: true
+                    readonly: true,
+                    languageNode: enumInfo.languageNode as ScriptTypirSpecifics["LanguageType"] | undefined
                 }) satisfies ScopeEntry<ScriptTypirSpecifics>
         );
     }
@@ -245,7 +246,8 @@ export class ScriptScopeProvider extends StatementsScopeProvider<ScriptTypirSpec
                             type: classInfo.name,
                             isNullable: false
                         }),
-                    readonly: true
+                    readonly: true,
+                    languageNode: classInfo.languageNode as ScriptTypirSpecifics["LanguageType"] | undefined
                 }) satisfies ScopeEntry<ScriptTypirSpecifics>
         );
     }

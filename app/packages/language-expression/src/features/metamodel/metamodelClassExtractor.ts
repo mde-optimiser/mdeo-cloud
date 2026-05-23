@@ -95,7 +95,8 @@ export function extractMetamodelEntities(
         name: enumNode.name,
         package: enumPackage,
         containerPackage: enumContainerPackage,
-        entries: enumNode.entries.map((e) => e.name)
+        entries: enumNode.entries.map((e) => ({ name: e.name, languageNode: e })),
+        languageNode: enumNode
     }));
     return { classes: classInfos, enums: enumInfos };
 }
@@ -297,7 +298,8 @@ class MetamodelClassExtractor {
             containerPackage: this.classContainerPackage,
             superClasses,
             properties,
-            relations
+            relations,
+            languageNode: classNode
         };
     }
 
@@ -348,7 +350,8 @@ class MetamodelClassExtractor {
     private extractProperties(classNode: MetamodelClassType): MetamodelPropertyInfo[] {
         return classNode.properties.map((prop) => ({
             name: prop.name,
-            valueType: this.resolvePropertyType(prop)
+            valueType: this.resolvePropertyType(prop),
+            languageNode: prop
         }));
     }
 
@@ -522,7 +525,8 @@ class MetamodelClassExtractor {
             oppositeProperty: oppositePropertyName,
             oppositeClassName,
             isOutgoing,
-            valueType
+            valueType,
+            languageNode: end
         };
     }
 }

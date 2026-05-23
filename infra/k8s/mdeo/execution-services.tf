@@ -232,6 +232,12 @@ resource "kubernetes_stateful_set_v1" "optimizer_execution" {
           image             = "${var.image_registry}/${var.image_owner}/mdeo-optimizer-execution:${var.app_version}"
           image_pull_policy = "Always"
 
+          resources {
+            requests = {
+              cpu = tostring(var.optimizer_worker_threads)
+            }
+          }
+
           port {
             container_port = 8080
             protocol       = "TCP"

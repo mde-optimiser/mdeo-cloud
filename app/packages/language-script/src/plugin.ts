@@ -44,7 +44,7 @@ import { ScriptActionProvider } from "./features/scriptActionProvider.js";
 import { RunScriptActionHandler } from "./action-handlers/runScriptActionHandler.js";
 import { NewFileActionHandler } from "./action-handlers/newFileActionHandler.js";
 import { ScriptCompletionProvider } from "./features/scriptCompletionProvider.js";
-import { ExpressionHoverProvider } from "@mdeo/language-expression";
+import { ExpressionHoverProvider, ExpressionReferenceDescriptionProvider } from "@mdeo/language-expression";
 import type { DocumentPackageCacheService } from "@mdeo/language-expression";
 import { ScriptDocumentPackageCacheService } from "./features/scriptDocumentPackageCacheService.js";
 
@@ -122,6 +122,10 @@ export const scriptPluginProvider: LangiumLanguagePluginProvider<ScriptServices>
                         new ScriptCompletionProvider(services, expressionTypes, typeTypes),
                     HoverProvider: (services) => new ExpressionHoverProvider(services, expressionTypes, typeTypes),
                     Formatter: (services) => new SerializerFormatter(services)
+                },
+                workspace: {
+                    ReferenceDescriptionProvider: (services) =>
+                        new ExpressionReferenceDescriptionProvider(services, expressionTypes, typeTypes, statementTypes)
                 },
                 AstSerializer: (services) => new DefaultAstSerializer(services),
                 action: {

@@ -78,16 +78,18 @@ class EnumTypeGenerator {
             package: enumInfo.package,
             properties: {},
             methods: {},
-            superTypes: [{ package: "builtin", type: "Any" }]
+            superTypes: [{ package: "builtin", type: "Any" }],
+            languageNode: enumInfo.languageNode
         };
 
         const containerProperties: Record<string, Property> = {};
         for (const entry of enumInfo.entries) {
-            containerProperties[entry] = {
-                name: entry,
+            containerProperties[entry.name] = {
+                name: entry.name,
                 isProperty: true,
                 readonly: true,
-                type: { package: enumInfo.package, type: enumInfo.name, isNullable: false }
+                type: { package: enumInfo.package, type: enumInfo.name, isNullable: false },
+                languageNode: entry.languageNode
             };
         }
 

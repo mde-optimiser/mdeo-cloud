@@ -1,3 +1,4 @@
+import type { AstNode } from "langium";
 import type { ValueType } from "../../typir-extensions/config/type.js";
 
 /**
@@ -14,6 +15,12 @@ export interface MetamodelPropertyInfo {
      * The value type of the property (for Typir type system).
      */
     valueType: ValueType;
+
+    /**
+     * Optional reference to the source metamodel AST node that defines this property.
+     * Used for creating reference descriptions for LSP rename and find-references.
+     */
+    languageNode?: AstNode;
 }
 
 /**
@@ -45,6 +52,12 @@ export interface MetamodelRelationInfo {
      * The value type of the relation (for Typir type system).
      */
     valueType: ValueType;
+
+    /**
+     * Optional reference to the source metamodel AST node (association end) that defines this relation.
+     * Used for creating reference descriptions for LSP rename and find-references.
+     */
+    languageNode?: AstNode;
 }
 
 /**
@@ -99,4 +112,10 @@ export interface MetamodelClassInfo {
      * Relations defined on this class (not inherited).
      */
     relations: MetamodelRelationInfo[];
+
+    /**
+     * Optional reference to the source metamodel AST node that defines this class.
+     * Used for creating reference descriptions for LSP rename and find-references.
+     */
+    languageNode?: AstNode;
 }

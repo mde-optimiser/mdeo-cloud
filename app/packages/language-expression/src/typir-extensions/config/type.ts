@@ -146,6 +146,11 @@ export interface Property {
      * The type of the property
      */
     type: ValueType;
+    /**
+     * Optional reference to the source language node that defines this property.
+     * Used for creating reference descriptions for LSP rename and find-references.
+     */
+    languageNode?: unknown;
 }
 
 /**
@@ -164,6 +169,11 @@ export interface Method {
      * The type of the method
      */
     type: FunctionType;
+    /**
+     * Optional reference to the source language node that defines this method.
+     * Used for creating reference descriptions for LSP rename and find-references.
+     */
+    languageNode?: unknown;
 }
 
 /**
@@ -206,6 +216,11 @@ export interface ClassType {
      * but its members can still be accessed (e.g., `myEnum.SOME_VALUE`).
      */
     isVirtual?: boolean;
+    /**
+     * Optional reference to the source language node that defines this class type.
+     * Used for creating reference descriptions for LSP rename and find-references.
+     */
+    languageNode?: unknown;
 }
 
 /**

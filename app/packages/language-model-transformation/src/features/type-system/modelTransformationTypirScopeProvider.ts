@@ -232,7 +232,8 @@ export class ModelTransformationTypirScopeProvider extends BaseScopeProvider<
                             type: enumInfo.name,
                             isNullable: false
                         }),
-                    readonly: true
+                    readonly: true,
+                    languageNode: enumInfo.languageNode as TypirLangiumSpecifics["LanguageType"] | undefined
                 }) satisfies ScopeEntry<TypirLangiumSpecifics>
         );
     }

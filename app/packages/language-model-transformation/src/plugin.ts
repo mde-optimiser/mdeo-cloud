@@ -23,7 +23,8 @@ import {
     registerTypeSerializers,
     generateExpressionRuleOverride,
     type DocumentPackageCacheService,
-    ExpressionHoverProvider
+    ExpressionHoverProvider,
+    ExpressionReferenceDescriptionProvider
 } from "@mdeo/language-expression";
 import type { TypirLangiumSpecifics } from "typir-langium";
 import type { AbstractAstReflection } from "langium";
@@ -140,7 +141,9 @@ function createModelTransformationPlugin(languageJsUrl?: string): LangiumLanguag
                 ActionProvider: () => new ModelTransformationActionProvider()
             },
             workspace: {
-                WorkspaceEdit: (services) => new DefaultWorkspaceEditService(services)
+                WorkspaceEdit: (services) => new DefaultWorkspaceEditService(services),
+                ReferenceDescriptionProvider: (services) =>
+                    new ExpressionReferenceDescriptionProvider(services, expressionTypes, typeTypes)
             }
         },
         postCreate(services) {

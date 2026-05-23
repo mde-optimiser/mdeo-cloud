@@ -99,7 +99,8 @@ class ClassTypeGenerator {
             package: info.package,
             properties,
             methods,
-            superTypes
+            superTypes,
+            languageNode: info.languageNode
         };
 
         const containerType = this.createContainerType(info.name);
@@ -186,7 +187,8 @@ class ClassTypeGenerator {
         return {
             name: prop.name,
             isProperty: true,
-            type: prop.valueType
+            type: prop.valueType,
+            languageNode: prop.languageNode
         };
     }
 
@@ -201,7 +203,8 @@ class ClassTypeGenerator {
         return {
             name: rel.property,
             isProperty: true,
-            type: rel.valueType
+            type: rel.valueType,
+            languageNode: rel.languageNode
         };
     }
 }
