@@ -195,7 +195,7 @@ class LocalMutationEvaluator(
                 workerNodeId = nodeId,
                 objectives = emptyList(),
                 constraints = emptyList(),
-                succeeded = false,
+                status = ResultStatus.SOFT_FAILURE,
                 skippedOperatorSlots = 0
             )
         }
@@ -216,7 +216,7 @@ class LocalMutationEvaluator(
                 workerNodeId = nodeId,
                 objectives = emptyList(),
                 constraints = emptyList(),
-                succeeded = false,
+                status = ResultStatus.HARD_FAILURE,
                 executedTransformations = executedTransformations,
                 skippedOperatorSlots = skippedOperatorSlots,
                 errorMessage = "Guidance function evaluation failed: ${e.message}"
@@ -228,7 +228,7 @@ class LocalMutationEvaluator(
             workerNodeId = nodeId,
             objectives = objectives,
             constraints = constraints,
-            succeeded = true,
+            status = ResultStatus.SUCCESS,
             executedTransformations = executedTransformations,
             skippedOperatorSlots = skippedOperatorSlots
         )
@@ -257,7 +257,7 @@ class LocalMutationEvaluator(
                 workerNodeId = nodeId,
                 objectives = emptyList(),
                 constraints = emptyList(),
-                succeeded = false,
+                status = ResultStatus.HARD_FAILURE,
                 errorMessage = "Guidance function evaluation failed: ${e.message}"
             )
         }
@@ -267,7 +267,7 @@ class LocalMutationEvaluator(
             workerNodeId = nodeId,
             objectives = objectives,
             constraints = constraints,
-            succeeded = true
+            status = ResultStatus.SUCCESS
         )
     }
 

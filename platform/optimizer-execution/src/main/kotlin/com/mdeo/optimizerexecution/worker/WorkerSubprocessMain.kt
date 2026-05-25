@@ -16,6 +16,7 @@ import com.mdeo.optimizer.evaluation.EvaluationTask
 import com.mdeo.optimizer.evaluation.LocalMutationEvaluator
 import com.mdeo.optimizer.evaluation.MutationTask
 import com.mdeo.optimizer.evaluation.NodeBatch
+import com.mdeo.optimizer.evaluation.ResultStatus
 import com.mdeo.optimizer.guidance.ScriptGuidanceFunction
 import com.mdeo.optimizer.operators.MutationStrategyFactory
 import com.mdeo.optimizer.solution.Solution
@@ -734,7 +735,10 @@ class WorkerSubprocessMain : SubprocessMain() {
         val dispatcher = taskDispatcher
         val allTasks = msg.tasks.size + msg.evaluationTasks.size
 
-        val pushJobs = mutableListOf<Deferred<Boolean>>()
+        // Each entry is (representativeSolutionId, Deferred<errorMessage?>).  A non-null
+        // error message means the push failed and the destination node will never receive
+        // those solutions — this is a hard failure that must abort the execution.
+        val pushJobs = mutableListOf<Pair<String, Deferred<String?>>>()
         for (relocation in msg.relocations) {
             val solutions = relocation.solutionIds.mapNotNull { solId ->
                 try {
@@ -756,19 +760,23 @@ class WorkerSubprocessMain : SubprocessMain() {
             }
             if (solutions.isNotEmpty()) {
                 val channel = getOrCreatePeerChannel(relocation.destinationWorkerBaseUrl, relocation.executionId)
-                val job = peerScope.async {
+                val job = peerScope.async<String?> {
                     try {
                         val success = channel.push(solutions)
                         if (!success) {
-                            logger.error("[handleWsNodeWorkBatch] RELOCATION_PUSH_FAILED for {} (channel timed out or failed)", relocation.destinationWorkerBaseUrl)
-                        }
-                        success
+                            val errMsg = "Failed to push ${solutions.size} solution(s) to peer " +
+                                "${relocation.destinationWorkerBaseUrl} (channel timed out or failed)"
+                            logger.error("[handleWsNodeWorkBatch] RELOCATION_PUSH_FAILED: {}", errMsg)
+                            errMsg
+                        } else null
                     } catch (e: Exception) {
-                        logger.error("[handleWsNodeWorkBatch] RELOCATION_PUSH_ERROR: {}", e.message, e)
-                        false
+                        val errMsg = "Error pushing solutions to peer " +
+                            "${relocation.destinationWorkerBaseUrl}: ${e.message}"
+                        logger.error("[handleWsNodeWorkBatch] RELOCATION_PUSH_ERROR: {}", errMsg, e)
+                        errMsg
                     }
                 }
-                pushJobs.add(job)
+                pushJobs.add(solutions.first().solutionId to job)
             }
         }
 
@@ -792,10 +800,18 @@ class WorkerSubprocessMain : SubprocessMain() {
             msg.evaluationTasks.map { task -> processSingleEvaluationTask(task, ev, nodeId) }
         }
 
+        // Await push jobs and collect any errors as synthetic hard-failure results so that
+        // the orchestrator's EvaluationCoordinator throws EvaluationFailedException.
+        val pushErrors = mutableListOf<BatchResult>()
         if (pushJobs.isNotEmpty()) {
             runBlocking {
                 try {
-                    pushJobs.awaitAll()
+                    for ((solutionId, job) in pushJobs) {
+                        val errorMsg = job.await()
+                        if (errorMsg != null) {
+                            pushErrors.add(failedResult(solutionId, ResultStatus.HARD_FAILURE, errorMsg))
+                        }
+                    }
                 } catch (e: Exception) {
                     logger.error("[handleWsNodeWorkBatch] PUSH_AWAIT_ERROR: {}", e.message)
                 }
@@ -811,8 +827,7 @@ class WorkerSubprocessMain : SubprocessMain() {
             runBlocking { ev.executeNodeBatches(listOf(batch)) }
         }
 
-
-        return NodeWorkBatchResponse(requestId = msg.requestId, results = mutationResults + evaluationResults)
+        return NodeWorkBatchResponse(requestId = msg.requestId, results = mutationResults + evaluationResults + pushErrors)
     }
 
     /**
@@ -833,11 +848,10 @@ class WorkerSubprocessMain : SubprocessMain() {
         if (!ev.hasSolution(task.solutionId)) {
             val arrived = awaitSolutionAvailable(task.solutionId, INCOMING_SOLUTION_TIMEOUT_MS)
             if (!arrived) {
-                logger.warn(
-                    "[processSingleMutationTask] TIMEOUT solId={} did not arrive within {}ms — failing task (penalty)",
-                    task.solutionId, INCOMING_SOLUTION_TIMEOUT_MS
-                )
-                return failedResult(task.solutionId)
+                val errMsg = "Timed out after ${INCOMING_SOLUTION_TIMEOUT_MS}ms waiting for incoming solution " +
+                    "'${task.solutionId}' — push rebalancing to this node likely failed"
+                logger.error("[processSingleMutationTask] TIMEOUT solId={}: {}", task.solutionId, errMsg)
+                return failedResult(task.solutionId, ResultStatus.HARD_FAILURE, errMsg)
             }
         }
         val evalId = evalIdCounter.incrementAndGet()
@@ -854,21 +868,25 @@ class WorkerSubprocessMain : SubprocessMain() {
             val evalResults = runBlocking { ev.executeNodeBatches(listOf(batch)) }
             val result = evalResults.firstOrNull()
 
-            if (result != null && result.succeeded) {
+            if (result != null && result.status == ResultStatus.SUCCESS) {
                 BatchResult(
                     parentSolutionId = task.solutionId,
                     newSolutionId = result.newSolutionId,
                     objectives = result.objectives,
                     constraints = result.constraints,
-                    succeeded = true,
+                    status = ResultStatus.SUCCESS,
                     executedTransformations = result.executedTransformations,
                     skippedOperatorSlots = result.skippedOperatorSlots
                 )
             } else {
-                failedResult(task.solutionId, result?.errorMessage)
+                failedResult(task.solutionId, result?.status ?: ResultStatus.SOFT_FAILURE, result?.errorMessage)
             }
         } catch (e: Throwable) {
-            failedResult(task.solutionId)
+            failedResult(
+                task.solutionId,
+                ResultStatus.HARD_FAILURE,
+                "Unexpected error during mutation of solution '${task.solutionId}': ${e.message ?: e.javaClass.simpleName}"
+            )
         } finally {
             cancelTimeout(evalId)
         }
@@ -906,19 +924,23 @@ class WorkerSubprocessMain : SubprocessMain() {
             val evalResults = runBlocking { ev.executeNodeBatches(listOf(batch)) }
             val result = evalResults.firstOrNull()
 
-            if (result != null && result.succeeded) {
+            if (result != null && result.status == ResultStatus.SUCCESS) {
                 BatchResult(
                     parentSolutionId = task.solutionId,
                     newSolutionId = result.newSolutionId,
                     objectives = result.objectives,
                     constraints = result.constraints,
-                    succeeded = true
+                    status = ResultStatus.SUCCESS
                 )
             } else {
-                failedResult(task.solutionId, result?.errorMessage)
+                failedResult(task.solutionId, result?.status ?: ResultStatus.SOFT_FAILURE, result?.errorMessage)
             }
-        } catch (_: Throwable) {
-            failedResult(task.solutionId)
+        } catch (e: Throwable) {
+            failedResult(
+                task.solutionId,
+                ResultStatus.HARD_FAILURE,
+                "Unexpected error during evaluation of solution '${task.solutionId}': ${e.message ?: e.javaClass.simpleName}"
+            )
         } finally {
             cancelTimeout(evalId)
         }
@@ -958,15 +980,23 @@ class WorkerSubprocessMain : SubprocessMain() {
      * Constructs a failed [BatchResult] for [parentSolutionId] with empty objectives and constraints.
      *
      * @param parentSolutionId The ID of the solution whose mutation or evaluation failed.
-     * @param errorMessage When non-null, indicates a guidance function failure (not a mutation failure).
-     * @return A [BatchResult] with [BatchResult.succeeded] set to `false`.
+     * @param status [ResultStatus.HARD_FAILURE] aborts the entire execution via
+     *   [com.mdeo.optimizer.moea.EvaluationCoordinator]; [ResultStatus.SOFT_FAILURE] applies
+     *   penalty fitness and continues evolution.
+     * @param errorMessage Human-readable diagnostic detail; required for [ResultStatus.HARD_FAILURE],
+     *   `null` for [ResultStatus.SOFT_FAILURE].
+     * @return A [BatchResult] with the given [status].
      */
-    private fun failedResult(parentSolutionId: String, errorMessage: String? = null) = BatchResult(
+    private fun failedResult(
+        parentSolutionId: String,
+        status: ResultStatus,
+        errorMessage: String? = null
+    ) = BatchResult(
         parentSolutionId = parentSolutionId,
         newSolutionId = "",
         objectives = emptyList(),
         constraints = emptyList(),
-        succeeded = false,
+        status = status,
         errorMessage = errorMessage
     )
 

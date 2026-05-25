@@ -6,6 +6,7 @@ import com.mdeo.optimizer.evaluation.EvaluationTask
 import com.mdeo.optimizer.evaluation.MutationEvaluator
 import com.mdeo.optimizer.evaluation.MutationTask
 import com.mdeo.optimizer.evaluation.NodeBatch
+import com.mdeo.optimizer.evaluation.ResultStatus
 import com.mdeo.optimizer.evaluation.WorkerSolutionRef
 import kotlinx.coroutines.runBlocking
 import org.moeaframework.core.Solution
@@ -246,9 +247,12 @@ class EvaluationCoordinator(
         val batches = buildNodeBatches(mutationTasks, evaluationTasks, allDiscards)
         val results = runBlocking { evaluator.executeNodeBatches(batches) }
 
-        val evaluationFailure = results.firstOrNull { it.errorMessage != null }
+        val evaluationFailure = results.firstOrNull { it.status == ResultStatus.HARD_FAILURE }
         if (evaluationFailure != null) {
-            throw EvaluationFailedException(evaluationFailure.errorMessage!!)
+            throw EvaluationFailedException(
+                evaluationFailure.errorMessage
+                    ?: "Hard failure for solution '${evaluationFailure.parentSolutionId}'"
+            )
         }
 
         val populationBySolutionId = buildPopulationLookup()
@@ -267,7 +271,7 @@ class EvaluationCoordinator(
         for (solution in uninitializedSolutions) {
             val ref = solution.getWorkerRef() ?: continue
             val result = evalResultsBySolution[ref.solutionId]
-            if (result != null && result.succeeded) {
+            if (result != null && result.status == ResultStatus.SUCCESS) {
                 applyFitness(solution, result.objectives, result.constraints)
             } else {
                 applyPenaltyFitness(solution)
@@ -278,7 +282,7 @@ class EvaluationCoordinator(
             val parentRef = solution.getAttribute(DelegatingVariation.PARENT_REF_KEY) as? WorkerSolutionRef
             val resultQueue = parentRef?.let { mutationResultsByParent[it.solutionId] }
             val result = resultQueue?.removeFirstOrNull()
-            if (result != null && result.succeeded) {
+            if (result != null && result.status == ResultStatus.SUCCESS) {
                 val newRef = WorkerSolutionRef(nodeId = result.workerNodeId, solutionId = result.newSolutionId)
                 applyFitness(solution, result.objectives, result.constraints)
                 solution.setAttribute(WorkerSolutionRef.ATTRIBUTE_KEY, newRef)
@@ -289,7 +293,7 @@ class EvaluationCoordinator(
         }
 
         lastBatchSize = results.size
-        lastBatchPerNode = results.filter { it.succeeded }.groupBy { it.workerNodeId }.mapValues { it.value.size }
+        lastBatchPerNode = results.filter { it.status == ResultStatus.SUCCESS }.groupBy { it.workerNodeId }.mapValues { it.value.size }
         lastRebalancedCount = rebalancePlan.sumOf { it.solutionIds.size }
         lastAppliedTransformations = results.sumOf { it.executedTransformations }
         lastSkippedOperatorSlots = results.sumOf { it.skippedOperatorSlots }

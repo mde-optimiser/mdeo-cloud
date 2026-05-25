@@ -5,6 +5,7 @@ import com.mdeo.metamodel.data.ModelData
 import com.mdeo.optimizer.config.GoalConfig
 import com.mdeo.optimizer.config.GraphBackendType
 import com.mdeo.optimizer.config.SolverConfig
+import com.mdeo.optimizer.evaluation.ResultStatus
 import kotlinx.serialization.Serializable
 
 /**
@@ -108,14 +109,14 @@ data class BatchEvaluationTask(
  * @param newSolutionId Identifier assigned to the newly created offspring solution.
  * @param objectives Objective values of the new solution.
  * @param constraints Constraint values of the new solution.
- * @param succeeded Whether the mutation and evaluation completed without error.
+ * @param status The outcome of the task; see [ResultStatus] for semantics of each value.
  * @param executedTransformations Number of transformation operators actually tried during
- *   mutation (successful + failed attempts, excluding pre-skipped ones). Zero for failed
- *   mutations or evaluation-only tasks.
+ *   mutation (successful + failed attempts, excluding pre-skipped ones). Zero for
+ *   [ResultStatus.SOFT_FAILURE] mutations or evaluation-only tasks.
  * @param skippedOperatorSlots Number of operator slots pre-skipped because they are known to
  *   deterministically fail on the parent's current model state.
- * @param errorMessage When non-null, indicates that a guidance function (objective or constraint)
- *   threw an exception. The orchestrator must treat this as a fatal evaluation failure.
+ * @param errorMessage Human-readable diagnostic detail accompanying a [ResultStatus.HARD_FAILURE].
+ *   `null` for [ResultStatus.SUCCESS] and [ResultStatus.SOFT_FAILURE].
  */
 @Serializable
 data class BatchResult(
@@ -123,7 +124,7 @@ data class BatchResult(
     val newSolutionId: String,
     val objectives: List<Double>,
     val constraints: List<Double>,
-    val succeeded: Boolean,
+    val status: ResultStatus,
     val executedTransformations: Int = 0,
     val skippedOperatorSlots: Int = 0,
     val errorMessage: String? = null

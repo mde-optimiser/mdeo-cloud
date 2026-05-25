@@ -16,6 +16,7 @@ import com.mdeo.optimizer.worker.BatchTask
 import com.mdeo.optimizer.worker.NodeWorkBatchRequest
 import com.mdeo.optimizer.worker.NodeWorkBatchResponse
 import com.mdeo.optimizer.worker.WorkerAllocationRequest
+import com.mdeo.optimizer.evaluation.ResultStatus
 import com.mdeo.optimizerexecution.routes.workerRoutes
 import com.mdeo.optimizerexecution.service.OrchestratorRegistry
 import com.mdeo.optimizerexecution.worker.LocalWorkerClient
@@ -183,7 +184,7 @@ class WorkerServiceTest {
 
             assertEquals(1, batchResponse.results.size)
             val result = batchResponse.results[0]
-            assertTrue(result.succeeded, "Mutation should succeed")
+            assertTrue(result.status == ResultStatus.SUCCESS, "Mutation should succeed")
             assertEquals(parentId, result.parentSolutionId)
             assertEquals(listOf(1.0), result.objectives)
             assertTrue(result.newSolutionId.isNotEmpty())

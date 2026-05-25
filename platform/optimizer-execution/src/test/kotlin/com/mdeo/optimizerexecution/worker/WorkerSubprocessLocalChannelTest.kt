@@ -11,6 +11,7 @@ import com.mdeo.metamodel.data.MetamodelData
 import com.mdeo.metamodel.data.ModelData
 import com.mdeo.optimizer.config.*
 import com.mdeo.optimizer.worker.*
+import com.mdeo.optimizer.evaluation.ResultStatus
 import com.mdeo.script.ast.TypedAst
 import com.mdeo.script.ast.TypedFunction
 import com.mdeo.script.ast.TypedImport
@@ -188,7 +189,7 @@ class WorkerSubprocessLocalChannelTest {
             assertEquals("test-req-1", batchResponse.requestId)
             assertEquals(1, batchResponse.results.size)
             val result = batchResponse.results[0]
-            assertTrue(result.succeeded, "Mutation via local channel should succeed")
+            assertTrue(result.status == ResultStatus.SUCCESS, "Mutation via local channel should succeed")
             assertEquals(initialSolutionId, result.parentSolutionId)
             assertEquals(listOf(1.0), result.objectives)
             assertTrue(result.newSolutionId.isNotEmpty(), "New solution ID must not be empty")
@@ -326,7 +327,7 @@ class WorkerSubprocessLocalChannelTest {
             val batchResponse = responses.singleOrNull() as? NodeWorkBatchResponse
             requireNotNull(batchResponse) { "Expected NodeWorkBatchResponse but got $responses" }
             assertEquals(2, batchResponse.results.size)
-            assertTrue(batchResponse.results.all { it.succeeded }, "All mutations should succeed")
+            assertTrue(batchResponse.results.all { it.status == ResultStatus.SUCCESS }, "All mutations should succeed")
             assertTrue(batchResponse.results.all { it.newSolutionId.isNotEmpty() }, "All results must have new solution IDs")
         } finally {
             runner.destroy()

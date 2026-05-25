@@ -258,7 +258,7 @@ class FederatedMutationEvaluator(
                     workerNodeId = batch.nodeId,
                     objectives = result.objectives,
                     constraints = result.constraints,
-                    succeeded = result.succeeded,
+                    status = result.status,
                     executedTransformations = result.executedTransformations,
                     skippedOperatorSlots = result.skippedOperatorSlots,
                     errorMessage = result.errorMessage
@@ -277,7 +277,7 @@ class FederatedMutationEvaluator(
                     workerNodeId = batch.nodeId,
                     objectives = emptyList(),
                     constraints = emptyList(),
-                    succeeded = false
+                    status = ResultStatus.SOFT_FAILURE
                 )
             }
             val evaluationFailures = batch.evaluationTasks.map { task ->
@@ -287,7 +287,7 @@ class FederatedMutationEvaluator(
                     workerNodeId = batch.nodeId,
                     objectives = emptyList(),
                     constraints = emptyList(),
-                    succeeded = false
+                    status = ResultStatus.SOFT_FAILURE
                 )
             }
             mutationFailures + evaluationFailures
