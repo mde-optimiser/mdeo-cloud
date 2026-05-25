@@ -70,7 +70,11 @@ class LocalMutationEvaluator(
      * was in progress (i.e., the solution had already been removed from
      * [incomingSerializedModels] but not yet written to [solutions]) gets unblocked
      * promptly instead of waiting for the full 60-second timeout.
+     *
+     * Declared `@Volatile` to guarantee that task-pool threads created before setup
+     * completes always observe the assigned callback rather than a stale null.
      */
+    @Volatile
     var onSolutionMaterialized: ((String) -> Unit)? = null
 
     override fun getNodeIds(): Set<String> = setOf(nodeId)

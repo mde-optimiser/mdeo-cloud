@@ -45,10 +45,12 @@ import kotlinx.serialization.modules.SerializersModule
 import kotlinx.serialization.modules.contextual
 import org.slf4j.LoggerFactory
 import java.util.UUID
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
@@ -459,11 +461,17 @@ class WorkerSubprocessMain : SubprocessMain() {
      * Per-solution arrival signals for push-rebalanced solutions. When a peer subprocess
      * delivers a [SolutionPushRequest] to this node's [WorkerService], the parent injects
      * the model via [SubprocessChannelMessage.SolutionInjected]; this map lets mutation tasks
-     * block on their specific signal until the data arrives. Registered by
-     * [awaitSolutionAvailable] before checking [LocalMutationEvaluator.hasSolution] to
-     * avoid the lost-update race condition.
+     * block on their specific signal until the data arrives.
+     *
+     * A single [CompletableFuture] per solution ID is shared by all concurrent waiters via
+     * [awaitSolutionAvailable]'s [ConcurrentHashMap.computeIfAbsent] registration, so that
+     * [CompletableFuture.complete] unblocks every waiter at once. This prevents the
+     * lost-wakeup that occurred with per-waiter [java.util.concurrent.LinkedBlockingQueue]
+     * entries: when two tasks had the same parent solution ID and both entered
+     * [awaitSolutionAvailable] before the solution arrived, the second registration
+     * overwrote the first's queue, leaving the first task to time out after 60 s.
      */
-    private val incomingSolutionSignals = ConcurrentHashMap<String, LinkedBlockingQueue<Unit>>()
+    private val incomingSolutionSignals = ConcurrentHashMap<String, CompletableFuture<Unit>>()
 
     override fun handleCommand(payload: ByteArray): ByteArray {
         return when (val request = cbor.decodeFromByteArray<WorkerSubprocessRequest>(payload)) {
@@ -491,7 +499,7 @@ class WorkerSubprocessMain : SubprocessMain() {
         evaluator = localEvaluator
         
         localEvaluator.onSolutionMaterialized = { solutionId ->
-            incomingSolutionSignals[solutionId]?.offer(Unit)
+            incomingSolutionSignals[solutionId]?.complete(Unit)
         }
 
         val channel: OrchestratorChannel? = when {
@@ -616,7 +624,7 @@ class WorkerSubprocessMain : SubprocessMain() {
                     val ev = evaluator ?: return
                     val model = cbor.decodeFromByteArray<SerializedModel>(msg.modelBytes)
                     ev.receiveSolution(msg.solutionId, model, msg.failedOperators.toSet())
-                    incomingSolutionSignals[msg.solutionId]?.offer(Unit)
+                    incomingSolutionSignals[msg.solutionId]?.complete(Unit)
                 }
                 else -> {
                     // Ignore messages not directed at the subprocess
@@ -689,28 +697,48 @@ class WorkerSubprocessMain : SubprocessMain() {
     /**
      * Blocks until the solution for [solutionId] arrives in the evaluator, or [timeoutMs] elapses.
      *
-     * Registers a [LinkedBlockingQueue] signal BEFORE checking [LocalMutationEvaluator.hasSolution]
-     * to avoid the lost-update race: if the parent delivers a
-     * [SubprocessChannelMessage.SolutionInjected] between the check and the register,
-     * the offer will complete the queue and the poll returns immediately.
+     * Registers a shared [CompletableFuture] BEFORE checking
+     * [LocalMutationEvaluator.hasSolution] to avoid the lost-update race: if the parent
+     * delivers a [SubprocessChannelMessage.SolutionInjected] between the check and the
+     * register, the [CompletableFuture.complete] call will have already fired and the
+     * [CompletableFuture.get] call returns immediately.
+     *
+     * Multiple tasks that share the same parent [solutionId] (multiple offspring from one
+     * solution per generation) obtain the **same** [CompletableFuture] via
+     * [ConcurrentHashMap.computeIfAbsent], so a single [CompletableFuture.complete] unblocks
+     * all of them simultaneously.
+     *
+     * Signal handlers complete the future **without removing it** first.  Removing before
+     * completing created a gap where a second waiter could call [ConcurrentHashMap.computeIfAbsent]
+     * between the remove and the complete, creating a new uncompleted future that no one
+     * would ever complete (if it was the only waiter for that solution ID).  Leaving the
+     * future in the map until the [finally] block's conditional remove means the complete
+     * always targets the same object that waiters hold.
      *
      * @param solutionId The solution to wait for.
      * @param timeoutMs Maximum wait in milliseconds.
      * @return `true` if the solution arrived within the timeout, `false` otherwise.
      */
     private fun awaitSolutionAvailable(solutionId: String, timeoutMs: Long): Boolean {
-        val signal = LinkedBlockingQueue<Unit>(1)
-        incomingSolutionSignals[solutionId] = signal
-        
-        // Re-check after registering — injection may have arrived between the caller's first check and now
+        val future = incomingSolutionSignals.computeIfAbsent(solutionId) { CompletableFuture() }
+
         if (evaluator?.hasSolution(solutionId) == true) {
-            incomingSolutionSignals.remove(solutionId)
+            incomingSolutionSignals.remove(solutionId, future)
+            future.complete(Unit)
             return true
         }
-        
-        val arrived = signal.poll(timeoutMs, TimeUnit.MILLISECONDS) != null
-        incomingSolutionSignals.remove(solutionId)
-        return arrived
+
+        return try {
+            future.get(timeoutMs, TimeUnit.MILLISECONDS)
+            true
+        } catch (_: TimeoutException) {
+            false
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            false
+        } finally {
+            incomingSolutionSignals.remove(solutionId, future)
+        }
     }
 
     /**
