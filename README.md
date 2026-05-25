@@ -42,7 +42,7 @@ The easiest way to run the platform locally is using Docker Compose. The configu
 ```bash
 cd infra
 # Start the full stack (Workbench, Backend, Langium Services, Execution Nodes, and Databases)
-docker-compose up --build
+docker compose up --build
 ```
 *You can also use `docker-compose-dev.yaml` for a more development-tailored setup.*
 
