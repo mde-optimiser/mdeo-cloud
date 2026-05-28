@@ -26,7 +26,7 @@ variable "image_registry" {
 variable "image_owner" {
   type        = string
   description = "Registry owner/organisation (e.g. 'myorg' → images pulled from ghcr.io/myorg/mdeo-<service>)"
-  default     = "nk-coding"
+  default     = "mde-optimiser"
 }
 
 variable "app_version" {

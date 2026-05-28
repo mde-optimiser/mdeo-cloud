@@ -16,7 +16,7 @@ export class GClassLabelView extends GLabelView {
         return {
             ...super.getClasses(model),
             "font-bold": true,
-            "font-italic": cls?.isAbstract ?? false,
+            italic: cls?.isAbstract ?? false,
             "text-center": true
         };
     }
