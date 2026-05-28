@@ -77,7 +77,7 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
       PLUGIN_BASE_URL: ${PLUGIN_BASE_URL}
       INTERNAL_PLUGIN_BASE_URL: ${INTERNAL_PLUGIN_BASE_URL:-http://workbench:80}
-      DEFAULT_PLUGIN_URLS: ${DEFAULT_PLUGIN_URLS:-http://service-metamodel:3000,http://service-model:3000,http://service-script:3000,http://service-model-transformation:3000,http://service-config:3000,http://service-config-optimization:3000,http://service-config-mdeo:3000}
+      DEFAULT_PLUGIN_URLS: ${DEFAULT_PLUGIN_URLS:-/plugin/metamodel,/plugin/model,/plugin/script,/plugin/model-transformation,/plugin/config,/plugin/config-optimization,/plugin/config-mdeo}
     depends_on:
       postgres-backend:
         condition: service_healthy
@@ -114,8 +114,6 @@ services:
       service-config-optimization:
         condition: service_healthy
       service-config-mdeo:
-        condition: service_healthy
-      optimizer-execution-0:
         condition: service_healthy
     restart: unless-stopped
 
