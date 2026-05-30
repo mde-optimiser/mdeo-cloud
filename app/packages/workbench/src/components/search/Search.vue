@@ -51,7 +51,10 @@
                     @focus="activeElement = fileResult"
                 >
                     <template #content>
-                        <File class="size-4 mr-2" />
+                        <FileTypeIcon
+                            class="size-4 mr-2"
+                            :model-value="languagePluginByExtension.get(getFileExtension(fileResult.resource.path))"
+                        />
                         <span>{{ getFileName(fileResult.resource) }}</span>
                         <span class="ml-2 text-xs opacity-80">{{ getRelativePath(fileResult.resource) }}</span>
                     </template>
@@ -85,7 +88,7 @@
     </div>
 </template>
 <script setup lang="ts">
-import { inject, ref, shallowRef, onActivated, onMounted, onDeactivated, computed } from "vue";
+import { inject, ref, shallowRef, onActivated, onMounted, onDeactivated, computed, watch } from "vue";
 import { Input } from "../ui/input";
 import { Toggle } from "../ui/toggle";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
@@ -97,7 +100,9 @@ import Tree from "@/components/tree/Tree.vue";
 import SidebarPanelHeader from "@/components/sidebar/SidebarPanelHeader.vue";
 import TreeItem from "@/components/tree/TreeItem.vue";
 import ScrollArea from "../ui/scroll-area/ScrollArea.vue";
-import { File, CaseSensitive, WholeWord, Regex } from "lucide-vue-next";
+import { CaseSensitive, WholeWord, Regex } from "lucide-vue-next";
+import { getFileExtension } from "@/data/filesystem/util";
+import FileTypeIcon from "@/components/FileTypeIcon.vue";
 import type { SearchMatch, FileSearchResult } from "./types";
 import {
     createSearchQuery,
@@ -109,7 +114,7 @@ import {
     getPreviewAfter
 } from "./util";
 
-const { monacoApi, project, activeTab } = inject(workbenchStateKey)!;
+const { monacoApi, project, activeTab, languagePluginByExtension } = inject(workbenchStateKey)!;
 
 const searchText = ref("");
 const isCaseSensitive = ref(false);
@@ -231,6 +236,18 @@ watchThrottled([searchText, isCaseSensitive, isWholeWord, isRegex], performSearc
     leading: true,
     trailing: true
 });
+
+watch(
+    () => project.value?.id,
+    () => {
+        searchResults.value = [];
+        expandedItems.value.clear();
+        activeElement.value = undefined;
+        if (shouldPerformSearch.value) {
+            void performSearch();
+        }
+    }
+);
 
 onMounted(() => {
     monacoApi.fileService.onDidRunOperation(() => {

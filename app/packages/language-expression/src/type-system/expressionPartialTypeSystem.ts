@@ -251,6 +251,14 @@ export class ExpressionPartialTypeSystem<Specifics extends TypirLangiumSpecifics
      */
     private registerUnaryExpressionRules(): void {
         this.registerInferenceRule(this.types.unaryExpressionType, (node) => {
+            if (node.expression == undefined) {
+                return {
+                    $problem: this.inferenceProblem,
+                    languageNode: node,
+                    location: `Unary operator '${node.operator}' requires an operand.`,
+                    subProblems: []
+                };
+            }
             const expressionType = this.inference.inferType(node.expression);
             if (Array.isArray(expressionType)) {
                 return expressionType[0];
@@ -284,7 +292,7 @@ export class ExpressionPartialTypeSystem<Specifics extends TypirLangiumSpecifics
 
         this.registerValidationRule(this.types.unaryExpressionType, (node, accept) => {
             const type = this.inference.inferType(node);
-            if (!Array.isArray(type)) {
+            if (!Array.isArray(type) || node.expression == undefined) {
                 return;
             }
             const expressionType = this.inference.inferType(node.expression);

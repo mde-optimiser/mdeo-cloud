@@ -1,16 +1,14 @@
-# Override MDEO_IMAGE_PREFIX to switch registry/owner, for example ghcr.io/your-user.
-# Override MDEO_IMAGE_TAG to pin another published release.
 services:
   postgres-backend:
     image: postgres:17-alpine
     environment:
-      POSTGRES_USER: mdeo
-      POSTGRES_PASSWORD: mdeo
+      POSTGRES_USER: ${BACKEND_DB_USER:-${DATABASE_USER}}
+      POSTGRES_PASSWORD: ${BACKEND_DB_PASSWORD:-${DATABASE_PASSWORD}}
       POSTGRES_DB: mdeo
     volumes:
       - postgres-backend-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mdeo -d mdeo"]
+      test: ["CMD-SHELL", "pg_isready -U ${BACKEND_DB_USER:-${DATABASE_USER}} -d mdeo"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -19,28 +17,28 @@ services:
   postgres-script:
     image: postgres:17-alpine
     environment:
-      POSTGRES_USER: mdeo
-      POSTGRES_PASSWORD: mdeo
+      POSTGRES_USER: ${SCRIPT_DB_USER:-${DATABASE_USER}}
+      POSTGRES_PASSWORD: ${SCRIPT_DB_PASSWORD:-${DATABASE_PASSWORD}}
       POSTGRES_DB: mdeo
     volumes:
       - postgres-script-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mdeo -d mdeo"]
+      test: ["CMD-SHELL", "pg_isready -U ${SCRIPT_DB_USER:-${DATABASE_USER}} -d mdeo"]
       interval: 10s
       timeout: 5s
       retries: 5
     restart: unless-stopped
-
+  
   postgres-model-transformation:
     image: postgres:17-alpine
     environment:
-      POSTGRES_USER: mdeo
-      POSTGRES_PASSWORD: mdeo
+      POSTGRES_USER: ${MODEL_TRANSFORMATION_DB_USER:-${DATABASE_USER}}
+      POSTGRES_PASSWORD: ${MODEL_TRANSFORMATION_DB_PASSWORD:-${DATABASE_PASSWORD}}
       POSTGRES_DB: mdeo
     volumes:
       - postgres-model-transformation-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mdeo -d mdeo"]
+      test: ["CMD-SHELL", "pg_isready -U ${MODEL_TRANSFORMATION_DB_USER:-${DATABASE_USER}} -d mdeo"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -49,13 +47,13 @@ services:
   postgres-optimizer:
     image: postgres:17-alpine
     environment:
-      POSTGRES_USER: mdeo
-      POSTGRES_PASSWORD: mdeo
+      POSTGRES_USER: ${OPTIMIZER_DB_USER:-${DATABASE_USER}}
+      POSTGRES_PASSWORD: ${OPTIMIZER_DB_PASSWORD:-${DATABASE_PASSWORD}}
       POSTGRES_DB: mdeo
     volumes:
       - postgres-optimizer-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mdeo -d mdeo"]
+      test: ["CMD-SHELL", "pg_isready -U ${OPTIMIZER_DB_USER:-${DATABASE_USER}} -d mdeo"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -64,20 +62,20 @@ services:
   backend:
     image: ${MDEO_IMAGE_PREFIX:-ghcr.io/mde-optimiser}/mdeo-backend:${MDEO_IMAGE_TAG:-latest}
     environment:
-      DATABASE_URL: jdbc:postgresql://postgres-backend:5432/mdeo
-      DATABASE_USER: mdeo
-      DATABASE_PASSWORD: mdeo
-      SESSION_MAX_IDLE_SECONDS: 604800
-      SESSION_MAX_ABSOLUTE_SECONDS: 15552000
-      CSRF_ROTATION_SECONDS: 3600
-      COOKIE_SECURE: "false"
-      COOKIE_SAMESITE: "Lax"
-      CORS_ALLOWED_HOSTS: localhost:4242,127.0.0.1:4242
-      ADMIN_USERNAME: admin
-      ADMIN_PASSWORD: admin
-      PLUGIN_BASE_URL: ""
-      INTERNAL_PLUGIN_BASE_URL: "http://workbench:80"
-      DEFAULT_PLUGIN_URLS: "/plugin/metamodel,/plugin/model,/plugin/script,/plugin/model-transformation,/plugin/config,/plugin/config-optimization,/plugin/config-mdeo"
+      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_USER: ${BACKEND_DB_USER:-${DATABASE_USER}}
+      DATABASE_PASSWORD: ${BACKEND_DB_PASSWORD:-${DATABASE_PASSWORD}}
+      SESSION_MAX_IDLE_SECONDS: ${SESSION_MAX_IDLE_SECONDS}
+      SESSION_MAX_ABSOLUTE_SECONDS: ${SESSION_MAX_ABSOLUTE_SECONDS}
+      CSRF_ROTATION_SECONDS: ${CSRF_ROTATION_SECONDS}
+      COOKIE_SECURE: ${COOKIE_SECURE}
+      COOKIE_SAMESITE: ${COOKIE_SAMESITE}
+      CORS_ALLOWED_HOSTS: ${CORS_ALLOWED_HOSTS}
+      ADMIN_USERNAME: ${ADMIN_USERNAME}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      PLUGIN_BASE_URL: ${PLUGIN_BASE_URL}
+      INTERNAL_PLUGIN_BASE_URL: ${INTERNAL_PLUGIN_BASE_URL:-http://workbench:80}
+      DEFAULT_PLUGIN_URLS: ${DEFAULT_PLUGIN_URLS:-http://service-metamodel:3000,http://service-model:3000,http://service-script:3000,http://service-model-transformation:3000,http://service-config:3000,http://service-config-optimization:3000,http://service-config-mdeo:3000}
     depends_on:
       postgres-backend:
         condition: service_healthy
@@ -88,16 +86,16 @@ services:
   workbench:
     image: ${MDEO_IMAGE_PREFIX:-ghcr.io/mde-optimiser}/mdeo-workbench:${MDEO_IMAGE_TAG:-latest}
     environment:
-      PLUGIN_METAMODEL_SERVICE: http://service-metamodel:3000
-      PLUGIN_MODEL_SERVICE: http://service-model:3000
-      PLUGIN_SCRIPT_SERVICE: http://service-script:3000
-      PLUGIN_MODEL_TRANSFORMATION_SERVICE: http://service-model-transformation:3000
-      PLUGIN_CONFIG_SERVICE: http://service-config:3000
-      PLUGIN_CONFIG_OPTIMIZATION_SERVICE: http://service-config-optimization:3000
-      PLUGIN_CONFIG_MDEO_SERVICE: http://service-config-mdeo:3000
-      BACKEND_SERVICE: http://backend:8080
+      PLUGIN_METAMODEL_SERVICE: ${PLUGIN_METAMODEL_SERVICE:-http://service-metamodel:3000}
+      PLUGIN_MODEL_SERVICE: ${PLUGIN_MODEL_SERVICE:-http://service-model:3000}
+      PLUGIN_SCRIPT_SERVICE: ${PLUGIN_SCRIPT_SERVICE:-http://service-script:3000}
+      PLUGIN_MODEL_TRANSFORMATION_SERVICE: ${PLUGIN_MODEL_TRANSFORMATION_SERVICE:-http://service-model-transformation:3000}
+      PLUGIN_CONFIG_SERVICE: ${PLUGIN_CONFIG_SERVICE:-http://service-config:3000}
+      PLUGIN_CONFIG_OPTIMIZATION_SERVICE: ${PLUGIN_CONFIG_OPTIMIZATION_SERVICE:-http://service-config-optimization:3000}
+      PLUGIN_CONFIG_MDEO_SERVICE: ${PLUGIN_CONFIG_MDEO_SERVICE:-http://service-config-mdeo:3000}
+      BACKEND_SERVICE: ${BACKEND_SERVICE:-http://backend:8080}
     ports:
-      - "4242:80"
+      - "80:80"
     depends_on:
       service-metamodel:
         condition: service_healthy
@@ -151,7 +149,7 @@ services:
       PORT: "3000"
       HOST: "0.0.0.0"
       BACKEND_API_URL: "http://backend:8080/api"
-      SCRIPT_EXECUTION_SERVICE_URL: "http://script-execution:8080"
+      SCRIPT_EXECUTION_SERVICE_URL: ${SCRIPT_EXECUTION_SERVICE_URL:-http://script-execution:8080}
       MAX_LANGIUM_INSTANCES: "5"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/"]
@@ -167,7 +165,7 @@ services:
       PORT: "3000"
       HOST: "0.0.0.0"
       BACKEND_API_URL: "http://backend:8080/api"
-      MODEL_TRANSFORMATION_EXECUTION_SERVICE_URL: "http://model-transformation-execution:8080"
+      MODEL_TRANSFORMATION_EXECUTION_SERVICE_URL: ${MODEL_TRANSFORMATION_EXECUTION_SERVICE_URL:-http://model-transformation-execution:8080}
       MAX_LANGIUM_INSTANCES: "5"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/"]
@@ -181,11 +179,11 @@ services:
     image: ${MDEO_IMAGE_PREFIX:-ghcr.io/mde-optimiser}/mdeo-script-execution:${MDEO_IMAGE_TAG:-latest}
     environment:
       SERVER_PORT: "8080"
-      DATABASE_URL: "jdbc:postgresql://postgres-script:5432/mdeo"
-      DATABASE_USER: "mdeo"
-      DATABASE_PASSWORD: "mdeo"
-      BACKEND_API_URL: "http://backend:8080/api"
-      EXECUTION_TIMEOUT_MS: "300000"
+      DATABASE_URL: ${SCRIPT_EXECUTION_DATABASE_URL:-jdbc:postgresql://postgres-script:5432/mdeo}
+      DATABASE_USER: ${SCRIPT_DB_USER:-${DATABASE_USER}}
+      DATABASE_PASSWORD: ${SCRIPT_DB_PASSWORD:-${DATABASE_PASSWORD}}
+      BACKEND_API_URL: ${SCRIPT_EXECUTION_BACKEND_URL:-http://backend:8080}
+      EXECUTION_TIMEOUT_MS: ${EXECUTION_TIMEOUT_MS:-300000}
     depends_on:
       postgres-script:
         condition: service_healthy
@@ -203,11 +201,11 @@ services:
     image: ${MDEO_IMAGE_PREFIX:-ghcr.io/mde-optimiser}/mdeo-model-transformation-execution:${MDEO_IMAGE_TAG:-latest}
     environment:
       SERVER_PORT: "8080"
-      DATABASE_URL: "jdbc:postgresql://postgres-model-transformation:5432/mdeo"
-      DATABASE_USER: "mdeo"
-      DATABASE_PASSWORD: "mdeo"
-      BACKEND_API_URL: "http://backend:8080/api"
-      EXECUTION_TIMEOUT_MS: "300000"
+      DATABASE_URL: ${TRANSFORMATION_EXECUTION_DATABASE_URL:-jdbc:postgresql://postgres-model-transformation:5432/mdeo}
+      DATABASE_USER: ${MODEL_TRANSFORMATION_DB_USER:-${DATABASE_USER}}
+      DATABASE_PASSWORD: ${MODEL_TRANSFORMATION_DB_PASSWORD:-${DATABASE_PASSWORD}}
+      BACKEND_API_URL: ${TRANSFORMATION_EXECUTION_BACKEND_URL:-http://backend:8080}
+      EXECUTION_TIMEOUT_MS: ${EXECUTION_TIMEOUT_MS:-300000}
     depends_on:
       postgres-model-transformation:
         condition: service_healthy
@@ -257,7 +255,7 @@ services:
       PORT: "3000"
       HOST: "0.0.0.0"
       BACKEND_API_URL: "http://backend:8080/api"
-      OPTIMIZER_EXECUTION_SERVICE_URL: "http://optimizer-execution-0:8080"
+      OPTIMIZER_EXECUTION_SERVICE_URL: ${OPTIMIZER_EXECUTION_SERVICE_URL:-http://optimizer-execution-0:8080}
       MAX_LANGIUM_INSTANCES: "5"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/"]
@@ -271,12 +269,12 @@ services:
     image: ${MDEO_IMAGE_PREFIX:-ghcr.io/mde-optimiser}/mdeo-optimizer-execution:${MDEO_IMAGE_TAG:-latest}
     environment:
       SERVER_PORT: "8080"
-      DATABASE_URL: "jdbc:postgresql://postgres-optimizer:5432/mdeo"
-      DATABASE_USER: "mdeo"
-      DATABASE_PASSWORD: "mdeo"
-      BACKEND_API_URL: "http://backend:8080/api"
-      SCRIPT_TIMEOUT_MS: "1000"
-      TRANSFORMATION_TIMEOUT_MS: "1000"
+      DATABASE_URL: ${OPTIMIZER_EXECUTION_DATABASE_URL:-jdbc:postgresql://postgres-optimizer:5432/mdeo}
+      DATABASE_USER: ${OPTIMIZER_DB_USER:-${DATABASE_USER}}
+      DATABASE_PASSWORD: ${OPTIMIZER_DB_PASSWORD:-${DATABASE_PASSWORD}}
+      BACKEND_API_URL: ${OPTIMIZER_EXECUTION_BACKEND_URL:-http://backend:8080}
+      SCRIPT_TIMEOUT_MS: ${SCRIPT_TIMEOUT_MS:-1000}
+      TRANSFORMATION_TIMEOUT_MS: ${TRANSFORMATION_TIMEOUT_MS:-1000}
       NODE_ID: "0"
       PEERS: "http://optimizer-execution-1:8080,http://optimizer-execution-2:8080"
       NODE_URL: "http://optimizer-execution-0:8080"
@@ -298,12 +296,12 @@ services:
     image: ${MDEO_IMAGE_PREFIX:-ghcr.io/mde-optimiser}/mdeo-optimizer-execution:${MDEO_IMAGE_TAG:-latest}
     environment:
       SERVER_PORT: "8080"
-      DATABASE_URL: "jdbc:postgresql://postgres-optimizer:5432/mdeo"
-      DATABASE_USER: "mdeo"
-      DATABASE_PASSWORD: "mdeo"
-      BACKEND_API_URL: "http://backend:8080/api"
-      SCRIPT_TIMEOUT_MS: "1000"
-      TRANSFORMATION_TIMEOUT_MS: "1000"
+      DATABASE_URL: ${OPTIMIZER_EXECUTION_DATABASE_URL:-jdbc:postgresql://postgres-optimizer:5432/mdeo}
+      DATABASE_USER: ${OPTIMIZER_DB_USER:-${DATABASE_USER}}
+      DATABASE_PASSWORD: ${OPTIMIZER_DB_PASSWORD:-${DATABASE_PASSWORD}}
+      BACKEND_API_URL: ${OPTIMIZER_EXECUTION_BACKEND_URL:-http://backend:8080}
+      SCRIPT_TIMEOUT_MS: ${SCRIPT_TIMEOUT_MS:-1000}
+      TRANSFORMATION_TIMEOUT_MS: ${TRANSFORMATION_TIMEOUT_MS:-1000}
       NODE_ID: "1"
       PEERS: "http://optimizer-execution-0:8080,http://optimizer-execution-2:8080"
       NODE_URL: "http://optimizer-execution-1:8080"
@@ -325,12 +323,12 @@ services:
     image: ${MDEO_IMAGE_PREFIX:-ghcr.io/mde-optimiser}/mdeo-optimizer-execution:${MDEO_IMAGE_TAG:-latest}
     environment:
       SERVER_PORT: "8080"
-      DATABASE_URL: "jdbc:postgresql://postgres-optimizer:5432/mdeo"
-      DATABASE_USER: "mdeo"
-      DATABASE_PASSWORD: "mdeo"
-      BACKEND_API_URL: "http://backend:8080/api"
-      SCRIPT_TIMEOUT_MS: "1000"
-      TRANSFORMATION_TIMEOUT_MS: "1000"
+      DATABASE_URL: ${OPTIMIZER_EXECUTION_DATABASE_URL:-jdbc:postgresql://postgres-optimizer:5432/mdeo}
+      DATABASE_USER: ${OPTIMIZER_DB_USER:-${DATABASE_USER}}
+      DATABASE_PASSWORD: ${OPTIMIZER_DB_PASSWORD:-${DATABASE_PASSWORD}}
+      BACKEND_API_URL: ${OPTIMIZER_EXECUTION_BACKEND_URL:-http://backend:8080}
+      SCRIPT_TIMEOUT_MS: ${SCRIPT_TIMEOUT_MS:-1000}
+      TRANSFORMATION_TIMEOUT_MS: ${TRANSFORMATION_TIMEOUT_MS:-1000}
       NODE_ID: "2"
       PEERS: "http://optimizer-execution-0:8080,http://optimizer-execution-1:8080"
       NODE_URL: "http://optimizer-execution-2:8080"

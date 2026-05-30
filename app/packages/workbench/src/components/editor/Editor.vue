@@ -54,7 +54,7 @@
     </div>
 </template>
 <script setup lang="ts">
-import { computed, inject, nextTick, onMounted, shallowRef, useTemplateRef, watch } from "vue";
+import { computed, inject, nextTick, onMounted, onUnmounted, shallowRef, useTemplateRef, watch } from "vue";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "../ui/resizable";
 import { useResizeObserver, watchArray } from "@vueuse/core";
 import * as monacoType from "monaco-editor";
@@ -216,6 +216,11 @@ onMounted(() => {
         }
         return undefined;
     };
+});
+
+onUnmounted(() => {
+    editor.value?.dispose();
+    editor.value = undefined;
 });
 
 const isManagePluginsDialogOpen = shallowRef(false);

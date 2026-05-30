@@ -161,6 +161,10 @@ export class StatementPartialTypeSystem<Specifics extends TypirLangiumSpecifics>
                 return;
             }
 
+            if (node.left == undefined || node.right == undefined) {
+                return;
+            }
+
             const rightType = this.inference.inferType(node.right);
             const leftType = this.inference.inferType(node.left);
             if (Array.isArray(rightType) || Array.isArray(leftType)) {

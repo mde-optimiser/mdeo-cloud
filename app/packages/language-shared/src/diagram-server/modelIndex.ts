@@ -71,7 +71,7 @@ export class GModelIndex extends BaseGModelIndex {
      * @returns the normalized ID
      */
     private normalizeId(id: string): string {
-        const hashIndex = id.indexOf("#");
+        const hashIndex = id.indexOf("__");
         if (hashIndex >= 0) {
             return id.substring(0, hashIndex);
         }

@@ -36,15 +36,34 @@ MDEO Cloud supports multiple custom Domain-Specific Languages (DSLs) built with 
 
 MDEO Cloud is designed to be easily deployable in both local development environments and scalable cloud infrastructures.
 
-### Local Development (Docker Compose)
-The easiest way to run the platform locally is using Docker Compose. The configuration is located in the `infra/` directory.
+### Docker Compose Setups
+Three Docker Compose setups are available in `infra/`, each aimed at a different workflow.
+
+#### Quick Start
+Use `infra/docker-compose.yaml` when you want the fastest local startup from published images with no extra environment configuration. It only exposes the workbench on port `4242`.
 
 ```bash
-cd infra
-# Start the full stack (Workbench, Backend, Langium Services, Execution Nodes, and Databases)
-docker compose up --build
+docker compose up -d
 ```
-*You can also use `docker-compose-dev.yaml` for a more development-tailored setup.*
+
+Override `MDEO_IMAGE_PREFIX` if you publish the images under another registry owner, for example `ghcr.io/your-user`. Override `MDEO_IMAGE_TAG` to pin a different release.
+
+#### Development
+Use `infra/docker-compose-dev.yaml` when you are changing code locally and want Compose to build the containers from the current checkout. This setup also exposes the internal service and database ports that are useful during debugging.
+
+```bash
+docker compose -f infra/docker-compose-dev.yaml up --build
+```
+
+#### Production
+Use `infra/docker-compose-prod.yaml` for a production-style deployment from published images. This setup keeps configuration externalized through environment variables and is intended for managed hosts or VM deployments where you provide a populated env file.
+
+```bash
+cp infra/.env.example infra/.env
+docker compose --env-file infra/.env -f infra/docker-compose-prod.yaml up -d
+```
+
+`docker-compose-prod.yaml` uses the same published image naming scheme as the Kubernetes setup: `${MDEO_IMAGE_PREFIX}/mdeo-<service>:${MDEO_IMAGE_TAG}`.
 
 ### Cloud / Production (Kubernetes)
 For production deployments or scaling the execution nodes (such as spinning up multiple optimizer execution workers), Kubernetes manifests are available.

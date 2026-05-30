@@ -63,6 +63,11 @@ export abstract class BaseModelIdProvider implements ModelIdProvider {
      * @returns The escaped string safe for use in IDs
      */
     static escapeIdPart(s: string): string {
-        return s.replace(/[^a-zA-Z0-9_-]/g, "_");
+        return (
+            s
+                .replace(/[^a-zA-Z0-9_-]/g, "_")
+                .replace(/_+/g, "_")
+                .replace(/^_|_$/g, "") || "unnamed"
+        );
     }
 }
