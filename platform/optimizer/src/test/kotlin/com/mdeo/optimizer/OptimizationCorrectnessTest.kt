@@ -422,7 +422,7 @@ class OptimizationCorrectnessTest {
             evaluator = evaluator
         )
 
-        val result = runBlocking { orchestrator.run() }
+        val result = runBlocking { orchestrator.run().single() }
 
         val finalSolutions = result.getFinalSolutions()
         assertFalse(finalSolutions.isEmpty(), "Optimizer must produce at least one solution")
@@ -522,7 +522,7 @@ class OptimizationCorrectnessTest {
             evaluator = evaluator
         )
 
-        val result = runBlocking { orchestrator.run() }
+        val result = runBlocking { orchestrator.run().single() }
 
         val population = result.getRawPopulation()
         assertFalse(population.isEmpty, "Must have at least one final solution")

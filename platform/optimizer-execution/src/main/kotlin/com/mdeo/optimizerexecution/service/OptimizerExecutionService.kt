@@ -61,7 +61,6 @@ import java.util.*
 import kotlin.uuid.Uuid
 import kotlin.uuid.toJavaUuid
 import kotlin.uuid.toKotlinUuid
-import kotlin.time.measureTimedValue
 
 
 /**
@@ -133,9 +132,9 @@ class OptimizerExecutionService(
          */
         private const val MAX_PATH_LENGTH = 1000
         /**
-         * Directory prefix for result files stored under an execution. 
+         * Directory prefix for auto-generated mutation transformation files.
          */
-        private const val RESULTS_DIR = "results"
+        private const val GENERATED_MUTATIONS_DIR = "generated-mutations"
         /**
          * File path for the markdown summary stored alongside solution files. 
          */
@@ -161,6 +160,17 @@ class OptimizerExecutionService(
          */
         private const val PROGRESS_UPDATE_INTERVAL_MS = 100L
     }
+
+    /**
+     * Persistable artifacts produced by one optimization batch.
+     */
+    private data class BatchResultArtifacts(
+        val batchIndex: Int,
+        val durationMs: Long,
+        val solutions: List<SolutionResult>,
+        val metrics: OptimizationMetricsCollector,
+        val solutionModelJsons: List<String>
+    )
 
     /**
      * Creates a new execution record and launches the optimization in a background coroutine.
@@ -253,17 +263,35 @@ class OptimizerExecutionService(
         return withContext(Dispatchers.IO) {
             findExecution(executionId) ?: return@withContext null
 
-            val files = transaction {
+            val filePaths = transaction {
                 OptimizerResultFilesTable.selectAll()
                     .where { OptimizerResultFilesTable.executionId eq executionId.toKotlinUuid() }
-                    .map { row ->
-                        FileEntry(row[OptimizerResultFilesTable.filePath], FileEntry.TYPE_FILE)
-                    }
-                    .filter { it.name != SUMMARY_FILE }
+                    .map { row -> row[OptimizerResultFilesTable.filePath] }
+                    .filter { it != SUMMARY_FILE }
             }
 
-            if (path.isNullOrBlank()) files
-            else files.filter { it.name.startsWith(path) }
+            val entriesByPath = linkedMapOf<String, Int>()
+            for (filePath in filePaths) {
+                val parts = filePath.split('/').filter { it.isNotEmpty() }
+                for (i in 1 until parts.size) {
+                    val dirPath = parts.take(i).joinToString("/")
+                    entriesByPath.putIfAbsent(dirPath, FileEntry.TYPE_DIRECTORY)
+                }
+                entriesByPath[filePath] = FileEntry.TYPE_FILE
+            }
+
+            val allEntries = entriesByPath.entries
+                .sortedWith(compareBy<Map.Entry<String, Int>>({ it.key }, { it.value }))
+                .map { (name, type) -> FileEntry(name, type) }
+
+            if (path.isNullOrBlank()) {
+                allEntries
+            } else {
+                val normalized = path.trim('/')
+                allEntries.filter { entry ->
+                    entry.name == normalized || entry.name.startsWith("$normalized/")
+                }
+            }
         }
     }
 
@@ -324,6 +352,7 @@ class OptimizerExecutionService(
             executionId, projectId, config.search.mutations.usingPaths, jwtToken
         ) ?: return
 
+        val generatedMutations = LinkedHashMap<String, TransformationTypedAst>()
         val transformations: Map<String, TransformationTypedAst> =
             if (config.search.mutations.generate.isNotEmpty()) {
                 val generated = MutationRuleGenerator.generate(
@@ -339,7 +368,10 @@ class OptimizerExecutionService(
                     "Auto-generated ${generated.size} mutation rule(s)...", jwtToken
                 )
                 val merged = LinkedHashMap<String, TransformationTypedAst>()
-                generated.forEach { m -> merged[m.name] = m.typedAst }
+                generated.forEach { m ->
+                    generatedMutations[m.name] = m.typedAst
+                    merged[m.name] = m.typedAst
+                }
                 merged.putAll(fetchedTransformations)
                 merged
             } else {
@@ -363,7 +395,7 @@ class OptimizerExecutionService(
             "Running federated ${config.solver.algorithm} optimizer across ${federated.workerCount} nodes...",
             jwtToken
         )
-        runWithEvaluator(executionId, config, metamodel, federated, jwtToken)
+        runWithEvaluator(executionId, config, metamodel, federated, generatedMutations, jwtToken)
     }
 
     /**
@@ -387,6 +419,7 @@ class OptimizerExecutionService(
         config: OptimizationConfig,
         metamodel: Metamodel,
         evaluator: MutationEvaluator,
+        generatedMutations: Map<String, TransformationTypedAst>,
         jwtToken: String
     ) {
         val orchestrator = OptimizationOrchestrator(config = config, evaluator = evaluator)
@@ -394,9 +427,11 @@ class OptimizerExecutionService(
         var lastProgressUpdateTime = System.currentTimeMillis()
         var lastCancelCheckTime = lastProgressUpdateTime
         try {
-            val (result, duration) = try {
-                measureTimedValue {
-                    orchestrator.run { generation ->
+            val batchResults = mutableListOf<BatchResultArtifacts>()
+            val totalBatches = config.solver.batches.coerceAtLeast(1)
+            try {
+                orchestrator.run(
+                    onGenerationComplete = { generation ->
                         val now = System.currentTimeMillis()
                         if (now - lastProgressUpdateTime >= PROGRESS_UPDATE_INTERVAL_MS) {
                             lastProgressUpdateTime = now
@@ -413,8 +448,24 @@ class OptimizerExecutionService(
                             lastCancelCheckTime = now
                             checkCancelled(executionId)
                         }
+                    },
+                    onBatchComplete = { batchIndex, result, durationMs ->
+                        val normalizedSolutions = normalizeSolutions(config, result.getFinalSolutions())
+                        val modelJsons = loadSolutionModels(result, evaluator, metamodel)
+                        batchResults += BatchResultArtifacts(
+                            batchIndex = batchIndex,
+                            durationMs = durationMs,
+                            solutions = normalizedSolutions,
+                            metrics = result.getMetrics(),
+                            solutionModelJsons = modelJsons
+                        )
+                        updateProgress(
+                            executionId,
+                            "Completed batch $batchIndex/$totalBatches",
+                            jwtToken
+                        )
                     }
-                }
+                )
             } catch (e: CancellationException) {
                 logger.info("Optimizer execution $executionId stopped: ${e.message}")
                 return
@@ -425,11 +476,44 @@ class OptimizerExecutionService(
                 return
             }
 
-            storeResults(executionId, config, result, metamodel, evaluator, duration.inWholeMilliseconds)
+            storeResults(executionId, config, batchResults, generatedMutations, evaluator)
             updateState(executionId, ExecutionState.COMPLETED, "Completed successfully", jwtToken)
             logger.info("Optimizer execution $executionId completed")
         } finally {
             evaluator.cleanup()
+        }
+    }
+
+    /**
+     * Normalizes objective signs based on configured tendency (MINIMIZE/MAXIMIZE).
+     */
+    private fun normalizeSolutions(
+        config: OptimizationConfig,
+        rawSolutions: List<SolutionResult>
+    ): List<SolutionResult> {
+        val objectiveTendencies = config.goal.objectives.map { it.type }
+        return rawSolutions.map { sol ->
+            sol.copy(objectives = sol.objectives.mapIndexed { i, value ->
+                if (objectiveTendencies.getOrNull(i) == ObjectiveTendency.MAXIMIZE) -value else value
+            })
+        }
+    }
+
+    /**
+     * Loads model JSON payloads for all Pareto-front solutions from the evaluator.
+     */
+    private suspend fun loadSolutionModels(
+        result: SearchResult,
+        evaluator: MutationEvaluator,
+        metamodel: Metamodel
+    ): List<String> {
+        val refs = result.getRawPopulation().mapNotNull { it.getWorkerRef() }
+        if (refs.isEmpty()) {
+            return emptyList()
+        }
+        return refs.map { ref ->
+            val modelData = evaluator.getSolutionData(ref).toModelData(metamodel)
+            json.encodeToString(modelData)
         }
     }
 
@@ -626,45 +710,24 @@ class OptimizerExecutionService(
 
 
     /**
-     * Fetches solution model data from the evaluator and persists the results.
+     * Persists summary and per-batch result artifacts.
      *
-     * For each MOEA solution in the final population, the [WorkerSolutionRef] attribute
-     * is used to retrieve the full model data from the owning evaluator (local or federated).
-     * Results are stored alongside a markdown summary in the result-files table.
-     *
-     * @param executionId The execution whose results are being stored.
-     * @param config The optimization configuration (used to resolve backend and resources).
-     * @param result The [SearchResult] from the completed algorithm.
-     * @param metamodel The metamodel used to reconstruct solution model data.
-     * @param evaluator The mutation evaluator used to fetch solution model data.
+     * Layout:
+     * - `summary.md` (aggregated over all batches)
+    * - `batch_{n}/report.json`
+    * - `batch_{n}/solution_{i}.m_gen`
+    * - `generated-mutations/{rule}.mt_gen` (for auto-generated mutations only)
      */
-    private suspend fun storeResults(
+    private fun storeResults(
         executionId: UUID,
         config: OptimizationConfig,
-        result: SearchResult,
-        metamodel: Metamodel,
-        evaluator: MutationEvaluator,
-        durationMs: Long
+        batchResults: List<BatchResultArtifacts>,
+        generatedMutations: Map<String, TransformationTypedAst>,
+        evaluator: MutationEvaluator
     ) {
-        val rawSolutions = result.getFinalSolutions()
-        val objectiveTendencies = config.goal.objectives.map { it.type }
-        val solutions = rawSolutions.map { sol ->
-            sol.copy(objectives = sol.objectives.mapIndexed { i, v ->
-                if (objectiveTendencies.getOrNull(i) == ObjectiveTendency.MAXIMIZE) -v else v
-            })
-        }
         val backend = config.runtime.backend ?: GraphBackendType.MDEO
-        val nodeThreadCounts = (evaluator as FederatedMutationEvaluator).getWorkerThreadCounts()
-        val summaryContent = buildResultSummary(solutions, result.getMetrics(), nodeThreadCounts, backend)
-
-        val moeaSolutions = result.getRawPopulation().toList()
-        val solutionModelJsons = moeaSolutions.mapNotNull { sol ->
-            val ref = sol.getWorkerRef() ?: return@mapNotNull null
-            val modelData = evaluator.getSolutionData(ref).toModelData(metamodel)
-            json.encodeToString(modelData)
-        }
-
-        val reportContent = buildJsonReport(solutions, result.getMetrics(), durationMs)
+        val nodeThreadCounts = (evaluator as? FederatedMutationEvaluator)?.getWorkerThreadCounts() ?: emptyMap()
+        val summaryContent = buildResultSummary(batchResults, nodeThreadCounts, backend)
 
         transaction {
             OptimizerResultFilesTable.insert {
@@ -675,24 +738,56 @@ class OptimizerExecutionService(
                 it[mimeType] = MIME_TYPE_MARKDOWN
             }
 
-            OptimizerResultFilesTable.insert {
-                it[id] = Uuid.random()
-                it[OptimizerResultFilesTable.executionId] = executionId.toKotlinUuid()
-                it[filePath] = REPORT_FILE
-                it[content] = reportContent
-                it[mimeType] = MIME_TYPE_JSON
-            }
-
-            solutionModelJsons.forEachIndexed { index, jsonContent ->
+            batchResults.sortedBy { it.batchIndex }.forEach { batch ->
+                val batchDir = "batch_${batch.batchIndex}"
+                val reportContent = buildJsonReport(batch)
                 OptimizerResultFilesTable.insert {
                     it[id] = Uuid.random()
                     it[OptimizerResultFilesTable.executionId] = executionId.toKotlinUuid()
-                    it[filePath] = "$RESULTS_DIR/solution_$index.m_gen"
-                    it[content] = jsonContent
+                    it[filePath] = "$batchDir/$REPORT_FILE"
+                    it[content] = reportContent
+                    it[mimeType] = MIME_TYPE_JSON
+                }
+
+                batch.solutionModelJsons.forEachIndexed { index, jsonContent ->
+                    OptimizerResultFilesTable.insert {
+                        it[id] = Uuid.random()
+                        it[OptimizerResultFilesTable.executionId] = executionId.toKotlinUuid()
+                        it[filePath] = "$batchDir/solution_$index.m_gen"
+                        it[content] = jsonContent
+                        it[mimeType] = MIME_TYPE_JSON
+                    }
+                }
+            }
+
+            val usedFileNames = mutableSetOf<String>()
+            generatedMutations.entries.forEach { (name, ast) ->
+                val base = sanitizeFileName(name)
+                var candidate = "$base.mt_gen"
+                var counter = 1
+                while (!usedFileNames.add(candidate)) {
+                    candidate = "${base}_$counter.mt_gen"
+                    counter++
+                }
+                val path = "$GENERATED_MUTATIONS_DIR/$candidate"
+                val mutationContent = transformationJson.encodeToString(TransformationTypedAst.serializer(), ast)
+                OptimizerResultFilesTable.insert {
+                    it[id] = Uuid.random()
+                    it[OptimizerResultFilesTable.executionId] = executionId.toKotlinUuid()
+                    it[filePath] = path
+                    it[content] = mutationContent
                     it[mimeType] = MIME_TYPE_JSON
                 }
             }
         }
+    }
+
+    /**
+     * Converts a rule name into a filesystem-safe filename stem.
+     */
+    private fun sanitizeFileName(name: String): String {
+        val sanitized = name.replace(Regex("[^A-Za-z0-9._-]"), "_")
+        return sanitized.ifBlank { "mutation" }
     }
 
 
@@ -842,34 +937,13 @@ class OptimizerExecutionService(
      * @return Markdown-formatted summary string.
      */
     private fun buildResultSummary(
-        solutions: List<com.mdeo.optimizer.moea.SolutionResult>,
-        metricsCollector: OptimizationMetricsCollector,
+        batchResults: List<BatchResultArtifacts>,
         nodeThreadCounts: Map<String, Int>,
         backend: GraphBackendType
     ): String {
         return buildString {
             append("## Optimization Results\n\n")
-            append("**Solutions found:** ${solutions.size}\n\n")
-
-            if (solutions.isNotEmpty()) {
-                append("### Pareto Front\n\n")
-                append("| Solution | Objectives | Constraints |\n")
-                append("|----------|-----------|-------------|\n")
-                solutions.forEachIndexed { index, sol ->
-                    val objStr = sol.objectives.joinToString(", ") { "%.4f".format(it) }
-                    val conStr = if (sol.constraints.isEmpty()) {
-                        "—"
-                    } else {
-                        sol.constraints.joinToString(", ") { "%.4f".format(it) }
-                    }
-                    append("| $index | $objStr | $conStr |\n")
-                }
-
-                append("\n### Solution Models\n\n")
-                solutions.indices.forEach { index ->
-                    append("![Solution $index]($RESULTS_DIR/solution_$index.m_gen)\n")
-                }
-            }
+            append("**Batches executed:** ${batchResults.size}\n\n")
 
             append("\n### Execution Resources\n\n")
             append("- **Backend:** ${backend.name}\n")
@@ -880,76 +954,116 @@ class OptimizerExecutionService(
                 }
             append("\n")
 
-            val generations = metricsCollector.generations
-            if (generations.isNotEmpty()) {
-                append("\n### Metrics\n\n")
+            batchResults.sortedBy { it.batchIndex }.forEach { batch ->
+                append("\n### Batch ${batch.batchIndex}\n\n")
+                append("- **Duration:** ${batch.durationMs} ms\n")
+                append("- **Solutions found:** ${batch.solutions.size}\n\n")
 
-                append("#### Total Models\n\n")
+                if (batch.solutions.isNotEmpty()) {
+                    append("#### Pareto Front\n\n")
+                    append("| Solution | Objectives | Constraints |\n")
+                    append("|----------|-----------|-------------|\n")
+                    batch.solutions.forEachIndexed { index, solution ->
+                        val objStr = solution.objectives.joinToString(", ") { "%.4f".format(it) }
+                        val conStr = if (solution.constraints.isEmpty()) {
+                            "—"
+                        } else {
+                            solution.constraints.joinToString(", ") { "%.4f".format(it) }
+                        }
+                        append("| $index | $objStr | $conStr |\n")
+                    }
+                    append("\n")
+                }
+
+                if (batch.batchIndex == 1 && batch.solutionModelJsons.isNotEmpty()) {
+                    append("#### Solution Models\n\n")
+                    batch.solutionModelJsons.indices.forEach { index ->
+                        append("![Solution $index](batch_${batch.batchIndex}/solution_$index.m_gen)\n")
+                    }
+                    append("\n")
+                }
+
+                append(buildMetricsSummary(batch.metrics))
+            }
+        }
+    }
+
+    /**
+     * Renders all metric plots for one batch.
+     */
+    private fun buildMetricsSummary(metricsCollector: OptimizationMetricsCollector): String {
+        val generations = metricsCollector.generations
+        if (generations.isEmpty()) {
+            return ""
+        }
+        return buildString {
+            append("#### Metrics\n\n")
+
+            append("##### Total Models\n\n")
+            append(buildPlotBlock(
+                xTitle = "Generation",
+                yTitle = "Models",
+                traces = listOf(
+                    PlotTrace("Total", generations.map { it.generation }, generations.map { it.totalModels })
+                )
+            ))
+
+            append("##### Transformations per Generation\n\n")
+            append(buildPlotBlock(
+                xTitle = "Generation",
+                yTitle = "Transformations",
+                traces = listOf(
+                    PlotTrace("Executed", generations.map { it.generation }, generations.map { it.executedTransformations }),
+                    PlotTrace("Skipped", generations.map { it.generation }, generations.map { it.skippedOperatorSlots })
+                ),
+                stackedBars = true
+            ))
+
+            append("##### Iteration Time\n\n")
+            append(buildPlotBlock(
+                xTitle = "Generation",
+                yTitle = "Time (ms)",
+                traces = listOf(
+                    PlotTrace("Time", generations.map { it.generation }, generations.map { it.iterationTimeMs })
+                )
+            ))
+
+            append("##### Rebalanced Solutions per Generation\n\n")
+            append(buildPlotBlock(
+                xTitle = "Generation",
+                yTitle = "Solutions transferred",
+                traces = listOf(
+                    PlotTrace("Rebalanced", generations.map { it.generation }, generations.map { it.rebalancedSolutions })
+                )
+            ))
+
+            val allNodeIds = generations.flatMap { it.perNode.keys }.toSortedSet()
+            if (allNodeIds.size > 1) {
+                append("##### Total Models per Node\n\n")
                 append(buildPlotBlock(
                     xTitle = "Generation",
                     yTitle = "Models",
-                    traces = listOf(
-                        PlotTrace("Total", generations.map { it.generation }, generations.map { it.totalModels })
-                    )
+                    traces = allNodeIds.map { nodeId ->
+                        PlotTrace(
+                            "Node $nodeId",
+                            generations.map { it.generation },
+                            generations.map { it.perNode[nodeId]?.totalModels ?: 0 }
+                        )
+                    }
                 ))
 
-                append("#### Transformations per Generation\n\n")
+                append("##### Transformations per Generation per Node\n\n")
                 append(buildPlotBlock(
                     xTitle = "Generation",
                     yTitle = "Transformations",
-                    traces = listOf(
-                        PlotTrace("Executed", generations.map { it.generation }, generations.map { it.executedTransformations }),
-                        PlotTrace("Skipped", generations.map { it.generation }, generations.map { it.skippedOperatorSlots })
-                    ),
-                    stackedBars = true
+                    traces = allNodeIds.map { nodeId ->
+                        PlotTrace(
+                            "Node $nodeId",
+                            generations.map { it.generation },
+                            generations.map { it.perNode[nodeId]?.executedTransformations ?: 0 }
+                        )
+                    }
                 ))
-
-                append("#### Iteration Time\n\n")
-                append(buildPlotBlock(
-                    xTitle = "Generation",
-                    yTitle = "Time (ms)",
-                    traces = listOf(
-                        PlotTrace("Time", generations.map { it.generation }, generations.map { it.iterationTimeMs })
-                    )
-                ))
-
-                append("#### Rebalanced Solutions per Generation\n\n")
-                append(buildPlotBlock(
-                    xTitle = "Generation",
-                    yTitle = "Solutions transferred",
-                    traces = listOf(
-                        PlotTrace("Rebalanced", generations.map { it.generation }, generations.map { it.rebalancedSolutions })
-                    )
-                ))
-
-                val allNodeIds = generations.flatMap { it.perNode.keys }.toSortedSet()
-                if (allNodeIds.size > 1) {
-                    append("#### Total Models per Node\n\n")
-                    append(buildPlotBlock(
-                        xTitle = "Generation",
-                        yTitle = "Models",
-                        traces = allNodeIds.map { nodeId ->
-                            PlotTrace(
-                                "Node $nodeId",
-                                generations.map { it.generation },
-                                generations.map { it.perNode[nodeId]?.totalModels ?: 0 }
-                            )
-                        }
-                    ))
-
-                    append("#### Transformations per Generation per Node\n\n")
-                    append(buildPlotBlock(
-                        xTitle = "Generation",
-                        yTitle = "Transformations",
-                        traces = allNodeIds.map { nodeId ->
-                            PlotTrace(
-                                "Node $nodeId",
-                                generations.map { it.generation },
-                                generations.map { it.perNode[nodeId]?.executedTransformations ?: 0 }
-                            )
-                        }
-                    ))
-                }
             }
         }
     }
@@ -962,17 +1076,14 @@ class OptimizerExecutionService(
      * @param durationMs Wall-clock duration of the optimization in milliseconds.
      * @return JSON string representing the report.
      */
-    private fun buildJsonReport(
-        solutions: List<SolutionResult>,
-        metricsCollector: OptimizationMetricsCollector,
-        durationMs: Long
-    ): String {
+    private fun buildJsonReport(batch: BatchResultArtifacts): String {
         val report = buildJsonObject {
-            put("durationMs", durationMs)
+            put("batch", batch.batchIndex)
+            put("durationMs", batch.durationMs)
             putJsonArray("paretoFront") {
-                solutions.forEachIndexed { index, sol ->
+                batch.solutions.forEachIndexed { index, sol ->
                     addJsonObject {
-                        put("path", "$RESULTS_DIR/solution_$index.m_gen")
+                        put("path", "batch_${batch.batchIndex}/solution_$index.m_gen")
                         putJsonArray("objectives") { sol.objectives.forEach { add(it) } }
                         putJsonArray("constraints") { sol.constraints.forEach { add(it) } }
                     }
@@ -980,7 +1091,7 @@ class OptimizerExecutionService(
             }
             putJsonObject("graphData") {
                 putJsonArray("generations") {
-                    metricsCollector.generations.forEach { gen ->
+                    batch.metrics.generations.forEach { gen ->
                         addJsonObject {
                             put("generation", gen.generation)
                             put("totalModels", gen.totalModels)

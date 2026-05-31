@@ -94,6 +94,19 @@ interface MutationEvaluator {
     }
 
     /**
+     * Resets all per-batch state so that this evaluator is ready to generate and
+     * evaluate a completely fresh initial population for the next batch.
+     *
+     * For local evaluators this discards all currently stored solutions.
+     * For federated evaluators this terminates the worker subprocesses so that
+     * the next [initialize] call starts them from scratch without stale solution IDs.
+     *
+     * The default implementation is a no-op (suitable for evaluators that are
+     * stateless between batches).
+     */
+    suspend fun resetBatch() {}
+
+    /**
      * Releases all resources held by this evaluator.
      *
      * After this call the evaluator must not be used again.

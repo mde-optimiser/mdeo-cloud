@@ -130,7 +130,7 @@ class SpecsGenerator {
         result: MutableMap<String, MutableList<RepairSpec>>
     ) {
         for (ref in refs) {
-            val type = edgeRepairType(ref)
+            val type = edgeRepairType(ref, isRemove = false)
             result.getOrPut("ADD") { mutableListOf() }
                 .add(RepairSpec(className, ref.refName, type))
         }
@@ -142,7 +142,7 @@ class SpecsGenerator {
         result: MutableMap<String, MutableList<RepairSpec>>
     ) {
         for (ref in refs) {
-            val type = edgeRepairType(ref)
+            val type = edgeRepairType(ref, isRemove = true)
             result.getOrPut("REMOVE") { mutableListOf() }
                 .add(RepairSpec(className, ref.refName, type))
         }
@@ -152,11 +152,11 @@ class SpecsGenerator {
      * Chooses the repair type for an edge operation (both ADD and REMOVE follow the same logic):
      * - Fixed cardinality (`lower == upper`) → [RepairSpecType.SWAP]
      * - Opposite requires exactly one back-link (`opposite.lower == 1`) → [RepairSpecType.CHANGE]
-     * - Everything else → [RepairSpecType.ADD] (or REMOVE; callers use this for both directions)
+     * - Everything else → [RepairSpecType.ADD] for add, [RepairSpecType.REMOVE] for remove
      */
-    private fun edgeRepairType(ref: ReferenceInfo): RepairSpecType = when {
+    private fun edgeRepairType(ref: ReferenceInfo, isRemove: Boolean): RepairSpecType = when {
         ref.lower == ref.upper -> RepairSpecType.SWAP
         ref.opposite?.lower == 1 -> RepairSpecType.CHANGE
-        else -> RepairSpecType.ADD
+        else -> if (isRemove) RepairSpecType.REMOVE else RepairSpecType.ADD
     }
 }

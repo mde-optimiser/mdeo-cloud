@@ -290,6 +290,5 @@ export const mdeoRequestHandler: RequestHandler<
             response.runtime = extractRuntimeData(section.content as RuntimeSectionType);
         }
     }
-
     return { data: response, ...context.serverApi.getTrackedRequests() };
 };

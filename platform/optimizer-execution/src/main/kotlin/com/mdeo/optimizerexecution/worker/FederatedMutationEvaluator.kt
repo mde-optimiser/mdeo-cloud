@@ -168,6 +168,30 @@ class FederatedMutationEvaluator(
     }
 
     /**
+     * Terminates all current worker subprocesses and clears ephemeral per-batch state,
+     * making this evaluator ready for a fresh [initialize] call in the next batch.
+     *
+     * This must be called AFTER solution data for the completed batch has been retrieved
+     * (e.g. via [getSolutionData]) and BEFORE the next batch's [initialize], so that
+     * new subprocesses start with a clean slate and do not receive stale solution IDs.
+     */
+    override suspend fun resetBatch() {
+        coroutineScope {
+            workers.map { worker ->
+                async {
+                    try {
+                        worker.cleanup(executionId)
+                    } catch (_: Exception) {
+                        // best-effort — subprocess may have already exited
+                    }
+                }
+            }.awaitAll()
+        }
+        pendingRelocations.clear()
+        workerThreadCounts.clear()
+    }
+
+    /**
      * Cleans up the execution on all workers and closes the underlying HTTP clients.
      *
      * After this call the evaluator must not be used again.

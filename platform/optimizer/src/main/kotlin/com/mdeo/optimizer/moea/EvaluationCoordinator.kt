@@ -138,6 +138,30 @@ class EvaluationCoordinator(
     fun getAllKnownRefs(): Set<WorkerSolutionRef> = allKnownRefs.toSet()
 
     /**
+     * Resets all tracking state so this coordinator is ready to manage a fresh batch.
+     *
+     * Clears the live-reference set, any queued discards, pending rebalance plans,
+     * and all cached per-generation metrics.  After this call [prepareIteration] and
+     * [batchEvaluateAndUpdate] behave exactly as they would for a brand-new coordinator.
+     *
+     * Must be called AFTER [MutationEvaluator.resetBatch] has been invoked (so that
+     * stale solution IDs are never sent as discards to the freshly-started workers).
+     */
+    fun reset() {
+        allKnownRefs.clear()
+        pendingDiscards.clear()
+        pendingRebalancePlan = emptyList()
+        iterationPopulation = null
+        lastBatchSize = 0
+        lastBatchPerNode = emptyMap()
+        lastRebalancedCount = 0
+        lastAppliedTransformations = 0
+        lastSkippedOperatorSlots = 0
+        lastAppliedPerNode = emptyMap()
+        lastSkippedPerNode = emptyMap()
+    }
+
+    /**
      * Returns the total number of live solutions and a per-node breakdown.
      *
      * @return Pair of (total count, per-nodeId count map).

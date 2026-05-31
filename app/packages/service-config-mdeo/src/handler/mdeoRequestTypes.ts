@@ -1,6 +1,6 @@
 /**
  * Data for a class mutation (create/delete/mutate).
- * Informational only; not forwarded to the optimizer backend.
+ * Converted to MutationRuleSpec generate entries when building the optimizer execution request.
  */
 export interface ClassMutationData {
     operator: "create" | "delete" | "mutate";
@@ -9,7 +9,7 @@ export interface ClassMutationData {
 
 /**
  * Data for an edge mutation (add/remove/mutate).
- * Informational only; not forwarded to the optimizer backend.
+ * Converted to MutationRuleSpec generate entries when building the optimizer execution request.
  */
 export interface EdgeMutationData {
     operator: "add" | "remove" | "mutate";

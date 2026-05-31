@@ -221,6 +221,17 @@ class MutationRuleGeneratorTest {
         }
 
         @Test
+        fun `REMOVE action on Room windows produces REMOVE repair type`() {
+            val spec = MutationRuleSpec("Room", edge = "windows", action = MutationAction.REMOVE)
+            val result = generator.getRepairsForRuleSpec(spec, info)
+
+            val removeSpecs = result["REMOVE"] ?: emptyList()
+            assertEquals(1, removeSpecs.size)
+            assertEquals(RepairSpecType.REMOVE, removeSpecs.first().type)
+            assertEquals("windows", removeSpecs.first().edgeName)
+        }
+
+        @Test
         fun `reference with lower=1 upper=3 and bounded opposite produces CREATE_LB_REPAIR`() {
             // Build a local metamodel with a reference that has lower!=upper and bounded opposite
             val garageClass = ClassData(name = "Garage", isAbstract = false)
@@ -537,8 +548,9 @@ class MutationRuleGeneratorTest {
                 assertTrue(m.typedAst.statements.isNotEmpty(), "Rule '${m.name}' has no statements")
                 val stmt = m.typedAst.statements[0] as TypedMatchStatement
                 val links = stmt.pattern.elements.filterIsInstance<TypedPatternLinkElement>()
-                val linkRef = links.first().link.source.propertyName
-                assertEquals("house", linkRef, "Link should use the 'house' reference name")
+                val link = links.first().link
+                assertEquals("rooms", link.source.propertyName, "Link source should use canonical source-end property")
+                assertEquals("house", link.target.propertyName, "Link target should use canonical target-end property")
             }
         }
     }
@@ -1357,6 +1369,141 @@ class MutationRuleGeneratorTest {
             val links = stmt.pattern.elements.filterIsInstance<TypedPatternLinkElement>()
             val guardLinks = links.filter { it.link.modifier == null }
             assertEquals(2, guardLinks.size, "Expected two guard link match elements")
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Link direction correctness for forward vs. reverse references
+    // -------------------------------------------------------------------------
+
+    /**
+     * Tests that generated TypedPatternLinks always carry both property names
+     * (source end and target end of the metamodel association) and that the link is
+     * always emitted in the canonical metamodel direction regardless of whether
+     * the MutationRuleSpec names the forward or the reverse end.
+     *
+     * The reference association used throughout this suite is:
+     *   Item.knapsack <--> Knapsack.items [0..*]
+     * stored as assoc.source = Item/knapsack and assoc.target = Knapsack/items.
+     *
+     * Bug: MutationAstBuilder previously always set target.propertyName = null,
+     * producing an edge label that never matched any graph edge.
+     */
+    @Nested
+    inner class LinkDirectionTests {
+
+        private val knapsackClass = ClassData(name = "Knapsack", isAbstract = false)
+        private val itemClass     = ClassData(name = "Item",     isAbstract = false)
+
+        private val itemKnapsackAssoc = AssociationData(
+            source   = AssociationEndData("Item",     "knapsack", MultiplicityData(lower = 1, upper = 1)),
+            operator = "<-->",
+            target   = AssociationEndData("Knapsack", "items",    MultiplicityData(lower = 0, upper = -1))
+        )
+
+        private val knapsackMeta = MetamodelData(
+            path         = "/project/knapsack.mm",
+            classes      = listOf(knapsackClass, itemClass),
+            associations = listOf(itemKnapsackAssoc)
+        )
+
+        private val info   = MetamodelInfo(knapsackMeta)
+        private val mmPath = "/project/knapsack.mm"
+
+        private fun linksOf(spec: RepairSpec): List<TypedPatternLinkElement> {
+            val ast  = MutationAstBuilder.build(spec.edgeName ?: "rule", spec, mmPath, info)
+            val stmt = ast.statements[0] as TypedMatchStatement
+            return stmt.pattern.elements.filterIsInstance<TypedPatternLinkElement>()
+        }
+
+        @Test
+        fun `forward ref Item knapsack links have both property names set`() {
+            val links = linksOf(RepairSpec("Item", "knapsack", RepairSpecType.CHANGE))
+            assertTrue(links.isNotEmpty())
+            for (link in links) {
+                assertNotNull(link.link.source.propertyName, "source.propertyName null (modifier=${link.link.modifier})")
+                assertNotNull(link.link.target.propertyName, "target.propertyName null (modifier=${link.link.modifier})")
+            }
+        }
+
+        @Test
+        fun `reverse ref Knapsack items links have both property names set`() {
+            val links = linksOf(RepairSpec("Knapsack", "items", RepairSpecType.ADD))
+            assertTrue(links.isNotEmpty())
+            for (link in links) {
+                assertNotNull(link.link.source.propertyName, "source.propertyName null (modifier=${link.link.modifier})")
+                assertNotNull(link.link.target.propertyName, "target.propertyName null (modifier=${link.link.modifier})")
+            }
+        }
+
+        @Test
+        fun `forward ref Item knapsack links use canonical association direction`() {
+            val links = linksOf(RepairSpec("Item", "knapsack", RepairSpecType.CHANGE))
+            for (link in links) {
+                assertEquals("knapsack", link.link.source.propertyName, "Forward: source must be 'knapsack'")
+                assertEquals("items",    link.link.target.propertyName, "Forward: target must be 'items'")
+            }
+        }
+
+        @Test
+        fun `reverse ref Knapsack items links use canonical association direction`() {
+            val links = linksOf(RepairSpec("Knapsack", "items", RepairSpecType.ADD))
+            for (link in links) {
+                assertEquals("knapsack", link.link.source.propertyName, "Reverse: source must be canonical 'knapsack'")
+                assertEquals("items",    link.link.target.propertyName, "Reverse: target must be canonical 'items'")
+            }
+        }
+
+        @Test
+        fun `reverse ref Knapsack items links map objects to canonical direction`() {
+            val links = linksOf(RepairSpec("Knapsack", "items", RepairSpecType.ADD))
+            for (link in links) {
+                assertEquals("target", link.link.source.objectName, "Reverse: canonical source object should be target (Item)")
+                assertEquals("source", link.link.target.objectName, "Reverse: canonical target object should be source (Knapsack)")
+                assertEquals("knapsack", link.link.source.propertyName)
+                assertEquals("items", link.link.target.propertyName)
+            }
+        }
+
+        @Test
+        fun `link property orientation is independent of chosen endpoint`() {
+            val forwardPairs = linksOf(RepairSpec("Item", "knapsack", RepairSpecType.REMOVE))
+                .map { it.link.source.propertyName to it.link.target.propertyName }
+                .toSet()
+            val reversePairs = linksOf(RepairSpec("Knapsack", "items", RepairSpecType.REMOVE))
+                .map { it.link.source.propertyName to it.link.target.propertyName }
+                .toSet()
+
+            assertEquals(
+                setOf("knapsack" to "items"),
+                forwardPairs,
+                "Forward endpoint must still emit canonical (source,target) property pair"
+            )
+            assertEquals(
+                setOf("knapsack" to "items"),
+                reversePairs,
+                "Reverse endpoint must emit the same canonical (source,target) property pair"
+            )
+        }
+
+        @Test
+        fun `REMOVE forward ref Item knapsack links have both property names set`() {
+            val links = linksOf(RepairSpec("Item", "knapsack", RepairSpecType.REMOVE))
+            assertTrue(links.isNotEmpty())
+            for (link in links) {
+                assertNotNull(link.link.source.propertyName, "source.propertyName null (modifier=${link.link.modifier})")
+                assertNotNull(link.link.target.propertyName, "target.propertyName null (modifier=${link.link.modifier})")
+            }
+        }
+
+        @Test
+        fun `REMOVE reverse ref Knapsack items links have both property names set`() {
+            val links = linksOf(RepairSpec("Knapsack", "items", RepairSpecType.REMOVE))
+            assertTrue(links.isNotEmpty())
+            for (link in links) {
+                assertNotNull(link.link.source.propertyName, "source.propertyName null (modifier=${link.link.modifier})")
+                assertNotNull(link.link.target.propertyName, "target.propertyName null (modifier=${link.link.modifier})")
+            }
         }
     }
 }

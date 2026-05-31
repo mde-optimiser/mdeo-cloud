@@ -95,8 +95,8 @@ object MutationAstBuilder {
             // Create containment link
             elements += linkElement(
                 modifier = "create",
-                sourceObj = "container", sourceRef = refName,
-                targetObj = "newNode"
+                sourceObj = "container", sourceClassName = containerClass, sourceRef = refName,
+                targetObj = "newNode", info = info
             )
 
             // Upper-bound guard on the container's collection if bounded
@@ -150,8 +150,8 @@ object MutationAstBuilder {
         // Match existing link: donor → target
         elements += linkElement(
             modifier = null,
-            sourceObj = "donor", sourceRef = refName,
-            targetObj = "target"
+            sourceObj = "donor", sourceClassName = spec.className, sourceRef = refName,
+            targetObj = "target", info = info
         )
 
         // Create new source node
@@ -160,15 +160,15 @@ object MutationAstBuilder {
         // Delete old link: donor → target
         elements += linkElement(
             modifier = "delete",
-            sourceObj = "donor", sourceRef = refName,
-            targetObj = "target"
+            sourceObj = "donor", sourceClassName = spec.className, sourceRef = refName,
+            targetObj = "target", info = info
         )
 
         // Create new link: newNode → target
         elements += linkElement(
             modifier = "create",
-            sourceObj = "newNode", sourceRef = refName,
-            targetObj = "target"
+            sourceObj = "newNode", sourceClassName = spec.className, sourceRef = refName,
+            targetObj = "target", info = info
         )
 
         // Guard: donor still has enough after losing one connection
@@ -238,8 +238,8 @@ object MutationAstBuilder {
                 // Match link connecting node → neighbour via this reference
                 elements += linkElement(
                     modifier = null,
-                    sourceObj = "node", sourceRef = ref.refName,
-                    targetObj = neighborName
+                    sourceObj = "node", sourceClassName = spec.className, sourceRef = ref.refName,
+                    targetObj = neighborName, info = info
                 )
 
                 // Where clause: neighbour's back-reference count > lower bound
@@ -284,10 +284,24 @@ object MutationAstBuilder {
         elements += objectInstance(modifier = null, name = "target", className = ref.targetClass)
 
         // NAC: don't add if already connected
-        elements += linkElement(modifier = "forbid", sourceObj = "source", sourceRef = refName, targetObj = "target")
+        elements += linkElement(
+            modifier = "forbid",
+            sourceObj = "source",
+            sourceClassName = spec.className,
+            sourceRef = refName,
+            targetObj = "target",
+            info = info
+        )
 
         // Create the new edge
-        elements += linkElement(modifier = "create", sourceObj = "source", sourceRef = refName, targetObj = "target")
+        elements += linkElement(
+            modifier = "create",
+            sourceObj = "source",
+            sourceClassName = spec.className,
+            sourceRef = refName,
+            targetObj = "target",
+            info = info
+        )
 
         // Upper-bound guard on source (source.refName.size() < upper)
         if (ref.upper != -1) {
@@ -344,7 +358,14 @@ object MutationAstBuilder {
         elements += objectInstance(modifier = null, name = "target", className = ref.targetClass)
 
         // Delete the existing edge (combined match + delete)
-        elements += linkElement(modifier = "delete", sourceObj = "source", sourceRef = refName, targetObj = "target")
+        elements += linkElement(
+            modifier = "delete",
+            sourceObj = "source",
+            sourceClassName = spec.className,
+            sourceRef = refName,
+            targetObj = "target",
+            info = info
+        )
 
         // Lower-bound guard on source (source.refName.size() > lower)
         if (ref.lower > 0) {
@@ -404,13 +425,34 @@ object MutationAstBuilder {
         elements += objectInstance(modifier = null, name = "newTarget", className = ref.targetClass)
 
         // Delete existing edge
-        elements += linkElement(modifier = "delete", sourceObj = "source", sourceRef = refName, targetObj = "oldTarget")
+        elements += linkElement(
+            modifier = "delete",
+            sourceObj = "source",
+            sourceClassName = spec.className,
+            sourceRef = refName,
+            targetObj = "oldTarget",
+            info = info
+        )
 
         // NAC: new target not already connected
-        elements += linkElement(modifier = "forbid", sourceObj = "source", sourceRef = refName, targetObj = "newTarget")
+        elements += linkElement(
+            modifier = "forbid",
+            sourceObj = "source",
+            sourceClassName = spec.className,
+            sourceRef = refName,
+            targetObj = "newTarget",
+            info = info
+        )
 
         // Create new edge
-        elements += linkElement(modifier = "create", sourceObj = "source", sourceRef = refName, targetObj = "newTarget")
+        elements += linkElement(
+            modifier = "create",
+            sourceObj = "source",
+            sourceClassName = spec.className,
+            sourceRef = refName,
+            targetObj = "newTarget",
+            info = info
+        )
 
         // Guards on the opposite side if the opposite has bounded multiplicity
         if (ref.opposite != null) {
@@ -472,19 +514,19 @@ object MutationAstBuilder {
         elements += objectInstance(modifier = null, name = "otherTarget", className = ref.targetClass)
 
         // Match links establishing which source owns which target
-        elements += linkElement(modifier = null, sourceObj = "source",      sourceRef = refName, targetObj = "target")
-        elements += linkElement(modifier = null, sourceObj = "otherSource", sourceRef = refName, targetObj = "otherTarget")
+        elements += linkElement(modifier = null, sourceObj = "source",      sourceClassName = spec.className, sourceRef = refName, targetObj = "target", info = info)
+        elements += linkElement(modifier = null, sourceObj = "otherSource", sourceClassName = spec.className, sourceRef = refName, targetObj = "otherTarget", info = info)
 
         // Delete old links
-        elements += linkElement(modifier = "delete", sourceObj = "source",      sourceRef = refName, targetObj = "target")
-        elements += linkElement(modifier = "delete", sourceObj = "otherSource", sourceRef = refName, targetObj = "otherTarget")
+        elements += linkElement(modifier = "delete", sourceObj = "source",      sourceClassName = spec.className, sourceRef = refName, targetObj = "target", info = info)
+        elements += linkElement(modifier = "delete", sourceObj = "otherSource", sourceClassName = spec.className, sourceRef = refName, targetObj = "otherTarget", info = info)
 
         // Create crossed links
-        elements += linkElement(modifier = "create", sourceObj = "source",      sourceRef = refName, targetObj = "otherTarget")
-        elements += linkElement(modifier = "create", sourceObj = "otherSource", sourceRef = refName, targetObj = "target")
+        elements += linkElement(modifier = "create", sourceObj = "source",      sourceClassName = spec.className, sourceRef = refName, targetObj = "otherTarget", info = info)
+        elements += linkElement(modifier = "create", sourceObj = "otherSource", sourceClassName = spec.className, sourceRef = refName, targetObj = "target", info = info)
 
         // NAC: ensure targets are different (avoid trivial no-op)
-        elements += linkElement(modifier = "forbid", sourceObj = "source", sourceRef = refName, targetObj = "otherTarget")
+        elements += linkElement(modifier = "forbid", sourceObj = "source", sourceClassName = spec.className, sourceRef = refName, targetObj = "otherTarget", info = info)
 
         // No multiplicity guards – SWAP is cardinality-preserving by construction.
 
@@ -528,7 +570,7 @@ object MutationAstBuilder {
 
         // n match links: donor_i → target_i
         for (i in 1..n) {
-            elements += linkElement(modifier = null, sourceObj = "donor_$i", sourceRef = refName, targetObj = "target_$i")
+            elements += linkElement(modifier = null, sourceObj = "donor_$i", sourceClassName = spec.className, sourceRef = refName, targetObj = "target_$i", info = info)
         }
 
         // Create the new source node
@@ -536,12 +578,12 @@ object MutationAstBuilder {
 
         // n delete links: donor_i → target_i (steal)
         for (i in 1..n) {
-            elements += linkElement(modifier = "delete", sourceObj = "donor_$i", sourceRef = refName, targetObj = "target_$i")
+            elements += linkElement(modifier = "delete", sourceObj = "donor_$i", sourceClassName = spec.className, sourceRef = refName, targetObj = "target_$i", info = info)
         }
 
         // n create links: newNode → target_i (give to new node)
         for (i in 1..n) {
-            elements += linkElement(modifier = "create", sourceObj = "newNode", sourceRef = refName, targetObj = "target_$i")
+            elements += linkElement(modifier = "create", sourceObj = "newNode", sourceClassName = spec.className, sourceRef = refName, targetObj = "target_$i", info = info)
         }
 
         // n lower-bound guards: each donor must still have enough after losing one
@@ -593,16 +635,16 @@ object MutationAstBuilder {
 
         // Match the specific neighbour being repaired
         elements += objectInstance(modifier = null, name = neighborName, className = ref.targetClass)
-        elements += linkElement(modifier = null, sourceObj = "node", sourceRef = refName, targetObj = neighborName)
+        elements += linkElement(modifier = null, sourceObj = "node", sourceClassName = spec.className, sourceRef = refName, targetObj = neighborName, info = info)
 
         // Match the replacement source node
         elements += objectInstance(modifier = null, name = otherName, className = spec.className)
 
         // NAC: replacement not already connected to the neighbour
-        elements += linkElement(modifier = "forbid", sourceObj = otherName, sourceRef = refName, targetObj = neighborName)
+        elements += linkElement(modifier = "forbid", sourceObj = otherName, sourceClassName = spec.className, sourceRef = refName, targetObj = neighborName, info = info)
 
         // Create the new connection: replacement → neighbour
-        elements += linkElement(modifier = "create", sourceObj = otherName, sourceRef = refName, targetObj = neighborName)
+        elements += linkElement(modifier = "create", sourceObj = otherName, sourceClassName = spec.className, sourceRef = refName, targetObj = neighborName, info = info)
 
         // Upper-bound guard on the replacement if the reference has a bounded upper
         if (ref.upper != -1) {
@@ -660,7 +702,7 @@ object MutationAstBuilder {
         for (i in 1..k) {
             val neighborName = "neighbor_${refName}_$i"
             elements += objectInstance(modifier = null, name = neighborName, className = ref.targetClass)
-            elements += linkElement(modifier = null, sourceObj = "node", sourceRef = refName, targetObj = neighborName)
+            elements += linkElement(modifier = null, sourceObj = "node", sourceClassName = spec.className, sourceRef = refName, targetObj = neighborName, info = info)
         }
 
         // k replacement sources, each with NAC, create-link, and optional guard
@@ -668,8 +710,8 @@ object MutationAstBuilder {
             val neighborName = "neighbor_${refName}_$i"
             val otherName = "other_${refName}_$i"
             elements += objectInstance(modifier = null, name = otherName, className = spec.className)
-            elements += linkElement(modifier = "forbid", sourceObj = otherName, sourceRef = refName, targetObj = neighborName)
-            elements += linkElement(modifier = "create", sourceObj = otherName, sourceRef = refName, targetObj = neighborName)
+            elements += linkElement(modifier = "forbid", sourceObj = otherName, sourceClassName = spec.className, sourceRef = refName, targetObj = neighborName, info = info)
+            elements += linkElement(modifier = "create", sourceObj = otherName, sourceClassName = spec.className, sourceRef = refName, targetObj = neighborName, info = info)
             if (ref.upper != -1) {
                 elements += guardBuilder.buildUpperBoundGuard(
                     varName = otherName,
@@ -704,15 +746,84 @@ object MutationAstBuilder {
     private fun linkElement(
         modifier: String?,
         sourceObj: String,
+        sourceClassName: String,
         sourceRef: String,
-        targetObj: String
+        targetObj: String,
+        info: MetamodelInfo
     ) = TypedPatternLinkElement(
-        link = TypedPatternLink(
+        link = canonicalLink(
             modifier = modifier,
-            source = TypedPatternLinkEnd(objectName = sourceObj, propertyName = sourceRef),
-            target = TypedPatternLinkEnd(objectName = targetObj)
+            sourceObj = sourceObj,
+            sourceClassName = sourceClassName,
+            sourceRef = sourceRef,
+            targetObj = targetObj,
+            info = info
         )
     )
+
+    private fun canonicalLink(
+        modifier: String?,
+        sourceObj: String,
+        sourceClassName: String,
+        sourceRef: String,
+        targetObj: String,
+        info: MetamodelInfo
+    ): TypedPatternLink {
+        val canonical = canonicalAssociationLink(info, sourceClassName, sourceObj, sourceRef, targetObj)
+        return TypedPatternLink(
+            modifier = modifier,
+            source = TypedPatternLinkEnd(objectName = canonical.sourceObj, propertyName = canonical.sourceRef),
+            target = TypedPatternLinkEnd(objectName = canonical.targetObj, propertyName = canonical.targetRef)
+        )
+    }
+
+    /**
+     * Canonical link orientation resolved from metamodel association direction.
+     */
+    private data class CanonicalAssociationLink(
+        val sourceObj: String,
+        val sourceRef: String,
+        val targetObj: String,
+        val targetRef: String?
+    )
+
+    private fun canonicalAssociationLink(
+        info: MetamodelInfo,
+        sourceClassName: String,
+        sourceObj: String,
+        sourceRef: String,
+        targetObj: String
+    ): CanonicalAssociationLink {
+        val ref = info.referencesForNode(sourceClassName).find { it.refName == sourceRef }
+            ?: return CanonicalAssociationLink(
+                sourceObj = sourceObj,
+                sourceRef = sourceRef,
+                targetObj = targetObj,
+                targetRef = null
+            )
+        val oppositeRefName = findOppositeRefName(
+            info = info,
+            fromClass = ref.targetClass,
+            toClass = sourceClassName,
+            reverseSearch = !ref.isReverse
+        )
+        return if (ref.isReverse) {
+            // For reverse references, canonical association direction is targetObj -> sourceObj.
+            CanonicalAssociationLink(
+                sourceObj = targetObj,
+                sourceRef = oppositeRefName ?: sourceRef,
+                targetObj = sourceObj,
+                targetRef = if (oppositeRefName != null) sourceRef else null
+            )
+        } else {
+            CanonicalAssociationLink(
+                sourceObj = sourceObj,
+                sourceRef = sourceRef,
+                targetObj = targetObj,
+                targetRef = oppositeRefName
+            )
+        }
+    }
 
     private fun requireEdgeName(spec: RepairSpec): String? = spec.edgeName
 

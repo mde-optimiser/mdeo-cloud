@@ -138,6 +138,22 @@ class LocalMutationEvaluator(
     }
 
     /**
+     * Discards all currently stored solutions and clears all staging queues, making
+     * this evaluator ready for a fresh initialization in the next batch.
+     *
+     * Functionally equivalent to [cleanup] but does not signal that the evaluator is
+     * permanently finished — it can be used again after this call.
+     */
+    override suspend fun resetBatch() {
+        for (solution in solutions.values) {
+            solution.close()
+        }
+        solutions.clear()
+        incomingSerializedModels.clear()
+        incomingFailedOperators.clear()
+    }
+
+    /**
      * Stages [serializedModel] for lazy [ModelGraph] construction under [solutionId].
      *
      * Rather than building the graph inline (which is expensive and would block the

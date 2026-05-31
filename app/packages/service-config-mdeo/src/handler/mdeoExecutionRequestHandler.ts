@@ -5,6 +5,7 @@ import type {
     ConfigExecutionFileRequestBody
 } from "@mdeo/service-config-common";
 import type { MdeoServices } from "@mdeo/language-config-mdeo";
+import type { ClassMutationData, EdgeMutationData, MutationsBlockData } from "./mdeoRequestTypes.js";
 
 /**
  * URL of the optimizer-execution backend service.
@@ -33,6 +34,62 @@ function buildHeaders(jwt: string): Record<string, string> {
 
 type ConfigFileData = Record<string, Record<string, unknown>>;
 
+/** Kotlin MutationAction enum values accepted by the backend. */
+type MutationAction = "ALL" | "CREATE" | "DELETE" | "ADD" | "REMOVE";
+
+/** Shape of a single Kotlin MutationRuleSpec entry. */
+type MutationRuleSpec = { node: string; edge?: string; action: MutationAction };
+
+/**
+ * Converts the frontend `classMutations` and `edgeMutations` lists into
+ * `MutationRuleSpec` entries for the Kotlin `MutationsConfig.generate` field.
+ *
+ * Mapping:
+ *   classMutation create  → CREATE
+ *   classMutation delete  → DELETE
+ *   classMutation mutate  → ALL
+ *   edgeMutation  add     → ADD
+ *   edgeMutation  remove  → REMOVE
+ *   edgeMutation  mutate  → ADD + REMOVE (two specs)
+ */
+function buildGenerateSpecs(
+    classMutations: ClassMutationData[],
+    edgeMutations: EdgeMutationData[]
+): MutationRuleSpec[] {
+    const specs: MutationRuleSpec[] = [];
+
+    for (const cm of classMutations) {
+        const action: MutationAction =
+            cm.operator === "create" ? "CREATE" : cm.operator === "delete" ? "DELETE" : "ALL";
+        specs.push({ node: cm.className, action });
+    }
+
+    for (const em of edgeMutations) {
+        if (em.operator === "mutate") {
+            specs.push({ node: em.className, edge: em.edgeName, action: "ADD" });
+            specs.push({ node: em.className, edge: em.edgeName, action: "REMOVE" });
+        } else {
+            const action: MutationAction = em.operator === "add" ? "ADD" : "REMOVE";
+            specs.push({ node: em.className, edge: em.edgeName, action });
+        }
+    }
+
+    return specs;
+}
+
+/**
+ * Transforms the frontend MutationsBlockData into the shape expected by the Kotlin
+ * MutationsConfig: replaces classMutations/edgeMutations with a `generate` list.
+ */
+function buildMutationsPayload(
+    mutations: MutationsBlockData
+): { usingPaths: string[]; generate: MutationRuleSpec[] } {
+    return {
+        usingPaths: mutations.usingPaths,
+        generate: buildGenerateSpecs(mutations.classMutations, mutations.edgeMutations)
+    };
+}
+
 /**
  * Execution request handler for MDEO config sections.
  *
@@ -40,8 +97,9 @@ type ConfigFileData = Record<string, Record<string, unknown>>;
  * (problem, goal from the optimization plugin; search, solver from the MDEO plugin)
  * into the OptimizationConfig payload expected by the optimizer-execution backend.
  *
- * No field conversion is needed here because the plugin request handlers already
- * produce data whose shape matches the Kotlin backend types directly.
+ * The search.mutations block is transformed from the frontend shape
+ * (usingPaths + classMutations + edgeMutations) into the Kotlin MutationsConfig shape
+ * (usingPaths + generate).
  */
 export const mdeoExecutionRequestHandler: RequestHandler<ExecuteResponse, MdeoServices> = async (context) => {
     const body = context.body as Partial<ConfigExecutionPluginRequestBody>;
@@ -73,6 +131,11 @@ export const mdeoExecutionRequestHandler: RequestHandler<ExecuteResponse, MdeoSe
         throw new Error("Missing 'solver' section in config file data");
     }
 
+    const rawSearch = mdeoData.search as { mutations?: MutationsBlockData };
+    const transformedSearch = rawSearch?.mutations
+        ? { mutations: buildMutationsPayload(rawSearch.mutations) }
+        : rawSearch;
+
     const requestBody = {
         executionId: body.executionId,
         project: body.project,
@@ -80,7 +143,7 @@ export const mdeoExecutionRequestHandler: RequestHandler<ExecuteResponse, MdeoSe
         data: {
             problem: optimizationData.problem,
             goal: optimizationData.goal,
-            search: mdeoData.search,
+            search: transformedSearch,
             solver: mdeoData.solver,
             runtime: mdeoData.runtime
         }
