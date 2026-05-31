@@ -10,12 +10,7 @@ import type {
     AstSerializerAdditionalServices,
     FileMenuActionData
 } from "@mdeo/language-common";
-import {
-    buildFileSelectTree,
-    calculateRelativePath,
-    sharedImport,
-    type ActionHandler
-} from "@mdeo/language-shared";
+import { buildFileSelectTree, calculateRelativePath, sharedImport, type ActionHandler } from "@mdeo/language-shared";
 import type { LangiumCoreServices, LangiumDocument } from "langium";
 import type { LangiumSharedServices } from "langium/lsp";
 import type { WorkspaceEdit } from "vscode-languageserver-types";

@@ -18,7 +18,7 @@ data class OppositeInfo(
 /**
  * Describes a single navigable reference from a metamodel class.
  *
- * For a bidirectional association `A.foo <>-> B.bar`:
+ * For an association `A.foo --> B.bar` (or composition variants such as `*-->`):
  * - The *forward* ReferenceInfo for class A has `refName="foo"`, `isReverse=false`, and an
  *   [opposite] with the multiplicity of the B-end.
  * - The *reverse* ReferenceInfo for class B has `refName="bar"`, `isReverse=true`, and an
@@ -26,8 +26,8 @@ data class OppositeInfo(
  *
  * @param refName       The role name of this end.
  * @param targetClass   The name of the class at the other end.
- * @param isContainment Whether this is the *forward* end of a containment (`<>->`) association.
- *                      The reverse end of a containment is never marked as containment.
+ * @param isContainment Whether this is the *forward* end of a containment/composition association.
+ *                      The reverse end is never marked as containment.
  * @param isReverse     `true` when this ReferenceInfo represents the target-end of a bidirectional
  *                      association being exposed on the target class.
  * @param lower         Lower bound of this end's multiplicity.
@@ -68,8 +68,12 @@ class MetamodelInfo private constructor(
         referencesByClass[className] ?: emptyList()
 
     /**
-     * Returns the containment contexts for [className]: every `(containerClass, refName)` pair
-     * where a `<>->` association has [className] as its target.
+     * Returns create contexts for [className]: every `(containerClass, refName)` pair that can be
+     * used to create [className] in a consistency-preserving way.
+     *
+     * Contexts are derived from:
+     * - forward containment/composition operators (for example `<>->`, `*-->`, `*--`)
+     * - required incoming ends (target lower bound > 0), regardless of operator.
      */
     fun containmentContextsFor(className: String): List<Pair<String, String>> =
         containmentContextsByClass[className] ?: emptyList()
@@ -111,7 +115,7 @@ class MetamodelInfo private constructor(
             val containmentContextsByClass = mutableMapOf<String, MutableList<Pair<String, String>>>()
 
             for (assoc in metamodelData.associations) {
-                val isContainment = assoc.operator == "<>->"
+                val isContainment = isContainmentOperator(assoc.operator)
                 val src = assoc.source
                 val tgt = assoc.target
 
@@ -173,9 +177,12 @@ class MetamodelInfo private constructor(
                     referencesByClass.getOrPut(tgt.className) { mutableListOf() }.add(ref)
                 }
 
-                // Containment contexts: any <->-> assoc contributes a context for the target class
+                // Create contexts:
+                // 1) any containment/composition assoc contributes a context for the target class
+                // 2) any required incoming target end (lower > 0) contributes a context too
                 val srcNameForCtx = src.name
-                if (isContainment && srcNameForCtx != null) {
+                val hasRequiredIncomingTarget = tgt.multiplicity.lower > 0
+                if ((isContainment || hasRequiredIncomingTarget) && srcNameForCtx != null) {
                     containmentContextsByClass
                         .getOrPut(tgt.className) { mutableListOf() }
                         .add(src.className to srcNameForCtx)
@@ -200,6 +207,13 @@ class MetamodelInfo private constructor(
             if (className == null || refName == null) return fallbackLower to fallbackUpper
             val ov = overrideMap[className to refName] ?: return fallbackLower to fallbackUpper
             return ov.lower to ov.upper
+        }
+
+        private fun isContainmentOperator(operator: String): Boolean {
+            return when (operator) {
+                "<>->", "*-->", "*--", "<--*", "--*" -> true
+                else -> false
+            }
         }
     }
 }

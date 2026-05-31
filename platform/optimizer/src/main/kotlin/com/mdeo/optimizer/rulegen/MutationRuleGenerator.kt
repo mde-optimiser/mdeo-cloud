@@ -134,6 +134,27 @@ object MutationRuleGenerator {
                 }
             }
 
+            RepairSpecType.CREATE_LB_REPAIR,
+            RepairSpecType.CREATE_LB_REPAIR_MULTI -> {
+                val contexts = info.containmentContextsFor(spec.className)
+                val suffix = when (spec.type) {
+                    RepairSpecType.CREATE_LB_REPAIR -> "_LBREPAIR"
+                    RepairSpecType.CREATE_LB_REPAIR_MULTI -> "_LBREPAIR_MULTI"
+                }
+
+                if (contexts.isEmpty()) {
+                    val name = prefix + MutationRuleNameGenerator.fromRepairSpec(spec)
+                    addIfAbsent(name, spec, metamodelPath, info, null, accumulator)
+                } else {
+                    for ((containerClass, refName) in contexts) {
+                        val name = prefix + MutationRuleNameGenerator.forNodeCreate(
+                            spec.className, containerClass, refName
+                        ) + suffix
+                        addIfAbsent(name, spec, metamodelPath, info, containerClass to refName, accumulator)
+                    }
+                }
+            }
+
             else -> {
                 val name = prefix + MutationRuleNameGenerator.fromRepairSpec(spec)
                 addIfAbsent(name, spec, metamodelPath, info, null, accumulator)

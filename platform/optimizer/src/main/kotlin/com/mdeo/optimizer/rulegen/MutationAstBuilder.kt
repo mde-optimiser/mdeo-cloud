@@ -115,6 +115,14 @@ object MutationAstBuilder {
             elements += objectInstance(modifier = "create", name = "newNode", className = spec.className)
         }
 
+        appendMandatoryOutgoingReferences(
+            elements = elements,
+            spec = spec,
+            info = info,
+            guardBuilder = guardBuilder,
+            skipRefNames = emptySet()
+        )
+
         return elements
     }
 
@@ -131,7 +139,8 @@ object MutationAstBuilder {
     private fun buildCreateLbRepair(
         spec: RepairSpec,
         info: MetamodelInfo,
-        guardBuilder: MultiplicityGuardBuilder
+        guardBuilder: MultiplicityGuardBuilder,
+        createContext: Pair<String, String>? = null
     ): List<TypedPatternElement> {
         val refName = spec.edgeName
             ?: return buildCreate(spec, info, guardBuilder, null)
@@ -156,6 +165,31 @@ object MutationAstBuilder {
 
         // Create new source node
         elements += objectInstance(modifier = "create", name = "newNode", className = spec.className)
+
+        if (createContext != null) {
+            val (containerClass, refName) = createContext
+
+            // Match the container for the new node
+            elements += objectInstance(modifier = null, name = "container", className = containerClass)
+
+            // Create the containment link alongside the LB repair
+            elements += linkElement(
+                modifier = "create",
+                sourceObj = "container", sourceClassName = containerClass, sourceRef = refName,
+                targetObj = "newNode", info = info
+            )
+
+            val containerRef = info.referencesForNode(containerClass).find { it.refName == refName }
+            if (containerRef != null && containerRef.upper != -1) {
+                elements += guardBuilder.buildUpperBoundGuard(
+                    varName = "container",
+                    varClassName = containerClass,
+                    refName = refName,
+                    targetClassName = spec.className,
+                    upperBound = containerRef.upper
+                )
+            }
+        }
 
         // Delete old link: donor → target
         elements += linkElement(
@@ -182,6 +216,14 @@ object MutationAstBuilder {
             )
         }
 
+        appendMandatoryOutgoingReferences(
+            elements = elements,
+            spec = spec,
+            info = info,
+            guardBuilder = guardBuilder,
+            skipRefNames = setOf(refName)
+        )
+
         return elements
     }
 
@@ -194,7 +236,7 @@ object MutationAstBuilder {
      * positive lower bound.
      *
      * Pattern structure:
-     * - `node` (match) + `node` (delete marker, className=null)
+    * - `node` (modifier=delete, className set)
      * - For each guarded reference: match link + neighbour object + where clause
      */
     private fun buildDelete(
@@ -204,11 +246,8 @@ object MutationAstBuilder {
     ): List<TypedPatternElement> {
         val elements = mutableListOf<TypedPatternElement>()
 
-        // Match element for the node to delete
-        elements += objectInstance(modifier = null, name = "node", className = spec.className)
-
-        // Delete marker (same name, no className)
-        elements += objectInstance(modifier = "delete", name = "node", className = null)
+        // Combined match+delete on the same object instance.
+        elements += objectInstance(modifier = "delete", name = "node", className = spec.className)
 
         // Add guards for every reference whose target still needs a minimum number of back-links
         val refs = info.referencesForNode(spec.className)
@@ -552,13 +591,14 @@ object MutationAstBuilder {
     private fun buildCreateLbRepairMulti(
         spec: RepairSpec,
         info: MetamodelInfo,
-        guardBuilder: MultiplicityGuardBuilder
+        guardBuilder: MultiplicityGuardBuilder,
+        createContext: Pair<String, String>? = null
     ): List<TypedPatternElement> {
         val refName = spec.edgeName ?: return buildCreate(spec, info, guardBuilder, null)
         val ref = info.referencesForNode(spec.className).find { it.refName == refName }
-            ?: return buildCreate(spec, info, guardBuilder, null)
+            ?: return buildCreate(spec, info, guardBuilder, createContext)
         val n = ref.lower
-        if (n <= 1) return buildCreateLbRepair(spec, info, guardBuilder)
+        if (n <= 1) return buildCreateLbRepair(spec, info, guardBuilder, createContext)
 
         val elements = mutableListOf<TypedPatternElement>()
 
@@ -575,6 +615,28 @@ object MutationAstBuilder {
 
         // Create the new source node
         elements += objectInstance(modifier = "create", name = "newNode", className = spec.className)
+
+        if (createContext != null) {
+            val (containerClass, ctxRefName) = createContext
+
+            elements += objectInstance(modifier = null, name = "container", className = containerClass)
+            elements += linkElement(
+                modifier = "create",
+                sourceObj = "container", sourceClassName = containerClass, sourceRef = ctxRefName,
+                targetObj = "newNode", info = info
+            )
+
+            val containerRef = info.referencesForNode(containerClass).find { it.refName == ctxRefName }
+            if (containerRef != null && containerRef.upper != -1) {
+                elements += guardBuilder.buildUpperBoundGuard(
+                    varName = "container",
+                    varClassName = containerClass,
+                    refName = ctxRefName,
+                    targetClassName = spec.className,
+                    upperBound = containerRef.upper
+                )
+            }
+        }
 
         // n delete links: donor_i → target_i (steal)
         for (i in 1..n) {
@@ -597,6 +659,14 @@ object MutationAstBuilder {
             )
         }
 
+        appendMandatoryOutgoingReferences(
+            elements = elements,
+            spec = spec,
+            info = info,
+            guardBuilder = guardBuilder,
+            skipRefNames = setOf(refName)
+        )
+
         return elements
     }
 
@@ -609,7 +679,7 @@ object MutationAstBuilder {
      * opposite has fixed cardinality k=l≥1) to a single replacement node of the same class.
      *
      * Pattern structure:
-     * - `node` (match) + `node` (delete marker, className=null)
+    * - `node` (modifier=delete, className set)
      * - `neighbor_{refName}` (match) + match link `node.ref → neighbor`
      * - `other_{refName}` (match): the replacement source
      * - forbid link: `other.ref → neighbor` (NAC – other is not already connected)
@@ -629,9 +699,8 @@ object MutationAstBuilder {
         val neighborName = "neighbor_$refName"
         val otherName = "other_$refName"
 
-        // Match and delete the node
-        elements += objectInstance(modifier = null, name = "node", className = spec.className)
-        elements += objectInstance(modifier = "delete", name = "node", className = null)
+        // Combined match+delete on the node.
+        elements += objectInstance(modifier = "delete", name = "node", className = spec.className)
 
         // Match the specific neighbour being repaired
         elements += objectInstance(modifier = null, name = neighborName, className = ref.targetClass)
@@ -669,7 +738,7 @@ object MutationAstBuilder {
      * opposite has fixed cardinality k=l>1) each to a different replacement node.
      *
      * Pattern structure for k neighbours:
-     * - `node` (match) + `node` (delete marker)
+    * - `node` (modifier=delete, className set)
      * - k × `neighbor_{refName}_{i}` (match) + k × match links `node.ref → neighbor_i`
      * - k × `other_{refName}_{i}` (match, distinct replacement sources)
      * - k × forbid links: `other_i.ref → neighbor_i` (NAC)
@@ -694,9 +763,8 @@ object MutationAstBuilder {
 
         val elements = mutableListOf<TypedPatternElement>()
 
-        // Match and delete the node
-        elements += objectInstance(modifier = null, name = "node", className = spec.className)
-        elements += objectInstance(modifier = "delete", name = "node", className = null)
+        // Combined match+delete on the node.
+        elements += objectInstance(modifier = "delete", name = "node", className = spec.className)
 
         // k neighbour match objects and links
         for (i in 1..k) {
@@ -826,6 +894,54 @@ object MutationAstBuilder {
     }
 
     private fun requireEdgeName(spec: RepairSpec): String? = spec.edgeName
+
+    private fun appendMandatoryOutgoingReferences(
+        elements: MutableList<TypedPatternElement>,
+        spec: RepairSpec,
+        info: MetamodelInfo,
+        guardBuilder: MultiplicityGuardBuilder,
+        skipRefNames: Set<String>
+    ) {
+        val mandatoryRefs = info.referencesForNode(spec.className)
+            .filter { !it.isReverse && it.lower > 0 && !skipRefNames.contains(it.refName) }
+
+        for (mandatoryRef in mandatoryRefs) {
+            val oppositeRefName = findOppositeRefName(
+                info = info,
+                fromClass = mandatoryRef.targetClass,
+                toClass = spec.className,
+                reverseSearch = !mandatoryRef.isReverse
+            )
+
+            for (i in 1..mandatoryRef.lower) {
+                val targetName = if (mandatoryRef.lower == 1) {
+                    "required_${mandatoryRef.refName}"
+                } else {
+                    "required_${mandatoryRef.refName}_$i"
+                }
+
+                elements += objectInstance(modifier = null, name = targetName, className = mandatoryRef.targetClass)
+                elements += linkElement(
+                    modifier = "create",
+                    sourceObj = "newNode",
+                    sourceClassName = spec.className,
+                    sourceRef = mandatoryRef.refName,
+                    targetObj = targetName,
+                    info = info
+                )
+
+                if (mandatoryRef.opposite != null && mandatoryRef.opposite.upper != -1 && oppositeRefName != null) {
+                    elements += guardBuilder.buildUpperBoundGuard(
+                        varName = targetName,
+                        varClassName = mandatoryRef.targetClass,
+                        refName = oppositeRefName,
+                        targetClassName = spec.className,
+                        upperBound = mandatoryRef.opposite.upper
+                    )
+                }
+            }
+        }
+    }
 
     /**
      * Finds the name of the reference on [fromClass] that points back to [toClass].

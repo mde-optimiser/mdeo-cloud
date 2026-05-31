@@ -16,8 +16,8 @@ import { GeneratedModelTransformationActionProvider } from "./features/generated
 import { SaveGeneratedModelTransformationActionHandler } from "./action-handlers/saveGeneratedModelTransformationActionHandler.js";
 import type { LangiumDocument, URI } from "langium";
 
-export type GeneratedModelTransformationServices =
-    ExternalReferenceAdditionalServices & ActionHandlerRegistryAdditionalServices;
+export type GeneratedModelTransformationServices = ExternalReferenceAdditionalServices &
+    ActionHandlerRegistryAdditionalServices;
 
 /**
  * Empty external reference collector for generated model transformations.
@@ -54,7 +54,9 @@ const generatedModelTransformationPlugin: LangiumLanguagePlugin<GeneratedModelTr
         }
     },
     postCreate(services) {
-        services.shared.glsp.serverModule.configureDiagramModule(new GeneratedModelTransformationDiagramModule(services));
+        services.shared.glsp.serverModule.configureDiagramModule(
+            new GeneratedModelTransformationDiagramModule(services)
+        );
     }
 };
 

@@ -44,7 +44,9 @@ export function adaptGeneratedModelTransformationRoot(
 /**
  * Parses and adapts generated model transformation typed-ast JSON text into a synthetic AST.
  */
-export function adaptGeneratedModelTransformationText(content: string | undefined): ModelTransformationType | undefined {
+export function adaptGeneratedModelTransformationText(
+    content: string | undefined
+): ModelTransformationType | undefined {
     const typedAst = parseTypedAst(content);
     if (typedAst == undefined) {
         return undefined;
@@ -495,25 +497,29 @@ function renderTypedExpression(expression: TypedExpression | undefined): string 
         }
         case "call": {
             const call = expression as unknown as { called: TypedExpression; arguments: unknown[] };
-            return `${renderTypedExpression(call.called)}(${call.arguments.length})`;
+            const args = (call.arguments ?? []).map((arg) => renderTypedExpression(arg as TypedExpression)).join(", ");
+            return `${renderTypedExpression(call.called)}(${args})`;
         }
         case "functionCall": {
             const call = expression as unknown as { functionName?: string; arguments: unknown[] };
-            return `${call.functionName ?? "fn"}(${call.arguments.length})`;
+            const args = (call.arguments ?? []).map((arg) => renderTypedExpression(arg as TypedExpression)).join(", ");
+            return `${call.functionName ?? "fn"}(${args})`;
         }
         case "memberCall": {
             const call = expression as unknown as {
                 expression: TypedExpression;
-                memberName?: string;
+                member?: string;
                 arguments: unknown[];
                 isNullChaining?: boolean;
             };
             const accessor = call.isNullChaining ? "?." : ".";
-            return `${renderTypedExpression(call.expression)}${accessor}${call.memberName ?? "call"}(${call.arguments.length})`;
+            const args = (call.arguments ?? []).map((arg) => renderTypedExpression(arg as TypedExpression)).join(", ");
+            return `${renderTypedExpression(call.expression)}${accessor}${call.member ?? "call"}(${args})`;
         }
         case "extensionCall": {
             const call = expression as unknown as { extensionName?: string; arguments: unknown[] };
-            return `${call.extensionName ?? "extension"}(${call.arguments.length})`;
+            const args = (call.arguments ?? []).map((arg) => renderTypedExpression(arg as TypedExpression)).join(", ");
+            return `${call.extensionName ?? "extension"}(${args})`;
         }
         case "listLiteral":
             return "[...]";

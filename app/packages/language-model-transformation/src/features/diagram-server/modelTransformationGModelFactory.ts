@@ -100,11 +100,17 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
 
         const effectiveSourceModel = fallbackModel ?? sourceModel;
         const effectiveIdRegistry =
-            fallbackModel != undefined ? new DefaultModelIdRegistry(effectiveSourceModel, this.modelIdProvider) : idRegistry;
+            fallbackModel != undefined
+                ? new DefaultModelIdRegistry(effectiveSourceModel, this.modelIdProvider)
+                : idRegistry;
 
         const graph = GGraph.builder().id("transformation-graph").addCssClass("editor-model-transformation").build();
 
-        const converter = new ModelTransformationControlFlowConverter(effectiveSourceModel, effectiveIdRegistry, this.reflection);
+        const converter = new ModelTransformationControlFlowConverter(
+            effectiveSourceModel,
+            effectiveIdRegistry,
+            this.reflection
+        );
         const cfg = converter.convert();
 
         for (const node of cfg.nodes) {

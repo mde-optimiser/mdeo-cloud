@@ -170,9 +170,8 @@ initializePluginContext();
 const { modelTransformationPluginProvider } = await import("@mdeo/language-model-transformation");
 const { generatedModelTransformationPluginProvider } = await import("@mdeo/language-model-transformation");
 const { typedAstHandler, TYPED_AST_HANDLER_KEY } = await import("./handler/typedAstHandler.js");
-const { generatedModelTransformationTextHandler, GENERATED_MODEL_TRANSFORMATION_TEXT_HANDLER_KEY } = await import(
-    "./handler/generatedModelTransformationTextHandler.js"
-);
+const { generatedModelTransformationTextHandler, GENERATED_MODEL_TRANSFORMATION_TEXT_HANDLER_KEY } =
+    await import("./handler/generatedModelTransformationTextHandler.js");
 const { ModelTransformationExecutionHandler } = await import("./handler/modelTransformationExecutionHandler.js");
 
 const envConfig = parseServiceConfigFromEnv();

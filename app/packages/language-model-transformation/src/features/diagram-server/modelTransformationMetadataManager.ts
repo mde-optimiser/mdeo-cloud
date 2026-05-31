@@ -115,7 +115,11 @@ export class ModelTransformationMetadataManager extends MetadataManager<ModelTra
         const effectiveSourceModel = fallbackModel ?? sourceModel;
 
         const idRegistry = new DefaultModelIdRegistry(effectiveSourceModel, this.modelIdProvider);
-        const converter = new ModelTransformationControlFlowConverter(effectiveSourceModel, idRegistry, this.reflection);
+        const converter = new ModelTransformationControlFlowConverter(
+            effectiveSourceModel,
+            idRegistry,
+            this.reflection
+        );
         const cfg = converter.convert();
 
         for (const cfgNode of cfg.nodes) {

@@ -421,19 +421,18 @@ class MutationRuleGeneratorTest {
         }
 
         @Test
-        fun `DELETE rule produces match then delete elements`() {
+        fun `DELETE rule produces single merged delete element`() {
             val spec = RepairSpec("Room", null, RepairSpecType.DELETE)
             val ast = MutationAstBuilder.build("DELETE_Room", spec, mmPath, info)
 
             assertNotNull(ast)
             val stmt = ast.statements[0] as TypedMatchStatement
             val instances = stmt.pattern.elements.filterIsInstance<TypedPatternObjectInstanceElement>()
-            val matchable = instances.filter { it.objectInstance.modifier == null }
-            val deleted   = instances.filter { it.objectInstance.modifier == "delete" }
-            assertEquals(1, matchable.size,  "Expected one matchable instance")
+            val matchable = instances.filter { it.objectInstance.modifier == null && it.objectInstance.name == "node" }
+            val deleted   = instances.filter { it.objectInstance.modifier == "delete" && it.objectInstance.name == "node" }
+            assertEquals(0, matchable.size,  "Expected no separate match-only instance for node")
             assertEquals(1, deleted.size,    "Expected one delete instance")
-            assertEquals("Room", matchable[0].objectInstance.className)
-            assertEquals(null, deleted[0].objectInstance.className)
+            assertEquals("Room", deleted[0].objectInstance.className)
         }
     }
 
@@ -1220,6 +1219,7 @@ class MutationRuleGeneratorTest {
             assertNotNull(nodeObj, "Expected a match element for node: Room")
             val deleteMarker = objects.find { it.objectInstance.name == "node" && it.objectInstance.modifier == "delete" }
             assertNotNull(deleteMarker, "Expected a delete marker for node")
+            assertEquals("Room", deleteMarker.objectInstance.className, "Delete marker should carry className")
         }
 
         @Test
@@ -1703,7 +1703,7 @@ class NewCpoVariantTests {
         }
 
         @Test
-        fun `DELETE_REPAIR_SINGLE has node delete-marker, neighbour match, other match, forbid and create links`() {
+        fun `DELETE_REPAIR_SINGLE has merged delete node, neighbour match, other match, forbid and create links`() {
             val info = MetamodelInfo(metaWP)
             val spec = RepairSpec("Worker", "project", RepairSpecType.DELETE_REPAIR_SINGLE)
             val ast  = MutationAstBuilder.build("name", spec, "/t/wp.mm", info)
@@ -1715,7 +1715,7 @@ class NewCpoVariantTests {
             val otherMatch    = objects.find { it.objectInstance.name == "other_project" }
 
             assertNotNull(deleteMarker, "Expected delete marker")
-            assertNull(deleteMarker.objectInstance.className, "Delete marker must have className=null")
+            assertEquals("Worker", deleteMarker.objectInstance.className, "Delete marker must carry className")
             assertNotNull(neighborMatch, "Expected neighbour match object")
             assertEquals("Project", neighborMatch.objectInstance.className)
             assertNotNull(otherMatch, "Expected other_project match object")
@@ -1906,6 +1906,204 @@ class NewCpoVariantTests {
             assertEquals(names.distinct().size, names.size, "Expected no duplicate rule names; got: $names")
             assertTrue(names.any { it.startsWith("S_") && it.contains("LBREPAIR") },
                 "Expected S_-prefixed LBREPAIR rule from refinement pass; got: $names")
+        }
+
+        @Test
+        fun `generate CREATE for Sprint with required plan association`() {
+            // Plan.sprints[0..*] *--> Sprint.plan[1]
+            // This tests Task 1: ensure Sprint.plan is properly assigned when creating a Sprint
+            val planClass = ClassData(name = "Plan", isAbstract = false)
+            val sprintClass = ClassData(name = "Sprint", isAbstract = false)
+
+            val planSprintsAssoc = AssociationData(
+                source = AssociationEndData(
+                    className = "Plan",
+                    name = "sprints",
+                    multiplicity = MultiplicityData.many()     // 0..*
+                ),
+                operator = "*-->",
+                target = AssociationEndData(
+                    className = "Sprint",
+                    name = "plan",
+                    multiplicity = MultiplicityData.single()   // 1..1
+                )
+            )
+
+            val metaData = MetamodelData(
+                path = "/project/scrum.mm",
+                classes = listOf(planClass, sprintClass),
+                associations = listOf(planSprintsAssoc)
+            )
+
+            // Generate CREATE operators for Sprint
+            val specs = listOf(MutationRuleSpec("Sprint", action = MutationAction.CREATE))
+            val mutations = MutationRuleGenerator.generate(metaData, specs)
+
+            val names = mutations.map { it.name }.toSet()
+            
+            // Should have contextual CREATE rule only (not standalone)
+            // because Sprint.plan has lower bound 1
+            assertTrue(
+                names.any { it.contains("Plan") && it.contains("sprints") },
+                "Expected CREATE_Sprint_in_Plan_via_sprints; got: $names"
+            )
+            assertFalse(
+                names.contains("CREATE_Sprint"),
+                "Expected NO standalone CREATE_Sprint (violates Sprint.plan lower bound); got: $names"
+            )
+
+            // Verify the contextual rule has both container and link
+            val contextualRule = mutations.find { it.name.contains("Plan") && it.name.contains("sprints") }
+            assertNotNull(contextualRule)
+            val stmt = contextualRule.typedAst.statements[0] as TypedMatchStatement
+            val instances = stmt.pattern.elements.filterIsInstance<TypedPatternObjectInstanceElement>()
+            val links = stmt.pattern.elements.filterIsInstance<TypedPatternLinkElement>()
+
+            // Should have: container (Plan), newNode (Sprint)
+            val containerInst = instances.find { it.objectInstance.className == "Plan" && it.objectInstance.modifier == null }
+            val createdInst = instances.find { it.objectInstance.className == "Sprint" && it.objectInstance.modifier == "create" }
+            assertNotNull(containerInst, "Expected to match Plan container")
+            assertNotNull(createdInst, "Expected to create Sprint node")
+
+            // Should have: create link between Plan and Sprint
+            assertTrue(links.isNotEmpty(), "Expected at least one link in pattern")
+            val createLink = links.find { it.link.modifier == "create" }
+            assertNotNull(createLink, "Expected create link for Plan->sprints->Sprint")
+        }
+
+        @Test
+        fun `generate CREATE for Sprint assigns an initial committed item`() {
+            val planClass = ClassData(name = "Plan", isAbstract = false)
+            val sprintClass = ClassData(name = "Sprint", isAbstract = false)
+            val workItemClass = ClassData(name = "WorkItem", isAbstract = false)
+
+            val planSprintsAssoc = AssociationData(
+                source = AssociationEndData(
+                    className = "Plan",
+                    name = "sprints",
+                    multiplicity = MultiplicityData.many()
+                ),
+                operator = "*-->",
+                target = AssociationEndData(
+                    className = "Sprint",
+                    name = "plan",
+                    multiplicity = MultiplicityData.single()
+                )
+            )
+
+            val sprintCommittedItemsAssoc = AssociationData(
+                source = AssociationEndData(
+                    className = "Sprint",
+                    name = "committedItems",
+                    multiplicity = MultiplicityData.oneOrMore()
+                ),
+                operator = "<-->",
+                target = AssociationEndData(
+                    className = "WorkItem",
+                    name = "isPlannedFor",
+                    multiplicity = MultiplicityData.optional()
+                )
+            )
+
+            val metaData = MetamodelData(
+                path = "/project/scrum.mm",
+                classes = listOf(planClass, sprintClass, workItemClass),
+                associations = listOf(planSprintsAssoc, sprintCommittedItemsAssoc)
+            )
+
+            val specs = listOf(MutationRuleSpec("Sprint", action = MutationAction.CREATE))
+            val mutations = MutationRuleGenerator.generate(metaData, specs)
+
+            val rule = mutations.find { it.name.contains("Plan") && it.name.contains("sprints") }
+            assertNotNull(rule, "Expected contextual CREATE_Sprint_in_Plan_via_sprints rule")
+
+            val stmt = requireNotNull(rule).typedAst.statements[0] as TypedMatchStatement
+            val instances = stmt.pattern.elements.filterIsInstance<TypedPatternObjectInstanceElement>()
+            val links = stmt.pattern.elements.filterIsInstance<TypedPatternLinkElement>()
+            val whereClauses = stmt.pattern.elements.filterIsInstance<TypedPatternWhereClauseElement>()
+
+            assertNotNull(instances.find { it.objectInstance.name == "container" && it.objectInstance.className == "Plan" })
+            assertNotNull(instances.find { it.objectInstance.name == "newNode" && it.objectInstance.className == "Sprint" && it.objectInstance.modifier == "create" })
+            assertNotNull(instances.find { it.objectInstance.name == "required_committedItems" && it.objectInstance.className == "WorkItem" })
+
+            val committedLink = links.find { it.link.source.propertyName == "committedItems" }
+            assertNotNull(committedLink, "Expected Sprint.committedItems create link")
+            assertEquals("required_committedItems", requireNotNull(committedLink).link.target.objectName)
+
+            assertTrue(
+                whereClauses.any { clause ->
+                    val expr = clause.whereClause.expression as TypedBinaryExpression
+                    val memberCall = expr.left as TypedMemberCallExpression
+                    val memberAccess = memberCall.expression as TypedMemberAccessExpression
+                    val identifier = memberAccess.expression as TypedIdentifierExpression
+                    expr.operator == "<" &&
+                        memberCall.member == "size" &&
+                        memberAccess.member == "isPlannedFor" &&
+                        identifier.name == "required_committedItems"
+                },
+                "Expected guard on WorkItem.isPlannedFor upper bound"
+            )
+        }
+
+        @Test
+        fun `generate CREATE LB repair for Sprint keeps Plan context`() {
+            val planClass = ClassData(name = "Plan", isAbstract = false)
+            val sprintClass = ClassData(name = "Sprint", isAbstract = false)
+
+            val planSprintsAssoc = AssociationData(
+                source = AssociationEndData(
+                    className = "Plan",
+                    name = "sprints",
+                    multiplicity = MultiplicityData.many()
+                ),
+                operator = "*-->",
+                target = AssociationEndData(
+                    className = "Sprint",
+                    name = "plan",
+                    multiplicity = MultiplicityData.single()
+                )
+            )
+
+            val sprintCommittedItemsAssoc = AssociationData(
+                source = AssociationEndData(
+                    className = "Sprint",
+                    name = "committedItems",
+                    multiplicity = MultiplicityData.oneOrMore()
+                ),
+                operator = "<-->",
+                target = AssociationEndData(
+                    className = "WorkItem",
+                    name = "isPlannedFor",
+                    multiplicity = MultiplicityData.optional()
+                )
+            )
+
+            val workItemClass = ClassData(name = "WorkItem", isAbstract = false)
+            val metaData = MetamodelData(
+                path = "/project/scrum.mm",
+                classes = listOf(planClass, sprintClass, workItemClass),
+                associations = listOf(planSprintsAssoc, sprintCommittedItemsAssoc)
+            )
+
+            val specs = listOf(MutationRuleSpec("Sprint", edge = "committedItems", action = MutationAction.CREATE))
+            val mutations = MutationRuleGenerator.generate(metaData, specs)
+            val names = mutations.map { it.name }.toSet()
+
+            assertTrue(
+                names.any { it.contains("Plan") && it.contains("sprints") && it.contains("LBREPAIR") },
+                "Expected contextual CREATE_Sprint_in_Plan_via_sprints_LBREPAIR; got: $names"
+            )
+            assertFalse(
+                names.contains("CREATE_Sprint_committedItems_LBREPAIR"),
+                "Expected no standalone CREATE_Sprint_committedItems_LBREPAIR; got: $names"
+            )
+
+            val contextualRule = mutations.find { it.name.contains("Plan") && it.name.contains("sprints") && it.name.contains("LBREPAIR") }
+            assertNotNull(contextualRule)
+            val stmt = contextualRule.typedAst.statements[0] as TypedMatchStatement
+            val instances = stmt.pattern.elements.filterIsInstance<TypedPatternObjectInstanceElement>()
+            assertNotNull(instances.find { it.objectInstance.name == "container" && it.objectInstance.className == "Plan" })
+            assertNotNull(instances.find { it.objectInstance.name == "newNode" && it.objectInstance.className == "Sprint" && it.objectInstance.modifier == "create" })
         }
     }
 }

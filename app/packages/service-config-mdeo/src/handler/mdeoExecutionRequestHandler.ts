@@ -81,9 +81,7 @@ function buildGenerateSpecs(
  * Transforms the frontend MutationsBlockData into the shape expected by the Kotlin
  * MutationsConfig: replaces classMutations/edgeMutations with a `generate` list.
  */
-function buildMutationsPayload(
-    mutations: MutationsBlockData
-): { usingPaths: string[]; generate: MutationRuleSpec[] } {
+function buildMutationsPayload(mutations: MutationsBlockData): { usingPaths: string[]; generate: MutationRuleSpec[] } {
     return {
         usingPaths: mutations.usingPaths,
         generate: buildGenerateSpecs(mutations.classMutations, mutations.edgeMutations)
