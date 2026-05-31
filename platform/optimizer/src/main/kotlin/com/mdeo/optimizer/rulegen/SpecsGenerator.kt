@@ -104,14 +104,15 @@ class SpecsGenerator {
             .add(RepairSpec(className, null, RepairSpecType.DELETE))
 
         // For every reference whose opposite has FIXED cardinality (k == l > 0):
-        // emit repair rules that atomically delete the node and reconnect its neighbours.
+        // emit repair rules that atomically delete the node and reconnect its neighbours,
+        // but only when the source side itself is not fixed-cardinality (n != m).
         val refs = info.referencesForNode(className)
         for (ref in refs) {
             val targetRefs = info.referencesForNode(ref.targetClass)
             val backRef = targetRefs.find {
                 it.targetClass == className && it.isReverse == !ref.isReverse
             }
-            if (backRef != null && backRef.lower == backRef.upper && backRef.lower > 0) {
+            if (backRef != null && backRef.lower == backRef.upper && backRef.lower > 0 && ref.lower != ref.upper) {
                 // Single-neighbour repair (k = l = 1 or k = l > 1, one per application)
                 result.getOrPut("DELETE") { mutableListOf() }
                     .add(RepairSpec(className, ref.refName, RepairSpecType.DELETE_REPAIR_SINGLE))

@@ -1562,6 +1562,38 @@ class NewCpoVariantTests {
         associations = listOf(teamPlayerAssoc)
     )
 
+    private val fixedWorkerClass  = ClassData(name = "FixedWorker",  isAbstract = false)
+    private val fixedProjectClass = ClassData(name = "FixedProject", isAbstract = false)
+    private val fixedWorkerProjectAssoc = AssociationData(
+        source = AssociationEndData("FixedWorker",  "project", MultiplicityData(lower = 1, upper = 1)),
+        operator = "-->",
+        target  = AssociationEndData("FixedProject", "worker",  MultiplicityData(lower = 1, upper = 1))
+    )
+    private val metaFixedWP = MetamodelData(
+        path = "/t/fixed-wp.mm",
+        classes = listOf(fixedWorkerClass, fixedProjectClass),
+        associations = listOf(fixedWorkerProjectAssoc)
+    )
+
+    private val managerClass = ClassData(name = "Manager", isAbstract = false)
+    private val project2Class = ClassData(name = "Project2", isAbstract = false)
+    private val task2Class = ClassData(name = "Task2", isAbstract = false)
+    private val managerProjectAssoc = AssociationData(
+        source = AssociationEndData("Manager", "projects", MultiplicityData(lower = 0, upper = -1)),
+        operator = "-->",
+        target  = AssociationEndData("Project2", "manager", MultiplicityData(lower = 1, upper = 1))
+    )
+    private val managerTaskAssoc = AssociationData(
+        source = AssociationEndData("Manager", "tasks", MultiplicityData(lower = 0, upper = -1)),
+        operator = "-->",
+        target  = AssociationEndData("Task2", "manager", MultiplicityData(lower = 1, upper = -1))
+    )
+    private val metaManager = MetamodelData(
+        path = "/t/manager.mm",
+        classes = listOf(managerClass, project2Class, task2Class),
+        associations = listOf(managerProjectAssoc, managerTaskAssoc)
+    )
+
     @Nested
     inner class NewSpecsGeneratorTests {
 
@@ -1615,6 +1647,16 @@ class NewCpoVariantTests {
             assertTrue(types.contains(RepairSpecType.DELETE),               "Expected plain DELETE")
             assertTrue(types.contains(RepairSpecType.DELETE_REPAIR_SINGLE), "Expected DELETE_REPAIR_SINGLE for k=l=2")
             assertTrue(types.contains(RepairSpecType.DELETE_REPAIR_MULTI),  "Expected DELETE_REPAIR_MULTI for k=l=2")
+        }
+
+        @Test
+        fun `DELETE on class with fixed source and fixed back-ref emits only plain DELETE`() {
+            val infoFixedWP = MetamodelInfo(metaFixedWP)
+            val spec = MutationRuleSpec("FixedWorker", action = MutationAction.DELETE)
+            val result = generator.getRepairsForRuleSpec(spec, infoFixedWP)
+            val types = result["DELETE"]!!.map { it.type }.toSet()
+            assertEquals(setOf(RepairSpecType.DELETE), types,
+                "Expected fixed-source delete to suppress repair variants")
         }
 
         @Test
@@ -1764,6 +1806,40 @@ class NewCpoVariantTests {
         }
 
         @Test
+        fun `DELETE_REPAIR_SINGLE preserves lower-bound guards for non-repaired references`() {
+            val info = MetamodelInfo(metaManager)
+            val spec = RepairSpec("Manager", "projects", RepairSpecType.DELETE_REPAIR_SINGLE)
+            val ast = MutationAstBuilder.build("name", spec, "/t/manager.mm", info)
+            val stmt = ast.statements[0] as TypedMatchStatement
+
+            val objects = stmt.pattern.elements.filterIsInstance<TypedPatternObjectInstanceElement>()
+            val names = objects.map { it.objectInstance.name }.toSet()
+            assertTrue(names.contains("neighbor_projects"), "Expected repaired neighbour match")
+            assertTrue(names.contains("other_projects"), "Expected replacement source match")
+            assertTrue(names.contains("neighbor_tasks"), "Expected guard neighbour for non-repaired tasks ref")
+
+            val links = stmt.pattern.elements.filterIsInstance<TypedPatternLinkElement>()
+            assertTrue(
+                links.any {
+                    it.link.modifier == null &&
+                        it.link.source.objectName == "node" &&
+                        it.link.source.propertyName == "tasks" &&
+                        it.link.target.objectName == "neighbor_tasks"
+                },
+                "Expected match link for guarded non-repaired tasks ref"
+            )
+
+            val wheres = stmt.pattern.elements.filterIsInstance<TypedPatternWhereClauseElement>()
+            assertEquals(1, wheres.size, "Expected one lower-bound guard for non-repaired tasks ref")
+            val expr = wheres[0].whereClause.expression as TypedBinaryExpression
+            assertEquals(">", expr.operator)
+            val ident = ((expr.left as TypedMemberCallExpression).expression as TypedMemberAccessExpression)
+                .expression as TypedIdentifierExpression
+            assertEquals("neighbor_tasks", ident.name)
+            assertEquals("1", (expr.right as TypedIntLiteralExpression).value)
+        }
+
+        @Test
         fun `DELETE_REPAIR_MULTI with k=2 produces 2 neighbours, 2 others, 2 forbid and 2 create links`() {
             val info = MetamodelInfo(metaTP)
             val spec = RepairSpec("Team", "members", RepairSpecType.DELETE_REPAIR_MULTI)
@@ -1870,6 +1946,16 @@ class NewCpoVariantTests {
             ).map { it.name }.toSet()
             assertTrue(names.any { it.contains("REPAIR_SG") }, "Expected REPAIR_SG; got: $names")
             assertTrue(names.any { it.contains("REPAIR_MN") }, "Expected REPAIR_MN; got: $names")
+        }
+
+        @Test
+        fun `generate DELETE for fixed-source class suppresses repair variants`() {
+            val names = MutationRuleGenerator.generate(
+                metaFixedWP, listOf(MutationRuleSpec("FixedWorker", action = MutationAction.DELETE))
+            ).map { it.name }.toSet()
+            assertTrue(names.contains("DELETE_FixedWorker"), "Expected plain DELETE_FixedWorker; got: $names")
+            assertFalse(names.any { it.contains("REPAIR_SG") }, "Expected no REPAIR_SG for fixed source; got: $names")
+            assertFalse(names.any { it.contains("REPAIR_MN") }, "Expected no REPAIR_MN for fixed source; got: $names")
         }
 
         @Test

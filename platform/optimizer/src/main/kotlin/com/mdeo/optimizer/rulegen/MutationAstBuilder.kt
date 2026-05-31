@@ -249,16 +249,35 @@ object MutationAstBuilder {
         // Combined match+delete on the same object instance.
         elements += objectInstance(modifier = "delete", name = "node", className = spec.className)
 
+        appendDeleteGuards(
+            elements = elements,
+            className = spec.className,
+            nodeVarName = "node",
+            info = info,
+            guardBuilder = guardBuilder,
+            skipRefNames = emptySet()
+        )
+
+        return elements
+    }
+
+    private fun appendDeleteGuards(
+        elements: MutableList<TypedPatternElement>,
+        className: String,
+        nodeVarName: String,
+        info: MetamodelInfo,
+        guardBuilder: MultiplicityGuardBuilder,
+        skipRefNames: Set<String>
+    ) {
+        val usedNeighborNames = elements
+            .filterIsInstance<TypedPatternObjectInstanceElement>()
+            .map { it.objectInstance.name }
+            .toMutableSet()
+
         // Add guards for every reference whose target still needs a minimum number of back-links
-        val refs = info.referencesForNode(spec.className)
+        val refs = info.referencesForNode(className)
         for (ref in refs) {
-            val oppositeRefName = ref.opposite?.let { _ ->
-                // The opposite ref name is the one that comes back to spec.className
-                // For a forward ref A.foo → B, the opposite is B.bar → A; refName here is 'foo'
-                // For a reverse ref B.bar → A (isReverse=true), the "opposite" ref goes back as A.foo
-                // We need the name in B that points back to A (which is ref.refName itself for guards)
-                null
-            }
+            if (ref.refName in skipRefNames) continue
             // For a guard, we look at ref's opposite's lower bound from the target's perspective.
             // The guard checks: if we delete this node, the target (neighbor) must still have
             // enough connections of the kind described by the opposite end of our reference.
@@ -266,10 +285,16 @@ object MutationAstBuilder {
             // The opposite end name (from the target node's perspective looking back) is the
             // "opposite" reference. We can find it from the target class's references.
             val targetRefs = info.referencesForNode(ref.targetClass)
-            val backRef = targetRefs.find { it.targetClass == spec.className && it.isReverse == !ref.isReverse }
+            val backRef = targetRefs.find { it.targetClass == className && it.isReverse == !ref.isReverse }
 
             if (backRef != null && backRef.lower > 0) {
-                val neighborName = "neighbor_${ref.refName}"
+                val baseNeighborName = "neighbor_${ref.refName}"
+                var neighborName = baseNeighborName
+                var suffix = 2
+                while (!usedNeighborNames.add(neighborName)) {
+                    neighborName = "${baseNeighborName}_$suffix"
+                    suffix++
+                }
 
                 // Match the neighbour object
                 elements += objectInstance(modifier = null, name = neighborName, className = ref.targetClass)
@@ -277,7 +302,7 @@ object MutationAstBuilder {
                 // Match link connecting node → neighbour via this reference
                 elements += linkElement(
                     modifier = null,
-                    sourceObj = "node", sourceClassName = spec.className, sourceRef = ref.refName,
+                    sourceObj = nodeVarName, sourceClassName = className, sourceRef = ref.refName,
                     targetObj = neighborName, info = info
                 )
 
@@ -286,13 +311,11 @@ object MutationAstBuilder {
                     varName = neighborName,
                     varClassName = ref.targetClass,
                     refName = backRef.refName,
-                    targetClassName = spec.className,
+                    targetClassName = className,
                     lowerBound = backRef.lower
                 )
             }
         }
-
-        return elements
     }
 
     // =========================================================================
@@ -726,6 +749,15 @@ object MutationAstBuilder {
             )
         }
 
+        appendDeleteGuards(
+            elements = elements,
+            className = spec.className,
+            nodeVarName = "node",
+            info = info,
+            guardBuilder = guardBuilder,
+            skipRefNames = setOf(refName)
+        )
+
         return elements
     }
 
@@ -790,6 +822,15 @@ object MutationAstBuilder {
                 )
             }
         }
+
+        appendDeleteGuards(
+            elements = elements,
+            className = spec.className,
+            nodeVarName = "node",
+            info = info,
+            guardBuilder = guardBuilder,
+            skipRefNames = setOf(refName)
+        )
 
         return elements
     }
