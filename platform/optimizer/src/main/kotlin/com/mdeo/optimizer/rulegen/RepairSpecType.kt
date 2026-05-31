@@ -1,32 +1,31 @@
 package com.mdeo.optimizer.rulegen
 
 /**
- * Internal repair specification types, one per edge repair operation.
+ * Enumerates the kinds of consistency-preserving repair specs that [SpecsGenerator] can produce.
  *
- * Equivalent to RepairSpecType in the original mde_optimiser rulegen library.
- *
- * - CREATE / CREATE_LB_REPAIR / CREATE_LB_REPAIR_MANY: create a node (with lower-bound repair variants)
- * - DELETE / DELETE_LB_REPAIR / DELETE_LB_REPAIR_MANY: delete a node (with lower-bound repair variants)
- * - ADD: add an edge between two existing nodes
- * - REMOVE: remove an existing edge
- * - CHANGE: redirect an edge from one target to another (for fixed-opposite multiplicity)
- * - SWAP: swap edge target (used when source multiplicity is fixed lower==upper)
- *
- * REPORT: The LB_REPAIR variants (CREATE_LB_REPAIR, CREATE_LB_REPAIR_MANY, DELETE_LB_REPAIR,
- * DELETE_LB_REPAIR_MANY) require additional lower-bound repair steps in the Henshin original.
- * In our DSL port these are not representable as a NAC/PAC chain; they are downgraded to the
- * base CREATE/DELETE variant with a comment in the generated rule name.
+ * Each value maps to a distinct structural mutation pattern:
+ * - [CREATE]               – Create a new node (no edge involved).
+ * - [CREATE_LB_REPAIR]      – Create a new node and steal one target from a single donor node to
+ *                             satisfy a positive lower-bound (single-donor variant, n ≥ 1).
+ * - [CREATE_LB_REPAIR_MULTI]– Create a new node and steal one target from each of n distinct donor
+ *                             nodes (multi-donor variant, n > 1).
+ * - [DELETE]                – Delete an existing node (with WHERE guards where needed).
+ * - [DELETE_REPAIR_SINGLE]  – Delete a node and simultaneously move ONE neighbour (whose opposite
+ *                             has fixed cardinality k=l>0) to a single other node of the same class.
+ * - [DELETE_REPAIR_MULTI]   – Delete a node and simultaneously move k neighbours (k=l>1) each to a
+ *                             different replacement node.
+ * - [ADD]                   – Add a new edge between two existing nodes.
+ * - [REMOVE]                – Remove an existing edge between two nodes.
+ * - [CHANGE]                – Change the target of an existing edge (delete + create).
+ * - [SWAP]                  – Swap the targets of two parallel edges (preserves cardinality).
  */
 enum class RepairSpecType {
-    // Node operations
     CREATE,
     CREATE_LB_REPAIR,
-    CREATE_LB_REPAIR_MANY,
+    CREATE_LB_REPAIR_MULTI,
     DELETE,
-    DELETE_LB_REPAIR,
-    DELETE_LB_REPAIR_MANY,
-
-    // Edge operations
+    DELETE_REPAIR_SINGLE,
+    DELETE_REPAIR_MULTI,
     ADD,
     REMOVE,
     CHANGE,

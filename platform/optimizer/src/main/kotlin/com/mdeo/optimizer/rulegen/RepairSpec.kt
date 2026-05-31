@@ -1,28 +1,14 @@
 package com.mdeo.optimizer.rulegen
 
 /**
- * Represents a specific repair operation on a metamodel node or edge.
+ * A concrete, parameterised repair action produced by [SpecsGenerator].
  *
- * Equivalent to RepairSpec in the original mde_optimiser rulegen library.
- *
- * @param nodeName The name of the EClass being operated on.
- * @param edgeName The name of the EReference being modified, or null for node-only operations
- *                 (CREATE / DELETE).
- * @param type     The type of repair operation.
+ * @param className  The metamodel class the operator acts on (source node for edge operations).
+ * @param edgeName   The reference name involved, or `null` for node-only operations.
+ * @param type       The kind of mutation this spec describes.
  */
 data class RepairSpec(
-    val nodeName: String,
+    val className: String,
     val edgeName: String?,
     val type: RepairSpecType
-) {
-    override fun equals(other: Any?): Boolean {
-        if (this === other) return true
-        if (other !is RepairSpec) return false
-        return nodeName == other.nodeName &&
-            edgeName == other.edgeName &&
-            type == other.type
-    }
-
-    override fun hashCode(): Int =
-        31 * (31 * nodeName.hashCode() + (edgeName?.hashCode() ?: 0)) + type.hashCode()
-}
+)

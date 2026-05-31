@@ -328,8 +328,7 @@ class OptimizerExecutionService(
             if (config.search.mutations.generate.isNotEmpty()) {
                 val generated = MutationRuleGenerator.generate(
                     metamodelData = metamodelData,
-                    specs = config.search.mutations.generate,
-                    metamodelPath = config.problem.metamodelPath
+                    specs = config.search.mutations.generate
                 )
                 logger.info(
                     "Auto-generated {} mutation rule(s) from {} spec(s)",

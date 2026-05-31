@@ -5,192 +5,156 @@ import com.mdeo.optimizer.config.RefinementConfig
 import org.slf4j.LoggerFactory
 
 /**
- * Entry point for auto-generating mutation operators from a metamodel description.
+ * Entry-point for automatic consistency-preserving mutation operator generation.
  *
- * Equivalent to RulesGenerator in the original mde_optimiser rulegen library, but
- * instead of producing Henshin Module objects it produces [GeneratedMutation] values
- * — each containing a unique rule name and a ready-to-run [TypedAst].
+ * Given a metamodel and a list of [MutationRuleSpec] entries this object produces a flat list of
+ * [GeneratedMutation] objects – each containing a human-readable name and a compiled [TypedAst]
+ * ready for execution by the model-transformation engine.
  *
- * ## Usage
- * ```kotlin
- * val mutations = MutationRuleGenerator.generate(
- *     metamodelData = metamodelData,
- *     specs = listOf(MutationRuleSpec(node = "Foo", action = MutationAction.ALL)),
- *     metamodelPath = "/path/to/metamodel.mm"
- * )
- * // mutations: List<GeneratedMutation>, each with a unique name and TypedAst
- * ```
+ * ### Generation passes
  *
- * ## Two-pass generation
- * When [refinements] are provided the generator runs a second pass over the same
- * [specs] using a modified [MetamodelInfo] where the specified reference multiplicities
- * are replaced by the tightened bounds from each [RefinementConfig].  Rules produced
- * in the second pass are prefixed with `"S_"` (solution-space) to distinguish them from
- * the base `"P_"`-equivalent rules produced in the first pass.  After the second pass,
- * both sets are merged; any S-type rule whose name already exists in the result (because
- * the tightened bounds produce an identical rule shape) is silently skipped.
+ * **Pass 1 – Base rules (prefix: none)**
+ * Generated from the metamodel as-is.  The specs drive which classes and edges are considered.
  *
- * ## Deduplication
- * The Java original uses `HenshinModuleAnalysis` (semantic rule equality) to remove
- * duplicate rules.  This port deduplicates by rule name instead — an identical
- * (node, edge, type) triple always produces the same name, so structural duplicates
- * collapse naturally.
+ * **Pass 2 – Solution-space rules (prefix: `S_`)**
+ * Only performed when [refinements] is non-empty.  A second [MetamodelInfo] is constructed with
+ * the refined multiplicities applied, and the same spec list is processed again.  Resulting rule
+ * names receive the `"S_"` prefix so they can be distinguished from base rules.
  *
- * REPORT: Semantic deduplication (two structurally different rules that are
- * behaviourally equivalent) is not performed. Name-based deduplication covers all
- * cases produced by the current [SpecsGenerator] logic.
+ * ### Deduplication
+ * Rules with the same name are silently dropped so that duplicate [MutationRuleSpec] entries in
+ * the input do not produce duplicate operators.
+ *
+ * ### Unknown classes
+ * Any spec referencing a class that is not present in the metamodel is skipped with a warning log.
  */
 object MutationRuleGenerator {
 
-    private val logger = LoggerFactory.getLogger(MutationRuleGenerator::class.java)
+    private val log = LoggerFactory.getLogger(MutationRuleGenerator::class.java)
+
+    private val specsGenerator = SpecsGenerator()
 
     /**
-     * Generates mutation rules for all [specs] against the given [metamodelData].
+     * Generates mutation operators from [metamodelData] according to [specs].
      *
-     * When [refinements] is non-empty a second generation pass is performed using a
-     * modified [MetamodelInfo] with the specified reference multiplicities tightened to
-     * the lower/upper values in each [RefinementConfig].  Rules from the second pass
-     * carry an `"S_"` name prefix and are merged into the result after the base rules.
-     *
-     * @param metamodelData The platform metamodel description to introspect.
-     * @param specs         List of [MutationRuleSpec] entries describing what to generate.
-     * @param metamodelPath Absolute file-system path of the metamodel (stored in each TypedAst).
-     *                      Defaults to [MetamodelData.path].
-     * @param refinements   Optional multiplicity refinements from the optimisation goal config.
-     *                      When non-empty, triggers S-type rule generation.
-     * @return Deduplicated list of [GeneratedMutation] values in stable order.
+     * @param metamodelData  The metamodel to analyse.
+     * @param specs          Operator generation specifications.
+     * @param refinements    Optional multiplicity overrides for the solution-space pass.
+     * @return               Deduplicated list of [GeneratedMutation] objects.
      */
     fun generate(
         metamodelData: MetamodelData,
         specs: List<MutationRuleSpec>,
-        metamodelPath: String = metamodelData.path,
         refinements: List<RefinementConfig> = emptyList()
     ): List<GeneratedMutation> {
-        if (specs.isEmpty()) {
-            logger.info("MutationRuleGenerator: no specs provided, returning empty list")
-            return emptyList()
-        }
+        if (specs.isEmpty()) return emptyList()
 
-        val baseMetamodelInfo = MetamodelInfo(metamodelData)
-        val specsGenerator = SpecsGenerator()
+        val baseInfo = MetamodelInfo(metamodelData)
+        val result = mutableMapOf<String, GeneratedMutation>()
 
-        val seen = LinkedHashMap<String, GeneratedMutation>()
+        // Pass 1: base rules
+        generatePass(specs, baseInfo, metamodelData.path, prefix = "", result)
 
-        runPass(specs, baseMetamodelInfo, specsGenerator, metamodelPath, namePrefix = "", seen)
-
+        // Pass 2: solution-space rules (only when refinements are declared)
         if (refinements.isNotEmpty()) {
-            val overrides = refinements.map { r ->
+            val overrides = refinements.map {
                 MultiplicityOverride(
-                    className = r.className,
-                    refName = r.fieldName,
-                    lower = r.lower,
-                    upper = r.upper
+                    className = it.className,
+                    refName = it.fieldName,
+                    lower = it.lower,
+                    upper = it.upper
                 )
             }
-            val refinedMetamodelInfo = MetamodelInfo.withOverrides(metamodelData, overrides)
-            runPass(specs, refinedMetamodelInfo, specsGenerator, metamodelPath, namePrefix = "S_", seen)
+            val refinedInfo = MetamodelInfo.withOverrides(metamodelData, overrides)
+            generatePass(specs, refinedInfo, metamodelData.path, prefix = "S_", result)
         }
 
-        logger.info("MutationRuleGenerator produced {} rule(s) from {} spec(s)", seen.size, specs.size)
-        // Sort by name to guarantee a stable, deterministic order independent of metamodel
-        // data ordering. This is required so that numerical operator indices (assigned by
-        // MutationStrategyFactory based on sorted paths) are consistent across federated nodes
-        // that may receive the generated rules via different serialisation paths.
-        return seen.values.sortedBy { it.name }
+        return result.values.toList()
     }
 
+    // -------------------------------------------------------------------------
+    // Internal helpers
+    // -------------------------------------------------------------------------
+
     /**
-     * Executes one generation pass over [specs] using [metamodelInfo], inserting results
-     * into [seen].  Rules are named with [namePrefix] prepended so that second-pass
-     * (S-type) rules are distinguishable from base rules.
+     * Runs a single generation pass and merges results into [accumulator].
+     * Already-seen names are skipped (deduplication across passes).
      */
-    private fun runPass(
+    private fun generatePass(
         specs: List<MutationRuleSpec>,
-        metamodelInfo: MetamodelInfo,
-        specsGenerator: SpecsGenerator,
+        info: MetamodelInfo,
         metamodelPath: String,
-        namePrefix: String,
-        seen: LinkedHashMap<String, GeneratedMutation>
+        prefix: String,
+        accumulator: MutableMap<String, GeneratedMutation>
     ) {
         for (spec in specs) {
-            if (!metamodelInfo.hasClass(spec.node)) {
-                logger.warn("Class '{}' not found in metamodel — skipping spec", spec.node)
+            if (!info.classNames().contains(spec.node)) {
+                log.warn("MutationRuleGenerator: unknown class '${spec.node}' – skipping spec")
                 continue
             }
 
-            val repairMap = specsGenerator.getRepairsForRuleSpec(spec, metamodelInfo)
+            val repairMap = specsGenerator.getRepairsForRuleSpec(spec, info)
 
-            for ((_, repairList) in repairMap) {
-                for (repairSpec in repairList) {
-                    val ruleName = MutationRuleNameGenerator.fromRepairSpec(repairSpec, prefix = namePrefix)
-
-                    if (seen.containsKey(ruleName)) {
-                        logger.info("Skipping duplicate rule: {}", ruleName)
-                        continue
-                    }
-
-                    val asts = buildAsts(ruleName, repairSpec, metamodelPath, metamodelInfo, namePrefix)
-                    for ((name, typedAst) in asts) {
-                        if (!seen.containsKey(name)) {
-                            seen[name] = GeneratedMutation(name = name, typedAst = typedAst)
-                        }
-                    }
+            for ((_, repairSpecs) in repairMap) {
+                for (repairSpec in repairSpecs) {
+                    emitMutation(repairSpec, info, metamodelPath, prefix, accumulator)
                 }
             }
         }
     }
 
     /**
-     * Builds one or more (name, TypedAst) pairs for [repairSpec].
+     * Translates a single [RepairSpec] into one or more [GeneratedMutation] objects and adds them
+     * to [accumulator] (skipping names that are already present).
      *
-     * CREATE rules expand to one rule per containment context (or one standalone rule
-     * when none exist).  The rule name is derived from the containment context rather
-     * than [baseName], so multiple CREATE specs for the same node (different edge variants)
-     * always collapse to the same set of context-specific or standalone names — the
-     * deduplication in [runPass] then keeps only the first occurrence.
-     *
-     * Non-CREATE rules produce exactly one rule using [baseName].
-     *
-     * @param namePrefix Prefix to prepend to all generated names (e.g. `"S_"`).
+     * CREATE specs are special: they may expand into multiple rules, one per containment context.
+     * All other spec types produce exactly one rule.
      */
-    private fun buildAsts(
-        baseName: String,
-        repairSpec: RepairSpec,
+    private fun emitMutation(
+        spec: RepairSpec,
+        info: MetamodelInfo,
         metamodelPath: String,
-        metamodelInfo: MetamodelInfo,
-        namePrefix: String = ""
-    ): List<Pair<String, com.mdeo.modeltransformation.ast.TypedAst>> {
-        return when (repairSpec.type) {
-            RepairSpecType.CREATE,
-            RepairSpecType.CREATE_LB_REPAIR,
-            RepairSpecType.CREATE_LB_REPAIR_MANY -> {
-                val contexts = metamodelInfo.containmentContextsFor(repairSpec.nodeName)
+        prefix: String,
+        accumulator: MutableMap<String, GeneratedMutation>
+    ) {
+        when (spec.type) {
+            RepairSpecType.CREATE -> {
+                val contexts = info.containmentContextsFor(spec.className)
                 if (contexts.isEmpty()) {
-                    val standaloneName = MutationRuleNameGenerator.forNode("CREATE", repairSpec.nodeName, namePrefix)
-                    val ast = MutationAstBuilder.build(
-                        standaloneName, repairSpec, metamodelPath, metamodelInfo, createContext = null
-                    )
-                    listOfNotNull(ast?.let { standaloneName to it })
+                    // Standalone create (no containment context)
+                    val name = prefix + MutationRuleNameGenerator.forNode("CREATE", spec.className)
+                    addIfAbsent(name, spec, metamodelPath, info, null, accumulator)
                 } else {
-                    contexts.mapNotNull { (containerClass, containerRef) ->
-                        val contextName = MutationRuleNameGenerator.forNodeCreate(
-                            repairSpec.nodeName, containerClass, containerRef, namePrefix
+                    for ((containerClass, refName) in contexts) {
+                        val name = prefix + MutationRuleNameGenerator.forNodeCreate(
+                            spec.className, containerClass, refName
                         )
-                        val ast = MutationAstBuilder.build(
-                            contextName, repairSpec, metamodelPath, metamodelInfo,
-                            createContext = containerClass to containerRef
-                        )
-                        ast?.let { contextName to it }
+                        addIfAbsent(name, spec, metamodelPath, info, containerClass to refName, accumulator)
                     }
                 }
             }
+
             else -> {
-                val ast = MutationAstBuilder.build(
-                    baseName, repairSpec, metamodelPath, metamodelInfo
-                )
-                listOfNotNull(ast?.let { baseName to it })
+                val name = prefix + MutationRuleNameGenerator.fromRepairSpec(spec)
+                addIfAbsent(name, spec, metamodelPath, info, null, accumulator)
             }
         }
     }
-}
 
+    private fun addIfAbsent(
+        name: String,
+        spec: RepairSpec,
+        metamodelPath: String,
+        info: MetamodelInfo,
+        createContext: Pair<String, String>?,
+        accumulator: MutableMap<String, GeneratedMutation>
+    ) {
+        if (accumulator.containsKey(name)) return
+        try {
+            val ast = MutationAstBuilder.build(name, spec, metamodelPath, info, createContext)
+            accumulator[name] = GeneratedMutation(name, ast)
+        } catch (e: Exception) {
+            log.warn("MutationRuleGenerator: failed to build rule '$name': ${e.message}")
+        }
+    }
+}

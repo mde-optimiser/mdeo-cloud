@@ -12,152 +12,105 @@ import com.mdeo.modeltransformation.ast.patterns.TypedPatternWhereClauseElement
 import com.mdeo.modeltransformation.ast.patterns.TypedWhereClause
 
 /**
- * Builds multiplicity-guard `where` clauses and manages the companion `types` array
- * required by [com.mdeo.modeltransformation.ast.TypedAst] expressions.
+ * Builds multiplicity-guard `where` clause elements and manages the shared types array for a
+ * single [MutationAstBuilder.build] invocation.
  *
- * Each generated mutation rule may need `.size()` checks to prevent mutations that
- * would violate metamodel multiplicity constraints.  This builder:
+ * The types array is pre-populated with six built-in entries at fixed indices:
+ * ```
+ * 0: VoidType
+ * 1: ClassTypeRef("string")
+ * 2: ClassTypeRef("double")
+ * 3: ClassTypeRef("boolean")   ← BOOLEAN_INDEX
+ * 4: ClassTypeRef("Any", nullable=true)
+ * 5: ClassTypeRef("int")        ← INT_INDEX
+ * ```
+ * Additional class and list types are appended on demand via [getOrAddClassType] and
+ * [getOrAddListType] and their array index is returned for use in AST `evalType` fields.
  *
- * - Maintains a deduplication-safe list of [ReturnType] entries (builtin + metamodel types).
- * - Provides factory methods ([buildUpperBoundGuard] / [buildLowerBoundGuard]) that produce
- *   ready-to-use [TypedPatternWhereClauseElement] instances referencing the correct type indices.
- *
- * Standard layout of the `types` array (indices 0–5 are reserved builtins):
- *
- * | Index | Type             |
- * |-------|------------------|
- * | 0     | void             |
- * | 1     | builtin.string   |
- * | 2     | builtin.double   |
- * | 3     | builtin.boolean  |
- * | 4     | builtin.Any?     |
- * | 5     | builtin.int      |
- *
- * Metamodel class types and `List<Class>` types are appended lazily via
- * [getOrAddClassType] and [getOrAddListType].
- *
- * @param metamodelPath The metamodel path stored in the TypedAst, used to construct
- *                      `class/<path>` package prefixes for metamodel type entries.
+ * @param metamodelPath The metamodel path used as the `package` prefix for class types,
+ *                      formatted as `"class$metamodelPath"`.
  */
 class MultiplicityGuardBuilder(private val metamodelPath: String) {
 
     companion object {
-        /**
-         * Type-array index for `void`. 
-         */
-        const val VOID_INDEX = 0
-
-        /**
-         * Type-array index for `builtin.string`. 
-         */
-        const val STRING_INDEX = 1
-
-        /**
-         * Type-array index for `builtin.double`. 
-         */
-        const val DOUBLE_INDEX = 2
-
-        /**
-         * Type-array index for `builtin.boolean`. 
-         */
+        /** Index of the `boolean` type in the types array. */
         const val BOOLEAN_INDEX = 3
 
-        /**
-         * Type-array index for `builtin.Any?`. 
-         */
-        const val ANY_INDEX = 4
-
-        /**
-         * Type-array index for `builtin.int`. 
-         */
+        /** Index of the `int` type in the types array. */
         const val INT_INDEX = 5
     }
 
-    private val types = mutableListOf<ReturnType>(
+    private val types: MutableList<ReturnType> = mutableListOf(
         VoidType(),
-        ClassTypeRef(`package` = "builtin", type = "string", isNullable = false),
-        ClassTypeRef(`package` = "builtin", type = "double", isNullable = false),
+        ClassTypeRef(`package` = "builtin", type = "string",  isNullable = false),
+        ClassTypeRef(`package` = "builtin", type = "double",  isNullable = false),
         ClassTypeRef(`package` = "builtin", type = "boolean", isNullable = false),
-        ClassTypeRef(`package` = "builtin", type = "Any", isNullable = true),
-        ClassTypeRef(`package` = "builtin", type = "int", isNullable = false),
+        ClassTypeRef(`package` = "builtin", type = "Any",     isNullable = true),
+        ClassTypeRef(`package` = "builtin", type = "int",     isNullable = false)
     )
 
-    private val classTypeIndices = mutableMapOf<String, Int>()
-    private val listTypeIndices = mutableMapOf<String, Int>()
+    // -------------------------------------------------------------------------
+    // Type registry
+    // -------------------------------------------------------------------------
 
     /**
-     * Returns the type-array index for a metamodel class, adding a new entry if it
-     * has not been registered yet.
-     *
-     * The resulting [ClassTypeRef] uses `package = "class" + metamodelPath` and
-     * `type = className`.
-     *
-     * @param className Simple name of the metamodel class (e.g. `"Node"`).
-     * @return Index into the types array.
+     * Returns the index of a class type for [className] in the types array, registering a new
+     * [ClassTypeRef] if not already present.
      */
-    fun getOrAddClassType(className: String): Int =
-        classTypeIndices.getOrPut(className) {
-            val idx = types.size
-            types.add(
-                ClassTypeRef(
-                    `package` = "class" + metamodelPath,
-                    type = className,
-                    isNullable = false,
-                    typeArgs = emptyMap()
-                )
-            )
-            idx
+    fun getOrAddClassType(className: String): Int {
+        val pkg = "class$metamodelPath"
+        val existing = types.indexOfFirst {
+            it is ClassTypeRef && it.type == className && it.`package` == pkg
         }
-
-    /**
-     * Returns the type-array index for `List<TargetClass>`, adding new entries as needed.
-     *
-     * If the target class type has not been registered yet it is added first via
-     * [getOrAddClassType].
-     *
-     * @param targetClassName Simple name of the list element type (e.g. `"Node"`).
-     * @return Index of the `List<TargetClass>` entry in the types array.
-     */
-    fun getOrAddListType(targetClassName: String): Int {
-        getOrAddClassType(targetClassName)
-        return listTypeIndices.getOrPut(targetClassName) {
-            val idx = types.size
-            types.add(
-                ClassTypeRef(
-                    `package` = "builtin",
-                    type = "List",
-                    isNullable = false,
-                    typeArgs = mapOf(
-                        "T" to ClassTypeRef(
-                            `package` = "class" + metamodelPath,
-                            type = targetClassName,
-                            isNullable = false,
-                            typeArgs = emptyMap()
-                        )
-                    )
-                )
-            )
-            idx
-        }
+        if (existing != -1) return existing
+        types.add(ClassTypeRef(`package` = pkg, type = className, isNullable = false))
+        return types.size - 1
     }
 
     /**
-     * Returns a snapshot of the current types array, suitable for
-     * [com.mdeo.modeltransformation.ast.TypedAst.types].
+     * Returns the index of a `List<elementClassName>` type in the types array, registering new
+     * entries (for both the element class and the List type) if not already present.
+     */
+    fun getOrAddListType(elementClassName: String): Int {
+        val elementIdx = getOrAddClassType(elementClassName)
+        val elementTypeRef = types[elementIdx] as ClassTypeRef
+        val existing = types.indexOfFirst {
+            it is ClassTypeRef &&
+                it.type == "List" &&
+                it.`package` == "builtin" &&
+                it.typeArgs?.get("T") == elementTypeRef
+        }
+        if (existing != -1) return existing
+        types.add(
+            ClassTypeRef(
+                `package` = "builtin",
+                type = "List",
+                isNullable = false,
+                typeArgs = mapOf("T" to elementTypeRef)
+            )
+        )
+        return types.size - 1
+    }
+
+    /**
+     * Returns a snapshot of the current types array (immutable copy).
      */
     fun getTypes(): List<ReturnType> = types.toList()
 
+    // -------------------------------------------------------------------------
+    // Guard builders
+    // -------------------------------------------------------------------------
+
     /**
-     * Builds an upper-bound guard: `where <varName>.<refName>.size() < <upperBound>`.
+     * Builds a `where varName.refName.size() < upperBound` guard element.
      *
-     * Used by ADD and CREATE rules to prevent exceeding the maximum multiplicity.
+     * This corresponds to the upper-bound NAC in CPO Table 3/1 (Add/Create edge).
      *
-     * @param varName         Pattern variable name (e.g. `"source"`, `"container"`).
-     * @param varClassName    Metamodel class of [varName] (for type-index resolution).
-     * @param refName         Reference name on the variable (e.g. `"rooms"`).
-     * @param targetClassName Target class of the reference (for `List` type resolution).
-     * @param upperBound      Maximum allowed cardinality (must be > 0).
-     * @return A [TypedPatternWhereClauseElement] encoding `varName.refName.size() < upperBound`.
+     * @param varName         Name of the pattern variable (e.g. "source", "newTarget").
+     * @param varClassName    Metamodel class of [varName] – used for identifier evalType.
+     * @param refName         The reference on [varName] to check.
+     * @param targetClassName The element type of the reference collection.
+     * @param upperBound      The maximum allowed size (exclusive).
      */
     fun buildUpperBoundGuard(
         varName: String,
@@ -165,22 +118,19 @@ class MultiplicityGuardBuilder(private val metamodelPath: String) {
         refName: String,
         targetClassName: String,
         upperBound: Int
-    ): TypedPatternWhereClauseElement {
-        require(upperBound > 0) { "upperBound must be positive, was $upperBound" }
-        return buildSizeGuard(varName, varClassName, refName, targetClassName, "<", upperBound)
-    }
+    ): TypedPatternWhereClauseElement =
+        buildBoundGuard(varName, varClassName, refName, targetClassName, upperBound, "<")
 
     /**
-     * Builds a lower-bound guard: `where <varName>.<refName>.size() > <lowerBound>`.
+     * Builds a `where varName.refName.size() > lowerBound` guard element.
      *
-     * Used by REMOVE rules to prevent dropping below the minimum multiplicity.
+     * This corresponds to the lower-bound PAC in CPO Table 4/2 (Remove/Delete edge).
      *
-     * @param varName         Pattern variable name (e.g. `"source"`).
-     * @param varClassName    Metamodel class of [varName] (for type-index resolution).
-     * @param refName         Reference name on the variable (e.g. `"rooms"`).
-     * @param targetClassName Target class of the reference (for `List` type resolution).
-     * @param lowerBound      Minimum required cardinality (must be > 0).
-     * @return A [TypedPatternWhereClauseElement] encoding `varName.refName.size() > lowerBound`.
+     * @param varName         Name of the pattern variable (e.g. "source", "oldTarget").
+     * @param varClassName    Metamodel class of [varName].
+     * @param refName         The reference on [varName] to check.
+     * @param targetClassName The element type of the reference collection.
+     * @param lowerBound      The minimum required size (inclusive; guard fires when ≤ lowerBound).
      */
     fun buildLowerBoundGuard(
         varName: String,
@@ -188,74 +138,55 @@ class MultiplicityGuardBuilder(private val metamodelPath: String) {
         refName: String,
         targetClassName: String,
         lowerBound: Int
-    ): TypedPatternWhereClauseElement {
-        require(lowerBound > 0) { "lowerBound must be positive, was $lowerBound" }
-        return buildSizeGuard(varName, varClassName, refName, targetClassName, ">", lowerBound)
-    }
+    ): TypedPatternWhereClauseElement =
+        buildBoundGuard(varName, varClassName, refName, targetClassName, lowerBound, ">")
 
-    /**
-     * Core helper that constructs the expression tree for
-     * `where <varName>.<refName>.size() <operator> <bound>`.
-     *
-     * Expression tree structure:
-     * ```
-     * TypedBinaryExpression(boolean, operator,
-     *   left  = TypedMemberCallExpression(int, "size", args=[],
-     *             expression = TypedMemberAccessExpression(List<Target>, refName,
-     *               expression = TypedIdentifierExpression(OwnerClass, varName, scope=1)
-     *             )
-     *           ),
-     *   right = TypedIntLiteralExpression(int, bound)
-     * )
-     * ```
-     */
-    private fun buildSizeGuard(
+    // -------------------------------------------------------------------------
+    // Internal helpers
+    // -------------------------------------------------------------------------
+
+    private fun buildBoundGuard(
         varName: String,
         varClassName: String,
         refName: String,
         targetClassName: String,
-        operator: String,
-        bound: Int
+        bound: Int,
+        operator: String
     ): TypedPatternWhereClauseElement {
-        val objectTypeIndex = getOrAddClassType(varClassName)
-        val listTypeIndex = getOrAddListType(targetClassName)
+        val varTypeIdx  = getOrAddClassType(varClassName)
+        val listTypeIdx = getOrAddListType(targetClassName)
 
-        val identifierExpr = TypedIdentifierExpression(
-            evalType = objectTypeIndex,
+        val identifier = TypedIdentifierExpression(
+            evalType = varTypeIdx,
             name = varName,
             scope = 1
         )
-
-        val memberAccessExpr = TypedMemberAccessExpression(
-            evalType = listTypeIndex,
-            expression = identifierExpr,
+        val memberAccess = TypedMemberAccessExpression(
+            evalType = listTypeIdx,
+            expression = identifier,
             member = refName,
             isNullChaining = false
         )
-
-        val sizeCallExpr = TypedMemberCallExpression(
+        val sizeCall = TypedMemberCallExpression(
             evalType = INT_INDEX,
-            expression = memberAccessExpr,
+            expression = memberAccess,
             member = "size",
             isNullChaining = false,
             overload = "",
             arguments = emptyList()
         )
-
-        val boundExpr = TypedIntLiteralExpression(
+        val boundLiteral = TypedIntLiteralExpression(
             evalType = INT_INDEX,
             value = bound.toString()
         )
-
-        val binaryExpr = TypedBinaryExpression(
+        val comparison = TypedBinaryExpression(
             evalType = BOOLEAN_INDEX,
             operator = operator,
-            left = sizeCallExpr,
-            right = boundExpr
+            left = sizeCall,
+            right = boundLiteral
         )
-
         return TypedPatternWhereClauseElement(
-            whereClause = TypedWhereClause(expression = binaryExpr)
+            whereClause = TypedWhereClause(expression = comparison)
         )
     }
 }

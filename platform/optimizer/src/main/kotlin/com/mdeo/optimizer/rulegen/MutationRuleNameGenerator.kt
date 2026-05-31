@@ -1,85 +1,68 @@
 package com.mdeo.optimizer.rulegen
 
 /**
- * Generates human-readable names for auto-generated mutation rules.
- *
- * Equivalent to RuleNameGenerator in the original mde_optimiser rulegen library.
- * Rule names are used as unique keys in the [MutationRuleGenerator] output and as
- * keys in the transformations map passed to [OptimizationOrchestrator].
+ * Generates human-readable names for mutation operator rules.
  *
  * Naming conventions:
- * - Node-only rules: `<prefix><ACTION>_<ClassName>`            e.g. `CREATE_Foo`, `S_CREATE_Foo`
- * - Edge rules:      `<prefix><ACTION>_<ClassName>_<refName>`  e.g. `ADD_Foo_bar`, `S_ADD_Foo_bar`
- * - Container rules: `<prefix>CREATE_<ClassName>_in_<Container>_via_<ref>`
- * - LB-repair rules: same as above with `_LBREPAIR` / `_LBREPAIR_MANY` suffix
- * - The `prefix` defaults to `""` (base/problem-space rules) and is `"S_"` for
- *   solution-space (refinement-tightened) rules.
+ * - Node operations: `ACTION_ClassName`
+ * - Edge operations: `ACTION_ClassName_refName`
+ * - Node-create with containment: `CREATE_ClassName_in_ContainerClass_via_refName`
+ * - LB-repair suffix: `_LBREPAIR` (single-donor) / `_LBREPAIR_MULTI` (multi-donor)
+ * - Delete-repair suffix: `_REPAIR_SG` (single neighbour) / `_REPAIR_MN` (multi neighbour)
  */
 object MutationRuleNameGenerator {
 
     /**
-     * Generates a name for a node-level operation (CREATE / DELETE).
-     *
-     * @param action   Uppercase action string, e.g. "CREATE" or "DELETE".
-     * @param nodeName The target class name.
-     * @param prefix   Optional name prefix, e.g. `"S_"` for solution-space rules.
+     * Name for a node-level operation: `ACTION_ClassName`.
      */
-    fun forNode(action: String, nodeName: String, prefix: String = ""): String =
-        "${prefix}${action}_${nodeName}"
+    fun forNode(action: String, className: String): String = "${action}_${className}"
 
     /**
-     * Generates a name for a node CREATE rule with a specific containment context.
-     *
-     * @param nodeName       The class being created.
-     * @param containerClass The class that will own the new instance.
-     * @param containerRef   The containment reference used.
-     * @param prefix         Optional name prefix, e.g. `"S_"` for solution-space rules.
+     * Name for an edge-level operation: `ACTION_ClassName_refName`.
      */
-    fun forNodeCreate(
-        nodeName: String,
-        containerClass: String,
-        containerRef: String,
-        prefix: String = ""
-    ): String = "${prefix}CREATE_${nodeName}_in_${containerClass}_via_${containerRef}"
+    fun forEdge(action: String, className: String, refName: String): String =
+        "${action}_${className}_${refName}"
 
     /**
-     * Generates a name for an edge-level operation (ADD / REMOVE / CHANGE / SWAP).
-     *
-     * @param action   Uppercase action string.
-     * @param nodeName The source class name.
-     * @param refName  The reference name.
-     * @param prefix   Optional name prefix, e.g. `"S_"` for solution-space rules.
+     * Name for a containment-context CREATE rule: `CREATE_ClassName_in_ContainerClass_via_refName`.
      */
-    fun forEdge(action: String, nodeName: String, refName: String, prefix: String = ""): String =
-        "${prefix}${action}_${nodeName}_${refName}"
+    fun forNodeCreate(className: String, containerClass: String, refName: String): String =
+        "CREATE_${className}_in_${containerClass}_via_${refName}"
 
     /**
-     * Derives the rule name from a [RepairSpec].
+     * Derives the operator name from a [RepairSpec].
      *
-     * @param spec   The repair spec describing the operation.
-     * @param prefix Optional name prefix, e.g. `"S_"` for solution-space rules.
+     * - [RepairSpecType.CREATE_LB_REPAIR]       → `_LBREPAIR` suffix
+     * - [RepairSpecType.CREATE_LB_REPAIR_MULTI]  → `_LBREPAIR_MULTI` suffix
+     * - [RepairSpecType.DELETE_REPAIR_SINGLE]    → `_REPAIR_SG` suffix
+     * - [RepairSpecType.DELETE_REPAIR_MULTI]     → `_REPAIR_MN` suffix
+     * - All other types: no suffix; action derived directly from the type name.
      */
-    fun fromRepairSpec(spec: RepairSpec, prefix: String = ""): String {
-        val baseAction = when (spec.type) {
-            RepairSpecType.CREATE, RepairSpecType.CREATE_LB_REPAIR,
-            RepairSpecType.CREATE_LB_REPAIR_MANY -> "CREATE"
-            RepairSpecType.DELETE, RepairSpecType.DELETE_LB_REPAIR,
-            RepairSpecType.DELETE_LB_REPAIR_MANY -> "DELETE"
-            RepairSpecType.ADD -> "ADD"
+    fun fromRepairSpec(spec: RepairSpec): String {
+        val action = when (spec.type) {
+            RepairSpecType.CREATE,
+            RepairSpecType.CREATE_LB_REPAIR,
+            RepairSpecType.CREATE_LB_REPAIR_MULTI -> "CREATE"
+            RepairSpecType.DELETE,
+            RepairSpecType.DELETE_REPAIR_SINGLE,
+            RepairSpecType.DELETE_REPAIR_MULTI -> "DELETE"
+            RepairSpecType.ADD    -> "ADD"
             RepairSpecType.REMOVE -> "REMOVE"
             RepairSpecType.CHANGE -> "CHANGE"
-            RepairSpecType.SWAP -> "SWAP"
+            RepairSpecType.SWAP   -> "SWAP"
+        }
+        val baseName = if (spec.edgeName != null) {
+            forEdge(action, spec.className, spec.edgeName)
+        } else {
+            forNode(action, spec.className)
         }
         val suffix = when (spec.type) {
-            RepairSpecType.CREATE_LB_REPAIR, RepairSpecType.DELETE_LB_REPAIR -> "_LBREPAIR"
-            RepairSpecType.CREATE_LB_REPAIR_MANY,
-            RepairSpecType.DELETE_LB_REPAIR_MANY -> "_LBREPAIR_MANY"
+            RepairSpecType.CREATE_LB_REPAIR       -> "_LBREPAIR"
+            RepairSpecType.CREATE_LB_REPAIR_MULTI -> "_LBREPAIR_MULTI"
+            RepairSpecType.DELETE_REPAIR_SINGLE   -> "_REPAIR_SG"
+            RepairSpecType.DELETE_REPAIR_MULTI    -> "_REPAIR_MN"
             else -> ""
         }
-        return if (spec.edgeName != null) {
-            "${prefix}${baseAction}_${spec.nodeName}_${spec.edgeName}${suffix}"
-        } else {
-            "${prefix}${baseAction}_${spec.nodeName}${suffix}"
-        }
+        return baseName + suffix
     }
 }

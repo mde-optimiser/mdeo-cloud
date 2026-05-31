@@ -3,42 +3,34 @@ package com.mdeo.optimizer.rulegen
 import kotlinx.serialization.Serializable
 
 /**
- * Specifies what mutation rules to auto-generate for a given node/edge.
+ * User-facing specification describing which mutation operators to generate for a metamodel class
+ * and (optionally) one of its references.
  *
- * Equivalent to RuleSpec in the original mde_optimiser rulegen library.
- * Describes what the rule engine should generate: which node/edge, and what
- * operations (CREATE, DELETE, ADD, REMOVE, or ALL).
- *
- * @param node The EClass name to generate rules for.
- * @param edge Optional reference name to specifically target. When provided,
- *             only edge operations (ADD/REMOVE) for that ref are generated.
- * @param action Which mutation actions to generate. Defaults to ALL.
+ * @param node   The metamodel class name to generate operators for.
+ * @param edge   Optional reference name to restrict generation to a specific edge.
+ * @param action Which category of operators to generate.
  */
 @Serializable
 data class MutationRuleSpec(
     val node: String,
     val edge: String? = null,
-    val action: MutationAction = MutationAction.ALL
-) {
-    /**
-     * True when this spec targets a specific edge (reference) rather than the whole node. 
-     */
-    fun isEdge(): Boolean = edge != null
-
-    /**
-     * True when this spec targets the whole node (no specific edge). 
-     */
-    fun isNode(): Boolean = edge == null
-}
+    val action: MutationAction
+)
 
 /**
- * The set of mutation operations to auto-generate.
- *
- * - CREATE: generate rules that create new nodes
- * - DELETE: generate rules that delete existing nodes
- * - ADD: generate rules that add an edge between two existing nodes
- * - REMOVE: generate rules that remove an edge between two existing nodes
- * - ALL: generate all of the above as appropriate for the target node/edge
+ * Selects the category of mutation operators that [SpecsGenerator] should produce for a
+ * [MutationRuleSpec].
  */
 @Serializable
-enum class MutationAction { ALL, CREATE, DELETE, ADD, REMOVE }
+enum class MutationAction {
+    /** Generate all operator categories (CREATE, DELETE, ADD, REMOVE). */
+    ALL,
+    /** Generate node-creation operators only. */
+    CREATE,
+    /** Generate node-deletion operators only. */
+    DELETE,
+    /** Generate edge-addition operators only. */
+    ADD,
+    /** Generate edge-removal operators only. */
+    REMOVE
+}

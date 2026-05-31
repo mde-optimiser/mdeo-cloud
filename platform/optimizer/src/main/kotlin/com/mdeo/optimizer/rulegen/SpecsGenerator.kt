@@ -1,302 +1,162 @@
 package com.mdeo.optimizer.rulegen
 
 /**
- * Computes which [RepairSpec] combinations to generate for a given [MutationRuleSpec],
- * based on metamodel structure.
+ * Translates a [MutationRuleSpec] into one or more [RepairSpec] objects grouped by operation
+ * category ("CREATE", "DELETE", "ADD", "REMOVE").
  *
- * Equivalent to SpecsGenerator in the original mde_optimiser rulegen library.
+ * The decision logic implements the CPO generation tables from the CPO_Agent_Instructions:
  *
- * The Java original produces cartesian products across all references of a node (to
- * generate combined multi-reference rules).  This Kotlin port generates independent
- * flat lists — one [RepairSpec] per reference per action — which maps directly to
- * single-operation DSL transformation rules.  Cartesian-product combinations are
- * intentionally omitted as a **design decision** to keep each generated rule atomic
- * (performing exactly one graph operation per application), rather than because they
- * are technically impossible to represent in the custom DSL.
+ * ### Table 1 – Create Node aCPSOs
+ * A base node-creation spec ([RepairSpecType.CREATE]) is always emitted.  When a reference on
+ * the new node has a positive lower bound **and** its opposite end has a finite upper bound:
+ * - [RepairSpecType.CREATE_LB_REPAIR] is emitted (single-donor, n ≥ 1).
+ * - [RepairSpecType.CREATE_LB_REPAIR_MULTI] is additionally emitted when n > 1 (multi-donor).
  *
- * REPORT: Cartesian-product rule combinations (e.g. create node AND simultaneously add
- * required neighbours in a single rule) from the Java original's generateNodeRepairCombinations()
- * are not ported.  Each reference is handled by its own independent mutation rule.
+ * ### Table 2 – Delete Node aCPSOs
+ * A [RepairSpecType.DELETE] spec is always emitted.  For every reference whose opposite end has
+ * **fixed cardinality** (k == l > 0):
+ * - [RepairSpecType.DELETE_REPAIR_SINGLE] is emitted (move one neighbour to a single other node).
+ * - [RepairSpecType.DELETE_REPAIR_MULTI] is additionally emitted when k > 1 (move k neighbours
+ *   simultaneously, each to a different replacement node).
+ *
+ * ### Table 3 – Add Edge aCPSOs
+ * - `lower == upper` (fixed cardinality) → [RepairSpecType.SWAP]
+ * - `opposite.lower == 1` (target requires exactly one back-link) → [RepairSpecType.CHANGE]
+ * - Otherwise → [RepairSpecType.ADD]
+ *
+ * ### Table 4 – Remove Edge aCPSOs
+ * Uses the same decision tree as Add (above).
  */
 class SpecsGenerator {
 
     /**
-     * Returns all [RepairSpec] entries to be generated for [spec], grouped by action key
-     * ("CREATE", "DELETE", "ADD", "REMOVE").
+     * Produces the map of category → repair specs for the given [spec] and [info].
      *
-     * @param spec            The mutation rule specification.
-     * @param metamodelInfo   Platform metamodel wrapper for introspection.
-     * @return Map of action key → list of [RepairSpec] values.
+     * Returns an empty map when [MutationRuleSpec.node] is not a known class in [info].
      */
     fun getRepairsForRuleSpec(
         spec: MutationRuleSpec,
-        metamodelInfo: MetamodelInfo
+        info: MetamodelInfo
     ): Map<String, List<RepairSpec>> {
-        val result = mutableMapOf<String, List<RepairSpec>>()
+
+        if (!info.classNames().contains(spec.node)) return emptyMap()
+
+        val refs = if (spec.edge != null) {
+            info.referencesForNode(spec.node).filter { it.refName == spec.edge }
+        } else {
+            info.referencesForNode(spec.node)
+        }
+
+        val result = mutableMapOf<String, MutableList<RepairSpec>>()
 
         when (spec.action) {
             MutationAction.ALL -> {
-                if (spec.isEdge()) {
-                    result["ADD"] = generateEdgeAddRepairs(spec, metamodelInfo)
-                    result["REMOVE"] = generateEdgeRemoveRepairs(spec, metamodelInfo)
-                } else {
-                    result["CREATE"] = generateNodeCreateRepairs(spec, metamodelInfo)
-                    result["DELETE"] = generateNodeDeleteRepairs(spec, metamodelInfo)
-                    result["ADD"] = generateEdgeAddRepairs(spec, metamodelInfo)
-                    result["REMOVE"] = generateEdgeRemoveRepairs(spec, metamodelInfo)
-                }
+                generateCreate(spec.node, refs, result)
+                generateDelete(spec.node, info, result)
+                generateAdd(spec.node, refs, result)
+                generateRemove(spec.node, refs, result)
             }
-            MutationAction.CREATE ->
-                result["CREATE"] = generateNodeCreateRepairs(spec, metamodelInfo)
-            MutationAction.DELETE ->
-                result["DELETE"] = generateNodeDeleteRepairs(spec, metamodelInfo)
-            MutationAction.ADD ->
-                result["ADD"] = generateEdgeAddRepairs(spec, metamodelInfo)
-            MutationAction.REMOVE ->
-                result["REMOVE"] = generateEdgeRemoveRepairs(spec, metamodelInfo)
+            MutationAction.CREATE -> generateCreate(spec.node, refs, result)
+            MutationAction.DELETE -> generateDelete(spec.node, info, result)
+            MutationAction.ADD -> generateAdd(spec.node, refs, result)
+            MutationAction.REMOVE -> generateRemove(spec.node, refs, result)
         }
 
         return result
     }
 
     // -------------------------------------------------------------------------
-    // Node CREATE
+    // Private helpers
     // -------------------------------------------------------------------------
 
-    /**
-     * Computes CREATE repair specs for the node named in [spec].
-     *
-     * Mirrors SpecsGenerator.generateNodeCreateRules() in the Java original.
-     *
-     * Decision logic per reference:
-     * - No opposite: → CREATE (node only, no mandatory neighbours)
-     * - With opposite:
-     *   - lower == 0: → CREATE (no mandatory neighbours for this ref)
-     *   - lower != upper AND opposite has optional upper: → CREATE
-     *   - lower != upper AND opposite upper is bounded: → CREATE + CREATE_LB_REPAIR
-     *   - lower > 1 AND opposite upper bounded: additionally → CREATE_LB_REPAIR_MANY
-     *   - lower == upper AND opposite is optional: → CREATE
-     *
-     * REPORT: lower-bound repair rules produced here (CREATE_LB_REPAIR / CREATE_LB_REPAIR_MANY)
-     * are generated as plain CREATE rules in MutationAstBuilder because the DSL cannot express
-     * the "simultaneously satisfy LB on opposite" semantics of the Henshin LB-repair variant.
-     */
-    private fun generateNodeCreateRepairs(
-        spec: MutationRuleSpec,
-        metamodelInfo: MetamodelInfo
-    ): List<RepairSpec> {
-        val repairs = mutableListOf<RepairSpec>()
-        val references = metamodelInfo.referencesForNode(spec.node)
+    private fun generateCreate(
+        className: String,
+        refs: List<ReferenceInfo>,
+        result: MutableMap<String, MutableList<RepairSpec>>
+    ) {
+        // Base node-creation rule
+        result.getOrPut("CREATE") { mutableListOf() }
+            .add(RepairSpec(className, null, RepairSpecType.CREATE))
 
-        // If there are no references, still generate one standalone CREATE rule.
-        if (references.isEmpty()) {
-            repairs.add(RepairSpec(spec.node, null, RepairSpecType.CREATE))
-            return repairs
-        }
-
-        for (ref in references) {
-            val opp = ref.opposite
-            if (opp == null) {
-                repairs.add(RepairSpec(spec.node, ref.refName, RepairSpecType.CREATE))
-            } else {
-                when {
-                    ref.lower == 0 -> {
-                        repairs.add(RepairSpec(spec.node, ref.refName, RepairSpecType.CREATE))
-                    }
-                    ref.lower != ref.upper -> {
-                        if (opp.lower >= 0 && opp.lower != opp.upper) {
-                            repairs.add(RepairSpec(spec.node, ref.refName, RepairSpecType.CREATE))
-                        }
-                        if (ref.lower >= 0 && opp.upper != -1) {
-                            repairs.add(
-                                RepairSpec(spec.node, ref.refName, RepairSpecType.CREATE_LB_REPAIR)
-                            )
-                        }
-                        if (ref.lower > 1 && opp.upper != -1) {
-                            repairs.add(
-                                RepairSpec(
-                                    spec.node, ref.refName,
-                                    RepairSpecType.CREATE_LB_REPAIR_MANY
-                                )
-                            )
-                        }
-                    }
-                    ref.lower == ref.upper -> {
-                        if (opp.lower != opp.upper) {
-                            repairs.add(RepairSpec(spec.node, ref.refName, RepairSpecType.CREATE))
-                        }
-                    }
+        // LB-repair variants: needed when the source lower > 0, not fixed-cardinality,
+        // and opposite has a finite upper bound (can't always freely steal)
+        for (ref in refs) {
+            if (ref.lower > 0 && ref.opposite != null && ref.opposite.upper != -1) {
+                // Single-donor repair (n ≥ 1)
+                result.getOrPut("CREATE") { mutableListOf() }
+                    .add(RepairSpec(className, ref.refName, RepairSpecType.CREATE_LB_REPAIR))
+                // Multi-donor repair (n > 1): steal one target from each of n different donors
+                if (ref.lower > 1) {
+                    result.getOrPut("CREATE") { mutableListOf() }
+                        .add(RepairSpec(className, ref.refName, RepairSpecType.CREATE_LB_REPAIR_MULTI))
                 }
             }
         }
-
-        // Deduplicate (same node/edge/type triple may be produced multiple times)
-        return repairs.distinct()
     }
 
-    // -------------------------------------------------------------------------
-    // Node DELETE
-    // -------------------------------------------------------------------------
+    private fun generateDelete(
+        className: String,
+        info: MetamodelInfo,
+        result: MutableMap<String, MutableList<RepairSpec>>
+    ) {
+        // Always emit the plain delete (engine adds WHERE guards for soft lower-bounds)
+        result.getOrPut("DELETE") { mutableListOf() }
+            .add(RepairSpec(className, null, RepairSpecType.DELETE))
 
-    /**
-     * Computes DELETE repair specs for the node named in [spec].
-     *
-     * Mirrors SpecsGenerator.generateNodeDeleteRules() in the Java original.
-     *
-     * REPORT: DELETE_LB_REPAIR / DELETE_LB_REPAIR_MANY variants are generated as plain
-     * DELETE rules in MutationAstBuilder; the PAC chain is not representable in the DSL.
-     */
-    private fun generateNodeDeleteRepairs(
-        spec: MutationRuleSpec,
-        metamodelInfo: MetamodelInfo
-    ): List<RepairSpec> {
-        val repairs = mutableListOf<RepairSpec>()
-        val references = metamodelInfo.referencesForNode(spec.node)
-
-        if (references.isEmpty()) {
-            repairs.add(RepairSpec(spec.node, null, RepairSpecType.DELETE))
-            return repairs
-        }
-
-        for (ref in references) {
-            val opp = ref.opposite
-            if (opp == null || opp.lower == 0) {
-                repairs.add(RepairSpec(spec.node, ref.refName, RepairSpecType.DELETE))
-            } else {
-                if (opp.lower > 0 && (opp.upper > opp.lower || opp.upper == -1)) {
-                    repairs.add(RepairSpec(spec.node, ref.refName, RepairSpecType.DELETE))
-                }
-                if (opp.lower == 1 && opp.upper == 1) {
-                    if (ref.lower != ref.upper) {
-                        repairs.add(
-                            RepairSpec(spec.node, ref.refName, RepairSpecType.DELETE_LB_REPAIR)
-                        )
-                    }
-                }
-                if (opp.lower == opp.upper && opp.lower > 1) {
-                    if (ref.lower != ref.upper) {
-                        repairs.add(
-                            RepairSpec(spec.node, ref.refName, RepairSpecType.DELETE_LB_REPAIR)
-                        )
-                        if (ref.lower == 0 || ref.lower > 1) {
-                            repairs.add(
-                                RepairSpec(
-                                    spec.node, ref.refName,
-                                    RepairSpecType.DELETE_LB_REPAIR_MANY
-                                )
-                            )
-                        }
-                    }
+        // For every reference whose opposite has FIXED cardinality (k == l > 0):
+        // emit repair rules that atomically delete the node and reconnect its neighbours.
+        val refs = info.referencesForNode(className)
+        for (ref in refs) {
+            val targetRefs = info.referencesForNode(ref.targetClass)
+            val backRef = targetRefs.find {
+                it.targetClass == className && it.isReverse == !ref.isReverse
+            }
+            if (backRef != null && backRef.lower == backRef.upper && backRef.lower > 0) {
+                // Single-neighbour repair (k = l = 1 or k = l > 1, one per application)
+                result.getOrPut("DELETE") { mutableListOf() }
+                    .add(RepairSpec(className, ref.refName, RepairSpecType.DELETE_REPAIR_SINGLE))
+                // Multi-neighbour repair (k = l > 1, handles k neighbours simultaneously)
+                if (backRef.lower > 1) {
+                    result.getOrPut("DELETE") { mutableListOf() }
+                        .add(RepairSpec(className, ref.refName, RepairSpecType.DELETE_REPAIR_MULTI))
                 }
             }
         }
-
-        return repairs.distinct()
     }
 
-    // -------------------------------------------------------------------------
-    // Edge ADD
-    // -------------------------------------------------------------------------
-
-    /**
-     * Computes ADD (and CHANGE/SWAP) repair specs for the edge(s) of the node in [spec].
-     *
-     * When [MutationRuleSpec.edge] is set, only that reference is considered.
-     * Mirrors SpecsGenerator.generateEdgeAddRules() in the Java original.
-     *
-     * Decision logic per reference:
-     * - No opposite OR opposite.lower == 0:
-     *   - src lower == upper: → SWAP
-     *   - else: → ADD
-     * - With opposite AND opposite.lower > 0:
-     *   - src lower == upper: → SWAP
-     *   - src is variable AND opposite is fixed: → CHANGE
-     *   - else: → ADD
-     */
-    private fun generateEdgeAddRepairs(
-        spec: MutationRuleSpec,
-        metamodelInfo: MetamodelInfo
-    ): List<RepairSpec> {
-        val repairs = mutableListOf<RepairSpec>()
-        val references = filterReferences(metamodelInfo.referencesForNode(spec.node), spec)
-
-        for (ref in references) {
-            val opp = ref.opposite
-            if (opp == null || opp.lower == 0) {
-                if (ref.lower == ref.upper) {
-                    repairs.add(RepairSpec(spec.node, ref.refName, RepairSpecType.SWAP))
-                } else {
-                    repairs.add(RepairSpec(spec.node, ref.refName, RepairSpecType.ADD))
-                }
-            } else {
-                if (ref.lower == ref.upper) {
-                    repairs.add(RepairSpec(spec.node, ref.refName, RepairSpecType.SWAP))
-                } else {
-                    if (opp.lower == opp.upper) {
-                        repairs.add(RepairSpec(spec.node, ref.refName, RepairSpecType.CHANGE))
-                    } else {
-                        repairs.add(RepairSpec(spec.node, ref.refName, RepairSpecType.ADD))
-                    }
-                }
-            }
+    private fun generateAdd(
+        className: String,
+        refs: List<ReferenceInfo>,
+        result: MutableMap<String, MutableList<RepairSpec>>
+    ) {
+        for (ref in refs) {
+            val type = edgeRepairType(ref)
+            result.getOrPut("ADD") { mutableListOf() }
+                .add(RepairSpec(className, ref.refName, type))
         }
-
-        return repairs.distinct()
     }
 
-    // -------------------------------------------------------------------------
-    // Edge REMOVE
-    // -------------------------------------------------------------------------
-
-    /**
-     * Computes REMOVE (and CHANGE/SWAP) repair specs for the edge(s) of the node in [spec].
-     *
-     * When [MutationRuleSpec.edge] is set, only that reference is considered.
-     * Mirrors SpecsGenerator.generateEdgeRemoveRules() in the Java original.
-     */
-    private fun generateEdgeRemoveRepairs(
-        spec: MutationRuleSpec,
-        metamodelInfo: MetamodelInfo
-    ): List<RepairSpec> {
-        val repairs = mutableListOf<RepairSpec>()
-        val references = filterReferences(metamodelInfo.referencesForNode(spec.node), spec)
-
-        for (ref in references) {
-            val opp = ref.opposite
-            if (opp == null || opp.lower == 0) {
-                if (ref.lower == ref.upper) {
-                    repairs.add(RepairSpec(spec.node, ref.refName, RepairSpecType.SWAP))
-                } else {
-                    repairs.add(RepairSpec(spec.node, ref.refName, RepairSpecType.REMOVE))
-                }
-            } else {
-                if (ref.lower == ref.upper) {
-                    repairs.add(RepairSpec(spec.node, ref.refName, RepairSpecType.SWAP))
-                } else {
-                    if (opp.lower == opp.upper) {
-                        repairs.add(RepairSpec(spec.node, ref.refName, RepairSpecType.CHANGE))
-                    } else {
-                        repairs.add(RepairSpec(spec.node, ref.refName, RepairSpecType.REMOVE))
-                    }
-                }
-            }
+    private fun generateRemove(
+        className: String,
+        refs: List<ReferenceInfo>,
+        result: MutableMap<String, MutableList<RepairSpec>>
+    ) {
+        for (ref in refs) {
+            val type = edgeRepairType(ref)
+            result.getOrPut("REMOVE") { mutableListOf() }
+                .add(RepairSpec(className, ref.refName, type))
         }
-
-        return repairs.distinct()
     }
 
-    // -------------------------------------------------------------------------
-    // Helpers
-    // -------------------------------------------------------------------------
-
     /**
-     * Filters [references] to only the edge named in [spec] when the spec targets a
-     * specific edge; returns the full list otherwise.
+     * Chooses the repair type for an edge operation (both ADD and REMOVE follow the same logic):
+     * - Fixed cardinality (`lower == upper`) → [RepairSpecType.SWAP]
+     * - Opposite requires exactly one back-link (`opposite.lower == 1`) → [RepairSpecType.CHANGE]
+     * - Everything else → [RepairSpecType.ADD] (or REMOVE; callers use this for both directions)
      */
-    private fun filterReferences(
-        references: List<ReferenceInfo>,
-        spec: MutationRuleSpec
-    ): List<ReferenceInfo> =
-        if (spec.isEdge()) references.filter { it.refName == spec.edge }
-        else references
+    private fun edgeRepairType(ref: ReferenceInfo): RepairSpecType = when {
+        ref.lower == ref.upper -> RepairSpecType.SWAP
+        ref.opposite?.lower == 1 -> RepairSpecType.CHANGE
+        else -> RepairSpecType.ADD
+    }
 }

@@ -21,6 +21,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import org.junit.jupiter.api.Nested
 
@@ -1356,6 +1357,408 @@ class MutationRuleGeneratorTest {
             val links = stmt.pattern.elements.filterIsInstance<TypedPatternLinkElement>()
             val guardLinks = links.filter { it.link.modifier == null }
             assertEquals(2, guardLinks.size, "Expected two guard link match elements")
+        }
+    }
+}
+
+// ============================================================================
+// New CPO variant tests (CREATE_LB_REPAIR_MULTI, DELETE_REPAIR_SINGLE/MULTI)
+// ============================================================================
+
+/**
+ * Metamodel for multi-donor / delete-repair tests:
+ *
+ *   ClassA  -->  ClassB  (A.roles  2..4, B.members 0..2)
+ *   Worker  -->  Project (W.project 0..*, P.worker  1..1)
+ *   Team    -->  Player  (T.members 0..*, P.teams   2..2)
+ */
+class NewCpoVariantTests {
+
+    private val classAData = ClassData(name = "ClassA", isAbstract = false)
+    private val classBData = ClassData(name = "ClassB", isAbstract = false)
+
+    /** A.roles 2..4 → B.members 0..2  (lower=2 → multi-donor CREATE repair) */
+    private val rolesAssoc = AssociationData(
+        source = AssociationEndData("ClassA", "roles",   MultiplicityData(lower = 2, upper = 4)),
+        operator = "-->",
+        target  = AssociationEndData("ClassB", "members", MultiplicityData(lower = 0, upper = 2))
+    )
+    private val metaAB = MetamodelData(
+        path = "/t/ab.mm",
+        classes = listOf(classAData, classBData),
+        associations = listOf(rolesAssoc)
+    )
+
+    private val workerClass  = ClassData(name = "Worker",  isAbstract = false)
+    private val projectClass = ClassData(name = "Project", isAbstract = false)
+    private val workerProjectAssoc = AssociationData(
+        source = AssociationEndData("Worker",  "project", MultiplicityData(lower = 0, upper = -1)),
+        operator = "-->",
+        target  = AssociationEndData("Project", "worker",  MultiplicityData(lower = 1, upper = 1))
+    )
+    private val metaWP = MetamodelData(
+        path = "/t/wp.mm",
+        classes = listOf(workerClass, projectClass),
+        associations = listOf(workerProjectAssoc)
+    )
+
+    private val teamClass   = ClassData(name = "Team",   isAbstract = false)
+    private val playerClass = ClassData(name = "Player", isAbstract = false)
+    private val teamPlayerAssoc = AssociationData(
+        source = AssociationEndData("Team",   "members", MultiplicityData(lower = 0, upper = -1)),
+        operator = "-->",
+        target  = AssociationEndData("Player", "teams",   MultiplicityData(lower = 2, upper = 2))
+    )
+    private val metaTP = MetamodelData(
+        path = "/t/tp.mm",
+        classes = listOf(teamClass, playerClass),
+        associations = listOf(teamPlayerAssoc)
+    )
+
+    @Nested
+    inner class NewSpecsGeneratorTests {
+
+        private val generator = SpecsGenerator()
+
+        @Test
+        fun `CREATE with lower=2 and bounded opposite emits both LB_REPAIR and LB_REPAIR_MULTI`() {
+            val infoAB = MetamodelInfo(metaAB)
+            val spec = MutationRuleSpec("ClassA", edge = "roles", action = MutationAction.CREATE)
+            val result = generator.getRepairsForRuleSpec(spec, infoAB)
+            val types = result["CREATE"]!!.map { it.type }.toSet()
+            assertTrue(types.contains(RepairSpecType.CREATE_LB_REPAIR),       "Expected CREATE_LB_REPAIR")
+            assertTrue(types.contains(RepairSpecType.CREATE_LB_REPAIR_MULTI), "Expected CREATE_LB_REPAIR_MULTI")
+        }
+
+        @Test
+        fun `CREATE with lower=1 emits LB_REPAIR but NOT LB_REPAIR_MULTI`() {
+            val garageClass = ClassData(name = "Garage2", isAbstract = false)
+            val houseClass  = ClassData(name = "House9",  isAbstract = false)
+            val assoc = AssociationData(
+                source = AssociationEndData("House9",  "garages", MultiplicityData(lower = 1, upper = 3)),
+                operator = "-->",
+                target  = AssociationEndData("Garage2", "owner",   MultiplicityData(lower = 0, upper = 2))
+            )
+            val meta = MetamodelData(path = "/t/g9.mm", classes = listOf(houseClass, garageClass), associations = listOf(assoc))
+            val info = MetamodelInfo(meta)
+            val spec = MutationRuleSpec("House9", edge = "garages", action = MutationAction.CREATE)
+            val result = generator.getRepairsForRuleSpec(spec, info)
+            val types = result["CREATE"]!!.map { it.type }.toSet()
+            assertTrue(types.contains(RepairSpecType.CREATE_LB_REPAIR),           "Expected CREATE_LB_REPAIR for lower=1")
+            assertFalse(types.contains(RepairSpecType.CREATE_LB_REPAIR_MULTI),     "Expected NO MULTI for lower=1")
+        }
+
+        @Test
+        fun `DELETE on class with k=l=1 back-ref emits DELETE_REPAIR_SINGLE but not MULTI`() {
+            val infoWP = MetamodelInfo(metaWP)
+            val spec = MutationRuleSpec("Worker", action = MutationAction.DELETE)
+            val result = generator.getRepairsForRuleSpec(spec, infoWP)
+            val types = result["DELETE"]!!.map { it.type }.toSet()
+            assertTrue(types.contains(RepairSpecType.DELETE),               "Expected plain DELETE")
+            assertTrue(types.contains(RepairSpecType.DELETE_REPAIR_SINGLE), "Expected DELETE_REPAIR_SINGLE for k=l=1")
+            assertFalse(types.contains(RepairSpecType.DELETE_REPAIR_MULTI), "Expected NO DELETE_REPAIR_MULTI for k=l=1")
+        }
+
+        @Test
+        fun `DELETE on class with k=l=2 back-ref emits both DELETE_REPAIR_SINGLE and DELETE_REPAIR_MULTI`() {
+            val infoTP = MetamodelInfo(metaTP)
+            val spec = MutationRuleSpec("Team", action = MutationAction.DELETE)
+            val result = generator.getRepairsForRuleSpec(spec, infoTP)
+            val types = result["DELETE"]!!.map { it.type }.toSet()
+            assertTrue(types.contains(RepairSpecType.DELETE),               "Expected plain DELETE")
+            assertTrue(types.contains(RepairSpecType.DELETE_REPAIR_SINGLE), "Expected DELETE_REPAIR_SINGLE for k=l=2")
+            assertTrue(types.contains(RepairSpecType.DELETE_REPAIR_MULTI),  "Expected DELETE_REPAIR_MULTI for k=l=2")
+        }
+
+        @Test
+        fun `DELETE on class with soft lower-bound (k=1, l unbounded) emits only plain DELETE`() {
+            val assignClass = ClassData(name = "AssignX", isAbstract = false)
+            val taskClass   = ClassData(name = "TaskX",   isAbstract = false)
+            val assoc = AssociationData(
+                source = AssociationEndData("AssignX", "task",        MultiplicityData(lower = 0, upper = -1)),
+                operator = "-->",
+                target  = AssociationEndData("TaskX",  "assignments", MultiplicityData(lower = 1, upper = -1))
+            )
+            val meta = MetamodelData(path = "/t/atx.mm", classes = listOf(assignClass, taskClass), associations = listOf(assoc))
+            val info = MetamodelInfo(meta)
+            val spec = MutationRuleSpec("AssignX", action = MutationAction.DELETE)
+            val result = generator.getRepairsForRuleSpec(spec, info)
+            val types = result["DELETE"]!!.map { it.type }.toSet()
+            assertTrue(types.contains(RepairSpecType.DELETE),                "Expected plain DELETE")
+            assertFalse(types.contains(RepairSpecType.DELETE_REPAIR_SINGLE), "Expected NO repair for soft lower-bound")
+            assertFalse(types.contains(RepairSpecType.DELETE_REPAIR_MULTI),  "Expected NO repair for soft lower-bound")
+        }
+
+        @Test
+        fun `DELETE on class with no back-ref produces only plain DELETE`() {
+            // ClassA.roles is unidirectional (no back-ref from ClassB)
+            val classBOnly = ClassData(name = "ClassBOnly", isAbstract = false)
+            val classAOnly = ClassData(name = "ClassAOnly", isAbstract = false)
+            val assoc = AssociationData(
+                source = AssociationEndData("ClassAOnly", "things", MultiplicityData(lower = 0, upper = -1)),
+                operator = "-->",
+                target  = AssociationEndData("ClassBOnly", null,     MultiplicityData(lower = 0, upper = -1))
+            )
+            val meta = MetamodelData(path = "/t/unidirx.mm", classes = listOf(classAOnly, classBOnly), associations = listOf(assoc))
+            val info = MetamodelInfo(meta)
+            val spec = MutationRuleSpec("ClassAOnly", action = MutationAction.DELETE)
+            val result = generator.getRepairsForRuleSpec(spec, info)
+            val types = result["DELETE"]!!.map { it.type }.toSet()
+            assertEquals(setOf(RepairSpecType.DELETE), types, "Expected only plain DELETE for unidirectional ref")
+        }
+    }
+
+    @Nested
+    inner class NewAstBuilderTests {
+
+        @Test
+        fun `CREATE_LB_REPAIR_MULTI with lower=2 produces 2 donors, 2 targets, newNode, 2 delete+2 create links, 2 guards`() {
+            val info = MetamodelInfo(metaAB)
+            val spec = RepairSpec("ClassA", "roles", RepairSpecType.CREATE_LB_REPAIR_MULTI)
+            val ast  = MutationAstBuilder.build("name", spec, "/t/ab.mm", info)
+            val stmt = ast.statements[0] as TypedMatchStatement
+
+            val objects = stmt.pattern.elements.filterIsInstance<TypedPatternObjectInstanceElement>()
+            assertEquals(5, objects.size, "Expected 5 objects: donor_1, donor_2, target_1, target_2, newNode")
+            assertEquals(2, objects.count { it.objectInstance.name.startsWith("donor_") },  "Expected 2 donors")
+            assertEquals(2, objects.count { it.objectInstance.name.startsWith("target_") }, "Expected 2 targets")
+            assertEquals(1, objects.count { it.objectInstance.modifier == "create" },       "Expected 1 created node")
+
+            val links = stmt.pattern.elements.filterIsInstance<TypedPatternLinkElement>()
+            assertEquals(6, links.size, "Expected 6 links: 2 match + 2 delete + 2 create")
+            assertEquals(2, links.count { it.link.modifier == null },     "Expected 2 match links")
+            assertEquals(2, links.count { it.link.modifier == "delete" }, "Expected 2 delete links")
+            assertEquals(2, links.count { it.link.modifier == "create" }, "Expected 2 create links")
+
+            val wheres = stmt.pattern.elements.filterIsInstance<TypedPatternWhereClauseElement>()
+            assertEquals(2, wheres.size, "Expected 2 lower-bound guards")
+            wheres.forEach { w ->
+                val expr = w.whereClause.expression as TypedBinaryExpression
+                assertEquals(">", expr.operator)
+                assertEquals("2", (expr.right as TypedIntLiteralExpression).value)
+            }
+        }
+
+        @Test
+        fun `CREATE_LB_REPAIR_MULTI donor and target variable names are indexed`() {
+            val info = MetamodelInfo(metaAB)
+            val spec = RepairSpec("ClassA", "roles", RepairSpecType.CREATE_LB_REPAIR_MULTI)
+            val ast  = MutationAstBuilder.build("name", spec, "/t/ab.mm", info)
+            val stmt = ast.statements[0] as TypedMatchStatement
+            val names = stmt.pattern.elements
+                .filterIsInstance<TypedPatternObjectInstanceElement>()
+                .map { it.objectInstance.name }.toSet()
+            assertTrue(names.contains("donor_1"))
+            assertTrue(names.contains("donor_2"))
+            assertTrue(names.contains("target_1"))
+            assertTrue(names.contains("target_2"))
+            assertTrue(names.contains("newNode"))
+        }
+
+        @Test
+        fun `DELETE_REPAIR_SINGLE has node delete-marker, neighbour match, other match, forbid and create links`() {
+            val info = MetamodelInfo(metaWP)
+            val spec = RepairSpec("Worker", "project", RepairSpecType.DELETE_REPAIR_SINGLE)
+            val ast  = MutationAstBuilder.build("name", spec, "/t/wp.mm", info)
+            val stmt = ast.statements[0] as TypedMatchStatement
+
+            val objects = stmt.pattern.elements.filterIsInstance<TypedPatternObjectInstanceElement>()
+            val deleteMarker  = objects.find { it.objectInstance.modifier == "delete" }
+            val neighborMatch = objects.find { it.objectInstance.name == "neighbor_project" }
+            val otherMatch    = objects.find { it.objectInstance.name == "other_project" }
+
+            assertNotNull(deleteMarker, "Expected delete marker")
+            assertNull(deleteMarker.objectInstance.className, "Delete marker must have className=null")
+            assertNotNull(neighborMatch, "Expected neighbour match object")
+            assertEquals("Project", neighborMatch.objectInstance.className)
+            assertNotNull(otherMatch, "Expected other_project match object")
+            assertEquals("Worker", otherMatch.objectInstance.className)
+
+            val links = stmt.pattern.elements.filterIsInstance<TypedPatternLinkElement>()
+            val modifiers = links.map { it.link.modifier }.toSet()
+            assertTrue(modifiers.contains(null),      "Expected match link (node→neighbour)")
+            assertTrue(modifiers.contains("forbid"),  "Expected forbid NAC link")
+            assertTrue(modifiers.contains("create"),  "Expected create link")
+            assertFalse(modifiers.contains("delete"), "DELETE_REPAIR_SINGLE must not have explicit delete link")
+        }
+
+        @Test
+        fun `DELETE_REPAIR_SINGLE with unbounded ref has no where clause`() {
+            val info = MetamodelInfo(metaWP)
+            val spec = RepairSpec("Worker", "project", RepairSpecType.DELETE_REPAIR_SINGLE)
+            val ast  = MutationAstBuilder.build("name", spec, "/t/wp.mm", info)
+            val stmt = ast.statements[0] as TypedMatchStatement
+            val wheres = stmt.pattern.elements.filterIsInstance<TypedPatternWhereClauseElement>()
+            assertTrue(wheres.isEmpty(), "Expected no where clause when ref upper=-1")
+        }
+
+        @Test
+        fun `DELETE_REPAIR_SINGLE with bounded ref emits upper-bound guard on other`() {
+            val w3Class = ClassData(name = "Worker3",  isAbstract = false)
+            val p3Class = ClassData(name = "Project3", isAbstract = false)
+            val assoc = AssociationData(
+                source = AssociationEndData("Worker3",  "project", MultiplicityData(lower = 0, upper = 3)),
+                operator = "-->",
+                target  = AssociationEndData("Project3", "worker",  MultiplicityData(lower = 1, upper = 1))
+            )
+            val meta = MetamodelData(path = "/t/w3p3.mm", classes = listOf(w3Class, p3Class), associations = listOf(assoc))
+            val info = MetamodelInfo(meta)
+            val spec = RepairSpec("Worker3", "project", RepairSpecType.DELETE_REPAIR_SINGLE)
+            val ast  = MutationAstBuilder.build("name", spec, "/t/w3p3.mm", info)
+            val stmt = ast.statements[0] as TypedMatchStatement
+            val wheres = stmt.pattern.elements.filterIsInstance<TypedPatternWhereClauseElement>()
+            assertEquals(1, wheres.size, "Expected one upper-bound guard")
+            val expr = wheres[0].whereClause.expression as TypedBinaryExpression
+            assertEquals("<", expr.operator)
+            val ident = ((expr.left as TypedMemberCallExpression).expression as TypedMemberAccessExpression)
+                .expression as TypedIdentifierExpression
+            assertEquals("other_project", ident.name)
+            assertEquals("3", (expr.right as TypedIntLiteralExpression).value)
+        }
+
+        @Test
+        fun `DELETE_REPAIR_MULTI with k=2 produces 2 neighbours, 2 others, 2 forbid and 2 create links`() {
+            val info = MetamodelInfo(metaTP)
+            val spec = RepairSpec("Team", "members", RepairSpecType.DELETE_REPAIR_MULTI)
+            val ast  = MutationAstBuilder.build("name", spec, "/t/tp.mm", info)
+            val stmt = ast.statements[0] as TypedMatchStatement
+
+            val objects = stmt.pattern.elements.filterIsInstance<TypedPatternObjectInstanceElement>()
+            // node (match) + node (delete) + 2 neighbours + 2 others = 6
+            assertEquals(6, objects.size, "Expected 6 objects")
+            assertEquals(2, objects.count { it.objectInstance.name.startsWith("neighbor_members_") }, "Expected 2 neighbours")
+            assertEquals(2, objects.count { it.objectInstance.name.startsWith("other_members_") },    "Expected 2 others")
+
+            val links = stmt.pattern.elements.filterIsInstance<TypedPatternLinkElement>()
+            assertEquals(6, links.size, "Expected 6 links: 2 match + 2 forbid + 2 create")
+            assertEquals(2, links.count { it.link.modifier == null },     "Expected 2 match links")
+            assertEquals(2, links.count { it.link.modifier == "forbid" }, "Expected 2 forbid links")
+            assertEquals(2, links.count { it.link.modifier == "create" }, "Expected 2 create links")
+
+            val wheres = stmt.pattern.elements.filterIsInstance<TypedPatternWhereClauseElement>()
+            assertTrue(wheres.isEmpty(), "Expected no guards when ref upper=-1")
+        }
+
+        @Test
+        fun `DELETE_REPAIR_MULTI neighbour and other variable names are properly indexed`() {
+            val info = MetamodelInfo(metaTP)
+            val spec = RepairSpec("Team", "members", RepairSpecType.DELETE_REPAIR_MULTI)
+            val ast  = MutationAstBuilder.build("name", spec, "/t/tp.mm", info)
+            val stmt = ast.statements[0] as TypedMatchStatement
+            val names = stmt.pattern.elements
+                .filterIsInstance<TypedPatternObjectInstanceElement>()
+                .map { it.objectInstance.name }.toSet()
+            assertTrue(names.contains("neighbor_members_1"))
+            assertTrue(names.contains("neighbor_members_2"))
+            assertTrue(names.contains("other_members_1"))
+            assertTrue(names.contains("other_members_2"))
+        }
+    }
+
+    @Nested
+    inner class NewNamingTests {
+
+        @Test
+        fun `fromRepairSpec for CREATE_LB_REPAIR_MULTI has LBREPAIR_MULTI suffix`() {
+            val name = MutationRuleNameGenerator.fromRepairSpec(RepairSpec("Foo", "bar", RepairSpecType.CREATE_LB_REPAIR_MULTI))
+            assertTrue(name.endsWith("_LBREPAIR_MULTI"), "Expected LBREPAIR_MULTI suffix, got: $name")
+        }
+
+        @Test
+        fun `fromRepairSpec for DELETE_REPAIR_SINGLE has REPAIR_SG suffix`() {
+            val name = MutationRuleNameGenerator.fromRepairSpec(RepairSpec("Foo", "bar", RepairSpecType.DELETE_REPAIR_SINGLE))
+            assertTrue(name.endsWith("_REPAIR_SG"), "Expected REPAIR_SG suffix, got: $name")
+        }
+
+        @Test
+        fun `fromRepairSpec for DELETE_REPAIR_MULTI has REPAIR_MN suffix`() {
+            val name = MutationRuleNameGenerator.fromRepairSpec(RepairSpec("Foo", "bar", RepairSpecType.DELETE_REPAIR_MULTI))
+            assertTrue(name.endsWith("_REPAIR_MN"), "Expected REPAIR_MN suffix, got: $name")
+        }
+
+        @Test
+        fun `CREATE_LB_REPAIR_MULTI name contains className and refName`() {
+            val name = MutationRuleNameGenerator.fromRepairSpec(
+                RepairSpec("House", "garages", RepairSpecType.CREATE_LB_REPAIR_MULTI)
+            )
+            assertTrue(name.contains("House") && name.contains("garages"),
+                "Expected name to contain className and refName; got: $name")
+        }
+
+        @Test
+        fun `DELETE_REPAIR_SINGLE and MULTI names start with DELETE`() {
+            val sg = MutationRuleNameGenerator.fromRepairSpec(RepairSpec("Node", "edges", RepairSpecType.DELETE_REPAIR_SINGLE))
+            val mn = MutationRuleNameGenerator.fromRepairSpec(RepairSpec("Node", "edges", RepairSpecType.DELETE_REPAIR_MULTI))
+            assertTrue(sg.startsWith("DELETE"), "DELETE_REPAIR_SINGLE name must start with DELETE; got: $sg")
+            assertTrue(mn.startsWith("DELETE"), "DELETE_REPAIR_MULTI name must start with DELETE; got: $mn")
+        }
+    }
+
+    @Nested
+    inner class NewRuleGeneratorTests {
+
+        @Test
+        fun `generate with lower=2 ref produces both LB_REPAIR and LB_REPAIR_MULTI rules`() {
+            val specs = listOf(MutationRuleSpec("ClassA", edge = "roles", action = MutationAction.CREATE))
+            val names = MutationRuleGenerator.generate(metaAB, specs).map { it.name }.toSet()
+            assertTrue(names.any { it.contains("LBREPAIR") && !it.contains("MULTI") },
+                "Expected single-donor LBREPAIR rule; got: $names")
+            assertTrue(names.any { it.contains("LBREPAIR_MULTI") },
+                "Expected multi-donor LBREPAIR_MULTI rule; got: $names")
+        }
+
+        @Test
+        fun `generate DELETE for Worker produces REPAIR_SG but not REPAIR_MN (k=l=1)`() {
+            val names = MutationRuleGenerator.generate(
+                metaWP, listOf(MutationRuleSpec("Worker", action = MutationAction.DELETE))
+            ).map { it.name }.toSet()
+            assertTrue(names.any { it.contains("REPAIR_SG") }, "Expected REPAIR_SG; got: $names")
+            assertFalse(names.any { it.contains("REPAIR_MN") }, "Expected no REPAIR_MN for k=l=1; got: $names")
+        }
+
+        @Test
+        fun `generate DELETE for Team produces both REPAIR_SG and REPAIR_MN (k=l=2)`() {
+            val names = MutationRuleGenerator.generate(
+                metaTP, listOf(MutationRuleSpec("Team", action = MutationAction.DELETE))
+            ).map { it.name }.toSet()
+            assertTrue(names.any { it.contains("REPAIR_SG") }, "Expected REPAIR_SG; got: $names")
+            assertTrue(names.any { it.contains("REPAIR_MN") }, "Expected REPAIR_MN; got: $names")
+        }
+
+        @Test
+        fun `all new variant rules have valid TypedAst with one statement`() {
+            val allMutations =
+                MutationRuleGenerator.generate(metaAB, listOf(MutationRuleSpec("ClassA", action = MutationAction.CREATE))) +
+                MutationRuleGenerator.generate(metaWP, listOf(MutationRuleSpec("Worker", action = MutationAction.DELETE))) +
+                MutationRuleGenerator.generate(metaTP, listOf(MutationRuleSpec("Team",   action = MutationAction.DELETE)))
+            allMutations.forEach { m ->
+                assertNotNull(m.typedAst, "Rule '${m.name}' has null typedAst")
+                assertEquals(1, m.typedAst.statements.size, "Rule '${m.name}' should have 1 statement")
+                assertTrue(m.typedAst.statements[0] is TypedMatchStatement,
+                    "Rule '${m.name}' statement should be TypedMatchStatement")
+            }
+        }
+
+        @Test
+        fun `generate ALL for Worker includes plain DELETE alongside repair variants`() {
+            val names = MutationRuleGenerator.generate(
+                metaWP, listOf(MutationRuleSpec("Worker", action = MutationAction.ALL))
+            ).map { it.name }.toSet()
+            assertTrue(names.contains("DELETE_Worker"), "Expected plain DELETE_Worker rule; got: $names")
+            assertTrue(names.any { it.contains("REPAIR_SG") }, "Expected REPAIR_SG rule; got: $names")
+        }
+
+        @Test
+        fun `generate deduplicates across base and S-pass for new variants`() {
+            val specs = listOf(MutationRuleSpec("ClassA", edge = "roles", action = MutationAction.CREATE))
+            val refinements = listOf(
+                com.mdeo.optimizer.config.RefinementConfig("ClassA", "roles", lower = 2, upper = 5)
+            )
+            val mutations = MutationRuleGenerator.generate(metaAB, specs, refinements)
+            val names = mutations.map { it.name }
+            assertEquals(names.distinct().size, names.size, "Expected no duplicate rule names; got: $names")
+            assertTrue(names.any { it.startsWith("S_") && it.contains("LBREPAIR") },
+                "Expected S_-prefixed LBREPAIR rule from refinement pass; got: $names")
         }
     }
 }
