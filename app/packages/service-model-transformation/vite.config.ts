@@ -6,6 +6,7 @@ export default defineConfig({
         lib: {
             entry: {
                 language: resolve(__dirname, "src/served/language.ts"),
+                generatedLanguage: resolve(__dirname, "src/served/generatedLanguage.ts"),
                 editor: resolve(__dirname, "src/served/editor.ts"),
                 gedWorker: resolve(__dirname, "src/served/gedWorker.ts")
             },

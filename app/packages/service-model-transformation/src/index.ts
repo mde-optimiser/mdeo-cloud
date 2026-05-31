@@ -15,6 +15,7 @@ import {
     startLanguageService
 } from "@mdeo/service-common";
 import type { ModelTransformationServices } from "@mdeo/language-model-transformation";
+import type { GeneratedModelTransformationServices } from "@mdeo/language-model-transformation";
 import type { LanguagePlugin } from "@mdeo/plugin";
 
 const icon: ActionIconNode = [
@@ -132,6 +133,27 @@ const modelTransformationLanguagePlugin: LanguagePlugin = {
 };
 
 /**
+ * Language plugin definition for generated model transformation files.
+ */
+const generatedModelTransformationLanguagePlugin: LanguagePlugin = {
+    id: "model-transformation_gen",
+    name: "Generated Model Transformation",
+    extension: ".mt_gen",
+    newFileAction: false,
+    icon,
+    serverPlugin: {
+        import: "generatedLanguage.js"
+    },
+    graphicalEditorPlugin: {
+        import: "editor.js",
+        stylesUrl: "styles.css",
+        stylesCls: "editor-model-transformation"
+    },
+    textualEditorPlugin: undefined,
+    isGenerated: true
+};
+
+/**
  * Plugin definition for the model transformation service.
  */
 const modelTransformationServicePlugin: ServicePluginDefinition = {
@@ -139,14 +161,18 @@ const modelTransformationServicePlugin: ServicePluginDefinition = {
     name: "Model Transformation",
     description: "Language support for model transformation definitions (.mt files)",
     icon,
-    languagePlugins: [modelTransformationLanguagePlugin],
+    languagePlugins: [modelTransformationLanguagePlugin, generatedModelTransformationLanguagePlugin],
     contributionPlugins: []
 };
 
 initializePluginContext();
 
 const { modelTransformationPluginProvider } = await import("@mdeo/language-model-transformation");
+const { generatedModelTransformationPluginProvider } = await import("@mdeo/language-model-transformation");
 const { typedAstHandler, TYPED_AST_HANDLER_KEY } = await import("./handler/typedAstHandler.js");
+const { generatedModelTransformationTextHandler, GENERATED_MODEL_TRANSFORMATION_TEXT_HANDLER_KEY } = await import(
+    "./handler/generatedModelTransformationTextHandler.js"
+);
 const { ModelTransformationExecutionHandler } = await import("./handler/modelTransformationExecutionHandler.js");
 
 const envConfig = parseServiceConfigFromEnv();
@@ -179,10 +205,23 @@ const modelTransformationLanguageConfig: LanguageServiceConfig<ModelTransformati
     executionHandlers: [modelTransformationExecutionHandler]
 };
 
-const config: ServiceConfig<ModelTransformationServices> = {
+/**
+ * Language configuration for generated model transformation files.
+ */
+const generatedModelTransformationLanguageConfig: LanguageServiceConfig<GeneratedModelTransformationServices> = {
+    languagePlugin: generatedModelTransformationLanguagePlugin,
+    languagePluginProvider: generatedModelTransformationPluginProvider,
+    fileDataHandlers: {
+        [AST_HANDLER_KEY]: astHandler,
+        [GENERATED_MODEL_TRANSFORMATION_TEXT_HANDLER_KEY]: generatedModelTransformationTextHandler
+    },
+    executionHandlers: []
+};
+
+const config: ServiceConfig<any> = {
     ...envConfig,
     plugin: modelTransformationServicePlugin,
-    languages: [modelTransformationLanguageConfig]
+    languages: [modelTransformationLanguageConfig, generatedModelTransformationLanguageConfig]
 };
 
 await startLanguageService(config);

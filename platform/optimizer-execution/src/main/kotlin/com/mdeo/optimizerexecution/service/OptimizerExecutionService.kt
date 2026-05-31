@@ -431,15 +431,20 @@ class OptimizerExecutionService(
             val totalBatches = config.solver.batches.coerceAtLeast(1)
             try {
                 orchestrator.run(
-                    onGenerationComplete = { generation ->
+                    onGenerationComplete = { batchIndex, generation ->
                         val now = System.currentTimeMillis()
                         if (now - lastProgressUpdateTime >= PROGRESS_UPDATE_INTERVAL_MS) {
                             lastProgressUpdateTime = now
                             executionScope.launch {
-                                val approxEvaluations = generation * config.solver.parameters.population
+                                val approxTransformations = generation * config.solver.parameters.population
+                                val progressText = if (totalBatches > 1) {
+                                    "Batch $batchIndex/$totalBatches transformation ~$approxTransformations"
+                                } else {
+                                    "Transformation ~$approxTransformations"
+                                }
                                 updateProgress(
                                     executionId,
-                                    "Generation $generation (~$approxEvaluations evaluations)",
+                                    progressText,
                                     jwtToken
                                 )
                             }
@@ -714,9 +719,13 @@ class OptimizerExecutionService(
      *
      * Layout:
      * - `summary.md` (aggregated over all batches)
-    * - `batch_{n}/report.json`
-    * - `batch_{n}/solution_{i}.m_gen`
-    * - `generated-mutations/{rule}.mt_gen` (for auto-generated mutations only)
+     * - `batch_{n}/report.json`
+     * - `batch_{n}/solution_{i}.m_gen`
+     * - `generated-mutations/{rule}.mt_gen` (for auto-generated mutations only)
+     *
+     * Special case: when there is exactly one batch and no auto-generated mutations,
+     * this service flattens the output and stores `report.json` plus `solution_{i}.m_gen`
+     * directly at the root.
      */
     private fun storeResults(
         executionId: UUID,
@@ -727,7 +736,8 @@ class OptimizerExecutionService(
     ) {
         val backend = config.runtime.backend ?: GraphBackendType.MDEO
         val nodeThreadCounts = (evaluator as? FederatedMutationEvaluator)?.getWorkerThreadCounts() ?: emptyMap()
-        val summaryContent = buildResultSummary(batchResults, nodeThreadCounts, backend)
+        val flattenSingleBatchOutput = batchResults.size == 1 && generatedMutations.isEmpty()
+        val summaryContent = buildResultSummary(batchResults, nodeThreadCounts, backend, flattenSingleBatchOutput)
 
         transaction {
             OptimizerResultFilesTable.insert {
@@ -739,12 +749,16 @@ class OptimizerExecutionService(
             }
 
             batchResults.sortedBy { it.batchIndex }.forEach { batch ->
-                val batchDir = "batch_${batch.batchIndex}"
-                val reportContent = buildJsonReport(batch)
+                val reportPath = if (flattenSingleBatchOutput) {
+                    REPORT_FILE
+                } else {
+                    "batch_${batch.batchIndex}/$REPORT_FILE"
+                }
+                val reportContent = buildJsonReport(batch, flattenSingleBatchOutput)
                 OptimizerResultFilesTable.insert {
                     it[id] = Uuid.random()
                     it[OptimizerResultFilesTable.executionId] = executionId.toKotlinUuid()
-                    it[filePath] = "$batchDir/$REPORT_FILE"
+                    it[filePath] = reportPath
                     it[content] = reportContent
                     it[mimeType] = MIME_TYPE_JSON
                 }
@@ -753,7 +767,7 @@ class OptimizerExecutionService(
                     OptimizerResultFilesTable.insert {
                         it[id] = Uuid.random()
                         it[OptimizerResultFilesTable.executionId] = executionId.toKotlinUuid()
-                        it[filePath] = "$batchDir/solution_$index.m_gen"
+                        it[filePath] = solutionFilePath(batch.batchIndex, index, flattenSingleBatchOutput)
                         it[content] = jsonContent
                         it[mimeType] = MIME_TYPE_JSON
                     }
@@ -939,7 +953,8 @@ class OptimizerExecutionService(
     private fun buildResultSummary(
         batchResults: List<BatchResultArtifacts>,
         nodeThreadCounts: Map<String, Int>,
-        backend: GraphBackendType
+        backend: GraphBackendType,
+        flattenSingleBatchOutput: Boolean
     ): String {
         return buildString {
             append("## Optimization Results\n\n")
@@ -978,7 +993,8 @@ class OptimizerExecutionService(
                 if (batch.batchIndex == 1 && batch.solutionModelJsons.isNotEmpty()) {
                     append("#### Solution Models\n\n")
                     batch.solutionModelJsons.indices.forEach { index ->
-                        append("![Solution $index](batch_${batch.batchIndex}/solution_$index.m_gen)\n")
+                        val path = solutionFilePath(batch.batchIndex, index, flattenSingleBatchOutput)
+                        append("![Solution $index]($path)\n")
                     }
                     append("\n")
                 }
@@ -1068,22 +1084,14 @@ class OptimizerExecutionService(
         }
     }
 
-    /**
-     * Builds a JSON execution report containing duration, Pareto front models, and graph data.
-     *
-     * @param solutions The final Pareto-optimal solutions.
-     * @param metricsCollector Per-generation metrics collected during the run.
-     * @param durationMs Wall-clock duration of the optimization in milliseconds.
-     * @return JSON string representing the report.
-     */
-    private fun buildJsonReport(batch: BatchResultArtifacts): String {
+    private fun buildJsonReport(batch: BatchResultArtifacts, flattenSingleBatchOutput: Boolean): String {
         val report = buildJsonObject {
             put("batch", batch.batchIndex)
             put("durationMs", batch.durationMs)
             putJsonArray("paretoFront") {
                 batch.solutions.forEachIndexed { index, sol ->
                     addJsonObject {
-                        put("path", "batch_${batch.batchIndex}/solution_$index.m_gen")
+                        put("path", solutionFilePath(batch.batchIndex, index, flattenSingleBatchOutput))
                         putJsonArray("objectives") { sol.objectives.forEach { add(it) } }
                         putJsonArray("constraints") { sol.constraints.forEach { add(it) } }
                     }
@@ -1114,6 +1122,14 @@ class OptimizerExecutionService(
             }
         }
         return json.encodeToString(JsonElement.serializer(), report)
+    }
+
+    private fun solutionFilePath(batchIndex: Int, solutionIndex: Int, flattenSingleBatchOutput: Boolean): String {
+        return if (flattenSingleBatchOutput) {
+            "solution_$solutionIndex.m_gen"
+        } else {
+            "batch_$batchIndex/solution_$solutionIndex.m_gen"
+        }
     }
 
     /**

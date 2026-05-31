@@ -52,14 +52,15 @@ class OptimizationOrchestrator(
      * is reset for the next one).  Callers can use this window to fetch solution model
      * data that would become unavailable after the reset.
      *
-     * @param onGenerationComplete Suspend callback that receives the 1-based generation counter.
+    * @param onGenerationComplete Suspend callback that receives the 1-based batch index and
+    *   the 1-based generation counter.
      *   Throwing [kotlinx.coroutines.CancellationException] from this callback aborts the search.
      * @param onBatchComplete Suspend callback invoked after each batch with the 1-based batch
      *   index, the [SearchResult] for that batch, and the wall-clock duration in milliseconds.
      * @return The list of [SearchResult]s, one per batch, in execution order.
      */
     suspend fun run(
-        onGenerationComplete: suspend (generation: Int) -> Unit = {},
+        onGenerationComplete: suspend (batchIndex: Int, generation: Int) -> Unit = { _, _ -> },
         onBatchComplete: suspend (batchIndex: Int, result: SearchResult, durationMs: Long) -> Unit = { _, _, _ -> }
     ): List<SearchResult> =
         withContext(Dispatchers.IO) {
@@ -95,7 +96,7 @@ class OptimizationOrchestrator(
                 val metricsCollector = OptimizationMetricsCollector()
 
                 val progressListener = OptimizationProgressListener { generation ->
-                    onGenerationComplete(generation)
+                    onGenerationComplete(batchIndex, generation)
                 }
                 algorithm.addExtension(ProgressCallbackExtension(progressListener, coordinator, metricsCollector))
 

@@ -33,6 +33,7 @@ import {
     type ControlFlowEdge
 } from "./modelTransformationControlFlowConverter.js";
 import { ModelTransformationIdGenerator } from "./modelTransformationIdGenerator.js";
+import { adaptGeneratedModelTransformationText } from "./generated/generatedModelTransformationAstAdapter.js";
 
 const { injectable, inject } = sharedImport("inversify");
 
@@ -101,8 +102,20 @@ export class ModelTransformationMetadataManager extends MetadataManager<ModelTra
 
         this.declaredInstances.clear();
 
-        const idRegistry = new DefaultModelIdRegistry(sourceModel, this.modelIdProvider);
-        const converter = new ModelTransformationControlFlowConverter(sourceModel, idRegistry, this.reflection);
+        const parsedDocument = sourceModel.$document;
+        const parserHasErrors =
+            (parsedDocument?.parseResult.parserErrors.length ?? 0) > 0 ||
+            (parsedDocument?.parseResult.lexerErrors.length ?? 0) > 0;
+
+        const fallbackModel =
+            parserHasErrors && parsedDocument != undefined
+                ? adaptGeneratedModelTransformationText(parsedDocument.textDocument.getText())
+                : undefined;
+
+        const effectiveSourceModel = fallbackModel ?? sourceModel;
+
+        const idRegistry = new DefaultModelIdRegistry(effectiveSourceModel, this.modelIdProvider);
+        const converter = new ModelTransformationControlFlowConverter(effectiveSourceModel, idRegistry, this.reflection);
         const cfg = converter.convert();
 
         for (const cfgNode of cfg.nodes) {

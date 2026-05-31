@@ -2,6 +2,7 @@ import type { GModelElement, GModelRoot } from "@eclipse-glsp/server";
 import {
     sharedImport,
     BaseGModelFactory,
+    DefaultModelIdRegistry,
     GCompartment,
     GHorizontalDivider,
     NodeLayoutMetadataUtil,
@@ -56,6 +57,7 @@ import { GVariableLabel } from "./model/variableLabel.js";
 import { EndNodeKind, ModelTransformationElementType, PatternModifierKind } from "@mdeo/protocol-model-transformation";
 import { ID } from "@mdeo/language-common";
 import { ModelTransformationIdGenerator } from "./modelTransformationIdGenerator.js";
+import { adaptGeneratedModelTransformationText } from "./generated/generatedModelTransformationAstAdapter.js";
 
 const { injectable } = sharedImport("inversify");
 const { GGraph } = sharedImport("@eclipse-glsp/server");
@@ -86,13 +88,27 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
         sourceModel: ModelTransformationType,
         idRegistry: ModelIdRegistry
     ): Promise<GModelRoot> {
+        const parsedDocument = sourceModel.$document;
+        const parserHasErrors =
+            (parsedDocument?.parseResult.parserErrors.length ?? 0) > 0 ||
+            (parsedDocument?.parseResult.lexerErrors.length ?? 0) > 0;
+
+        const fallbackModel =
+            parserHasErrors && parsedDocument != undefined
+                ? adaptGeneratedModelTransformationText(parsedDocument.textDocument.getText())
+                : undefined;
+
+        const effectiveSourceModel = fallbackModel ?? sourceModel;
+        const effectiveIdRegistry =
+            fallbackModel != undefined ? new DefaultModelIdRegistry(effectiveSourceModel, this.modelIdProvider) : idRegistry;
+
         const graph = GGraph.builder().id("transformation-graph").addCssClass("editor-model-transformation").build();
 
-        const converter = new ModelTransformationControlFlowConverter(sourceModel, idRegistry, this.reflection);
+        const converter = new ModelTransformationControlFlowConverter(effectiveSourceModel, effectiveIdRegistry, this.reflection);
         const cfg = converter.convert();
 
         for (const node of cfg.nodes) {
-            await this.createCFGNode(graph, node, idRegistry);
+            await this.createCFGNode(graph, node, effectiveIdRegistry);
         }
         for (const edge of cfg.edges) {
             await this.createControlFlowEdge(graph, edge.sourceId, edge.targetId, edge.label, edge.labelElementId);
