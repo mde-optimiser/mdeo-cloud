@@ -566,7 +566,7 @@ class WorkerService(
                     .firstOrNull()
                     ?.get(OptimizerExecutionsTable.state)
             }
-            val cancelled = state == null || state == ExecutionState.CANCELLED
+            val cancelled = state == null || state == ExecutionState.CANCELLED || state == ExecutionState.FAILED
             logger.warn("Cancellation check for execution {}: {} (dbState={})", executionId, if (cancelled) { "CANCELLED" } else { "not cancelled" }, state)
             cancelled
         } catch (e: Exception) {

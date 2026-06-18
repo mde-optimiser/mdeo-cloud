@@ -159,7 +159,7 @@ class MoeaOptimizationTest {
     }
 
     @ParameterizedTest
-    @EnumSource(value = AlgorithmType::class, names = ["NSGAII", "SPEA2", "RANDOM"])
+    @EnumSource(value = AlgorithmType::class, names = ["NSGAII", "SPEA2"])
     fun `execute works with different algorithms`(algorithmType: AlgorithmType) {
         val result = runOptimization(
             algorithmType = algorithmType,

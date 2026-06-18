@@ -192,13 +192,13 @@ export type TerminationBlockType = ASTType<typeof TerminationBlock>;
 /**
  * The solver `{ }` section content.
  *
- * - `algorithm`     — algorithm name (`NSGAII` | `IBEA` | … | `RANDOM`)
+ * - `algorithm`     — algorithm name (`NSGAII` | `IBEA` | … | `PAES`)
  * - `parameters`    — algorithm parameters block
  * - `termination`   — termination condition block
  * - `batches`       — number of independent runs
  */
 export const SolverSection = createInterface("ConfigMdeoSolverSection").attrs({
-    algorithm: [Union("NSGAII", "IBEA", "SPEA2", "SMSMOEA", "VEGA", "PESA2", "PAES", "RANDOM")],
+    algorithm: [Union("NSGAII", "IBEA", "SPEA2", "SMSMOEA", "VEGA", "PESA2", "PAES")],
     parameters: [AlgorithmParameters],
     termination: [TerminationBlock],
     batches: [Number]

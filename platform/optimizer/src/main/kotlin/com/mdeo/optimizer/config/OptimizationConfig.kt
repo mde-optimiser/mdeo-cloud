@@ -153,7 +153,7 @@ data class SolverConfig(
 /** Supported evolutionary algorithm types. */
 @Serializable
 enum class AlgorithmType {
-    NSGAII, IBEA, SPEA2, SMSMOEA, VEGA, PESA2, PAES, RANDOM
+    NSGAII, IBEA, SPEA2, SMSMOEA, VEGA, PESA2, PAES
 }
 
 /**

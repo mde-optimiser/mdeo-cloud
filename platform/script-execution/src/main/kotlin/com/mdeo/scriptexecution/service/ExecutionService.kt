@@ -439,7 +439,7 @@ class ExecutionService(
                 .firstOrNull()
                 ?.get(ExecutionsTable.state)
         }
-        return state == null || state == ExecutionState.CANCELLED
+        return state == null || state == ExecutionState.CANCELLED || state == ExecutionState.FAILED
     }
 
     /**

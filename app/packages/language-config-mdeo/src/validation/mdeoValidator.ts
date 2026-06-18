@@ -29,7 +29,7 @@ const { AstUtils, CstUtils, isLeafCstNode, GrammarUtils } = sharedImport("langiu
 /**
  * Valid algorithm names for the solver section.
  */
-const VALID_ALGORITHMS = new Set(["NSGAII", "IBEA", "SPEA2", "SMSMOEA", "VEGA", "PESA2", "PAES", "RANDOM"]);
+const VALID_ALGORITHMS = new Set(["NSGAII", "IBEA", "SPEA2", "SMSMOEA", "VEGA", "PESA2", "PAES"]);
 
 /**
  * Valid variation values for mutation configuration.

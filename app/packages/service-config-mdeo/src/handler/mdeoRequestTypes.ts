@@ -85,7 +85,7 @@ export interface TerminationBlockData {
  * `provider` and `algorithm` match Kotlin enum names (uppercase).
  */
 export interface SolverSectionData {
-    algorithm?: "NSGAII" | "IBEA" | "SPEA2" | "SMSMOEA" | "VEGA" | "PESA2" | "PAES" | "RANDOM";
+    algorithm?: "NSGAII" | "IBEA" | "SPEA2" | "SMSMOEA" | "VEGA" | "PESA2" | "PAES";
     parameters?: AlgorithmParametersData;
     termination?: TerminationBlockData;
     batches?: number;

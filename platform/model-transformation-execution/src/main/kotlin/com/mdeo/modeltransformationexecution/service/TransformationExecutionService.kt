@@ -499,7 +499,7 @@ class TransformationExecutionService(
                 .firstOrNull()
                 ?.get(TransformationExecutionsTable.state)
         }
-        return state == null || state == ExecutionState.CANCELLED
+        return state == null || state == ExecutionState.CANCELLED || state == ExecutionState.FAILED
     }
 
     private fun storeError(executionId: UUID, message: String?) {

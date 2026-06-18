@@ -272,7 +272,7 @@ export const SolverSectionContentRule = createRule("SolverSectionContentRule")
                 group(
                     "algorithm",
                     "=",
-                    add("algorithm", "NSGAII", "IBEA", "SPEA2", "SMSMOEA", "VEGA", "PESA2", "PAES", "RANDOM")
+                    add("algorithm", "NSGAII", "IBEA", "SPEA2", "SMSMOEA", "VEGA", "PESA2", "PAES")
                 ),
                 add("parameters", AlgorithmParametersBlockRule),
                 add("termination", TerminationBlockRule),

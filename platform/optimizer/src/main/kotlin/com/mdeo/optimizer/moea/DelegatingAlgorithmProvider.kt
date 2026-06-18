@@ -15,7 +15,7 @@ import org.moeaframework.problem.Problem
  * Each returned algorithm overrides `evaluateAll`/`evaluate` to dispatch work through
  * a shared [EvaluationCoordinator], and overrides `iterate` to track solution lifecycle.
  * This provider supports the same algorithm names as [OptimizationAlgorithmProvider]:
- * NSGAII, SPEA2, IBEA, SMSEMOA, VEGA, PESA2, PAES, and RANDOM.
+ * NSGAII, SPEA2, IBEA, SMSEMOA, VEGA, PESA2, and PAES.
  *
  * @param coordinator The evaluation coordinator shared by all algorithm instances.
  */
@@ -77,12 +77,9 @@ class DelegatingAlgorithmProvider(
                 val archiveSize = properties.getInt("archive.size", 100)
                 DelegatingPAES(problem, variation, bisections, archiveSize, coordinator)
             }
-            "RANDOM" -> DelegatingRandomSearch(
-                problem, populationSize, initialization, NondominatedPopulation(), coordinator
-            )
             else -> throw IllegalArgumentException(
                 "Unsupported delegating algorithm: $name. " +
-                    "Supported: NSGAII, SPEA2, IBEA, SMSEMOA, VEGA, PESA2, PAES, RANDOM"
+                    "Supported: NSGAII, SPEA2, IBEA, SMSEMOA, VEGA, PESA2, PAES"
             )
         }
     }
