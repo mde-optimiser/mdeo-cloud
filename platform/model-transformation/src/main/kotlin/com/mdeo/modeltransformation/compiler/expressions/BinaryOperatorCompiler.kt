@@ -244,10 +244,17 @@ class BinaryOperatorCompiler(
 
         val leftLabel = context.getUniqueId()
         val rightLabel = context.getUniqueId()
+
+        val mathExpr = if (expr.operator == OPERATOR_DIVIDE && isIntType(expr.left, context) && isIntType(expr.right, context)) {
+            "signum($leftLabel) * signum($rightLabel) * floor(abs($leftLabel) / abs($rightLabel))"
+        } else {
+            "$leftLabel $mathSymbol $rightLabel"
+        }
+
         val projectTraversal = AnonymousTraversal.project<Any, Any>(leftLabel, rightLabel)
             .by(leftResult.traversal as GraphTraversal<Any, Any>)
             .by(rightResult.traversal as GraphTraversal<Any, Any>)
-            .math("$leftLabel $mathSymbol $rightLabel")
+            .math(mathExpr)
 
         @Suppress("UNCHECKED_CAST")
         val traversal = if (initialTraversal != null) {
@@ -279,6 +286,16 @@ class BinaryOperatorCompiler(
             )
         return type is com.mdeo.expression.ast.types.ClassTypeRef && 
             type.`package` == "builtin" && type.type == "string"
+    }
+
+    /**
+     * Checks if an expression has an int type using static type information.
+     */
+    private fun isIntType(expression: TypedExpression, context: CompilationContext): Boolean {
+        val type = context.resolveTypeOrNull(expression.evalType)
+            ?: return false
+        return type is com.mdeo.expression.ast.types.ClassTypeRef && 
+            type.`package` == "builtin" && type.type == "int"
     }
 
     /**

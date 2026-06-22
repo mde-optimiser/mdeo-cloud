@@ -98,15 +98,24 @@ internal class GraphModificationApplier(
         for (property in simpleProps) {
             val graphKey = expressionSupport.engine.resolvePropertyGraphKey(className, property.propertyName)
             val compiled = expressionSupport.compilePropertyExpression(property.value, matchedInstanceNames)!!
+            val castFunction = getNumericCastFunction(className, property.propertyName)
+            
             result = if (compiled is CompilationResult.ValueResult) {
                 if (compiled.value != null) {
-                    result.property(graphKey, compiled.value) as GraphTraversal<Vertex, Map<String, Any>>
+                    val finalValue = if (castFunction != null && compiled.value is Number) castFunction(compiled.value) else compiled.value
+                    result.property(graphKey, finalValue) as GraphTraversal<Vertex, Map<String, Any>>
                 } else {
                     result
                 }
             } else {
                 @Suppress("UNCHECKED_CAST")
-                val propTraversal = compiled.traversal as GraphTraversal<Any, Any>
+                var propTraversal = compiled.traversal as GraphTraversal<Any, Any>
+                if (castFunction != null) {
+                    propTraversal = propTraversal.map { 
+                        val v = it.get()
+                        if (v is Number) castFunction(v) else v
+                    } as GraphTraversal<Any, Any>
+                }
                 result.sideEffect(
                     AnonymousTraversal.select<Any, Any>(VariableBinding.stepLabel(instanceName))
                         .property(graphKey, propTraversal)
@@ -117,8 +126,17 @@ internal class GraphModificationApplier(
         for (property in listProps) {
             val graphKey = expressionSupport.engine.resolvePropertyGraphKey(className, property.propertyName)
             val listResult = expressionSupport.compilePropertyExpression(property.value, matchedInstanceNames)!!
+            val castFunction = getNumericCastFunction(className, property.propertyName)
+
             @Suppress("UNCHECKED_CAST")
-            val listTraversal = listResult.traversal as GraphTraversal<Any, Any>
+            var listTraversal = listResult.traversal as GraphTraversal<Any, Any>
+            if (castFunction != null) {
+                listTraversal = listTraversal.map { 
+                    val v = it.get()
+                    if (v is Number) castFunction(v) else v 
+                } as GraphTraversal<Any, Any>
+            }
+
             val valueLabel = compilationContext.getUniqueId()
             result = result.sideEffect(
                 listTraversal.`as`(valueLabel)
@@ -178,20 +196,30 @@ internal class GraphModificationApplier(
 
             if (expressionSupport.isCollectionType(propType)) {
                 val listResult = expressionSupport.compilePropertyExpression(property.value, matchedInstanceNames)
-                if (listResult != null) { result = setListPropertyViaSideEffect(result, name, graphKey, listResult) }
+                if (listResult != null) { 
+                    result = setListPropertyViaSideEffect(result, name, graphKey, listResult, getNumericCastFunction(className, property.propertyName)) 
+                }
             } else {
                 val compiled = expressionSupport.compilePropertyExpression(property.value, matchedInstanceNames)!!
+                val castFunction = getNumericCastFunction(className, property.propertyName)
                 result = if (compiled is CompilationResult.ValueResult) {
                     if (compiled.value != null) {
+                        val finalValue = if (castFunction != null && compiled.value is Number) castFunction(compiled.value) else compiled.value
                         result.sideEffect(
-                            AnonymousTraversal.select<Any, Any>(stepLabel).property(graphKey, compiled.value)
+                            AnonymousTraversal.select<Any, Any>(stepLabel).property(graphKey, finalValue)
                         ) as GraphTraversal<Vertex, Map<String, Any>>
                     } else {
                         result
                     }
                 } else {
                     @Suppress("UNCHECKED_CAST")
-                    val propTraversal = compiled.traversal as GraphTraversal<Any, Any>
+                    var propTraversal = compiled.traversal as GraphTraversal<Any, Any>
+                    if (castFunction != null) {
+                        propTraversal = propTraversal.map { 
+                            val v = it.get()
+                            if (v is Number) castFunction(v) else v 
+                        } as GraphTraversal<Any, Any>
+                    }
                     result.sideEffect(
                         AnonymousTraversal.select<Any, Any>(stepLabel).property(graphKey, propTraversal)
                     ) as GraphTraversal<Vertex, Map<String, Any>>
@@ -216,7 +244,8 @@ internal class GraphModificationApplier(
         traversal: GraphTraversal<Vertex, Map<String, Any>>,
         instanceName: String,
         graphKey: String,
-        listResult: CompilationResult
+        listResult: CompilationResult,
+        castFunction: ((Number) -> Number)?
     ): GraphTraversal<Vertex, Map<String, Any>> {
         val stepLabel = VariableBinding.stepLabel(instanceName)
         var result = traversal
@@ -225,7 +254,14 @@ internal class GraphModificationApplier(
         ) as GraphTraversal<Vertex, Map<String, Any>>
 
         @Suppress("UNCHECKED_CAST")
-        val listTraversal = listResult.traversal as GraphTraversal<Any, Any>
+        var listTraversal = listResult.traversal as GraphTraversal<Any, Any>
+        if (castFunction != null) {
+            listTraversal = listTraversal.map { 
+                val v = it.get()
+                if (v is Number) castFunction(v) else v 
+            } as GraphTraversal<Any, Any>
+        }
+
         val valueLabel = compilationContext.getUniqueId()
         result = result.sideEffect(
             listTraversal.`as`(valueLabel)
@@ -236,6 +272,33 @@ internal class GraphModificationApplier(
                 )
         ) as GraphTraversal<Vertex, Map<String, Any>>
         return result
+    }
+
+    private fun findPropertyInHierarchy(className: String?, propertyName: String): com.mdeo.metamodel.data.PropertyData? {
+        if (className == null) return null
+        val classMap = expressionSupport.engine.metamodelData.classes.associateBy { it.name }
+        fun find(cName: String): com.mdeo.metamodel.data.PropertyData? {
+            val classData = classMap[cName] ?: return null
+            val property = classData.properties.find { it.name == propertyName }
+            if (property != null) return property
+            for (parentName in classData.extends) {
+                val parentProperty = find(parentName)
+                if (parentProperty != null) return parentProperty
+            }
+            return null
+        }
+        return find(className)
+    }
+
+    private fun getNumericCastFunction(className: String?, propertyName: String): ((Number) -> Number)? {
+        val propData = findPropertyInHierarchy(className, propertyName) ?: return null
+        return when (propData.primitiveType) {
+            "int" -> { n: Number -> n.toInt() }
+            "long" -> { n: Number -> n.toLong() }
+            "float" -> { n: Number -> n.toFloat() }
+            "double" -> { n: Number -> n.toDouble() }
+            else -> null
+        }
     }
 
     /**
