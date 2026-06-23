@@ -197,10 +197,6 @@ class TypeCheckCompiler : ExpressionCompiler() {
             return if (sourceType.isNullable && !checkType.isNullable) null else true
         }
 
-        if (!checkType.isNullable) {
-            return false
-        }
-
         return null
     }
 
