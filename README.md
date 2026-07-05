@@ -55,6 +55,12 @@ Use `infra/docker-compose-dev.yaml` when you are changing code locally and want 
 docker compose -f infra/docker-compose-dev.yaml up --build
 ```
 
+> [!NOTE]
+> **Default credentials**
+>
+> - **Username:** `admin`
+> - **Password:** `admin`
+
 #### Production
 Use `infra/docker-compose-prod.yaml` for a production-style deployment from published images. This setup keeps configuration externalized through environment variables and is intended for managed hosts or VM deployments where you provide a populated env file.
 
