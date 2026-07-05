@@ -116,7 +116,7 @@ export type SingleMultiplicityType = ASTType<typeof SingleMultiplicity>;
  */
 export const RangeMultiplicity = createInterface("RangeMultiplicity").attrs({
     lower: Number,
-    upper: Union("*"),
+    upper: Optional(Union("*")),
     upperNumeric: Optional(Number)
 });
 

@@ -364,7 +364,11 @@ class MetamodelClassExtractor {
      */
     private resolvePropertyType(property: PropertyType): ValueType {
         const baseType = this.resolveBasePropertyType(property);
-        return this.applyMultiplicity(baseType, property.multiplicity, this.collectionTypeFactory.createListType);
+        return this.applyMultiplicity(
+            baseType,
+            property.multiplicity ?? { $type: "SingleMultiplicity", numericValue: 1, value: undefined },
+            this.collectionTypeFactory.createListType
+        );
     }
 
     /**
@@ -418,12 +422,10 @@ class MetamodelClassExtractor {
      */
     private applyMultiplicity(
         baseType: ValueType,
-        multiplicity: MultiplicityType | undefined,
+        multiplicity: MultiplicityType,
         createCollectionType: (elementType: ValueType) => ValueType
     ): ValueType {
-        if (multiplicity == undefined) {
-            return baseType;
-        } else if (isMultipleMultiplicity(multiplicity, this.reflection)) {
+        if (isMultipleMultiplicity(multiplicity, this.reflection)) {
             return createCollectionType(baseType);
         } else if (isOptionalMultiplicity(multiplicity, this.reflection)) {
             return { ...baseType, isNullable: true };
@@ -518,7 +520,11 @@ class MetamodelClassExtractor {
         const oppositePackage = this.getActualPackageForClass(oppositeClass);
         const oppositeClassName = `${oppositePackage}.${oppositeSimpleName}`;
         const baseType: ValueType = { package: oppositePackage, type: oppositeSimpleName, isNullable: false };
-        const valueType = this.applyMultiplicity(baseType, end.multiplicity, this.collectionTypeFactory.createSetType);
+        const valueType = this.applyMultiplicity(
+            baseType,
+            end.multiplicity ?? { $type: "RangeMultiplicity", lower: 0, upperNumeric: undefined, upper: "*" },
+            this.collectionTypeFactory.createSetType
+        );
 
         return {
             property: end.name,
