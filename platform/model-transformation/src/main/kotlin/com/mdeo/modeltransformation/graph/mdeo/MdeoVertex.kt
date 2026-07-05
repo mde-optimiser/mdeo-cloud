@@ -2,6 +2,7 @@ package com.mdeo.modeltransformation.graph.mdeo
 
 import com.mdeo.metamodel.ClassMetadata
 import com.mdeo.metamodel.ModelInstance
+import com.mdeo.metamodel.PropertyFieldMapping
 import org.apache.tinkerpop.gremlin.structure.Direction
 import org.apache.tinkerpop.gremlin.structure.Edge
 import org.apache.tinkerpop.gremlin.structure.Graph
@@ -70,9 +71,9 @@ class MdeoVertex(
                     @Suppress("UNCHECKED_CAST")
                     val currentList = instance.getPropertyByKey(propertyName) as? MutableList<Any?>
                         ?: throw IllegalStateException("Multi-valued property '$propertyName' has no backing list")
-                    currentList.add(value)
+                    currentList.add(convertToEnumValueIfNeeded(value, mapping))
                 } else {
-                    instance.setPropertyByKey(propertyName, value)
+                    instance.setPropertyByKey(propertyName, convertToEnumValueIfNeeded(value, mapping))
                 }
             }
         }
@@ -95,12 +96,12 @@ class MdeoVertex(
             if (list.size > 1) throw Vertex.Exceptions.multiplePropertiesExistForProvidedKey(key)
             if (list.isEmpty()) return VertexProperty.empty()
             @Suppress("UNCHECKED_CAST")
-            return MdeoVertexProperty(graph.nextVertexPropertyId(), this, key, list.first() as V)
+            return MdeoVertexProperty(graph.nextVertexPropertyId(), this, key, convertFromEnumValueIfNeeded(list.first(), mapping) as V)
         }
 
         val raw = backingInstance.getPropertyByKey(propertyName) ?: return VertexProperty.empty()
         @Suppress("UNCHECKED_CAST")
-        return MdeoVertexProperty(graph.nextVertexPropertyId(), this, key, raw as V)
+        return MdeoVertexProperty(graph.nextVertexPropertyId(), this, key, convertFromEnumValueIfNeeded(raw, mapping) as V)
     }
 
     override fun keys(): Set<String> {
@@ -164,16 +165,17 @@ class MdeoVertex(
         result: MutableList<VertexProperty<V>>
     ) {
         val raw = instance.getPropertyByKey(propName) ?: return
+        val mapping = classMetadata?.propertyFields?.get(propName)
         if (isMultiValued) {
             val list = raw as? List<*>
                 ?: throw IllegalStateException("Expected List for multi-valued property '$propName' but got ${raw::class.simpleName}")
             for (elem in list) {
                 if (elem != null) {
-                    result.add(MdeoVertexProperty(graph.nextVertexPropertyId(), this, graphKey, elem as V))
+                    result.add(MdeoVertexProperty(graph.nextVertexPropertyId(), this, graphKey, convertFromEnumValueIfNeeded(elem, mapping) as V))
                 }
             }
         } else {
-            result.add(MdeoVertexProperty(graph.nextVertexPropertyId(), this, graphKey, raw as V))
+            result.add(MdeoVertexProperty(graph.nextVertexPropertyId(), this, graphKey, convertFromEnumValueIfNeeded(raw, mapping) as V))
         }
     }
 
@@ -210,6 +212,69 @@ class MdeoVertex(
             if (mapping.fieldIndex == fieldIndex) return propName
         }
         return null
+    }
+
+    /**
+     * Converts a backtick-formatted enum string (e.g., `` `Status`.`ACTIVE` ``) to the
+     * actual generated enum value object expected by the backing [ModelInstance].
+     *
+     * If the property has no [PropertyFieldMapping.enumType], the value is returned unchanged.
+     * If the value is already not a [String] (i.e., already an enum object), it is returned
+     * unchanged to be safe.
+     *
+     * @param value The value to potentially convert.
+     * @param mapping The property field mapping that may declare an [PropertyFieldMapping.enumType].
+     * @return The converted enum value, or the original value if no conversion is needed.
+     */
+    private fun convertToEnumValueIfNeeded(value: Any?, mapping: PropertyFieldMapping): Any? {
+        val enumTypeName = mapping.enumType ?: return value
+        if (value !is String) return value
+        // Backtick format: "`EnumName`.`EntryName`"
+        val entryName = parseEnumEntryFromBacktickString(value) ?: return value
+        return graph.metamodel.resolveEnumValue(enumTypeName, entryName)
+    }
+
+    /**
+     * Converts a generated enum value object back to a backtick-formatted string
+     * (e.g., `` `Status`.`ACTIVE` ``) for use in the traversal pipeline.
+     *
+     * If the property has no [PropertyFieldMapping.enumType], the value is returned unchanged.
+     * If the value is already a [String], it is returned unchanged.
+     *
+     * @param value The value to potentially convert.
+     * @param mapping The property field mapping, or null if unknown.
+     * @return The backtick-formatted string, or the original value if no conversion is needed.
+     */
+    private fun convertFromEnumValueIfNeeded(value: Any?, mapping: PropertyFieldMapping?): Any? {
+        val enumTypeName = mapping?.enumType ?: return value
+        if (value == null || value is String) return value
+        // Enum value objects have a getEntry() method returning the entry name string
+        return try {
+            val entryName = value.javaClass.getMethod("getEntry").invoke(value) as String
+            "`$enumTypeName`.`$entryName`"
+        } catch (_: Exception) {
+            value
+        }
+    }
+
+    /**
+     * Parses an entry name from a backtick-formatted enum string.
+     *
+     * Format: `` `EnumName`.`EntryName` ``
+     *
+     * @param backtickString The formatted string to parse.
+     * @return The entry name, or null if the format is not recognized.
+     */
+    private fun parseEnumEntryFromBacktickString(backtickString: String): String? {
+        // Format: "`EnumName`.`EntryName`"
+        val dotIdx = backtickString.indexOf('`', 1)
+        if (dotIdx < 0) return null
+        // Find second backtick group: after the dot
+        val secondStart = backtickString.indexOf('`', dotIdx + 1)
+        if (secondStart < 0) return null
+        val secondEnd = backtickString.indexOf('`', secondStart + 1)
+        if (secondEnd < 0) return null
+        return backtickString.substring(secondStart + 1, secondEnd).takeIf { it.isNotEmpty() }
     }
 
     /**
