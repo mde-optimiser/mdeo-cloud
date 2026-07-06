@@ -8,6 +8,7 @@ import com.mdeo.optimizer.metrics.OptimizationMetricsCollector
 import com.mdeo.optimizer.moea.DelegatingAlgorithmProvider
 import com.mdeo.optimizer.moea.DelegatingProblem
 import com.mdeo.optimizer.moea.EvaluationCoordinator
+import com.mdeo.optimizer.moea.ParetoHistoryExtension
 import com.mdeo.optimizer.moea.ProgressCallbackExtension
 import com.mdeo.optimizer.moea.SearchResult
 import com.mdeo.optimizer.moea.TerminationConditionAdapter
@@ -100,6 +101,9 @@ class OptimizationOrchestrator(
                 }
                 algorithm.addExtension(ProgressCallbackExtension(progressListener, coordinator, metricsCollector))
 
+                val paretoHistoryExtension = ParetoHistoryExtension()
+                algorithm.addExtension(paretoHistoryExtension)
+
                 val instrumentedAlgorithm = instrumenter.instrument(algorithm)
                 val terminationCondition = TerminationConditionAdapter(config.solver).create()
 
@@ -117,7 +121,12 @@ class OptimizationOrchestrator(
                 }
                 val batchDurationMs = System.currentTimeMillis() - batchStartMs
 
-                val result = SearchResult(instrumentedAlgorithm.getSeries(), instrumentedAlgorithm.getResult(), metricsCollector)
+                val result = SearchResult(
+                    instrumentedAlgorithm.getSeries(),
+                    instrumentedAlgorithm.getResult(),
+                    metricsCollector,
+                    paretoHistoryExtension.getHistory()
+                )
                 allResults.add(result)
 
                 // Notify the caller while this batch's solutions are still live in the evaluator.
