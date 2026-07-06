@@ -9,12 +9,17 @@ import org.moeaframework.core.population.NondominatedPopulation
  *
  * @param series The per-step runtime metrics from the instrumented algorithm.
  * @param finalPopulation The final Pareto-optimal solutions from the algorithm.
- * @param metricsCollector The collected per-generation metrics.
+ * @param metricsCollector The collected per-generation performance metrics.
+ * @param paretoFrontHistory Per-generation snapshots of the Pareto front's solutions (objectives +
+ *   constraints). Objectives are in MOEA-internal minimisation form (maximised objectives are negated).
+ *   Constraint values are raw violations; zero means the constraint is satisfied.
+ *   Index 0 corresponds to generation 1.
  */
 class SearchResult(
     private val series: ResultSeries,
     private val finalPopulation: NondominatedPopulation,
-    private val metricsCollector: OptimizationMetricsCollector = OptimizationMetricsCollector()
+    private val metricsCollector: OptimizationMetricsCollector = OptimizationMetricsCollector(),
+    private val paretoFrontHistory: List<List<SolutionSnapshot>> = emptyList()
 ) {
     /**
      * Gets the collected runtime series from the instrumented run.
@@ -45,6 +50,18 @@ class SearchResult(
      * @return The [OptimizationMetricsCollector] populated during the search.
      */
     fun getMetrics(): OptimizationMetricsCollector = metricsCollector
+
+    /**
+     * Returns the per-generation Pareto front history recorded during the run.
+     *
+     * Each element is a list of [SolutionSnapshot]s for that generation (objectives + raw
+     * constraint violations). Index 0 is generation 1. Objective values are in MOEA-internal
+     * minimisation form — maximised objectives appear negated. Constraint values are zero
+     * when the constraint is satisfied.
+     *
+     * @return Ordered list of Pareto front snapshots, one per completed generation.
+     */
+    fun getParetoFrontHistory(): List<List<SolutionSnapshot>> = paretoFrontHistory
 }
 
 /**
