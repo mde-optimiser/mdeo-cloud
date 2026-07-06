@@ -34,6 +34,10 @@ MDEO Cloud supports multiple custom Domain-Specific Languages (DSLs) built with 
 
 ## 🚀 Deployment
 
+> [!CAUTION]
+> After upgrading to a new version, an administrator needs to refresh all plugins (settings => plugins).
+> Otherwise, plugin files will fail to load.
+
 MDEO Cloud is designed to be easily deployable in both local development environments and scalable cloud infrastructures.
 
 ### Docker Compose Setups
