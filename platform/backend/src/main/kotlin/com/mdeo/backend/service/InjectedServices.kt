@@ -67,9 +67,4 @@ interface InjectedServices {
      * Service for executing language plugin requests.
      */
     val languagePluginRequestService: LanguagePluginRequestService
-
-    /**
-     * Service for importing CSV files as inferred metamodel/model pairs.
-     */
-    val csvImportService: CsvImportService
 }

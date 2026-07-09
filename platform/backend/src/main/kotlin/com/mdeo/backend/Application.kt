@@ -59,7 +59,6 @@ fun Application.module(appConfig: AppConfig) {
         override val executionService: ExecutionService by lazy { ExecutionService(this) }
         override val webSocketNotificationService: WebSocketNotificationService by lazy { WebSocketNotificationService() }
         override val languagePluginRequestService: LanguagePluginRequestService by lazy { LanguagePluginRequestService(this) }
-        override val csvImportService: CsvImportService by lazy { CsvImportService(this) }
     }
     
     services.jwtService.init()
@@ -123,7 +122,6 @@ fun Application.module(appConfig: AppConfig) {
             adminRoutes(services.userService)
             userRoutes(services.userService, services.projectService)
             executionRoutes(services.executionService, services.projectService)
-            csvImportRoutes(services.csvImportService, services.projectService)
         }
     }
 }

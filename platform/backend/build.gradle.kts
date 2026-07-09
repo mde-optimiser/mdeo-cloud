@@ -11,7 +11,6 @@ application {
 
 dependencies {
     implementation(project(":common"))
-    implementation(project(":metamodel"))
     
     // Ktor Server
     implementation(libs.ktor.server.core)
