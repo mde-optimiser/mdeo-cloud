@@ -12,7 +12,6 @@ import java.util.UUID
 
 @Serializable
 data class CsvImportResult(
-    val metamodelPath: String,
     val modelPath: String,
     val instanceCount: Int,
     val warnings: List<String>
@@ -26,29 +25,38 @@ class CsvImportService(services: InjectedServices) : BaseService(), InjectedServ
         projectId: UUID,
         csvText: String,
         basePath: String,
-        className: String
+        className: String,
+        metamodelPath: String
     ): ApiResult<CsvImportResult> {
         val normalizedBasePath = basePath.trim().trim('/')
-        val metamodelPath = "$normalizedBasePath.metamodel"
-        val modelPath = "$normalizedBasePath.model"
+        if (normalizedBasePath.isBlank()) {
+            return commonFailure(ErrorCodes.CSV_IMPORT_FAILED, "Invalid path parameter")
+        }
+        val modelPath = "$normalizedBasePath.m"
 
-        val inference = try {
-            CsvModelInference.inferFromCsv(
+        val metamodelResult = fileService.readFile(projectId, metamodelPath)
+        if (metamodelResult is ApiResult.Failure) {
+            return commonFailure(ErrorCodes.CSV_IMPORT_FAILED, "Could not read metamodel at '$metamodelPath'")
+        }
+        val metamodelBytes = (metamodelResult as ApiResult.Success).value
+        val metamodel = try {
+            json.decodeFromString<com.mdeo.metamodel.data.MetamodelData>(metamodelBytes.decodeToString())
+        } catch (e: Exception) {
+            return commonFailure(ErrorCodes.CSV_IMPORT_FAILED, "Could not parse metamodel: ${e.message}")
+        }
+
+        val importResult = try {
+            CsvModelInference.importFromCsv(
                 csvText = csvText,
                 className = className,
+                metamodel = metamodel,
                 metamodelPath = metamodelPath
             )
         } catch (e: IllegalArgumentException) {
             return commonFailure(ErrorCodes.CSV_IMPORT_FAILED, e.message ?: "Invalid CSV")
         }
 
-        val metamodelBytes = json.encodeToString(inference.metamodel).toByteArray(Charsets.UTF_8)
-        val modelBytes = json.encodeToString(inference.model).toByteArray(Charsets.UTF_8)
-
-        when (val result = fileService.writeFile(projectId, metamodelPath, metamodelBytes, create = true, overwrite = true)) {
-            is ApiResult.Failure -> return ApiResult.Failure(result.error)
-            is ApiResult.Success -> {}
-        }
+        val modelBytes = json.encodeToString(importResult.model).toByteArray(Charsets.UTF_8)
 
         when (val result = fileService.writeFile(projectId, modelPath, modelBytes, create = true, overwrite = true)) {
             is ApiResult.Failure -> return ApiResult.Failure(result.error)
@@ -57,10 +65,9 @@ class CsvImportService(services: InjectedServices) : BaseService(), InjectedServ
 
         return success(
             CsvImportResult(
-                metamodelPath = metamodelPath,
                 modelPath = modelPath,
-                instanceCount = inference.model.instances.size,
-                warnings = inference.warnings
+                instanceCount = importResult.model.instances.size,
+                warnings = importResult.warnings
             )
         )
     }
