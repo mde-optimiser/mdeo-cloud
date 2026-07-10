@@ -37,7 +37,9 @@ class CsvImportService(services: InjectedServices) : BaseService(), InjectedServ
             return commonFailure(ErrorCodes.CSV_IMPORT_FAILED, "Could not compute metamodel data for '$metamodelPath'")
         }
         val metamodelJson = (metamodelDataResult as ApiResult.Success).value.data
-            ?: return commonFailure(ErrorCodes.CSV_IMPORT_FAILED, "Metamodel '$metamodelPath' has errors")
+        if (metamodelJson == kotlinx.serialization.json.JsonNull) {
+            return commonFailure(ErrorCodes.CSV_IMPORT_FAILED, "Metamodel '$metamodelPath' has errors or could not be parsed")
+        }
 
         val metamodelData = try {
             json.decodeFromJsonElement<MetamodelAstData>(metamodelJson)
