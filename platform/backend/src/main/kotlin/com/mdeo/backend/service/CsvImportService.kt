@@ -79,30 +79,27 @@ class CsvImportService(services: InjectedServices) : BaseService(), InjectedServ
             )
         }
 
-        val instances = dataRows.mapIndexed { rowIndex, row ->
+        val dslLines = StringBuilder()
+        dslLines.appendLine("""using "./$metamodelPath"""")
+        dslLines.appendLine()
+
+        dataRows.forEachIndexed { rowIndex, row ->
             val normalizedRow = normalizeRow(row, header.size, rowIndex + 2, warnings)
-            val properties = buildJsonObject {
-                header.forEachIndexed { colIndex, colName ->
-                    if (colName == "_id") return@forEachIndexed
-                    val prop = targetClass.properties.find { it.name == colName } ?: return@forEachIndexed
-                    val rawValue = normalizedRow[colIndex]
-                    put(colName, convertCell(rawValue, prop, metamodelData))
-                }
+            val instanceName = "${className}_$rowIndex"
+            dslLines.appendLine("$instanceName : $className {")
+            header.forEachIndexed { colIndex, colName ->
+                if (colName == "_id") return@forEachIndexed
+                val prop = targetClass.properties.find { it.name == colName } ?: return@forEachIndexed
+                val rawValue = normalizedRow[colIndex]
+                if (rawValue.isBlank()) return@forEachIndexed
+                val formattedValue = formatDslValue(rawValue, prop)
+                dslLines.appendLine("    $colName = $formattedValue")
             }
-            buildJsonObject {
-                put("name", "${className}_$rowIndex")
-                put("className", className)
-                put("properties", properties)
-            }
+            dslLines.appendLine("}")
+            dslLines.appendLine()
         }
 
-        val modelContent = buildJsonObject {
-            put("metamodelPath", metamodelPath)
-            put("instances", JsonArray(instances))
-            put("links", JsonArray(emptyList()))
-        }
-
-        val modelBytes = json.encodeToString(modelContent).toByteArray(Charsets.UTF_8)
+        val modelBytes = dslLines.toString().toByteArray(Charsets.UTF_8)
 
         when (val result = fileService.writeFile(projectId, modelPath, modelBytes, create = true, overwrite = true)) {
             is ApiResult.Failure -> return ApiResult.Failure(result.error)
@@ -112,23 +109,22 @@ class CsvImportService(services: InjectedServices) : BaseService(), InjectedServ
         return success(
             CsvImportResult(
                 modelPath = modelPath,
-                instanceCount = instances.size,
+                instanceCount = dataRows.size,
                 warnings = warnings
             )
         )
     }
 
-    private fun convertCell(rawValue: String, prop: PropertyData, metamodel: MetamodelAstData): JsonElement {
-        if (rawValue.isBlank()) return JsonNull
+    private fun formatDslValue(rawValue: String, prop: PropertyData): String {
         return when {
-            prop.enumType != null -> JsonPrimitive(rawValue)
+            prop.enumType != null -> rawValue
             prop.primitiveType == "int" || prop.primitiveType == "long" ->
-                rawValue.toLongOrNull()?.let { JsonPrimitive(it) } ?: JsonPrimitive(rawValue)
+                rawValue.toLongOrNull()?.toString() ?: "\"$rawValue\""
             prop.primitiveType == "double" || prop.primitiveType == "float" ->
-                rawValue.toDoubleOrNull()?.let { JsonPrimitive(it) } ?: JsonPrimitive(rawValue)
+                rawValue.toDoubleOrNull()?.toString() ?: "\"$rawValue\""
             prop.primitiveType == "boolean" ->
-                JsonPrimitive(rawValue.equals("true", ignoreCase = true))
-            else -> JsonPrimitive(rawValue)
+                if (rawValue.equals("true", ignoreCase = true)) "true" else "false"
+            else -> "\"${rawValue.replace("\\", "\\\\").replace("\"", "\\\"")}\""
         }
     }
 
