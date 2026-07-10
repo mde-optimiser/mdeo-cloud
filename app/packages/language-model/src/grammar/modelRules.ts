@@ -27,47 +27,29 @@ import {
     Model,
     MetamodelFileImport,
     LinkEnd,
-    Link
+    Link,
+    CsvClassImport,
+    CsvImportBlock
 } from "./modelTypes.js";
 
-/**
- * Boolean literal rule.
- * Matches "true" or "false".
- */
 export const BOOLEAN = createRule("BOOLEAN")
     .returns(Boolean)
     .as(() => [or("true", "false")]);
 
-/**
- * Simple value rule.
- * Matches string, number, or boolean literals.
- */
 export const SimpleValueRule = createRule("SimpleValueRule")
     .returns(SimpleValue)
     .as(({ set }) => [
         or(set("stringValue", STRING), set("numberValue", FLOAT), set("numberValue", INT), set("booleanValue", BOOLEAN))
     ]);
 
-/**
- * Enum value rule.
- * Matches an enum entry using EnumName.Entry syntax.
- */
 export const EnumValueRule = createRule("EnumValueRule")
     .returns(EnumValue)
     .as(({ set }) => [set("enumRef", ref(Enum, ID)), ".", set("value", ref(EnumEntry, ID))]);
 
-/**
- * Single value rule.
- * Matches either a simple value or an enum value.
- */
 export const SingleValueRule = createRule("SingleValueRule")
     .returns(SingleValue)
     .as(() => [or(SimpleValueRule, EnumValueRule)]);
 
-/**
- * List value rule.
- * Matches values in square brackets with comma separation.
- */
 export const ListValueRule = createRule("ListValueRule")
     .returns(ListValue)
     .as(({ add }) => [
@@ -76,26 +58,14 @@ export const ListValueRule = createRule("ListValueRule")
         "]"
     ]);
 
-/**
- * Literal value rule.
- * Matches any value type: simple, enum, or list.
- */
 export const LiteralValueRule = createRule("LiteralValueRule")
     .returns(LiteralValue)
     .as(() => [or(ListValueRule, SimpleValueRule, EnumValueRule)]);
 
-/**
- * Property assignment rule.
- * Matches property assignments like "a = 100".
- */
 export const PropertyAssignmentRule = createRule("PropertyAssignmentRule")
     .returns(PropertyAssignment)
     .as(({ set }) => [set("name", ref(Property, ID)), "=", set("value", LiteralValueRule)]);
 
-/**
- * Object instance rule.
- * Matches object definitions like "test : ClassName { ... }".
- */
 export const ObjectInstanceRule = createRule("ObjectInstanceRule")
     .returns(ObjectInstance)
     .as(({ set, add }) => [
@@ -107,10 +77,6 @@ export const ObjectInstanceRule = createRule("ObjectInstanceRule")
         "}"
     ]);
 
-/**
- * Link end rule.
- * Matches an object reference with optional property specification.
- */
 export const LinkEndRule = createRule("LinkEndRule")
     .returns(LinkEnd)
     .as(({ set }) => [
@@ -118,35 +84,59 @@ export const LinkEndRule = createRule("LinkEndRule")
         optional(group(".", set("property", ref(AssociationEnd, ID))))
     ]);
 
-/**
- * Link rule.
- * Matches links between object instances: objectId1[.property] -- objectId2[.property]
- */
 export const LinkRule = createRule("LinkRule")
     .returns(Link)
     .as(({ set }) => [set("source", LinkEndRule), "--", set("target", LinkEndRule)]);
 
-/**
- * Metamodel file import rule.
- * Matches "using" statements for importing metamodel files.
- */
 export const MetamodelFileImportRule = createRule("MetamodelFileImportRule")
     .returns(MetamodelFileImport)
     .as(({ set }) => ["using", set("file", STRING)]);
 
 /**
+ * CSV class import rule.
+ * Format: ClassName from "path/to/file.csv"
+ */
+export const CsvClassImportRule = createRule("CsvClassImportRule")
+    .returns(CsvClassImport)
+    .as(({ set }) => [
+        set("class", ref(Class, ID)),
+        "from",
+        set("file", STRING)
+    ]);
+
+/**
+ * CSV import block rule.
+ * Format:
+ *   import CSV {
+ *     ClassName from "file.csv"
+ *   }
+ */
+export const CsvImportBlockRule = createRule("CsvImportBlockRule")
+    .returns(CsvImportBlock)
+    .as(({ add }) => [
+        "import",
+        "CSV",
+        "{",
+        many(or(add("imports", CsvClassImportRule), NEWLINE)),
+        "}"
+    ]);
+
+/**
  * Model root rule.
- * Matches the complete model file structure.
+ * A model file starts with a metamodel import, then either:
+ * - A CSV import block (no hand-authored objects allowed), or
+ * - Hand-authored object instances and links
  */
 export const ModelRule = createRule("ModelRule")
     .returns(Model)
     .as(({ add, set }) => [
         many(NEWLINE),
         set("import", MetamodelFileImportRule),
-        many(or(add("objects", ObjectInstanceRule), add("links", LinkRule), NEWLINE))
+        many(NEWLINE),
+        or(
+            set("csvImport", CsvImportBlockRule),
+            many(or(add("objects", ObjectInstanceRule), add("links", LinkRule), NEWLINE))
+        )
     ]);
 
-/**
- * Additional terminals for the Model language.
- */
 export const ModelTerminals = [WS, HIDDEN_NEWLINE, ML_COMMENT, SL_COMMENT];

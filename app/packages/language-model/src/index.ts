@@ -1,4 +1,5 @@
 export * from "./action-handlers/newFileActionHandler.js";
+export * from "./features/csvImport.js";
 export * from "./action-handlers/saveGeneratedModelActionHandler.js";
 export * from "./features/diagram-server/generated/generatedModelCreateEdgeSchemaResolver.js";
 export * from "./features/diagram-server/generated/generatedModelDiagramConfiguration.js";
