@@ -79,8 +79,12 @@ class CsvImportService(services: InjectedServices) : BaseService(), InjectedServ
             )
         }
 
+        val modelFileDepth = normalizedBasePath.count { it == '/' }
+        val relativePrefix = "../".repeat(modelFileDepth)
+        val relativeMetamodelPath = "$relativePrefix$metamodelPath"
+
         val dslLines = StringBuilder()
-        dslLines.appendLine("""using "./$metamodelPath"""")
+        dslLines.appendLine("""using "$relativeMetamodelPath"""")
         dslLines.appendLine()
 
         dataRows.forEachIndexed { rowIndex, row ->
