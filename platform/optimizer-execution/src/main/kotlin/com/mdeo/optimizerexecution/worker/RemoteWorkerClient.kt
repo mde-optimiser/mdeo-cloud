@@ -20,6 +20,7 @@ import kotlinx.serialization.encodeToByteArray
 import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * [WorkerClient] implementation for remote worker nodes.
@@ -66,8 +67,14 @@ class RemoteWorkerClient(
     /** Pending request correlation: requestId → deferred result. */
     private val pendingRequests = ConcurrentHashMap<String, CompletableDeferred<WorkerWsMessage>>()
 
-    /** Active subprocess WS session, resolved when subprocess connects back. */
-    private val wsSessionDeferred = CompletableDeferred<DefaultWebSocketSession>()
+    /**
+     * Holds the [CompletableDeferred] for the current batch's subprocess WS session.
+     *
+     * Replaced with a fresh deferred at the start of each [allocate] call so that
+     * re-used [RemoteWorkerClient] instances (across batches) do not accidentally
+     * resolve to the stale, already-closed session from a previous batch.
+     */
+    private val wsSessionDeferredRef = AtomicReference(CompletableDeferred<DefaultWebSocketSession>())
 
     /** Background WS read loop job. */
     private var wsJob: Job? = null
@@ -79,8 +86,15 @@ class RemoteWorkerClient(
      * Registers a slot in the [OrchestratorRegistry], sends the HTTP allocation request
      * embedding the orchestrator WS URL, then waits for the subprocess to connect back
      * before starting the WS read loop.
+     *
+     * A fresh [CompletableDeferred] is installed in [wsSessionDeferredRef] at the start
+     * of every call so that a reused [RemoteWorkerClient] instance (across batches) always
+     * hands [sendAndReceive] the session that belongs to the *current* batch, not a stale
+     * closed session from a previous one.
      */
     override suspend fun allocate(request: WorkerAllocationRequest): WorkerAllocationResponse {
+        wsSessionDeferredRef.set(CompletableDeferred())
+
         val registryKey = OrchestratorRegistry.key(request.executionId, nodeId)
         val orchestratorWsUrl = "$wsBaseUrl/ws/subprocess/executions/${request.executionId}/$nodeId"
         logger.info(
@@ -144,7 +158,7 @@ class RemoteWorkerClient(
     }
 
     override suspend fun sendAndReceive(msg: WorkerWsMessage, timeoutMs: Long): WorkerWsMessage {
-        val session = withTimeout(SESSION_READY_TIMEOUT_MS) { wsSessionDeferred.await() }
+        val session = withTimeout(SESSION_READY_TIMEOUT_MS) { wsSessionDeferredRef.get().await() }
         val deferred = CompletableDeferred<WorkerWsMessage>()
         pendingRequests[msg.requestId] = deferred
         try {
@@ -157,7 +171,7 @@ class RemoteWorkerClient(
     }
 
     private fun startRegistryWsReadLoop(executionId: String, session: DefaultWebSocketSession) {
-        wsSessionDeferred.complete(session)
+        wsSessionDeferredRef.get().complete(session)
         wsJob = scope.launch {
             try {
                 logger.info("Subprocess WS connected for node {} (execution {})", nodeId, executionId)
