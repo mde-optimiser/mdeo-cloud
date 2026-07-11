@@ -3,11 +3,13 @@ import { sharedImport, resolveRelativePath } from "@mdeo/language-shared";
 import type { AstNodeDescriptionProvider, LangiumDocuments, ReferenceInfo, Scope } from "langium";
 import {
     ObjectInstance,
+    CsvClassImport,
     PropertyAssignment,
     EnumValue,
     LinkEnd,
     type ModelType,
     type ObjectInstanceType,
+    type CsvClassImportType,
     type PropertyAssignmentType,
     type LinkEndType,
     type EnumValueType,
@@ -72,7 +74,7 @@ export class ModelScopeProvider extends DefaultScopeProvider {
     override getScope(context: ReferenceInfo): Scope {
         const document = AstUtils.getDocument(context.container);
 
-        if (context.property === "class" && this.astReflection.isInstance(context.container, ObjectInstance)) {
+        if (context.property === "class" && (this.astReflection.isInstance(context.container, ObjectInstance) || this.astReflection.isInstance(context.container, CsvClassImport))) {
             return this.getObjectClassScope(context, document);
         }
         if (context.property === "name" && this.astReflection.isInstance(context.container, PropertyAssignment)) {
