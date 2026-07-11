@@ -10,6 +10,7 @@ export function createModelCsvContributionPlugin(): ModelContributionPlugin {
         name: "CSV Import",
         additionalTerminals: [],
         additionalRules: [CsvClassImportRule, CsvImportBlockRule],
-        topLevelRuleNames: [CsvImportBlockRule.name]
+        topLevelRuleNames: [CsvImportBlockRule.name],
+        keywords: ["import", "CSV", "from"]
     };
 }

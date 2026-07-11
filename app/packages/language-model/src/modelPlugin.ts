@@ -29,12 +29,14 @@ import type { ServerContributionPlugin } from "@mdeo/plugin";
 export type ModelServices = ExternalReferenceAdditionalServices & ActionHandlerRegistryAdditionalServices;
 
 function isModelContributionPlugin(plugin: ServerContributionPlugin): plugin is ModelContributionPlugin {
-    return plugin.id !== undefined && (plugin as ModelContributionPlugin).topLevelRuleNames !== undefined;
+    return (plugin as ModelContributionPlugin).topLevelRuleNames !== undefined;
 }
 
 function createModelPlugin(contributionPlugins: ServerContributionPlugin[], languageJsUrl?: string): LangiumLanguagePlugin<ModelServices> {
     const modelContributions = contributionPlugins.filter(isModelContributionPlugin);
-    const contributedTopLevelRules = modelContributions.flatMap(p => p.additionalRules.filter(r => p.topLevelRuleNames.includes(r.name)));
+    const contributedTopLevelRules = modelContributions.flatMap(p =>
+        p.additionalRules.filter(r => p.topLevelRuleNames.includes(r.name))
+    );
     const contributedTerminals = modelContributions.flatMap(p => p.additionalTerminals);
 
     const ModelRule = createModelRule(contributedTopLevelRules);
@@ -44,7 +46,11 @@ function createModelPlugin(contributionPlugins: ServerContributionPlugin[], lang
         additionalTerminals: [...ModelTerminals, ...contributedTerminals],
         module: {
             parser: {
-                TokenBuilder: () => new NewlineAwareTokenBuilder(new Set(["{"]), new Set(["("]), new Set(["}", ")"])),
+                TokenBuilder: () => new NewlineAwareTokenBuilder(
+                    new Set(["{"]),
+                    new Set(["("]),
+                    new Set(["}", ")"])
+                ),
                 ValueConverter: () => new IdValueConverter(),
                 ParserConfig: () => ({
                     maxLookahead: 4

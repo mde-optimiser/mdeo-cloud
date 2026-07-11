@@ -14,7 +14,8 @@ import {
     ML_COMMENT,
     SL_COMMENT,
     HIDDEN_NEWLINE,
-    type ParserRule
+    type ParserRule,
+    type RuleEntry
 } from "@mdeo/language-common";
 import { AssociationEnd, Class, Enum, EnumEntry, Property } from "@mdeo/language-metamodel";
 import {
@@ -94,19 +95,20 @@ export const MetamodelFileImportRule = createRule("MetamodelFileImportRule")
 export function createModelRule(contributedTopLevelRules: ParserRule<any>[] = []): ParserRule<any> {
     return createRule("ModelRule")
         .returns(Model)
-        .as(({ add, set }) => [
-            many(NEWLINE),
-            set("import", MetamodelFileImportRule),
-            many(NEWLINE),
-            many(
-                or(
-                    ...contributedTopLevelRules,
-                    add("objects", ObjectInstanceRule),
-                    add("links", LinkRule),
-                    NEWLINE
-                )
-            )
-        ]);
+        .as(({ add, set }) => {
+            const topLevelAlternatives: RuleEntry[] = [
+                ...contributedTopLevelRules,
+                add("objects", ObjectInstanceRule),
+                add("links", LinkRule),
+                NEWLINE
+            ];
+            return [
+                many(NEWLINE),
+                set("import", MetamodelFileImportRule),
+                many(NEWLINE),
+                many(or(...topLevelAlternatives))
+            ];
+        });
 }
 
 export const ModelRule = createModelRule();

@@ -9,6 +9,7 @@ export interface ModelContributionPlugin {
     readonly additionalTerminals: TerminalRule<any>[];
     readonly additionalRules: ParserRule<any>[];
     readonly topLevelRuleNames: string[];
+    readonly keywords: string[];
 }
 
 export namespace ModelContributionPlugin {
