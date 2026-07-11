@@ -28,16 +28,26 @@ import type { ServerContributionPlugin } from "@mdeo/plugin";
 
 export type ModelServices = ExternalReferenceAdditionalServices & ActionHandlerRegistryAdditionalServices;
 
+const builtInContributionPlugins: ModelContributionPlugin[] = [];
+
+export function registerModelContributionPlugin(plugin: ModelContributionPlugin): void {
+    builtInContributionPlugins.push(plugin);
+}
+
 function isModelContributionPlugin(plugin: ServerContributionPlugin): plugin is ModelContributionPlugin {
     return (plugin as ModelContributionPlugin).topLevelRuleNames !== undefined;
 }
 
 function createModelPlugin(contributionPlugins: ServerContributionPlugin[], languageJsUrl?: string): LangiumLanguagePlugin<ModelServices> {
-    const modelContributions = contributionPlugins.filter(isModelContributionPlugin);
-    const contributedTopLevelRules = modelContributions.flatMap(p =>
+    const allContributions = [
+        ...builtInContributionPlugins,
+        ...contributionPlugins.filter(isModelContributionPlugin)
+    ];
+
+    const contributedTopLevelRules = allContributions.flatMap(p =>
         p.additionalRules.filter(r => p.topLevelRuleNames.includes(r.name))
     );
-    const contributedTerminals = modelContributions.flatMap(p => p.additionalTerminals);
+    const contributedTerminals = allContributions.flatMap(p => p.additionalTerminals);
 
     const ModelRule = createModelRule(contributedTopLevelRules);
 

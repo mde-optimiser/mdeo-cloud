@@ -43,8 +43,10 @@ const modelLanguagePlugin: LanguagePlugin = {
 
 initializePluginContext();
 
-const { modelPluginProvider } = await import("@mdeo/language-model");
+const { modelPluginProvider, registerModelContributionPlugin } = await import("@mdeo/language-model");
 const { createModelCsvContributionPlugin } = await import("@mdeo/language-model-csv");
+
+registerModelContributionPlugin(createModelCsvContributionPlugin());
 
 const envConfig = parseServiceConfigFromEnv();
 
@@ -57,14 +59,9 @@ const modelServicePlugin: ServicePluginDefinition = {
     contributionPlugins: []
 };
 
-const csvContributionPlugin = createModelCsvContributionPlugin();
-
 const modelLanguageConfig: LanguageServiceConfig<ModelServices> = {
     languagePlugin: modelLanguagePlugin,
-    languagePluginProvider: {
-        create: (serverContributionPlugins, languageJsUrl) =>
-            modelPluginProvider.create([...serverContributionPlugins, csvContributionPlugin], languageJsUrl)
-    },
+    languagePluginProvider: modelPluginProvider,
     fileDataHandlers: {
         [AST_HANDLER_KEY]: astHandler
     }
