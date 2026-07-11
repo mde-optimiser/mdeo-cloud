@@ -14,8 +14,7 @@ import {
     ML_COMMENT,
     SL_COMMENT,
     HIDDEN_NEWLINE,
-    type ParserRule,
-    type RuleEntry
+    type ParserRule
 } from "@mdeo/language-common";
 import { AssociationEnd, Class, Enum, EnumEntry, Property } from "@mdeo/language-metamodel";
 import {
@@ -29,7 +28,9 @@ import {
     Model,
     MetamodelFileImport,
     LinkEnd,
-    Link
+    Link,
+    CsvClassImport,
+    CsvImportBlock
 } from "./modelTypes.js";
 
 export const BOOLEAN = createRule("BOOLEAN")
@@ -92,25 +93,40 @@ export const MetamodelFileImportRule = createRule("MetamodelFileImportRule")
     .returns(MetamodelFileImport)
     .as(({ set }) => ["using", set("file", STRING)]);
 
-export function createModelRule(contributedTopLevelRules: ParserRule<any>[] = []): ParserRule<any> {
-    return createRule("ModelRule")
-        .returns(Model)
-        .as(({ add, set }) => {
-            const topLevelAlternatives: RuleEntry[] = [
-                ...contributedTopLevelRules,
-                add("objects", ObjectInstanceRule),
-                add("links", LinkRule),
-                NEWLINE
-            ];
-            return [
-                many(NEWLINE),
-                set("import", MetamodelFileImportRule),
-                many(NEWLINE),
-                many(or(...topLevelAlternatives))
-            ];
-        });
-}
+export const CsvClassImportRule = createRule("CsvClassImportRule")
+    .returns(CsvClassImport)
+    .as(({ set }) => [
+        set("class", ref(Class, ID)),
+        "from",
+        set("file", STRING)
+    ]);
 
-export const ModelRule = createModelRule();
+export const CsvImportBlockRule = createRule("CsvImportBlockRule")
+    .returns(CsvImportBlock)
+    .as(({ add }) => [
+        "import",
+        "CSV",
+        "{",
+        many(or(add("imports", CsvClassImportRule), NEWLINE)),
+        "}"
+    ]);
+
+export const ModelRule = createRule("ModelRule")
+    .returns(Model)
+    .as(({ add, set }) => [
+        many(NEWLINE),
+        set("import", MetamodelFileImportRule),
+        many(NEWLINE),
+        many(or(
+            set("csvImport", CsvImportBlockRule),
+            add("objects", ObjectInstanceRule),
+            add("links", LinkRule),
+            NEWLINE
+        ))
+    ]);
+
+export function createModelRule(_contributedTopLevelRules: ParserRule<any>[] = []): ParserRule<any> {
+    return ModelRule;
+}
 
 export const ModelTerminals = [WS, HIDDEN_NEWLINE, ML_COMMENT, SL_COMMENT];
