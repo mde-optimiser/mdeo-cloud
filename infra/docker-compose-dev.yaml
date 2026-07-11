@@ -108,6 +108,7 @@ services:
       PLUGIN_CONFIG_OPTIMIZATION_SERVICE: http://service-config-optimization:3000
       PLUGIN_CONFIG_MDEO_SERVICE: http://service-config-mdeo:3000
       BACKEND_SERVICE: http://backend:8080
+      PLUGIN_CSV_SERVICE: http://service-csv:3000
     ports:
       - "4242:80"
     depends_on:
@@ -147,6 +148,15 @@ services:
       retries: 5
       start_period: 30s
     restart: unless-stopped
+
+  service-csv:
+    build:
+      context: .
+      dockerfile: infra/docker/service-csv/Dockerfile
+    environment:
+      PLUGIN_BACKEND_URL: "http://backend:8080"
+    networks:
+      - mdeo
 
   service-model:
     build:

@@ -6,6 +6,12 @@
             "path": "packages/plugin"
         },
         {
+            "path": "packages/language-csv"
+        },
+        {
+            "path": "packages/service-csv"
+        },
+        {
             "path": "packages/language-common"
         },
         {
