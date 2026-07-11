@@ -2,6 +2,8 @@ import {
     createRule,
     or,
     many,
+    optional,
+    group,
     ref,
     ID,
     STRING,
@@ -12,8 +14,7 @@ import {
     ML_COMMENT,
     SL_COMMENT,
     HIDDEN_NEWLINE,
-    optional,
-    group
+    type ParserRule
 } from "@mdeo/language-common";
 import { AssociationEnd, Class, Enum, EnumEntry, Property } from "@mdeo/language-metamodel";
 import {
@@ -27,9 +28,7 @@ import {
     Model,
     MetamodelFileImport,
     LinkEnd,
-    Link,
-    CsvClassImport,
-    CsvImportBlock
+    Link
 } from "./modelTypes.js";
 
 export const BOOLEAN = createRule("BOOLEAN")
@@ -92,51 +91,24 @@ export const MetamodelFileImportRule = createRule("MetamodelFileImportRule")
     .returns(MetamodelFileImport)
     .as(({ set }) => ["using", set("file", STRING)]);
 
-/**
- * CSV class import rule.
- * Format: ClassName from "path/to/file.csv"
- */
-export const CsvClassImportRule = createRule("CsvClassImportRule")
-    .returns(CsvClassImport)
-    .as(({ set }) => [
-        set("class", ref(Class, ID)),
-        "from",
-        set("file", STRING)
-    ]);
+export function createModelRule(contributedTopLevelRules: ParserRule<any>[] = []): ParserRule<any> {
+    return createRule("ModelRule")
+        .returns(Model)
+        .as(({ add, set }) => [
+            many(NEWLINE),
+            set("import", MetamodelFileImportRule),
+            many(NEWLINE),
+            many(
+                or(
+                    ...contributedTopLevelRules,
+                    add("objects", ObjectInstanceRule),
+                    add("links", LinkRule),
+                    NEWLINE
+                )
+            )
+        ]);
+}
 
-/**
- * CSV import block rule.
- * Format:
- *   import CSV {
- *     ClassName from "file.csv"
- *   }
- */
-export const CsvImportBlockRule = createRule("CsvImportBlockRule")
-    .returns(CsvImportBlock)
-    .as(({ add }) => [
-        "import",
-        "CSV",
-        "{",
-        many(or(add("imports", CsvClassImportRule), NEWLINE)),
-        "}"
-    ]);
-
-/**
- * Model root rule.
- * A model file starts with a metamodel import, then either:
- * - A CSV import block (no hand-authored objects allowed), or
- * - Hand-authored object instances and links
- */
-export const ModelRule = createRule("ModelRule")
-    .returns(Model)
-    .as(({ add, set }) => [
-        many(NEWLINE),
-        set("import", MetamodelFileImportRule),
-        many(NEWLINE),
-        or(
-            set("csvImport", CsvImportBlockRule),
-            many(or(add("objects", ObjectInstanceRule), add("links", LinkRule), NEWLINE))
-        )
-    ]);
+export const ModelRule = createModelRule();
 
 export const ModelTerminals = [WS, HIDDEN_NEWLINE, ML_COMMENT, SL_COMMENT];

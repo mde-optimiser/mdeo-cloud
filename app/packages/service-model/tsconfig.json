@@ -19,8 +19,16 @@
         },
         {
             "path": "../service-common"
+        },
+        {
+            "path": "../language-model-csv"
         }
     ],
-    "include": ["src/**/*.ts"],
-    "exclude": ["dist", "node_modules"]
+    "include": [
+        "src/**/*.ts"
+    ],
+    "exclude": [
+        "dist",
+        "node_modules"
+    ]
 }

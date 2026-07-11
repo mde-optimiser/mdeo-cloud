@@ -87,7 +87,7 @@ services:
       ADMIN_PASSWORD: admin
       PLUGIN_BASE_URL: ""
       INTERNAL_PLUGIN_BASE_URL: "http://workbench:80"
-      DEFAULT_PLUGIN_URLS: "/plugin/metamodel,/plugin/model,/plugin/script,/plugin/model-transformation,/plugin/config,/plugin/config-optimization,/plugin/config-mdeo"
+      DEFAULT_PLUGIN_URLS: "/plugin/metamodel,/plugin/model,/plugin/script,/plugin/model-transformation,/plugin/config,/plugin/config-optimization,/plugin/config-mdeo,/plugin/csv"
     depends_on:
       postgres-backend:
         condition: service_healthy

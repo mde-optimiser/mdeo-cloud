@@ -1,47 +1,28 @@
-import { Network } from "lucide";
+import { BookOpen } from "lucide";
 import {
     defaultLanguageConfiguration,
     defaultMonarchTokenProvider,
     serializeMonarchTokensProvider,
-    type ActionIconNode
+    convertIcon
 } from "@mdeo/language-common";
 import {
+    startLanguageService,
     parseServiceConfigFromEnv,
     type ServiceConfig,
     type ServicePluginDefinition,
     type LanguageServiceConfig,
     initializePluginContext,
     astHandler,
-    AST_HANDLER_KEY,
-    startLanguageService
+    AST_HANDLER_KEY
 } from "@mdeo/service-common";
-import { convertIcon } from "@mdeo/language-common";
-import type { ModelServices, GeneratedModelServices } from "@mdeo/language-model";
+import type { ModelServices } from "@mdeo/language-model";
 import type { LanguagePlugin } from "@mdeo/plugin";
 
-const icon: ActionIconNode = convertIcon(Network).map((entry) => {
-    if (entry[0] === "rect") {
-        return [
-            "rect",
-            {
-                ...entry[1],
-                fill: "currentColor"
-            }
-        ];
-    } else {
-        return entry;
-    }
-});
-
-/**
- * Language plugin definition for the model language.
- */
 const modelLanguagePlugin: LanguagePlugin = {
     id: "model",
     name: "Model",
     extension: ".m",
-    newFileAction: true,
-    icon,
+    icon: convertIcon(BookOpen),
     serverPlugin: {
         import: "language.js"
     },
@@ -54,80 +35,45 @@ const modelLanguagePlugin: LanguagePlugin = {
         languageConfiguration: defaultLanguageConfiguration,
         monarchTokensProvider: serializeMonarchTokensProvider({
             ...defaultMonarchTokenProvider,
-            keywords: ["using"]
+            keywords: ["using", "import", "CSV", "from"]
         })
     },
     isGenerated: false
 };
 
-/**
- * Language plugin definition for the generated model language.
- */
-const generatedModelLanguagePlugin: LanguagePlugin = {
-    id: "model_gen",
-    name: "Generated Model",
-    extension: ".m_gen",
-    newFileAction: false,
-    icon,
-    serverPlugin: {
-        import: "generatedLanguage.js"
-    },
-    graphicalEditorPlugin: {
-        import: "editor.js",
-        stylesUrl: "styles.css",
-        stylesCls: "editor-model"
-    },
-    textualEditorPlugin: undefined,
-    isGenerated: true
-};
-
-/**
- * Plugin definition for the model service.
- */
-const modelServicePlugin: ServicePluginDefinition = {
-    id: "model-service",
-    name: "Model",
-    description: "Language support for model definitions (.m and .m_gen files)",
-    icon,
-    languagePlugins: [modelLanguagePlugin, generatedModelLanguagePlugin],
-    contributionPlugins: []
-};
-
 initializePluginContext();
 
 const { modelPluginProvider } = await import("@mdeo/language-model");
-const { generatedModelPluginProvider } = await import("@mdeo/language-model");
-const { modelDataHandler, MODEL_DATA_HANDLER_KEY } = await import("./handler/modelDataHandler.js");
+const { createModelCsvContributionPlugin } = await import("@mdeo/language-model-csv");
 
 const envConfig = parseServiceConfigFromEnv();
 
-/**
- * Language configuration for the model language.
- */
-const modelLanguageConfig: LanguageServiceConfig<ModelServices> = {
-    languagePlugin: modelLanguagePlugin,
-    languagePluginProvider: modelPluginProvider,
-    fileDataHandlers: {
-        [AST_HANDLER_KEY]: astHandler,
-        [MODEL_DATA_HANDLER_KEY]: modelDataHandler
-    }
+const modelServicePlugin: ServicePluginDefinition = {
+    id: "model-service",
+    name: "Model",
+    description: "Language support for model definitions (.m files)",
+    icon: convertIcon(BookOpen),
+    languagePlugins: [modelLanguagePlugin],
+    contributionPlugins: []
 };
 
-/**
- * Language configuration for the generated model language.
- */
-const generatedModelLanguageConfig: LanguageServiceConfig<GeneratedModelServices> = {
-    languagePlugin: generatedModelLanguagePlugin,
-    languagePluginProvider: generatedModelPluginProvider,
+const csvContributionPlugin = createModelCsvContributionPlugin();
+
+const modelLanguageConfig: LanguageServiceConfig<ModelServices> = {
+    languagePlugin: modelLanguagePlugin,
+    languagePluginProvider: {
+        create: (serverContributionPlugins, languageJsUrl) =>
+            modelPluginProvider.create([...serverContributionPlugins, csvContributionPlugin], languageJsUrl)
+    },
     fileDataHandlers: {
         [AST_HANDLER_KEY]: astHandler
     }
 };
 
-const config: ServiceConfig<any> = {
+const config: ServiceConfig<ModelServices> = {
     ...envConfig,
     plugin: modelServicePlugin,
-    languages: [modelLanguageConfig, generatedModelLanguageConfig]
+    languages: [modelLanguageConfig]
 };
 
 await startLanguageService(config);
