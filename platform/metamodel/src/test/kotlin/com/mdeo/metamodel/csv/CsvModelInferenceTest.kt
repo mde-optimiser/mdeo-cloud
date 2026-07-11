@@ -1,157 +1,158 @@
 package com.mdeo.metamodel.csv
 
+import com.mdeo.metamodel.data.ClassData
+import com.mdeo.metamodel.data.EnumData
+import com.mdeo.metamodel.data.MetamodelData
 import com.mdeo.metamodel.data.ModelDataPropertyValue
+import com.mdeo.metamodel.data.MultiplicityData
+import com.mdeo.metamodel.data.PropertyData
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 
 class CsvModelInferenceTest {
 
-    @Test
-    fun `infers int, double, boolean and string columns`() {
-        val csv = """
-            id,price,active,name
-            1,9.99,true,Widget
-            2,12.5,false,Gadget
-            3,7,true,Gizmo
-        """.trimIndent()
+    private fun metamodel(vararg classes: ClassData, enums: List<EnumData> = emptyList()) =
+        MetamodelData(path = "/test.metamodel", classes = classes.toList(), enums = enums)
 
-        val result = CsvModelInference.inferFromCsv(csv, className = "product", metamodelPath = "/products.metamodel")
+    private fun cls(name: String, vararg properties: PropertyData) =
+        ClassData(name = name, isAbstract = false, properties = properties.toList())
 
-        val productClass = result.metamodel.classes.single()
-        assertEquals("Product", productClass.name)
-
-        val byName = productClass.properties.associateBy { it.name }
-        assertEquals("int", byName["id"]?.primitiveType)
-        assertEquals("double", byName["price"]?.primitiveType)
-        assertEquals("boolean", byName["active"]?.primitiveType)
-        assertEquals("string", byName["name"]?.primitiveType)
-
-        assertEquals(3, result.model.instances.size)
-        assertEquals("Product_0", result.model.instances[0].name)
-        assertEquals(
-            ModelDataPropertyValue.NumberValue(9.99),
-            result.model.instances[0].properties["price"]
+    private fun prop(name: String, primitiveType: String, required: Boolean = true) =
+        PropertyData(
+            name = name,
+            primitiveType = primitiveType,
+            enumType = null,
+            multiplicity = if (required) MultiplicityData.single() else MultiplicityData.optional()
         )
-        assertEquals(
-            ModelDataPropertyValue.BooleanValue(true),
-            result.model.instances[0].properties["active"]
+
+    private fun enumProp(name: String, enumType: String, required: Boolean = true) =
+        PropertyData(
+            name = name,
+            primitiveType = null,
+            enumType = enumType,
+            multiplicity = if (required) MultiplicityData.single() else MultiplicityData.optional()
         )
-        assertEquals("/products.metamodel", result.model.metamodelPath)
+
+    @Test
+    fun `maps columns to metamodel properties by name`() {
+        val mm = metamodel(cls("Employee",
+            prop("id", "int"),
+            prop("name", "string"),
+            prop("salary", "double"),
+            prop("active", "boolean")
+        ))
+
+        val csv = """
+            id,name,salary,active
+            1,Alice,95000.0,true
+            2,Bob,72000.5,false
+        """.trimIndent()
+
+        val result = CsvModelInference.importFromCsv(csv, "Employee", mm, "/test.metamodel")
+
+        assertEquals(2, result.model.instances.size)
+        val alice = result.model.instances[0]
+        assertEquals("Employee_0", alice.name)
+        assertEquals(ModelDataPropertyValue.NumberValue(1.0), alice.properties["id"])
+        assertEquals(ModelDataPropertyValue.StringValue("Alice"), alice.properties["name"])
+        assertEquals(ModelDataPropertyValue.NumberValue(95000.0), alice.properties["salary"])
+        assertEquals(ModelDataPropertyValue.BooleanValue(true), alice.properties["active"])
     }
 
     @Test
-    fun `infers enum for low-cardinality repeated text column`() {
-        val csv = """
-            id,status
-            1,OPEN
-            2,CLOSED
-            3,OPEN
-            4,OPEN
-            5,CLOSED
-        """.trimIndent()
+    fun `maps enum values from metamodel`() {
+        val mm = metamodel(
+            cls("Ticket", enumProp("status", "StatusEnum")),
+            enums = listOf(EnumData(name = "StatusEnum", entries = listOf("OPEN", "CLOSED")))
+        )
 
-        val result = CsvModelInference.inferFromCsv(csv, className = "ticket", metamodelPath = "/t.metamodel")
+        val csv = "status\nOPEN\nCLOSED\nOPEN"
+        val result = CsvModelInference.importFromCsv(csv, "Ticket", mm, "/test.metamodel")
 
-        val statusProp = result.metamodel.classes.single().properties.first { it.name == "status" }
-        assertNotNull(statusProp.enumType)
-        assertNull(statusProp.primitiveType)
-
-        val enumDef = result.metamodel.enums.single()
-        assertEquals(setOf("OPEN", "CLOSED"), enumDef.entries.toSet())
-
-        val firstStatus = result.model.instances[0].properties["status"]
-        assertTrue(firstStatus is ModelDataPropertyValue.EnumValue)
-        assertEquals("OPEN", (firstStatus as ModelDataPropertyValue.EnumValue).enumEntry)
+        assertEquals(ModelDataPropertyValue.EnumValue("OPEN"), result.model.instances[0].properties["status"])
+        assertEquals(ModelDataPropertyValue.EnumValue("CLOSED"), result.model.instances[1].properties["status"])
     }
 
     @Test
-    fun `does not infer enum for high-cardinality or non-repeated text`() {
-        val csv = """
-            id,name
-            1,Alice
-            2,Bob
-            3,Carol
-        """.trimIndent()
+    fun `treats blank cells as null`() {
+        val mm = metamodel(cls("Person",
+            prop("name", "string"),
+            prop("nickname", "string", required = false)
+        ))
 
-        val result = CsvModelInference.inferFromCsv(csv, className = "person", metamodelPath = "/p.metamodel")
-        val nameProp = result.metamodel.classes.single().properties.first { it.name == "name" }
-        assertEquals("string", nameProp.primitiveType)
-        assertNull(nameProp.enumType)
-    }
-
-    @Test
-    fun `marks columns with blank values as optional`() {
-        val csv = """
-            id,nickname
-            1,Ace
-            2,
-            3,Trey
-        """.trimIndent()
-
-        val result = CsvModelInference.inferFromCsv(csv, className = "player", metamodelPath = "/pl.metamodel")
-        val props = result.metamodel.classes.single().properties.associateBy { it.name }
-
-        assertTrue(props["id"]!!.multiplicity.isRequired())
-        assertFalse(props["nickname"]!!.multiplicity.isRequired())
+        val csv = "name,nickname\nAlice,Ace\nBob,"
+        val result = CsvModelInference.importFromCsv(csv, "Person", mm, "/test.metamodel")
 
         assertEquals(ModelDataPropertyValue.NullValue, result.model.instances[1].properties["nickname"])
     }
 
     @Test
-    fun `handles quoted fields with embedded commas and escaped quotes`() {
-        val csv = "id,description\n1,\"Contains, a comma\"\n2,\"Has \"\"quotes\"\" inside\""
+    fun `warns about unknown columns`() {
+        val mm = metamodel(cls("Person", prop("name", "string")))
+        val csv = "name,unknown_col\nAlice,extra"
+        val result = CsvModelInference.importFromCsv(csv, "Person", mm, "/test.metamodel")
 
-        val result = CsvModelInference.inferFromCsv(csv, className = "item", metamodelPath = "/i.metamodel")
-        val descriptions = result.model.instances.map {
-            (it.properties["description"] as ModelDataPropertyValue.StringValue).value
-        }
-
-        assertEquals(listOf("Contains, a comma", "Has \"quotes\" inside"), descriptions)
+        assertTrue(result.warnings.any { it.contains("unknown_col") })
     }
 
     @Test
-    fun `sanitizes header names into valid identifiers`() {
-        val csv = """
-            Item ID,Item Name,Price (USD)
-            1,Widget,9.99
-        """.trimIndent()
+    fun `throws when class not found in metamodel`() {
+        val mm = metamodel(cls("Person", prop("name", "string")))
+        val csv = "name\nAlice"
 
-        val result = CsvModelInference.inferFromCsv(csv, className = "catalog item", metamodelPath = "/c.metamodel")
-        val propNames = result.metamodel.classes.single().properties.map { it.name }
-
-        assertEquals(listOf("Item_ID", "Item_Name", "Price__USD_"), propNames)
-        assertEquals("Catalog_item", result.metamodel.classes.single().name)
-    }
-
-    @Test
-    fun `rejects empty csv`() {
         assertThrows(IllegalArgumentException::class.java) {
-            CsvModelInference.inferFromCsv("", className = "x", metamodelPath = "/x.metamodel")
+            CsvModelInference.importFromCsv(csv, "NonExistent", mm, "/test.metamodel")
         }
     }
 
     @Test
-    fun `rejects header-only csv with no data rows`() {
-        assertThrows(IllegalArgumentException::class.java) {
-            CsvModelInference.inferFromCsv("a,b,c", className = "x", metamodelPath = "/x.metamodel")
-        }
-    }
+    fun `throws when required property is missing from csv`() {
+        val mm = metamodel(cls("Person",
+            prop("name", "string"),
+            prop("id", "int")
+        ))
+        val csv = "name\nAlice"
 
-    @Test
-    fun `rejects duplicate column names`() {
-        val csv = "a,a,b\n1,2,3"
         assertThrows(IllegalArgumentException::class.java) {
-            CsvModelInference.inferFromCsv(csv, className = "x", metamodelPath = "/x.metamodel")
+            CsvModelInference.importFromCsv(csv, "Person", mm, "/test.metamodel")
         }
     }
 
     @Test
     fun `pads ragged short rows and warns`() {
-        val csv = "a,b,c\n1,2,3\n4,5"
-        val result = CsvModelInference.inferFromCsv(csv, className = "x", metamodelPath = "/x.metamodel")
+        val mm = metamodel(cls("Person",
+            prop("name", "string"),
+            prop("age", "int", required = false)
+        ))
+        val csv = "name,age\nAlice,30\nBob"
+        val result = CsvModelInference.importFromCsv(csv, "Person", mm, "/test.metamodel")
 
         assertEquals(2, result.model.instances.size)
-        assertEquals(ModelDataPropertyValue.NullValue, result.model.instances[1].properties["c"])
+        assertEquals(ModelDataPropertyValue.NullValue, result.model.instances[1].properties["age"])
         assertTrue(result.warnings.any { it.contains("fewer columns") })
+    }
+
+    @Test
+    fun `handles quoted fields with embedded commas`() {
+        val mm = metamodel(cls("Item", prop("description", "string")))
+        val csv = "description\n\"Contains, a comma\""
+        val result = CsvModelInference.importFromCsv(csv, "Item", mm, "/test.metamodel")
+
+        assertEquals(
+            ModelDataPropertyValue.StringValue("Contains, a comma"),
+            result.model.instances[0].properties["description"]
+        )
+    }
+
+    @Test
+    fun `gracefully falls back to string for unparseable int`() {
+        val mm = metamodel(cls("Item", prop("count", "int")))
+        val csv = "count\nnot_a_number"
+        val result = CsvModelInference.importFromCsv(csv, "Item", mm, "/test.metamodel")
+
+        assertEquals(
+            ModelDataPropertyValue.StringValue("not_a_number"),
+            result.model.instances[0].properties["count"]
+        )
     }
 }

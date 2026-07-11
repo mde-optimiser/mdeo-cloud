@@ -46,8 +46,17 @@ fun Route.csvImportRoutes(
                 return@post
             }
 
+            val metamodelPath = call.request.queryParameters["metamodelPath"]
+            if (metamodelPath.isNullOrBlank()) {
+                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Missing metamodelPath parameter"))
+                return@post
+            }
+
             val className = call.request.queryParameters["className"]
-                ?: basePath.substringAfterLast('/').ifBlank { "ImportedCsvClass" }
+            if (className.isNullOrBlank()) {
+                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Missing className parameter"))
+                return@post
+            }
 
             val csvText = call.receiveText()
             if (csvText.isBlank()) {
@@ -55,7 +64,7 @@ fun Route.csvImportRoutes(
                 return@post
             }
 
-            val result = csvImportService.importCsv(projectId, csvText, basePath, className)
+            val result = csvImportService.importCsv(projectId, csvText, basePath, className, metamodelPath)
             call.respondApiResult(result)
         }
     }
