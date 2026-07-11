@@ -105,8 +105,9 @@ export class ModelScopeProvider extends DefaultScopeProvider {
      * @returns A scope containing all accessible classes from the imported metamodel
      */
     private getObjectClassScope(context: ReferenceInfo, document: any): Scope {
-        const model = context.container.$container as ModelType;
-        const metamodelImport = model.import;
+        const parent = context.container.$container;
+        const model = (this.astReflection.isInstance(parent, Model) ? parent : parent?.$container) as ModelType;
+        const metamodelImport = model?.import;
         const relativePath = metamodelImport?.file;
 
         if (relativePath == undefined) {
