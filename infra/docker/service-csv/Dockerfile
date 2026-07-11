@@ -1,22 +1,25 @@
-FROM node:22-alpine AS service-csv-builder
+FROM node:24-alpine AS builder
 
 WORKDIR /build
-
 COPY app/ ./
 
 RUN npm ci
 RUN npm run build:packages
 RUN npm run -w @mdeo/service-csv build:static
 
-FROM node:22-alpine AS service-csv
+FROM node:24-alpine
 
-WORKDIR /app
+RUN apk add --no-cache curl
 
-COPY --from=service-csv-builder /build/packages/service-csv/package.json ./package.json
-COPY --from=service-csv-builder /build/packages/service-csv/dist ./dist
-COPY --from=service-csv-builder /build/packages/service-csv/static ./static
-COPY --from=service-csv-builder /build/node_modules ./node_modules
+WORKDIR /workspace
 
+COPY --from=builder /build/packages /workspace/packages
+COPY --from=builder /build/node_modules /workspace/node_modules
+COPY --from=builder /build/package.json /workspace/
+
+WORKDIR /workspace/packages/service-csv
+
+ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOST=0.0.0.0
 

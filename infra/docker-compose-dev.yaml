@@ -151,12 +151,22 @@ services:
 
   service-csv:
     build:
-      context: .
+      context: ..
       dockerfile: infra/docker/service-csv/Dockerfile
+    ports:
+      - "3007:3000"
     environment:
-      PLUGIN_BACKEND_URL: "http://backend:8080"
-    networks:
-      - mdeo
+      PORT: "3000"
+      HOST: "0.0.0.0"
+      BACKEND_API_URL: "http://backend:8080/api"
+      MAX_LANGIUM_INSTANCES: "5"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
 
   service-model:
     build:
