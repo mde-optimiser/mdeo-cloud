@@ -25,14 +25,19 @@ import { registerModelValidationChecks } from "./validation/modelValidator.js";
 import { ModelCompletionProvider } from "./features/modelCompletionProvider.js";
 import type { ModelContributionPlugin } from "./modelContributionPlugin.js";
 import type { ServerContributionPlugin } from "@mdeo/plugin";
+import { CsvClassImportRule, CsvImportBlockRule } from "./csv/csvImportRules.js";
 
 export type ModelServices = ExternalReferenceAdditionalServices & ActionHandlerRegistryAdditionalServices;
 
-const builtInContributionPlugins: ModelContributionPlugin[] = [];
-
-export function registerModelContributionPlugin(plugin: ModelContributionPlugin): void {
-    builtInContributionPlugins.push(plugin);
-}
+const CSV_CONTRIBUTION: ModelContributionPlugin = {
+    type: "model-contribution-plugin",
+    id: "model-csv",
+    name: "CSV Import",
+    additionalTerminals: [],
+    additionalRules: [CsvClassImportRule, CsvImportBlockRule],
+    topLevelRuleNames: ["CsvImportBlockRule"],
+    keywords: ["import", "CSV", "from"]
+};
 
 function isModelContributionPlugin(plugin: ServerContributionPlugin): plugin is ModelContributionPlugin {
     return (plugin as ModelContributionPlugin).topLevelRuleNames !== undefined;
@@ -40,7 +45,7 @@ function isModelContributionPlugin(plugin: ServerContributionPlugin): plugin is 
 
 function createModelPlugin(contributionPlugins: ServerContributionPlugin[], languageJsUrl?: string): LangiumLanguagePlugin<ModelServices> {
     const allContributions = [
-        ...builtInContributionPlugins,
+        CSV_CONTRIBUTION,
         ...contributionPlugins.filter(isModelContributionPlugin)
     ];
 
@@ -102,3 +107,5 @@ export const modelPluginProvider: LangiumLanguagePluginProvider<ModelServices> =
         return createModelPlugin(contributionPlugins, languageJsUrl);
     }
 };
+
+export function registerModelContributionPlugin(_plugin: ModelContributionPlugin): void {}
