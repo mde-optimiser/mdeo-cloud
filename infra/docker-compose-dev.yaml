@@ -153,8 +153,6 @@ services:
     build:
       context: ..
       dockerfile: infra/docker/service-csv/Dockerfile
-    ports:
-      - "3007:3000"
     environment:
       PORT: "3000"
       HOST: "0.0.0.0"
@@ -330,7 +328,7 @@ services:
       args:
         SERVICE_VERSION: ${SERVICE_VERSION:-}
     ports:
-      - "3007:3000"
+      - "3008:3000"
     environment:
       PORT: "3000"
       HOST: "0.0.0.0"
