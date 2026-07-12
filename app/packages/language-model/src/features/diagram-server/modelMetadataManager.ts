@@ -63,8 +63,30 @@ export class ModelMetadataManager extends MetadataManager<PartialModel> {
 
         this.extractObjectMetadata(objects, idRegistry, nodes);
         this.extractLinkMetadata(links, idRegistry, edges, nodes);
+        this.extractCsvNodeMetadata(sourceModel, nodes);
 
         return { nodes, edges };
+    }
+
+    private storedCurrentMetadata: GraphMetadata | undefined;
+
+    override async validateMetadata(
+        sourceModel: PartialModel,
+        currentMetadata: GraphMetadata,
+        lastValidMetadata: GraphMetadata
+    ): Promise<GraphMetadata | undefined> {
+        this.storedCurrentMetadata = currentMetadata;
+        return super.validateMetadata(sourceModel, currentMetadata, lastValidMetadata);
+    }
+
+    private extractCsvNodeMetadata(sourceModel: PartialModel, nodes: Record<string, NodeMetadata>): void {
+        if (sourceModel.csvImport == undefined) return;
+        if (this.storedCurrentMetadata == undefined) return;
+        for (const [id, meta] of Object.entries(this.storedCurrentMetadata.nodes)) {
+            if (id.startsWith("csv-node-") && !nodes[id]) {
+                nodes[id] = meta;
+            }
+        }
     }
 
     /**
