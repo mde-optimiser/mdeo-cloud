@@ -60,6 +60,7 @@ export class ModelGModelFactory extends BaseGModelFactory<PartialModel> {
         const extracted = await this.extractElements(sourceModel);
         await this.createObjectNodes(graph, extracted.objects, idRegistry);
         await this.createLinkEdges(graph, extracted.links, idRegistry);
+        await this.createCsvNodes(graph, sourceModel);
         return graph;
     }
 
@@ -487,4 +488,38 @@ export class ModelGModelFactory extends BaseGModelFactory<PartialModel> {
 
         return nodes;
     }
+    private async createCsvNodes(graph: GGraphType, model: PartialModel): Promise<void> {
+        if (model.csvImport == undefined) return;
+        const doc = this.modelState.sourceModel?.$document;
+        if (!doc) return;
+
+        let nodeIndex = 0;
+        for (const entry of model.csvImport.imports ?? []) {
+            const classRef = entry.class?.ref;
+            if (classRef == undefined) continue;
+            try {
+                const uri = resolveRelativePath(doc, entry.file ?? "");
+                const csvContent = await this.modelState.languageServices.shared.workspace.FileSystemProvider.readFile(uri);
+                const rows = csvContent.split(/\r?\n/).filter((line: string) => line.trim() !== "").map((line: string) => line.split(","));
+                if (rows.length < 2) continue;
+                rows.slice(1).forEach((row: string[], rowIndex: number) => {
+                    const instanceName = `${classRef.name}_${rowIndex}`;
+                    const nodeId = `csv-node-${nodeIndex++}`;
+                    const headerComp = GCompartment.builder()
+                        .id(`${nodeId}__header`)
+                        .addCssClass("object-header")
+                        .add(GObjectNameLabel.builder().id(`${nodeId}__name`).text(`${instanceName} : ${classRef.name}`).build())
+                        .build();
+                    const node = GObjectNode.builder()
+                        .id(nodeId)
+                        .add(headerComp)
+                        .build();
+                    graph.children.push(node);
+                });
+            } catch {
+                // skip unreadable CSV
+            }
+        }
+    }
+
 }
