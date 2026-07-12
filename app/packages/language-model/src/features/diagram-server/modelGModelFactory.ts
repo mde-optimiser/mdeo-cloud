@@ -6,7 +6,8 @@ import {
     GHorizontalDivider,
     EdgeLayoutMetadataUtil,
     NodeLayoutMetadataUtil,
-    parseIdentifier
+    parseIdentifier,
+    resolveRelativePath
 } from "@mdeo/language-shared";
 import type { ModelIdRegistry, GraphMetadata } from "@mdeo/language-shared";
 import type { NodeLayoutMetadata, EdgeLayoutMetadata } from "@mdeo/protocol-common";
@@ -92,11 +93,13 @@ export class ModelGModelFactory extends BaseGModelFactory<PartialModel> {
                 const classRef = entry.class?.ref;
                 if (classRef == undefined) continue;
                 try {
-                    const doc = this.modelState.sourceModel.$document;
+                    const doc = this.modelState.sourceModel?.$document;
                     if (!doc) continue;
                     const uri = resolveRelativePath(doc, entry.file ?? "");
                     const csvContent = await this.modelState.languageServices.shared.workspace.FileSystemProvider.readFile(uri);
                     const rows = csvContent.split(/\r?\n/).filter((line: string) => line.trim() !== "").map((line: string) => line.split(","));
+                    if (rows.length < 2) continue;
+                    rows.slice(1).forEach((_: string[], rowIndex: number) => {
                         objects.push({
                             $type: "ObjectInstance",
                             name: `${classRef.name}_${rowIndex}`,
