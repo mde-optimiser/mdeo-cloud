@@ -89,31 +89,6 @@ export class ModelGModelFactory extends BaseGModelFactory<PartialModel> {
             }
         }
 
-        if (model.csvImport != undefined) {
-            for (const entry of model.csvImport.imports ?? []) {
-                const classRef = entry.class?.ref;
-                if (classRef == undefined) continue;
-                try {
-                    const doc = this.modelState.sourceModel?.$document;
-                    if (!doc) continue;
-                    const uri = resolveRelativePath(doc, entry.file ?? "");
-                    const csvContent = await this.modelState.languageServices.shared.workspace.FileSystemProvider.readFile(uri);
-                    const rows = csvContent.split(/\r?\n/).filter((line: string) => line.trim() !== "").map((line: string) => line.split(","));
-                    if (rows.length < 2) continue;
-                    rows.slice(1).forEach((_: string[], rowIndex: number) => {
-                        objects.push({
-                            $type: "ObjectInstance",
-                            name: `${classRef.name}_${rowIndex}`,
-                            class: { ref: classRef, $refText: classRef.name },
-                            properties: []
-                        } as unknown as PartialObjectInstance);
-                    });
-                } catch {
-                    // CSV file not readable, skip
-                }
-            }
-        }
-
         return { objects, links };
     }
 
