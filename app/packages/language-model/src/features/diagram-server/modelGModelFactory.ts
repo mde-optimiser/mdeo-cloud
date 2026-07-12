@@ -468,27 +468,30 @@ export class ModelGModelFactory extends BaseGModelFactory<PartialModel> {
         const doc = this.modelState.sourceModel?.$document;
         if (!doc) return;
 
+        const validatedMetadata = await this.modelState.getValidatedMetadata();
+
         let nodeIndex = 0;
         for (const entry of model.csvImport.imports ?? []) {
-            const classRef = entry.class?.ref;
+            const classRef = entry.class?.ref as ClassType | undefined;
             if (classRef == undefined) continue;
             try {
                 const uri = resolveRelativePath(doc, entry.file ?? "");
                 const csvContent = await this.modelState.languageServices.shared.workspace.FileSystemProvider.readFile(uri);
                 const rows = csvContent.split(/\r?\n/).filter((line: string) => line.trim() !== "").map((line: string) => line.split(","));
                 if (rows.length < 2) continue;
-                rows.slice(1).forEach((row: string[], rowIndex: number) => {
+                const classHierarchy = resolveClassChain(classRef, this.reflection).map((c) => c.name);
+                rows.slice(1).forEach((_row: string[], rowIndex: number) => {
                     const instanceName = `${classRef.name}_${rowIndex}`;
                     const nodeId = `csv-node-${nodeIndex++}`;
-                    const headerComp = GCompartment.builder()
-                        .id(`${nodeId}__header`)
-                        .addCssClass("object-header")
-                        .add(GObjectNameLabel.builder().id(`${nodeId}__name`).text(`${instanceName} : ${classRef.name}`).build())
-                        .build();
+                    const metadata = validatedMetadata.nodes[nodeId]?.meta ?? {};
                     const node = GObjectNode.builder()
                         .id(nodeId)
-                        .add(headerComp)
+                        .name(instanceName)
+                        .typeName(classRef.name)
+                        .classHierarchy(classHierarchy)
+                        .meta(metadata)
                         .build();
+                    node.children.push(...this.createObjectHeader(nodeId, instanceName, classRef.name));
                     graph.children.push(node);
                 });
             } catch {
