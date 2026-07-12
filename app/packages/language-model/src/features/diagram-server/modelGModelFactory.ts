@@ -56,7 +56,7 @@ export class ModelGModelFactory extends BaseGModelFactory<PartialModel> {
     override async createModelInternal(sourceModel: PartialModel, idRegistry: ModelIdRegistry): Promise<GModelRoot> {
         const graph = GGraph.builder().id("model-graph").addCssClass("editor-model").build();
 
-        const extracted = this.extractElements(sourceModel);
+        const extracted = await this.extractElements(sourceModel);
         await this.createObjectNodes(graph, extracted.objects, idRegistry);
         await this.createLinkEdges(graph, extracted.links, idRegistry);
         return graph;
@@ -68,10 +68,10 @@ export class ModelGModelFactory extends BaseGModelFactory<PartialModel> {
      * @param model The model containing elements
      * @returns An object containing separate arrays of objects and links
      */
-    private extractElements(model: PartialModel): {
+    private async extractElements(model: PartialModel): Promise<{
         objects: PartialObjectInstance[];
         links: PartialLink[];
-    } {
+    }> {
         const objects: PartialObjectInstance[] = [];
         const links: PartialLink[] = [];
 
@@ -84,6 +84,29 @@ export class ModelGModelFactory extends BaseGModelFactory<PartialModel> {
         for (const link of model.links ?? []) {
             if (link != undefined) {
                 links.push(link);
+            }
+        }
+
+        if (model.csvImport != undefined) {
+            for (const entry of model.csvImport.imports ?? []) {
+                const classRef = entry.class?.ref;
+                if (classRef == undefined) continue;
+                try {
+                    const doc = this.modelState.sourceModel.$document;
+                    if (!doc) continue;
+                    const uri = resolveRelativePath(doc, entry.file ?? "");
+                    const csvContent = await this.modelState.languageServices.shared.workspace.FileSystemProvider.readFile(uri);
+                    const rows = csvContent.split(/\r?\n/).filter((line: string) => line.trim() !== "").map((line: string) => line.split(","));
+                        objects.push({
+                            $type: "ObjectInstance",
+                            name: `${classRef.name}_${rowIndex}`,
+                            class: { ref: classRef, $refText: classRef.name },
+                            properties: []
+                        } as unknown as PartialObjectInstance);
+                    });
+                } catch {
+                    // CSV file not readable, skip
+                }
             }
         }
 
