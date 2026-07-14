@@ -1,4 +1,4 @@
-import type { ModelData, ModelDataInstance, ModelDataPropertyValue } from "./modelData.js";
+import type { ModelData, ModelDataInstance, ModelDataPropertyValue } from "@mdeo/language-model";
 
 export interface CsvImportEntry {
     className: string;

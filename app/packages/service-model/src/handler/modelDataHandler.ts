@@ -1,5 +1,10 @@
-import { type ModelData, type ModelServices, ModelDataConverter, Model } from "@mdeo/language-model";
-import { type MetamodelClassInfo, type MetamodelPropertyInfo, importCsvEntries } from "@mdeo/language-model";
+import { type ModelData, type ModelServices, ModelDataConverter, Model, getWrapperInterfaceName } from "@mdeo/language-model";
+import {
+    type MetamodelClassInfo,
+    type MetamodelPropertyInfo,
+    type CsvImportBlockType,
+    importCsvEntries
+} from "@mdeo/language-model-csv";
 import { hasErrors, type FileDataHandler } from "@mdeo/service-common";
 import { resolveRelativePath } from "@mdeo/language-shared";
 
@@ -31,7 +36,10 @@ export const modelDataHandler: FileDataHandler<ModelData | null, ModelServices> 
         throw new Error("Document root is not a Model");
     }
 
-    if (model.csvImport == undefined) {
+    const csvImport = model.imports?.find((imp) => (imp as { $type?: string }).$type === getWrapperInterfaceName("CSV"));
+    const csvImportContent = (csvImport as { content?: CsvImportBlockType } | undefined)?.content;
+
+    if (csvImportContent == undefined) {
         const converter = new ModelDataConverter(reflection);
         const modelData = converter.convertModel(model);
         return {
@@ -73,8 +81,8 @@ export const modelDataHandler: FileDataHandler<ModelData | null, ModelServices> 
         }));
 
     const csvEntries = await Promise.all(
-        model.csvImport.imports.map(async (entry: any) => {
-            const csvPath: string = resolveRelativePath(document, entry.file).toString();
+        csvImportContent.imports.map(async (entry: any) => {
+            const csvPath: string = resolveRelativePath(document, entry.file).path;
             const { content } = await serverApi.readFile(csvPath);
             return {
                 className: entry.class?.ref?.name ?? "",

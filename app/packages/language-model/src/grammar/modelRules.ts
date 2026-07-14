@@ -14,7 +14,8 @@ import {
     ML_COMMENT,
     SL_COMMENT,
     HIDDEN_NEWLINE,
-    type ParserRule
+    type ParserRule,
+    type RuleEntry
 } from "@mdeo/language-common";
 import { AssociationEnd, Class, Enum, EnumEntry, Property } from "@mdeo/language-metamodel";
 import {
@@ -28,9 +29,7 @@ import {
     Model,
     MetamodelFileImport,
     LinkEnd,
-    Link,
-    CsvClassImport,
-    CsvImportBlock
+    Link
 } from "./modelTypes.js";
 
 export const BOOLEAN = createRule("BOOLEAN")
@@ -93,40 +92,42 @@ export const MetamodelFileImportRule = createRule("MetamodelFileImportRule")
     .returns(MetamodelFileImport)
     .as(({ set }) => ["using", set("file", STRING)]);
 
-export const CsvClassImportRule = createRule("CsvClassImportRule")
-    .returns(CsvClassImport)
-    .as(({ set }) => [
-        set("class", ref(Class, ID)),
-        "from",
-        set("file", STRING)
-    ]);
-
-export const CsvImportBlockRule = createRule("CsvImportBlockRule")
-    .returns(CsvImportBlock)
-    .as(({ add }) => [
-        "import",
-        "CSV",
-        "{",
-        many(or(add("imports", CsvClassImportRule), NEWLINE)),
-        "}"
-    ]);
-
+/**
+ * Default root rule for the Model language (without contributed imports).
+ * Use createModelRule() with resolved plugins for the full grammar.
+ */
 export const ModelRule = createRule("ModelRule")
     .returns(Model)
     .as(({ add, set }) => [
         many(NEWLINE),
         set("import", MetamodelFileImportRule),
         many(NEWLINE),
-        many(or(
-            set("csvImport", CsvImportBlockRule),
-            add("objects", ObjectInstanceRule),
-            add("links", LinkRule),
-            NEWLINE
-        ))
+        many(or(add("objects", ObjectInstanceRule), add("links", LinkRule), NEWLINE))
     ]);
 
-export function createModelRule(_contributedTopLevelRules: ParserRule<any>[] = []): ParserRule<any> {
-    return ModelRule;
+/**
+ * Builds the root Model rule, alternating between hand-authored objects/links
+ * and any data imports contributed by plugins (e.g. CSV).
+ *
+ * @param contributedImportRules Wrapper rules for imports contributed by resolved plugins
+ * @returns The root parser rule for the Model language
+ */
+export function createModelRule(contributedImportRules: ParserRule<any>[] = []): ParserRule<any> {
+    if (contributedImportRules.length === 0) {
+        return ModelRule;
+    }
+
+    return createRule("ModelRule")
+        .returns(Model)
+        .as(({ add, set }) => {
+            const importAlternatives: RuleEntry[] = contributedImportRules.map((rule) => add("imports", rule));
+            return [
+                many(NEWLINE),
+                set("import", MetamodelFileImportRule),
+                many(NEWLINE),
+                many(or(...importAlternatives, add("objects", ObjectInstanceRule), add("links", LinkRule), NEWLINE))
+            ];
+        });
 }
 
 export const ModelTerminals = [WS, HIDDEN_NEWLINE, ML_COMMENT, SL_COMMENT];

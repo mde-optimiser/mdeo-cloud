@@ -13,6 +13,7 @@ import {
 } from "@mdeo/language-shared";
 import { ModelElementType } from "@mdeo/protocol-model";
 import type { PartialModel, PartialObjectInstance, PartialLink } from "../../grammar/modelPartialTypes.js";
+import { getWrapperInterfaceName } from "../../plugin/resolvePlugins.js";
 
 const { injectable, inject } = sharedImport("inversify");
 
@@ -80,7 +81,10 @@ export class ModelMetadataManager extends MetadataManager<PartialModel> {
     }
 
     private extractCsvNodeMetadata(sourceModel: PartialModel, nodes: Record<string, NodeMetadata>): void {
-        if (sourceModel.csvImport == undefined) return;
+        const hasCsvImport = sourceModel.imports?.some(
+            (imp) => (imp as { $type?: string }).$type === getWrapperInterfaceName("CSV")
+        );
+        if (!hasCsvImport) return;
         if (this.storedCurrentMetadata == undefined) return;
         for (const [id, meta] of Object.entries(this.storedCurrentMetadata.nodes)) {
             if (id.startsWith("csv-node-") && !nodes[id]) {

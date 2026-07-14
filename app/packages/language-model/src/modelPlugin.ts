@@ -1,8 +1,16 @@
 import {
     type ExternalReferenceAdditionalServices,
     type LangiumLanguagePlugin,
-    type LangiumLanguagePluginProvider
+    type LangiumLanguagePluginProvider,
+    GrammarDeserializationContext,
+    ID,
+    NEWLINE,
+    HIDDEN_NEWLINE,
+    INT,
+    FLOAT,
+    STRING
 } from "@mdeo/language-common";
+import { Class } from "@mdeo/language-metamodel";
 import { createModelRule, ModelTerminals } from "./grammar/modelRules.js";
 import {
     addExternalReferenceCollectionPhase,
@@ -23,42 +31,31 @@ import { registerModelSerializers } from "./features/modelSerializers.js";
 import { ModelDiagramModule } from "./features/diagram-server/modelDiagramModule.js";
 import { registerModelValidationChecks } from "./validation/modelValidator.js";
 import { ModelCompletionProvider } from "./features/modelCompletionProvider.js";
-import type { ModelContributionPlugin } from "./modelContributionPlugin.js";
+import { ModelContributionPlugin } from "./plugin/modelContributionPlugin.js";
+import { resolveModelPlugins } from "./plugin/resolvePlugins.js";
 import type { ServerContributionPlugin } from "@mdeo/plugin";
-import { CsvClassImportRule, CsvImportBlockRule } from "./csv/csvImportRules.js";
 
 export type ModelServices = ExternalReferenceAdditionalServices & ActionHandlerRegistryAdditionalServices;
 
-const CSV_CONTRIBUTION: ModelContributionPlugin = {
-    type: "model-contribution-plugin",
-    id: "model-csv",
-    name: "CSV Import",
-    additionalTerminals: [],
-    additionalRules: [CsvClassImportRule, CsvImportBlockRule],
-    topLevelRuleNames: ["CsvImportBlockRule"],
-    keywords: ["import", "CSV", "from"]
-};
+function createModelPlugin(
+    contributionPlugins: ServerContributionPlugin[],
+    languageJsUrl?: string
+): LangiumLanguagePlugin<ModelServices> {
+    const modelPlugins = contributionPlugins.filter(ModelContributionPlugin.is);
 
-function isModelContributionPlugin(plugin: ServerContributionPlugin): plugin is ModelContributionPlugin {
-    return (plugin as ModelContributionPlugin).topLevelRuleNames !== undefined;
-}
-
-function createModelPlugin(contributionPlugins: ServerContributionPlugin[], languageJsUrl?: string): LangiumLanguagePlugin<ModelServices> {
-    const allContributions = [
-        CSV_CONTRIBUTION,
-        ...contributionPlugins.filter(isModelContributionPlugin)
-    ];
-
-    const contributedTopLevelRules = allContributions.flatMap(p =>
-        p.additionalRules.filter(r => p.topLevelRuleNames.includes(r.name))
+    const deserializationContext = GrammarDeserializationContext.create(
+        [Class],
+        [],
+        [ID, NEWLINE, HIDDEN_NEWLINE, INT, FLOAT, STRING]
     );
-    const contributedTerminals = allContributions.flatMap(p => p.additionalTerminals);
 
-    const ModelRule = createModelRule(contributedTopLevelRules);
+    const resolvedPlugins = resolveModelPlugins(modelPlugins, deserializationContext);
+
+    const ModelRule = createModelRule(resolvedPlugins.rules);
 
     return {
         rootRule: ModelRule,
-        additionalTerminals: [...ModelTerminals, ...contributedTerminals],
+        additionalTerminals: ModelTerminals,
         module: {
             parser: {
                 TokenBuilder: () => new NewlineAwareTokenBuilder(
@@ -107,5 +104,3 @@ export const modelPluginProvider: LangiumLanguagePluginProvider<ModelServices> =
         return createModelPlugin(contributionPlugins, languageJsUrl);
     }
 };
-
-export function registerModelContributionPlugin(_plugin: ModelContributionPlugin): void {}

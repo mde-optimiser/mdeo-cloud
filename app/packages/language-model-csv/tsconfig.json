@@ -9,6 +9,7 @@
     "references": [
         { "path": "../language-common" },
         { "path": "../language-model" },
-        { "path": "../language-metamodel" }
+        { "path": "../language-metamodel" },
+        { "path": "../language-shared" }
     ]
 }

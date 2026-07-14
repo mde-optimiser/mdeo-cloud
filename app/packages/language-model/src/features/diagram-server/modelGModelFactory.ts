@@ -34,6 +34,7 @@ import {
     type EnumValueType,
     type SingleValueType
 } from "../../grammar/modelTypes.js";
+import { getWrapperInterfaceName } from "../../plugin/resolvePlugins.js";
 
 const { injectable } = sharedImport("inversify");
 const { GGraph } = sharedImport("@eclipse-glsp/server");
@@ -463,15 +464,33 @@ export class ModelGModelFactory extends BaseGModelFactory<PartialModel> {
 
         return nodes;
     }
+    /**
+     * Renders diagram nodes for the CSV import contribution, if present.
+     *
+     * The Model language's grammar has no compile-time knowledge of CSV (it's a
+     * plugin contribution resolved generically via `model.imports`), but rendering
+     * synthetic instance nodes from CSV row data has no equivalent generic extension
+     * point today, so this reads the CSV plugin's contributed import structurally
+     * by its wrapper type name rather than importing its types directly (which would
+     * create a circular package dependency, since language-model-csv depends on
+     * language-model for the contribution plugin contract).
+     */
     private async createCsvNodes(graph: GGraphType, model: PartialModel): Promise<void> {
-        if (model.csvImport == undefined) return;
+        interface CsvClassImportShape {
+            class?: { ref?: ClassType };
+            file?: string;
+        }
+
+        const csvImport = model.imports?.find((imp) => (imp as { $type?: string }).$type === getWrapperInterfaceName("CSV"));
+        const csvImportContent = (csvImport as { content?: { imports?: CsvClassImportShape[] } } | undefined)?.content;
+        if (csvImportContent?.imports == undefined) return;
         const doc = this.modelState.sourceModel?.$document;
         if (!doc) return;
 
         const validatedMetadata = await this.modelState.getValidatedMetadata();
 
         let nodeIndex = 0;
-        for (const entry of model.csvImport.imports ?? []) {
+        for (const entry of csvImportContent.imports) {
             const classRef = entry.class?.ref as ClassType | undefined;
             if (classRef == undefined) continue;
             try {

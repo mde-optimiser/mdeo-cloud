@@ -67,39 +67,22 @@ export const MetamodelFileImport = createInterface("MetamodelFileImport").attrs(
 export type MetamodelFileImportType = ASTType<typeof MetamodelFileImport>;
 
 /**
- * A single CSV class import entry.
- * Maps a metamodel class to a CSV file.
- * Format: ClassName from "path/to/file.csv"
+ * Base interface for data imports contributed by plugins (e.g. CSV, and future formats).
+ * A contribution plugin wraps its own import block in an interface extending this one,
+ * the same way config sections extend `BaseConfigSection`.
  */
-export const CsvClassImport = createInterface("CsvClassImport").attrs({
-    class: Ref(() => Class),
-    file: String
-});
+export const BaseModelImport = createInterface("BaseModelImport").attrs({});
 
-export type CsvClassImportType = ASTType<typeof CsvClassImport>;
-
-/**
- * A CSV import block at the top of a model file.
- * When present, forbids hand-authored object instances.
- * Format:
- *   import CSV {
- *     ClassName from "file.csv"
- *   }
- */
-export const CsvImportBlock = createInterface("CsvImportBlock").attrs({
-    imports: [CsvClassImport]
-});
-
-export type CsvImportBlockType = ASTType<typeof CsvImportBlock>;
+export type BaseModelImportType = ASTType<typeof BaseModelImport>;
 
 /**
  * Model root interface.
- * Contains metamodel import, optional CSV import block, optional hand-authored objects and links.
- * Either csvImport or objects/links may be present, but not both.
+ * Contains metamodel import, any number of plugin-contributed data imports (e.g. CSV),
+ * and hand-authored objects and links.
  */
 export const Model = createInterface("Model").attrs({
     import: MetamodelFileImport,
-    csvImport: Optional(CsvImportBlock),
+    imports: [BaseModelImport],
     objects: [ObjectInstance],
     links: [Link]
 });

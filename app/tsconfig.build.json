@@ -39,6 +39,9 @@
             "path": "packages/language-model"
         },
         {
+            "path": "packages/language-model-csv"
+        },
+        {
             "path": "packages/language-model-transformation"
         },
         {
@@ -88,6 +91,9 @@
         },
         {
             "path": "packages/service-model"
+        },
+        {
+            "path": "packages/service-model-csv"
         },
         {
             "path": "packages/service-script"

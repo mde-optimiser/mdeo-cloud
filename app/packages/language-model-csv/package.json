@@ -8,7 +8,8 @@
     "dependencies": {
         "@mdeo/language-common": "^0.1.0",
         "@mdeo/language-model": "^0.1.0",
-        "@mdeo/language-metamodel": "^0.1.0"
+        "@mdeo/language-metamodel": "^0.1.0",
+        "@mdeo/language-shared": "^0.1.0"
     },
     "devDependencies": {
         "@types/node": "^25.3.1",
