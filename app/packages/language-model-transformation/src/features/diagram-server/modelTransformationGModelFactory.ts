@@ -719,10 +719,9 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
         const sourceClassType = sourceInstanceRef?.class?.ref as ClassType | undefined;
         const targetClassType = targetInstanceRef?.class?.ref as ClassType | undefined;
 
-        // Every navigable association end has a declared role name in the metamodel (the grammar
-        // requires one, auto-generating a default if the user didn't type one). A pattern link doesn't
-        // have to repeat that name explicitly, so when the link's own DSL text omits it, fall back to
-        // the resolved association's declared end name so every edge still shows a role label.
+        // Navigable association ends may declare a role name in the metamodel. A pattern link doesn't have to repeat
+        // that name explicitly, so when the link's own DSL omits it, fall back to the resolved association
+        // end name (when available) so the edge can still show a role label.
         let effectiveSourceProperty = sourceProperty;
         let effectiveTargetProperty = targetProperty;
 
@@ -739,8 +738,8 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
                 if (tgtClass?.name != undefined) {
                     edgeBuilder.targetClass(tgtClass.name);
                 }
-                effectiveSourceProperty = sourceProperty ?? candidate.sourceEnd.name;
-                effectiveTargetProperty = targetProperty ?? candidate.targetEnd.name;
+                effectiveSourceProperty = sourceProperty?.trim() || candidate.sourceEnd.name;
+                effectiveTargetProperty = targetProperty?.trim() || candidate.targetEnd.name;
             }
         }
 
@@ -812,7 +811,7 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
             const nodeId = `${edgeId}__source-node`;
             const metadata = this.getNodeMetadata(validatedMetadata, nodeId);
 
-            const endNode = GPatternLinkEndNode.builder().id(nodeId).end("source").meta(metadata).build();
+            const endNode = GPatternLinkEndNode.builder().id(nodeId).end("target").meta(metadata).build();
 
             const label = GPatternLinkEndLabel.builder()
                 .id(`${edgeId}__source-label`)
@@ -828,7 +827,7 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
             const nodeId = `${edgeId}__target-node`;
             const metadata = this.getNodeMetadata(validatedMetadata, nodeId);
 
-            const endNode = GPatternLinkEndNode.builder().id(nodeId).end("target").meta(metadata).build();
+            const endNode = GPatternLinkEndNode.builder().id(nodeId).end("source").meta(metadata).build();
 
             const label = GPatternLinkEndLabel.builder()
                 .id(`${edgeId}__target-label`)
