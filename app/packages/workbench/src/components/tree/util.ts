@@ -10,6 +10,12 @@ export interface DragAndDropCallbacks {
     onDrop?: (droppedItemId: string, targetItem: TreeItem, event: DragEvent) => void | Promise<void>;
     onTreeDrop?: (droppedItemId: string, event: DragEvent) => void | Promise<void>;
     canDrop?: (droppedItemId: string, targetItem: TreeItem) => boolean;
+    /**
+     * Called when files from outside the browser (e.g. the OS file explorer) are dropped
+     * onto the tree. `targetItem` is undefined when the files were dropped on the tree
+     * background rather than on a specific folder.
+     */
+    onFilesDropped?: (files: FileList, targetItem: TreeItem | undefined, event: DragEvent) => void | Promise<void>;
 }
 
 export interface DragAndDropConfig {
