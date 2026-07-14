@@ -153,7 +153,7 @@ export class ModelTransformationLayoutEngine extends BaseLayoutEngine {
                                     width: bounds[label.id]?.width,
                                     height: bounds[label.id]?.height,
                                     layoutOptions: {
-                                        "elk.edgeLabels.placement": label.end === "source" ? "HEAD" : "TAIL"
+                                        "elk.edgeLabels.placement": label.end === "target" ? "HEAD" : "TAIL"
                                     }
                                 };
                             }
