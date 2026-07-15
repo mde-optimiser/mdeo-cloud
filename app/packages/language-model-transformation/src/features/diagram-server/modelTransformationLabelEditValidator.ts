@@ -357,12 +357,13 @@ export class ModelTransformationLabelEditValidator extends BaseLabelEditValidato
     /**
      * Checks whether an operator is valid for the given modifier kind.
      *
-     * Only NONE (no modifier) and CREATE allow assignments (`=`).
-     * All other modifiers (DELETE, FORBID, REQUIRE) must use comparison (`==`).
+     * Only NONE (no modifier) and CREATE allow the assignment operator (`=`).
+     * All comparison operators (`==`, `!=`, `<`, `>`, `<=`, `>=`) are permitted
+     * for every modifier kind.
      * PatternObjectInstanceReference nodes (which have no modifier field) also
-     * only allow comparisons.
+     * only allow comparison operators.
      *
-     * @param operator The operator string (`=` or `==`)
+     * @param operator The operator string (`=`, `==`, `!=`, `<`, `>`, `<=`, or `>=`)
      * @param modifier The modifier kind of the enclosing instance, or 'reference' for references
      * @returns A validation status if the operator is not permitted, undefined otherwise
      */
@@ -373,7 +374,7 @@ export class ModelTransformationLabelEditValidator extends BaseLabelEditValidato
         if (modifier === "reference") {
             if (operator === "=") {
                 return this.error(
-                    "Assignment ('=') is not allowed in an instance reference. Use '==' for comparisons."
+                    "Assignment ('=') is not allowed in an instance reference. Use a comparison operator (==, !=, <, >, <=, >=)."
                 );
             }
             return undefined;
@@ -384,7 +385,7 @@ export class ModelTransformationLabelEditValidator extends BaseLabelEditValidato
             if (!allowed) {
                 return this.error(
                     `Assignment ('=') is not allowed with modifier '${modifier ?? "none"}'. ` +
-                        `Only 'none' (no modifier) and 'create' instances support assignment. Use '==' for comparisons.`
+                        `Only 'none' (no modifier) and 'create' instances support assignment. Use a comparison operator (==, !=, <, >, <=, >=).`
                 );
             }
         }

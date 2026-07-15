@@ -696,14 +696,15 @@ internal class MatchPlanBuilder(
          * covered instances.  They are revisited by [tryInlineDeferredProperties] after
          * every new coverage event.
          *
-         * Only `==` (equality) properties are handled; properties with other operators
-         * are silently ignored.
+         * All comparison operators (`==`, `!=`, `<`, `>`, `<=`, `>=`) produce inline
+         * or deferred constraints.  The assignment operator (`=`) is skipped — it is
+         * handled by [GraphModificationApplier], not by the match plan.
          *
          * @param instance The instance element whose properties are to be processed.
          */
         private fun addInlinePropertyConstraints(instance: TypedPatternObjectInstanceElement) {
             for (property in instance.objectInstance.properties) {
-                if (property.operator != "==") continue
+                if (property.operator == "=") continue
                 val referencedNodes = graph.nodeAnalyzer.findReferencedNodes(property.value)
                 val referencedVars = referencedNodes.filter { it in graph.variableNames }
                 val isConstant = referencedNodes.isEmpty() && !graph.isCollectionExpression(property.value)
@@ -880,9 +881,11 @@ internal class MatchPlanBuilder(
          * Returns the inline property constraint steps for [instance] inside an
          * application condition.
          *
-         * Only `==` properties are included.  The
-         * [BaseStep.InlinePropertyConstraint.isConstant] flag is determined the same way
-         * as in [addInlinePropertyConstraints].  Variable-referencing and collection
+         * All comparison operators (`==`, `!=`, `<`, `>`, `<=`, `>=`) are included.
+         * The assignment operator (`=`) is skipped — it is handled by the modification
+         * applier, not by the match plan.
+         * The [BaseStep.InlinePropertyConstraint.isConstant] flag is determined the same
+         * way as in [addInlinePropertyConstraints].  Variable-referencing and collection
          * expressions are included unconditionally because they are emitted inside a
          * `where(...)` block where the outer traversal state is already fixed.
          *
@@ -892,7 +895,7 @@ internal class MatchPlanBuilder(
         private fun buildConditionPropertySteps(
             instance: TypedPatternObjectInstanceElement
         ): List<BaseStep.InlinePropertyConstraint> = instance.objectInstance.properties.mapNotNull { property ->
-            if (property.operator != "==") return@mapNotNull null
+            if (property.operator == "=") return@mapNotNull null
             val referencedNodes = graph.nodeAnalyzer.findReferencedNodes(property.value)
             val isConstant = referencedNodes.isEmpty() && !graph.isCollectionExpression(property.value)
             BaseStep.InlinePropertyConstraint(instance.objectInstance.name, instance.objectInstance.className, property, isConstant)

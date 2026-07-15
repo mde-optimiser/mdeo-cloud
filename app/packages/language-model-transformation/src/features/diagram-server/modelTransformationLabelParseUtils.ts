@@ -3,6 +3,8 @@
  * Used by both the apply-label-edit handler and the label-edit validator.
  */
 
+import type { PatternPropertyOperator } from "../../plugin/typedAst.js";
+
 /**
  * Parses an instance label in `name : type` format.
  *
@@ -21,14 +23,20 @@ export function parseInstanceLabel(label: string): { name: string; type: string 
 
 /**
  * Finds the index of the assignment `=` operator in a string,
- * skipping over `==` comparison operators.
+ * skipping over multi-character operators (`==`, `!=`, `<=`, `>=`).
  *
  * @param text The text to search
  * @returns The index of the single `=`, or -1 if not found
  */
 export function findAssignmentIndex(text: string): number {
     for (let i = 0; i < text.length; i++) {
-        if (text[i] === "=") {
+        const ch = text[i];
+        // Skip `!=`, `<=`, `>=` — the `=` here belongs to the multi-char operator.
+        if ((ch === "!" || ch === "<" || ch === ">") && text[i + 1] === "=") {
+            i++; // skip the `=` that follows
+            continue;
+        }
+        if (ch === "=") {
             // Skip `==`.
             if (text[i + 1] === "=") {
                 i++;
@@ -66,37 +74,60 @@ export function parseVariableLabel(label: string): { name: string; value: string
 }
 
 /**
+ * All multi-character comparison operators, checked longest-first so that
+ * `<=` is found before a bare `<`, etc.
+ */
+const MULTI_CHAR_OPERATORS: PatternPropertyOperator[] = ["==", "!=", "<=", ">="];
+
+/**
+ * All single-character operators.
+ */
+const SINGLE_CHAR_OPERATORS: PatternPropertyOperator[] = ["<", ">", "="];
+
+/**
  * Parses a property assignment label into its three parts.
  *
- * Supports both assignment (`=`) and comparison (`==`) operators.
- * The first `=` occurrence determines operator type; `==` takes precedence.
+ * Supports all property operators: `=`, `==`, `!=`, `<`, `>`, `<=`, `>=`.
+ * Multi-character operators are checked before single-character ones to avoid
+ * prefix mismatches (e.g. `<=` found before `<`).
  *
  * @param label The raw label text to parse
  * @returns The parsed `{ name, operator, value }`, or an error message string if parsing fails
  */
 export function parseModelTransformationPropertyLabel(
     label: string
-): { name: string; operator: "=" | "=="; value: string } | string {
-    const eqIndex = label.indexOf("=");
-    if (eqIndex === -1) {
-        return "Missing '=' or '==' in property label.";
+): { name: string; operator: PatternPropertyOperator; value: string } | string {
+    // Try multi-character operators first (longest-match).
+    for (const op of MULTI_CHAR_OPERATORS) {
+        const idx = label.indexOf(op);
+        if (idx === -1) continue;
+        const name = label.substring(0, idx).trim();
+        const value = label.substring(idx + op.length).trim();
+        if (name.length === 0) {
+            return "Missing property name before operator.";
+        }
+        if (value.length === 0) {
+            return "Missing value expression after operator.";
+        }
+        return { name, operator: op, value };
     }
 
-    const isDouble = label[eqIndex + 1] === "=";
-    const operator: "=" | "==" = isDouble ? "==" : "=";
-    const operatorEnd = eqIndex + operator.length;
-
-    const name = label.substring(0, eqIndex).trim();
-    const value = label.substring(operatorEnd).trim();
-
-    if (name.length === 0) {
-        return "Missing property name before operator.";
+    // Fall back to single-character operators.
+    for (const op of SINGLE_CHAR_OPERATORS) {
+        const idx = label.indexOf(op);
+        if (idx === -1) continue;
+        const name = label.substring(0, idx).trim();
+        const value = label.substring(idx + op.length).trim();
+        if (name.length === 0) {
+            return "Missing property name before operator.";
+        }
+        if (value.length === 0) {
+            return "Missing value expression after operator.";
+        }
+        return { name, operator: op, value };
     }
-    if (value.length === 0) {
-        return "Missing value expression after operator.";
-    }
 
-    return { name, operator, value };
+    return "Missing operator in property label.";
 }
 
 /**
