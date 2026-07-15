@@ -130,14 +130,25 @@ export function generateModelTransformationRules(): {
 
     /**
      * Pattern property assignment rule.
-     * Format: property = value or property == value
+     * Format: property op value, where op is one of: =, ==, !=, <, >, <=, >=
+     * The assignment operator (=) sets a property value; comparison operators
+     * (==, !=, <, >, <=, >=) constrain matching. Multi-character operators are
+     * listed before single-character ones to avoid prefix mismatches.
      * Uses expression for value to support complex expressions.
      */
     const PatternPropertyAssignmentRule = createRule("PatternPropertyAssignmentRule")
         .returns(PatternPropertyAssignment)
         .as(({ set }) => [
             set("name", ref(Property, ID)),
-            or(set("operator", "=="), set("operator", "=")),
+            or(
+                set("operator", "=="),
+                set("operator", "!="),
+                set("operator", "<="),
+                set("operator", ">="),
+                set("operator", "<"),
+                set("operator", ">"),
+                set("operator", "=")
+            ),
             set("value", ExpressionRule)
         ]);
 

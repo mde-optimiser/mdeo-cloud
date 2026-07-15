@@ -59,7 +59,8 @@ import {
     PatternObjectInstanceDelete,
     type PatternObjectInstanceDeleteType,
     type PatternObjectInstanceReferenceType,
-    PatternObjectInstanceReference
+    PatternObjectInstanceReference,
+    type PatternPropertyOperator
 } from "@mdeo/language-model-transformation";
 import { AssociationEnd, type AssociationEndType } from "@mdeo/language-metamodel";
 import type { AstNode } from "langium";
@@ -361,7 +362,7 @@ export class ModelTransformationTypedAstConverter extends TypedAstConverter {
             className: obj.class?.$refText ?? "",
             properties: obj.properties.map((prop) => ({
                 propertyName: prop.name?.$refText ?? "",
-                operator: prop.operator,
+                operator: prop.operator as PatternPropertyOperator,
                 value: this.convertExpression(prop.value)
             }))
         };
@@ -380,7 +381,7 @@ export class ModelTransformationTypedAstConverter extends TypedAstConverter {
             name: objRef.instance.$refText,
             properties: objRef.properties.map((prop) => ({
                 propertyName: prop.name?.$refText ?? "",
-                operator: prop.operator,
+                operator: prop.operator as PatternPropertyOperator,
                 value: this.convertExpression(prop.value)
             }))
         };

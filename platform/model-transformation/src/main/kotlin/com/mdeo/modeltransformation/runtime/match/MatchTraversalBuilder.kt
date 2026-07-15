@@ -119,9 +119,9 @@ internal class MatchTraversalBuilder(
     /**
      * Applies a [BaseStep.InlinePropertyConstraint] to [t].
      *
-     * For constant values emits `.has(key, value)`. For non-constant expressions emits a
-     * `.filter(equalityExpr.is(true))` sub-traversal that evaluates [step]'s expression
-     * against the anchor's current state.
+     * For constant-equality (`==`) constraints emits the cheap `.has(key, value)` step.
+     * For all other comparison operators (`!=`, `<`, `>`, `<=`, `>=`) and for non-constant
+     * equality expressions, emits a `.filter(comparisonExpr.is(true))` sub-traversal.
      *
      * @param t The traversal to extend.
      * @param step The inline property-constraint step to apply.
@@ -134,8 +134,10 @@ internal class MatchTraversalBuilder(
     ): GraphTraversal<Vertex, Vertex> {
         val graphKey = engine.resolvePropertyGraphKey(step.className, step.property.propertyName)
         val compiled = expressionSupport.compilePropertyExpression(step.property.value, emptyList())
+        val operator = step.property.operator
 
-        return if (step.isConstant && compiled is CompilationResult.ValueResult) {
+        // The cheap `.has(key, value)` shortcut is only correct for equality (==).
+        return if (operator == "==" && step.isConstant && compiled is CompilationResult.ValueResult) {
             t.has(graphKey, compiled.value) as GraphTraversal<Vertex, Vertex>
         } else if (compiled != null) {
             val propertyTraversal = AnonymousTraversal.values<Vertex, Any>(graphKey) as GraphTraversal<Any, Any>
@@ -145,14 +147,10 @@ internal class MatchTraversalBuilder(
             ) as GraphTraversal<Any, Any>
             val propertyType = expressionSupport.resolveExpressionType(step.property.value)
                 ?: throw IllegalStateException("Cannot resolve type for: ${step.property.propertyName}")
-            val eq = EqualityCompilerUtil.buildEqualityTraversal(
-                "==", propertyTraversal, exprTraversal,
-                propertyType, propertyType,
-                engine.typeRegistry,
-                compilationContext.getUniqueId(),
-                compilationContext.getUniqueId()
+            val comparison = buildPropertyComparisonTraversal(
+                operator, propertyTraversal, exprTraversal, propertyType
             )
-            t.filter(eq.`is`(true)) as GraphTraversal<Vertex, Vertex>
+            t.filter(comparison.`is`(true)) as GraphTraversal<Vertex, Vertex>
         } else {
             t
         }
@@ -458,9 +456,9 @@ internal class MatchTraversalBuilder(
      * Applies a [BaseStep.DeferredPropertyConstraint] to [t].
      *
      * Navigates to the instance via `select(instanceLabel)` and emits a
-     * `.where(has / equalityFilter)` sub-traversal that does not change the traverser
-     * position. Handles both constant and expression values, and both scalar and
-     * collection types.
+     * `.where(has / comparisonFilter)` sub-traversal that does not change the traverser
+     * position. Handles constant and expression values, and both scalar and
+     * collection types. Supports all comparison operators.
      *
      * @param t The traversal to extend.
      * @param step The deferred property-constraint step to apply.
@@ -475,9 +473,11 @@ internal class MatchTraversalBuilder(
         val graphKey = engine.resolvePropertyGraphKey(step.className, step.property.propertyName)
         val compiled = expressionSupport.compilePropertyExpression(step.property.value, emptyList())
         val propertyType = expressionSupport.resolveExpressionType(step.property.value)
+        val operator = step.property.operator
 
         return when {
-            compiled is CompilationResult.ValueResult && !expressionSupport.isCollectionType(propertyType) -> {
+            // The cheap `.has(key, value)` shortcut is only correct for equality (==).
+            operator == "==" && compiled is CompilationResult.ValueResult && !expressionSupport.isCollectionType(propertyType) -> {
                 t.where(
                     AnonymousTraversal.select<Any, Any>(instanceLabel)
                         .has(graphKey, compiled.value)
@@ -490,14 +490,10 @@ internal class MatchTraversalBuilder(
                 val resolvedType = propertyType ?: throw IllegalStateException(
                     "Cannot resolve type for: ${step.property.propertyName}"
                 )
-                val eq = EqualityCompilerUtil.buildEqualityTraversal(
-                    "==", propTraversal, exprTraversal,
-                    resolvedType, resolvedType,
-                    engine.typeRegistry,
-                    compilationContext.getUniqueId(),
-                    compilationContext.getUniqueId()
+                val comparison = buildPropertyComparisonTraversal(
+                    operator, propTraversal, exprTraversal, resolvedType
                 )
-                t.where(eq.`is`(true)) as GraphTraversal<Vertex, Vertex>
+                t.where(comparison.`is`(true)) as GraphTraversal<Vertex, Vertex>
             }
             compiled != null -> {
                 val propTraversal = AnonymousTraversal.select<Any, Any>(instanceLabel)
@@ -509,14 +505,10 @@ internal class MatchTraversalBuilder(
                 val resolvedType = propertyType ?: throw IllegalStateException(
                     "Cannot resolve type for: ${step.property.propertyName}"
                 )
-                val eq = EqualityCompilerUtil.buildEqualityTraversal(
-                    "==", propTraversal, exprTraversal,
-                    resolvedType, resolvedType,
-                    engine.typeRegistry,
-                    compilationContext.getUniqueId(),
-                    compilationContext.getUniqueId()
+                val comparison = buildPropertyComparisonTraversal(
+                    operator, propTraversal, exprTraversal, resolvedType
                 )
-                t.where(eq.`is`(true)) as GraphTraversal<Vertex, Vertex>
+                t.where(comparison.`is`(true)) as GraphTraversal<Vertex, Vertex>
             }
             else -> t
         }
@@ -576,6 +568,65 @@ internal class MatchTraversalBuilder(
             hasLabel(labels[0], *labels.drop(1).toTypedArray()) as GraphTraversal<S, E>
         } else {
             hasLabel(className) as GraphTraversal<S, E>
+        }
+    }
+
+    /**
+     * Builds a boolean-producing Gremlin traversal for a property comparison constraint.
+     *
+     * Dispatches based on [operator]:
+     * - `"=="` and `"!="` — delegates to [EqualityCompilerUtil.buildEqualityTraversal], which
+     *   handles collection folding and enum-type guards.
+     * - `"<"`, `">"`, `"<="`, `">="` — builds a `project().by(left).by(right).choose(where(left, P.*), true, false)`
+     *   traversal using the corresponding Gremlin [P] predicate.
+     *
+     * The returned traversal produces `true` when the constraint is satisfied and `false`
+     * otherwise.  Callers wrap it in `.filter(t.is(true))` or `.where(t.is(true))`.
+     *
+     * @param operator One of `"=="`, `"!="`, `"<"`, `">"`, `"<="`, `">="`.
+     * @param propertyTraversal A traversal that produces the property value from the vertex.
+     * @param exprTraversal A traversal that produces the compared expression value.
+     * @param type The resolved [com.mdeo.expression.ast.types.ValueType] of the property.
+     * @return A traversal producing a [Boolean] comparison result.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun buildPropertyComparisonTraversal(
+        operator: String,
+        propertyTraversal: GraphTraversal<Any, Any>,
+        exprTraversal: GraphTraversal<Any, Any>,
+        type: com.mdeo.expression.ast.types.ValueType
+    ): GraphTraversal<Any, Boolean> {
+        return when (operator) {
+            "==", "!=" -> EqualityCompilerUtil.buildEqualityTraversal(
+                operator, propertyTraversal, exprTraversal,
+                type, type,
+                engine.typeRegistry,
+                compilationContext.getUniqueId(),
+                compilationContext.getUniqueId()
+            )
+            "<", ">", "<=", ">=" -> {
+                val leftLabel = compilationContext.getUniqueId()
+                val rightLabel = compilationContext.getUniqueId()
+                val predicate: P<String> = when (operator) {
+                    "<"  -> P.lt(rightLabel)
+                    ">"  -> P.gt(rightLabel)
+                    "<=" -> P.lte(rightLabel)
+                    ">=" -> P.gte(rightLabel)
+                    else -> throw IllegalStateException("Unexpected relational operator: $operator")
+                }
+                AnonymousTraversal.project<Any, Any>(leftLabel, rightLabel)
+                    .by(propertyTraversal)
+                    .by(exprTraversal)
+                    .choose(
+                        AnonymousTraversal.where<Any>(leftLabel, predicate),
+                        AnonymousTraversal.constant<Any>(true),
+                        AnonymousTraversal.constant<Any>(false)
+                    ) as GraphTraversal<Any, Boolean>
+            }
+            else -> throw IllegalStateException(
+                "Unsupported property comparison operator: '$operator'. " +
+                "Expected one of: ==, !=, <, >, <=, >="
+            )
         }
     }
 }

@@ -30,7 +30,12 @@ data class TypedPatternVariable(
  * (matching against a property value) within a pattern.
  *
  * @param propertyName Name of the property being assigned or compared.
- * @param operator The operator used: "=" for assignment, "==" for comparison.
+ * @param operator The operator used:
+ *   - `"="` — assignment (sets the property value).
+ *   - `"=="` — equality comparison constraint.
+ *   - `"!="` — inequality comparison constraint.
+ *   - `"<"`, `">"`, `"<="`, `">="` — relational comparison constraints
+ *     (only valid for comparable / numeric property types).
  * @param value The value expression for the assignment or comparison.
  */
 @Serializable

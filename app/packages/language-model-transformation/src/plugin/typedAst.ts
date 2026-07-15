@@ -55,6 +55,18 @@ export interface TypedPatternVariable {
 }
 
 /**
+ * Discriminated union of all operators that can appear in a
+ * PatternPropertyAssignment.
+ *
+ * - `"="` — assignment (sets the property when creating/modifying an instance).
+ * - `"=="` — equality comparison constraint.
+ * - `"!="` — inequality comparison constraint.
+ * - `"<"`, `">"`, `"<="`, `">="` — relational comparison constraints
+ *   (only valid for comparable / numeric property types).
+ */
+export type PatternPropertyOperator = "=" | "==" | "!=" | "<" | ">" | "<=" | ">=";
+
+/**
  * Property assignment in a pattern object instance.
  */
 export interface TypedPatternPropertyAssignment {
@@ -64,9 +76,10 @@ export interface TypedPatternPropertyAssignment {
     propertyName: string;
 
     /**
-     * The operator used (= for assignment, == for comparison).
+     * The operator used.
+     * `"="` is for assignment; all others are comparison constraints.
      */
-    operator: string;
+    operator: PatternPropertyOperator;
 
     /**
      * The value expression.
