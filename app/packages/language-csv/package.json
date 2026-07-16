@@ -1,0 +1,16 @@
+{
+    "name": "@mdeo/language-csv",
+    "version": "0.1.0",
+    "type": "module",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "files": ["dist", "src"],
+    "dependencies": {
+        "@mdeo/language-common": "^0.1.0",
+        "@mdeo/language-shared": "^0.1.0"
+    },
+    "devDependencies": {
+        "@types/node": "^25.3.1",
+        "langium": "^4.2.1"
+    }
+}

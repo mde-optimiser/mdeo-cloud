@@ -137,6 +137,14 @@ function handleDrop(event: DragEvent) {
         hoverTimeout.value = null;
     }
 
+    if (event.dataTransfer != undefined && event.dataTransfer.files.length > 0) {
+        if (props.isFolder) {
+            event.stopPropagation();
+            treeContext.dragAndDrop.value.callbacks?.onFilesDropped?.(event.dataTransfer.files, props.data, event);
+        }
+        return;
+    }
+
     const draggedItemData = event.dataTransfer?.getData("application/json");
     if (!draggedItemData) {
         return;

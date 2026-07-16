@@ -1,3 +1,4 @@
 copilot/
 tools/
 infra/.env
+.DS_Store

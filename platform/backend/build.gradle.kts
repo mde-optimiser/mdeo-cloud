@@ -11,7 +11,7 @@ application {
 
 dependencies {
     implementation(project(":common"))
-    
+
     // Ktor Server
     implementation(libs.ktor.server.core)
     implementation(libs.ktor.server.netty)

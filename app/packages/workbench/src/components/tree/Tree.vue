@@ -106,6 +106,11 @@ function handleDrop(event: DragEvent) {
     event.preventDefault();
     event.stopPropagation();
 
+    if (event.dataTransfer != undefined && event.dataTransfer.files.length > 0) {
+        treeContext.dragAndDrop.value.callbacks?.onFilesDropped?.(event.dataTransfer.files, undefined, event);
+        return;
+    }
+
     const draggedItemData = event.dataTransfer?.getData("application/json");
     if (!draggedItemData) {
         return;
