@@ -675,24 +675,46 @@ internal class MetamodelCompiler(private val data: MetamodelData) {
             mv.visitTypeInsn(Opcodes.CHECKCAST, "java/util/List")
         } else when (fieldDescriptor) {
             "I" -> {
-                mv.visitTypeInsn(Opcodes.CHECKCAST, "java/lang/Integer")
-                mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/Integer", "intValue",     "()I", false)
+                mv.visitTypeInsn(Opcodes.CHECKCAST, "java/lang/Number")
+                mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/Number", "intValue",     "()I", false)
             }
             "J" -> {
-                mv.visitTypeInsn(Opcodes.CHECKCAST, "java/lang/Long")
-                mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/Long",    "longValue",    "()J", false)
+                mv.visitTypeInsn(Opcodes.CHECKCAST, "java/lang/Number")
+                mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/Number", "longValue",    "()J", false)
             }
             "F" -> {
-                mv.visitTypeInsn(Opcodes.CHECKCAST, "java/lang/Float")
-                mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/Float",   "floatValue",   "()F", false)
+                mv.visitTypeInsn(Opcodes.CHECKCAST, "java/lang/Number")
+                mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/Number", "floatValue",   "()F", false)
             }
             "D" -> {
-                mv.visitTypeInsn(Opcodes.CHECKCAST, "java/lang/Double")
-                mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/Double",  "doubleValue",  "()D", false)
+                mv.visitTypeInsn(Opcodes.CHECKCAST, "java/lang/Number")
+                mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/Number", "doubleValue",  "()D", false)
             }
             "Z" -> {
                 mv.visitTypeInsn(Opcodes.CHECKCAST, "java/lang/Boolean")
                 mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/Boolean", "booleanValue", "()Z", false)
+            }
+            // Boxed numeric fields (optional/nullable multiplicity) have the same
+            // problem: coerce through Number, then re-box to the declared wrapper type.
+            "Ljava/lang/Integer;" -> {
+                mv.visitTypeInsn(Opcodes.CHECKCAST, "java/lang/Number")
+                mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/Number", "intValue", "()I", false)
+                mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Integer", "valueOf", "(I)Ljava/lang/Integer;", false)
+            }
+            "Ljava/lang/Long;" -> {
+                mv.visitTypeInsn(Opcodes.CHECKCAST, "java/lang/Number")
+                mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/Number", "longValue", "()J", false)
+                mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Long", "valueOf", "(J)Ljava/lang/Long;", false)
+            }
+            "Ljava/lang/Float;" -> {
+                mv.visitTypeInsn(Opcodes.CHECKCAST, "java/lang/Number")
+                mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/Number", "floatValue", "()F", false)
+                mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Float", "valueOf", "(F)Ljava/lang/Float;", false)
+            }
+            "Ljava/lang/Double;" -> {
+                mv.visitTypeInsn(Opcodes.CHECKCAST, "java/lang/Number")
+                mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/Number", "doubleValue", "()D", false)
+                mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Double", "valueOf", "(D)Ljava/lang/Double;", false)
             }
             "Ljava/lang/Object;" -> { /* no cast needed */ }
             else -> {

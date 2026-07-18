@@ -122,6 +122,65 @@ class MetamodelCompilationTest {
     }
 
     @Test
+    fun `setPropertyByKey coerces a Double into an int field instead of throwing`() {
+        // Reproduces the runtime failure reported for arithmetic assignments such as
+        // `occupiedBeds = occupiedBeds + 1`. Arithmetic expressions are compiled to the
+        // Gremlin `math()` step, which always yields a Double. When that Double is written
+        // back into an `int` metamodel field, the generated setPropertyByKey previously did
+        // a hard `CHECKCAST java/lang/Integer`, throwing:
+        //   class java.lang.Double cannot be cast to class java.lang.Integer
+        val data = singleClassMetamodel(properties = listOf(
+            PropertyData(name = "count", primitiveType = "int", multiplicity = MultiplicityData.single())
+        ))
+        val mm = Metamodel.compile(data)
+        val instance = mm.createInstance("Thing")
+
+        // A Double is exactly what the `math()` step produces for `count + 1`.
+        assertDoesNotThrow { instance.setPropertyByKey("count", 4.0) }
+
+        val stored = instance.getPropertyByKey("count")
+        assertTrue(stored is Int, "int field must store an Int, got ${stored?.let { it::class.simpleName }}")
+        assertEquals(4, stored)
+    }
+
+    @Test
+    fun `setPropertyByKey coerces numbers across all numeric primitive fields`() {
+        val props = listOf(
+            PropertyData(name = "intProp", primitiveType = "int", multiplicity = MultiplicityData.single()),
+            PropertyData(name = "longProp", primitiveType = "long", multiplicity = MultiplicityData.single()),
+            PropertyData(name = "floatProp", primitiveType = "float", multiplicity = MultiplicityData.single()),
+            PropertyData(name = "doubleProp", primitiveType = "double", multiplicity = MultiplicityData.single())
+        )
+        val mm = Metamodel.compile(singleClassMetamodel(properties = props))
+        val instance = mm.createInstance("Thing")
+
+        // Feed each field a wrapper type it did NOT previously accept (Double / Int).
+        assertDoesNotThrow { instance.setPropertyByKey("intProp", 7.0) }
+        assertDoesNotThrow { instance.setPropertyByKey("longProp", 9.0) }
+        assertDoesNotThrow { instance.setPropertyByKey("floatProp", 3) }
+        assertDoesNotThrow { instance.setPropertyByKey("doubleProp", 5) }
+
+        assertEquals(7, instance.getPropertyByKey("intProp"))
+        assertEquals(9L, instance.getPropertyByKey("longProp"))
+        assertEquals(3.0f, instance.getPropertyByKey("floatProp"))
+        assertEquals(5.0, instance.getPropertyByKey("doubleProp"))
+    }
+
+    @Test
+    fun `setPropertyByKey coerces a Double into an optional boxed int field`() {
+        // Optional (nullable) numeric fields are stored as boxed wrappers and previously
+        // went through `CHECKCAST java/lang/Integer` as well.
+        val data = singleClassMetamodel(properties = listOf(
+            PropertyData(name = "age", primitiveType = "int", multiplicity = MultiplicityData.optional())
+        ))
+        val mm = Metamodel.compile(data)
+        val instance = mm.createInstance("Thing")
+
+        assertDoesNotThrow { instance.setPropertyByKey("age", 12.0) }
+        assertEquals(12, instance.getPropertyByKey("age"))
+    }
+
+    @Test
     fun `class with multi-valued string property compiles`() {
         val data = singleClassMetamodel(properties = listOf(
             PropertyData(name = "tags", primitiveType = "string", multiplicity = MultiplicityData.many())
