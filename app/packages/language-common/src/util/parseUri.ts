@@ -79,6 +79,20 @@ export interface ExecutionResultFileParsedUri extends BaseParsedUri {
 export type ParsedUri = RegularFileParsedUri | ExecutionSummaryParsedUri | ExecutionResultFileParsedUri;
 
 /**
+ * Extracts the project ID from a URI path.
+ *
+ * File URIs encode their owning project as the first path segment
+ * (`/{projectId}/files/...` or `/{projectId}/executions/...`).
+ *
+ * @param path The URI path (e.g. `uri.path`)
+ * @returns The project ID, or undefined if the path has no leading segment
+ */
+export function getProjectIdFromPath(path: string): string | undefined {
+    const projectId = path.substring(1).split("/")[0];
+    return projectId ? projectId : undefined;
+}
+
+/**
  * Parse a URI into projectId, path, and file category.
  * Supports three formats:
  * - schema://projectId/files/path (regular files)
