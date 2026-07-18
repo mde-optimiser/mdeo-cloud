@@ -123,6 +123,31 @@ class VariableScope(
     fun getAllLocalBindings(): Map<String, VariableBinding> {
         return bindings.toMap()
     }
+
+    /**
+     * Returns the binding for [name] declared in this scope only (not parent scopes),
+     * or null if it is not declared locally.
+     *
+     * @param name The name of the variable.
+     * @return The local [VariableBinding], or null.
+     */
+    fun getLocalBinding(name: String): VariableBinding? {
+        return bindings[name]
+    }
+
+    /**
+     * Finds the nearest scope in the parent chain (starting from this scope) that declares
+     * [name] locally.
+     *
+     * Used by variable reassignment to locate the scope that owns a variable so the updated
+     * value can be written back there rather than shadowed in an inner scope.
+     *
+     * @param name The name of the variable.
+     * @return The [VariableScope] that declares [name], or null if no scope declares it.
+     */
+    fun findDeclaringScope(name: String): VariableScope? {
+        return if (bindings.containsKey(name)) this else parent?.findDeclaringScope(name)
+    }
     
     /**
      * Creates a new scope with an additional variable binding.

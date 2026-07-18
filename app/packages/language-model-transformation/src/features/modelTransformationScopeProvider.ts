@@ -14,9 +14,18 @@ import {
     PatternObjectInstanceDelete,
     PatternPropertyAssignment,
     PatternLinkEnd,
+    PatternVariable,
+    PatternVariableReassignment,
+    MatchStatement,
+    UntilMatchStatement,
+    WhileMatchStatement,
+    ForMatchStatement,
+    IfMatchConditionAndBlock,
     type PatternObjectInstanceType,
     type PatternPropertyAssignmentType,
     type PatternLinkEndType,
+    type PatternVariableType,
+    type PatternType,
     ModelTransformation,
     PatternObjectInstanceReference,
     type PatternObjectInstanceReferenceType
@@ -109,8 +118,148 @@ export class ModelTransformationLangiumScopeProvider extends DefaultScopeProvide
         ) {
             return this.getObjectInstancesScope(referenceInfo);
         }
+        if (
+            referenceInfo.property === "variable" &&
+            this.astReflection.isInstance(referenceInfo.container, PatternVariableReassignment)
+        ) {
+            return this.getReassignableVariableScope(referenceInfo);
+        }
 
         return EMPTY_SCOPE;
+    }
+
+    /**
+     * Gets the scope for the left-hand side of a pattern variable reassignment
+     * (`name = expression`). The target must be a {@link PatternVariable} declared in an
+     * enclosing scope, so this returns all variables lexically visible at the reassignment:
+     * variables declared earlier in the same pattern, in preceding match/until statements at
+     * every enclosing statement block, and in the patterns of enclosing while/until/for-match
+     * and if-match statements whose block contains the reassignment.
+     *
+     * The visibility rules mirror those of the type-system scope provider so that the value
+     * expression and the reassignment target resolve against the same set of variables.
+     *
+     * @param referenceInfo The reference context.
+     * @returns A scope containing all reassignable variables, innermost declarations first.
+     */
+    private getReassignableVariableScope(referenceInfo: ReferenceInfo): Scope {
+        const variables = this.collectVisibleReassignmentVariables(referenceInfo.container);
+
+        const seen = new Set<string>();
+        const deduped: PatternVariableType[] = [];
+        for (const variable of variables) {
+            const name = variable.name;
+            if (name != undefined && !seen.has(name)) {
+                seen.add(name);
+                deduped.push(variable);
+            }
+        }
+
+        return this.createScopeForNodes(deduped);
+    }
+
+    /**
+     * Collects all pattern variables lexically visible at a reassignment, ordered from the
+     * innermost (same-pattern) declarations outward, so callers can resolve name shadowing by
+     * keeping the first occurrence of each name.
+     *
+     * @param reassignment The reassignment node whose target is being resolved.
+     * @returns The visible pattern variables, innermost first.
+     */
+    private collectVisibleReassignmentVariables(reassignment: AstNode): PatternVariableType[] {
+        const result: PatternVariableType[] = [];
+
+        const pattern = reassignment.$container as PatternType | undefined;
+        if (pattern == undefined) {
+            return result;
+        }
+
+        // Variables declared earlier in the same pattern are already available.
+        for (const element of pattern.elements ?? []) {
+            if (element === reassignment) {
+                break;
+            }
+            if (this.astReflection.isInstance(element, PatternVariable)) {
+                result.push(element as PatternVariableType);
+            }
+        }
+
+        // Walk up the container chain, collecting variables from enclosing scopes.
+        let child: AstNode = pattern;
+        let container: AstNode | undefined = pattern.$container;
+        while (container != undefined) {
+            this.collectVariablesFromContainer(container, child, result);
+            child = container;
+            container = container.$container;
+        }
+
+        return result;
+    }
+
+    /**
+     * Adds the variables that a single container contributes to the scope of a descendant
+     * reached through [child].
+     *
+     * - while/until/for-match statements expose their pattern's variables to their `do` block.
+     * - if-match conditions expose their pattern's variables to their `then` block.
+     * - statement lists (the root transformation and nested blocks) expose the variables of
+     *   every preceding match/until-match statement, matching sequential execution order.
+     *
+     * @param container The container being inspected.
+     * @param child The descendant node the walk ascended from.
+     * @param result The accumulator for visible variables.
+     */
+    private collectVariablesFromContainer(container: AstNode, child: AstNode, result: PatternVariableType[]): void {
+        if (
+            this.astReflection.isInstance(container, WhileMatchStatement) ||
+            this.astReflection.isInstance(container, UntilMatchStatement) ||
+            this.astReflection.isInstance(container, ForMatchStatement)
+        ) {
+            const matchLoop = container as unknown as { pattern?: PatternType; doBlock?: AstNode };
+            if (child === matchLoop.doBlock) {
+                this.addPatternVariables(matchLoop.pattern, result);
+            }
+            return;
+        }
+
+        if (this.astReflection.isInstance(container, IfMatchConditionAndBlock)) {
+            const ifMatch = container as unknown as { pattern?: PatternType; thenBlock?: AstNode };
+            if (child === ifMatch.thenBlock) {
+                this.addPatternVariables(ifMatch.pattern, result);
+            }
+            return;
+        }
+
+        const statements = (container as { statements?: unknown }).statements;
+        if (!Array.isArray(statements)) {
+            return;
+        }
+
+        const childIndex = statements.indexOf(child);
+        const upperBound = childIndex < 0 ? statements.length : childIndex;
+        for (let i = 0; i < upperBound; i++) {
+            const statement = statements[i] as AstNode;
+            if (
+                this.astReflection.isInstance(statement, MatchStatement) ||
+                this.astReflection.isInstance(statement, UntilMatchStatement)
+            ) {
+                this.addPatternVariables((statement as { pattern?: PatternType }).pattern, result);
+            }
+        }
+    }
+
+    /**
+     * Appends all {@link PatternVariable} declarations of a pattern to the accumulator.
+     *
+     * @param pattern The pattern whose variables should be collected (may be undefined).
+     * @param result The accumulator for visible variables.
+     */
+    private addPatternVariables(pattern: PatternType | undefined, result: PatternVariableType[]): void {
+        for (const element of pattern?.elements ?? []) {
+            if (this.astReflection.isInstance(element, PatternVariable)) {
+                result.push(element as PatternVariableType);
+            }
+        }
     }
 
     /**

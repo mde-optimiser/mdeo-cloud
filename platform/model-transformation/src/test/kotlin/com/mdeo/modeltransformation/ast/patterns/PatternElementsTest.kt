@@ -491,6 +491,20 @@ class PatternElementsTest {
     }
     
     @Test
+    fun `deserialize TypedPatternVariableReassignmentElement`() {
+        val jsonString = """{
+            "kind": "variableReassignment",
+            "reassignment": {"name": "counter", "value": {"kind": "intLiteral", "evalType": 0, "value": "7"}}
+        }"""
+        val result = json.decodeFromString(TypedPatternElementSerializer, jsonString)
+
+        assertIs<TypedPatternVariableReassignmentElement>(result)
+        assertEquals("variableReassignment", result.kind)
+        assertEquals("counter", result.reassignment.name)
+        assertIs<TypedIntLiteralExpression>(result.reassignment.value)
+    }
+
+    @Test
     fun `deserialize TypedPatternObjectInstanceElement`() {
         val jsonString = """{
             "kind": "objectInstance",

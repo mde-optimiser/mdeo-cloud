@@ -28,6 +28,18 @@ data class TypedPatternVariableElement(
 ) : TypedPatternElement
 
 /**
+ * Pattern element containing a variable reassignment.
+ *
+ * @param kind Always "variableReassignment" for this element type.
+ * @param reassignment The variable reassignment.
+ */
+@Serializable
+data class TypedPatternVariableReassignmentElement(
+    override val kind: String = "variableReassignment",
+    val reassignment: TypedPatternVariableReassignment
+) : TypedPatternElement
+
+/**
  * Pattern element containing an object instance definition.
  *
  * @param kind Always "objectInstance" for this element type.

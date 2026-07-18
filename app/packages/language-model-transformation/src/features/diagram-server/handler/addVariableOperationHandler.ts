@@ -25,6 +25,17 @@ const { GrammarUtils } = sharedImport("langium");
 export const NEW_VARIABLE_LABEL_PREFIX = "__new-label-variable-";
 
 /**
+ * Prefix used to build unique IDs for new-reassignment placeholder labels.
+ * The full label ID is `${NEW_VARIABLE_REASSIGNMENT_LABEL_PREFIX}${matchNodeId}`.
+ *
+ * A reassignment placeholder reuses the variable-label element type and the
+ * {@link AddVariableOperation} for insertion (its text is inserted into the pattern
+ * verbatim), so only the ID prefix distinguishes it — the label-edit validator uses the
+ * prefix to validate the in-progress text as `name = expression` rather than a declaration.
+ */
+export const NEW_VARIABLE_REASSIGNMENT_LABEL_PREFIX = "__new-label-variable-reassignment-";
+
+/**
  * Handler for adding variable declarations on match nodes.
  */
 @injectable()
@@ -90,7 +101,17 @@ export class AddVariableOperationHandler extends BaseOperationHandler implements
                 label: "Add Variable",
                 icon: "variable-plus",
                 sortString: "c",
-                action: this.buildInsertVariableAction(element)
+                action: this.buildInsertVariableAction(element, `${NEW_VARIABLE_LABEL_PREFIX}${element.id}`)
+            },
+            {
+                id: `add-variable-reassignment-${element.id}`,
+                label: "Add Variable Assignment",
+                icon: "equal",
+                sortString: "d",
+                action: this.buildInsertVariableAction(
+                    element,
+                    `${NEW_VARIABLE_REASSIGNMENT_LABEL_PREFIX}${element.id}`
+                )
             }
         ];
     }
@@ -99,12 +120,17 @@ export class AddVariableOperationHandler extends BaseOperationHandler implements
      * Builds an {@link InsertNewLabelAction} for inserting a new variable label on the
      * given match node.
      *
+     * Both variable declarations and reassignments use this builder: they share the variable
+     * label element type, the variables compartment, and the {@link AddVariableOperation} used
+     * on commit. Only [labelId] differs (via its prefix), which lets the label-edit validator
+     * validate the in-progress text as a declaration or a reassignment.
+     *
      * @param element The match-node GModel element.
+     * @param labelId The placeholder label ID (its prefix selects declaration vs. reassignment).
      * @returns The {@link InsertNewLabelAction} to dispatch.
      */
-    private buildInsertVariableAction(element: GModelElement): InsertNewLabelAction {
+    private buildInsertVariableAction(element: GModelElement, labelId: string): InsertNewLabelAction {
         const nodeId = element.id;
-        const labelId = `${NEW_VARIABLE_LABEL_PREFIX}${nodeId}`;
 
         const label = GVariableLabel.builder()
             .id(labelId)

@@ -5,6 +5,7 @@ import com.mdeo.metamodel.data.MetamodelData
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternLinkElement
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternObjectInstance
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternObjectInstanceElement
+import com.mdeo.modeltransformation.ast.patterns.TypedPatternVariable
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternVariableElement
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternWhereClauseElement
 import com.mdeo.modeltransformation.runtime.match.ExpressionNodeAnalyzer
@@ -39,7 +40,13 @@ internal data class PendingCondition(
  * @property instances Merged list of all main-pattern (matchable + delete) instance
  *           elements, deduplicated by name.
  * @property links All main-pattern link elements (matchable + delete).
- * @property variables All pattern variable elements.
+ * @property variables All pattern variable elements. Reassignments (`name = value` for a
+ *           variable declared in an enclosing scope) are represented here as synthetic
+ *           variable elements so they participate in dependency ordering; their names are
+ *           additionally recorded in [reassignedNames].
+ * @property reassignedNames Names of variables that are reassigned (rather than declared)
+ *           in this pattern. These are a subset of [variableNames] and drive the
+ *           reassignment-specific emission (label flip + write-back).
  * @property whereClauses All where-clause filter elements.
  * @property referencedInstances Names of instances referenced from expressions that are
  *           not themselves matchable (e.g. context objects bound by the caller).
@@ -70,6 +77,7 @@ internal class MatchPlanGraph(
     val instances: List<TypedPatternObjectInstanceElement>,
     val links: List<TypedPatternLinkElement>,
     val variables: List<TypedPatternVariableElement>,
+    val reassignedNames: Set<String>,
     val whereClauses: List<TypedPatternWhereClauseElement>,
     val referencedInstances: Set<String>,
     val conditions: List<PendingCondition>,
@@ -258,7 +266,18 @@ internal class MatchPlanGraph(
             val instances = mergeInstancesByName(elements.matchableInstances + elements.deleteInstances)
             val links = elements.matchableLinks + elements.deleteLinks
             val matchableNames = instances.map { it.objectInstance.name }.toSet()
-            val variableNames = elements.variables.map { it.variable.name }.toSet()
+
+            // Represent reassignments as synthetic variable elements so they participate in
+            // the same dependency-ordering machinery as variable declarations. Their names
+            // are recorded separately so the builder can emit reassignment-flavoured steps.
+            val reassignedNames = elements.variableReassignments.map { it.reassignment.name }.toSet()
+            val reassignmentVars = elements.variableReassignments.map { el ->
+                TypedPatternVariableElement(
+                    variable = TypedPatternVariable(name = el.reassignment.name, value = el.reassignment.value)
+                )
+            }
+            val variables = elements.variables + reassignmentVars
+            val variableNames = variables.map { it.variable.name }.toSet()
 
             val forbidIslands = buildIslandsIncludingOrphanLinks(elements.forbidInstances, elements.forbidLinks, matchableNames)
             val requireIslands = buildIslandsIncludingOrphanLinks(elements.requireInstances, elements.requireLinks, matchableNames)
@@ -268,13 +287,14 @@ internal class MatchPlanGraph(
             return MatchPlanGraph(
                 instances = instances,
                 links = links,
-                variables = elements.variables,
+                variables = variables,
+                reassignedNames = reassignedNames,
                 whereClauses = elements.whereClauses,
                 referencedInstances = referencedInstances,
                 conditions = conditions,
                 forbidIslands = forbidIslands,
-                variableNodeDeps = computeVariableNodeDeps(elements.variables, variableNames, nodeAnalyzer),
-                variableVarDeps = computeVariableVarDeps(elements.variables, variableNames, nodeAnalyzer),
+                variableNodeDeps = computeVariableNodeDeps(variables, variableNames, nodeAnalyzer),
+                variableVarDeps = computeVariableVarDeps(variables, variableNames, nodeAnalyzer),
                 instancePriorities = computeInstancePriorities(instances, elements.requireInstances, links, elements.requireLinks, pseudoCompositionDag),
                 injectivePairs = computeInjectivePairs(instances),
                 metamodelData = metamodelData,

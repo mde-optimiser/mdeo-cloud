@@ -8,6 +8,7 @@ import {
     PatternPropertyAssignment,
     WhereClause,
     PatternVariable,
+    PatternVariableReassignment,
     PatternLink,
     IfExpressionStatement,
     WhileExpressionStatement,
@@ -16,6 +17,7 @@ import {
     type PatternPropertyAssignmentType,
     type WhereClauseType,
     type PatternVariableType,
+    type PatternVariableReassignmentType,
     type PatternLinkType,
     type IfExpressionStatementType,
     type WhileExpressionStatementType,
@@ -25,6 +27,7 @@ import {
     parseInstanceLabel,
     parseModelTransformationPropertyLabel,
     parseVariableLabel,
+    parseVariableReassignmentLabel,
     extractWhereClauseExpression
 } from "../modelTransformationLabelParseUtils.js";
 
@@ -71,6 +74,9 @@ export class ModelTransformationApplyLabelEditOperationHandler extends BaseApply
         }
         if (this.reflection.isInstance(node, PatternVariable)) {
             return await this.createVariableEdit(node as PatternVariableType, operation.text);
+        }
+        if (this.reflection.isInstance(node, PatternVariableReassignment)) {
+            return await this.createVariableReassignmentEdit(node as PatternVariableReassignmentType, operation.text);
         }
         if (this.reflection.isInstance(node, IfExpressionStatement)) {
             return await this.createIfConditionEdit(node as IfExpressionStatementType, operation.text);
@@ -244,6 +250,50 @@ export class ModelTransformationApplyLabelEditOperationHandler extends BaseApply
             if (renameEdit != undefined) {
                 edits.push(renameEdit);
             }
+        }
+
+        const valueNode = GrammarUtils.findNodeForProperty(node.$cstNode, "value");
+        if (valueNode != undefined) {
+            edits.push(await this.replaceCstNode(valueNode, parsed.value));
+        }
+
+        return this.mergeWorkspaceEdits(edits);
+    }
+
+    /**
+     * Creates a workspace edit for updating a variable reassignment (`name = expr`).
+     * Parses the label to extract the target variable name and value expression.
+     * Because the name is a reference to an already-declared variable (not a declaration),
+     * it is replaced as plain reference text rather than renamed across the file; the value
+     * expression is replaced as plain text with no further validation.
+     *
+     * @param node The PatternVariableReassignment AST node
+     * @param text The new label text in `name = expr` format
+     * @returns The workspace edit, or undefined if the text cannot be parsed
+     */
+    private async createVariableReassignmentEdit(
+        node: PatternVariableReassignmentType,
+        text: string
+    ): Promise<WorkspaceEdit | undefined> {
+        if (text.trim().length === 0) {
+            if (node.$cstNode == undefined) {
+                return undefined;
+            }
+            return this.deleteCstNode(node.$cstNode);
+        }
+
+        const parsed = parseVariableReassignmentLabel(text);
+        if (parsed == undefined) {
+            return undefined;
+        }
+
+        const edits: WorkspaceEdit[] = [];
+
+        const variableNode = GrammarUtils.findNodeForProperty(node.$cstNode, "variable");
+        if (variableNode != undefined) {
+            const serializer = this.modelState.languageServices.AstSerializer;
+            const serializedName = serializer.serializePrimitive({ value: parseIdentifier(parsed.name) }, ID);
+            edits.push(await this.replaceCstNode(variableNode, serializedName));
         }
 
         const valueNode = GrammarUtils.findNodeForProperty(node.$cstNode, "value");

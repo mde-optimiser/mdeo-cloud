@@ -74,6 +74,30 @@ export function parseVariableLabel(label: string): { name: string; value: string
 }
 
 /**
+ * Parses a variable reassignment label in `name = expr` format.
+ *
+ * Unlike {@link parseVariableLabel}, a reassignment has no `var` keyword and no type
+ * annotation: the name refers to an already-declared variable and only the assigned
+ * expression is edited. A leading `var ` is rejected so that declarations are not mistaken
+ * for reassignments.
+ *
+ * @param label The label text to parse
+ * @returns The parsed name and value expression, or undefined if the format is invalid
+ */
+export function parseVariableReassignmentLabel(label: string): { name: string; value: string } | undefined {
+    if (label.startsWith("var ")) {
+        return undefined;
+    }
+    const eqIndex = findAssignmentIndex(label);
+    if (eqIndex === -1) {
+        return undefined;
+    }
+    const name = label.substring(0, eqIndex).trim();
+    const value = label.substring(eqIndex + 1).trim();
+    return name.length > 0 && value.length > 0 ? { name, value } : undefined;
+}
+
+/**
  * All multi-character comparison operators, checked longest-first so that
  * `<=` is found before a bare `<`, etc.
  */

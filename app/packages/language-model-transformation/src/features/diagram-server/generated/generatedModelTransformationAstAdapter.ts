@@ -262,6 +262,14 @@ function convertPatternElement(
         };
     }
 
+    if (element.kind === "variableReassignment") {
+        return {
+            $type: "PatternVariableReassignment",
+            variable: { $refText: element.reassignment.name },
+            value: expressionNode(element.reassignment.value)
+        };
+    }
+
     if (element.kind === "objectInstance") {
         return convertTypedPatternObjectInstance(element.objectInstance, localInstances, resolvedLinkInstances);
     }

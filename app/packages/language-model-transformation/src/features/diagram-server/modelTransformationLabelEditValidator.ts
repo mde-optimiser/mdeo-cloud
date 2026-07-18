@@ -7,6 +7,7 @@ import {
     PatternObjectInstanceReference,
     PatternPropertyAssignment,
     PatternVariable,
+    PatternVariableReassignment,
     type PatternObjectInstanceType,
     type PatternPropertyAssignmentType,
     type PatternVariableType
@@ -14,10 +15,14 @@ import {
 import {
     parseInstanceLabel,
     parseVariableLabel,
+    parseVariableReassignmentLabel,
     parseModelTransformationPropertyLabel as parsePropertyLabel
 } from "./modelTransformationLabelParseUtils.js";
 import { NEW_PROPERTY_COMPARISON_LABEL_PREFIX } from "./handler/addPropertyValueComparisonOperationHandler.js";
-import { NEW_VARIABLE_LABEL_PREFIX } from "./handler/addVariableOperationHandler.js";
+import {
+    NEW_VARIABLE_LABEL_PREFIX,
+    NEW_VARIABLE_REASSIGNMENT_LABEL_PREFIX
+} from "./handler/addVariableOperationHandler.js";
 import { NEW_WHERE_CLAUSE_LABEL_PREFIX } from "./handler/addWhereClauseOperationHandler.js";
 
 const { injectable, inject } = sharedImport("inversify");
@@ -95,6 +100,13 @@ export class ModelTransformationLabelEditValidator extends BaseLabelEditValidato
             const sepIdx = rest.indexOf("__");
             const nodeId = sepIdx >= 0 ? rest.substring(0, sepIdx) : rest;
             return this.validatePropertyLabelForNode(text, nodeId) ?? ValidationStatus.NONE;
+        }
+        // The reassignment prefix extends the variable prefix, so it must be checked first.
+        if (modelElementId.startsWith(NEW_VARIABLE_REASSIGNMENT_LABEL_PREFIX)) {
+            if (text.trim().length === 0) {
+                return ValidationStatus.NONE;
+            }
+            return this.validateVariableReassignmentLabel(text) ?? ValidationStatus.NONE;
         }
         if (modelElementId.startsWith(NEW_VARIABLE_LABEL_PREFIX)) {
             return this.validateNewVariableLabel(text) ?? ValidationStatus.NONE;
@@ -324,6 +336,11 @@ export class ModelTransformationLabelEditValidator extends BaseLabelEditValidato
             return undefined;
         }
 
+        const astNode = this.index.getAstNode(element);
+        if (astNode != undefined && this.reflection.isInstance(astNode, PatternVariableReassignment)) {
+            return this.validateVariableReassignmentLabel(label);
+        }
+
         const parsed = parseVariableLabel(label);
         if (parsed == undefined) {
             return this.error("Invalid variable format. Expected: var name[: type] = expression");
@@ -339,7 +356,6 @@ export class ModelTransformationLabelEditValidator extends BaseLabelEditValidato
         }
 
         const trimmedName = parsed.name.trim();
-        const astNode = this.index.getAstNode(element);
         const currentName =
             astNode != undefined && this.reflection.isInstance(astNode, PatternVariable)
                 ? (astNode as PatternVariableType).name
@@ -349,6 +365,34 @@ export class ModelTransformationLabelEditValidator extends BaseLabelEditValidato
             if (this.nameExistsElsewhere(trimmedName, currentName)) {
                 return this.error(`A variable or instance named '${trimmedName}' already exists.`);
             }
+        }
+
+        return undefined;
+    }
+
+    /**
+     * Validates a variable reassignment label (`name = expression`).
+     *
+     * Unlike a declaration, the name refers to an already-declared variable, so no uniqueness
+     * check is performed — the name is expected to collide with an existing declaration. Only
+     * the `name = expression` format and the identifier validity of the name are checked.
+     *
+     * @param label The label text to validate
+     * @returns A validation status if invalid, undefined if valid
+     */
+    private validateVariableReassignmentLabel(label: string): ValidationStatusType | undefined {
+        const parsed = parseVariableReassignmentLabel(label);
+        if (parsed == undefined) {
+            return this.error("Invalid reassignment format. Expected: name = expression");
+        }
+
+        const nameValidation = this.validateRawIdentifier(parsed.name, "Variable name");
+        if (nameValidation != undefined) {
+            return nameValidation;
+        }
+
+        if (parsed.value.trim().length === 0) {
+            return this.error("Reassignment value expression cannot be empty.");
         }
 
         return undefined;

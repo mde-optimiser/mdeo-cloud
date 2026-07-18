@@ -7,6 +7,7 @@ import {
     PatternModifier,
     StopStatement,
     PatternVariable,
+    PatternVariableReassignment,
     PatternPropertyAssignment,
     PatternObjectInstance,
     PatternObjectInstanceDelete,
@@ -32,6 +33,7 @@ import {
     type PatternModifierType,
     type StopStatementType,
     type PatternVariableType,
+    type PatternVariableReassignmentType,
     type PatternPropertyAssignmentType,
     type PatternObjectInstanceType,
     type PatternObjectInstanceDeleteType,
@@ -97,6 +99,7 @@ export function registerModelTransformationSerializers(services: ModelTransforma
 
     AstSerializer.registerNodeSerializer(PatternModifier, (ctx) => printPatternModifier(ctx));
     AstSerializer.registerNodeSerializer(PatternVariable, (ctx) => printPatternVariable(ctx));
+    AstSerializer.registerNodeSerializer(PatternVariableReassignment, (ctx) => printPatternVariableReassignment(ctx));
     AstSerializer.registerNodeSerializer(PatternPropertyAssignment, (ctx) => printPatternPropertyAssignment(ctx));
     AstSerializer.registerNodeSerializer(PatternObjectInstance, (ctx) => printPatternObjectInstance(ctx));
     AstSerializer.registerNodeSerializer(PatternObjectInstanceReference, (ctx) =>
@@ -144,6 +147,19 @@ function printPatternVariable(context: PrintContext<PatternVariableType>): Doc {
 
     docs.push(" = ", path.call(print, "value"));
     return docs;
+}
+
+/**
+ * Prints a pattern variable reassignment node.
+ *
+ * @param context The print context.
+ * @returns The formatted reassignment (`name = value`).
+ */
+function printPatternVariableReassignment(context: PrintContext<PatternVariableReassignmentType>): Doc {
+    const { path, print, printReference } = context;
+    const name = path.call((ref) => printReference(ref, ID), "variable");
+    const value = path.call(print, "value");
+    return [name, " = ", value];
 }
 
 /**

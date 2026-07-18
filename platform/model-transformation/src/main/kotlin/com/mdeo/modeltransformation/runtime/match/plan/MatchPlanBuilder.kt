@@ -652,7 +652,11 @@ internal class MatchPlanBuilder(
                 nodeDeps.forEach { resolve(it) }
                 val varDeps = graph.variableVarDeps[name] ?: emptySet()
                 varDeps.forEach { resolve(it) }
-                baseSteps.add(BaseStep.VariableBinding(varEl, VariableBinding.variableLabel(name)))
+                baseSteps.add(BaseStep.VariableBinding(
+                    varEl,
+                    VariableBinding.variableLabel(name),
+                    isReassignment = name in graph.reassignedNames
+                ))
                 emittedVariables.add(name)
                 pendingVariables.remove(varEl)
                 currentNode = null

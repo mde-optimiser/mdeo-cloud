@@ -120,10 +120,17 @@ internal sealed class BaseStep {
      * Bind a pattern variable's computed value and label it.
      *
      * Translated to `.map(compiledExpression).as(variableLabel)`.
+     *
+     * When [isReassignment] is true this step reassigns a variable declared in an enclosing
+     * scope rather than declaring a new one. The value expression is compiled against the
+     * variable's incoming (old) binding, and — immediately after the `.as(variableLabel)` is
+     * emitted — the declaring scope's binding is flipped to a label binding so that later
+     * accesses within the same match block observe the new value.
      */
     data class VariableBinding(
         val variable: TypedPatternVariableElement,
-        val variableLabel: String
+        val variableLabel: String,
+        val isReassignment: Boolean = false
     ) : BaseStep()
 
     /**

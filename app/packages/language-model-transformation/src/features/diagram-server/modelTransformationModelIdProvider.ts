@@ -20,6 +20,7 @@ import {
     PatternPropertyAssignment,
     WhereClause,
     PatternVariable,
+    PatternVariableReassignment,
     ElseIfBranch,
     type PatternObjectInstanceType,
     type PatternObjectInstanceReferenceType,
@@ -29,6 +30,7 @@ import {
     type PatternPropertyAssignmentType,
     type WhereClauseType,
     type PatternVariableType,
+    type PatternVariableReassignmentType,
     type PatternType
 } from "../../grammar/modelTransformationTypes.js";
 import type { AstReflection } from "@mdeo/language-common";
@@ -89,6 +91,9 @@ export class ModelTransformationModelIdProvider extends BaseModelIdProvider {
         }
         if (this.reflection.isInstance(node, PatternVariable)) {
             return this.getPatternVariableName(node);
+        }
+        if (this.reflection.isInstance(node, PatternVariableReassignment)) {
+            return this.getPatternVariableReassignmentName(node);
         }
 
         if (this.reflection.isInstance(node, ElseIfBranch)) {
@@ -346,6 +351,19 @@ export class ModelTransformationModelIdProvider extends BaseModelIdProvider {
      */
     private getPatternVariableName(node: PatternVariableType): string {
         return BaseModelIdProvider.escapeIdPart(node.name ?? "unnamed");
+    }
+
+    /**
+     * Generates a name for a {@link PatternVariableReassignment} based on the name of the
+     * variable it targets. Prefixed with `reassign_` to keep it distinct from the declaration
+     * of the same variable within the same pattern-id namespace.
+     *
+     * @param node The pattern variable reassignment node
+     * @returns The reassignment's target name, or "unnamed" if absent
+     */
+    private getPatternVariableReassignmentName(node: PatternVariableReassignmentType): string {
+        const name = node.variable?.$refText ?? node.variable?.ref?.name ?? "unnamed";
+        return `reassign_${BaseModelIdProvider.escapeIdPart(name)}`;
     }
 
     /**

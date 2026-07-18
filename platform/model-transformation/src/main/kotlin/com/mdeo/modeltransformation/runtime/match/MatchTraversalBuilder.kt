@@ -436,6 +436,14 @@ internal class MatchTraversalBuilder(
      * Compiles [step]'s expression against the anchor and emits
      * `.map(compiledExpression).as(variableLabel)` to bind the result.
      *
+     * For a reassignment ([BaseStep.VariableBinding.isReassignment]), the value expression is
+     * compiled first — while the variable's declaring scope still holds its incoming (old)
+     * value, so a self-reference such as `x = x + 1` reads the old value — and then the
+     * declaring scope's binding is flipped to a [VariableBinding.LabelBinding] pointing at
+     * [step]'s label. Because the reassignment step is ordered before any consumer that
+     * references the variable, subsequent accesses within the same match block resolve to the
+     * new (reassigned) value.
+     *
      * @param t The traversal to extend.
      * @param step The variable-binding step to apply.
      * @return The extended traversal.
@@ -449,7 +457,13 @@ internal class MatchTraversalBuilder(
         val result: CompilationResult = engine.expressionCompilerRegistry.compile(
             step.variable.variable.value, compilationContext, anchorTraversal
         )
-        return t.map(result.traversal).`as`(step.variableLabel) as GraphTraversal<Vertex, Vertex>
+        val bound = t.map(result.traversal).`as`(step.variableLabel) as GraphTraversal<Vertex, Vertex>
+        if (step.isReassignment) {
+            val name = step.variable.variable.name
+            expressionSupport.context.variableScope.findDeclaringScope(name)
+                ?.setBinding(name, VariableBinding.LabelBinding(step.variableLabel))
+        }
+        return bound
     }
 
     /**

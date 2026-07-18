@@ -14,6 +14,7 @@ import type { ValidationProblemAcceptor, Type } from "typir";
 import {
     LambdaExpression,
     PatternVariable,
+    PatternVariableReassignment,
     PatternPropertyAssignment,
     IfExpressionStatement,
     ElseIfBranch,
@@ -87,6 +88,7 @@ export class ModelTransformationPartialTypeSystem extends PartialTypeSystem<
         this.registerLambdaValidationRule();
         this.registerPatternVariableInferenceRule();
         this.registerPatternVariableValidationRule();
+        this.registerPatternVariableReassignmentValidationRule();
         this.registerIdentifierExpressionValidationRule();
         this.registerPatternPropertyAssignmentValidationRule();
         this.registerControlFlowValidationRules();
@@ -318,6 +320,36 @@ export class ModelTransformationPartialTypeSystem extends PartialTypeSystem<
                 accept({
                     languageNode: node,
                     message: `Value type '${valueType.getName()}' is not assignable to declared type '${declaredType.getName()}'.`,
+                    severity: "error"
+                });
+            }
+        });
+    }
+
+    /**
+     * Registers the validation rule for pattern variable reassignments.
+     * Validates that the assigned value's type is assignable to the type of the variable
+     * being reassigned. The variable's type is the one it was declared with (or inferred from
+     * its declaration), so a reassignment cannot change the variable's type.
+     */
+    private registerPatternVariableReassignmentValidationRule(): void {
+        this.registerValidationRule(PatternVariableReassignment, (node, accept) => {
+            const variableRef = node.variable?.ref;
+            if (node.value == undefined || variableRef == undefined) {
+                return;
+            }
+
+            const valueType = this.inference.inferType(node.value);
+            const variableType = this.inference.inferType(variableRef);
+
+            if (Array.isArray(valueType) || Array.isArray(variableType)) {
+                return;
+            }
+
+            if (!this.assignability.isAssignable(valueType, variableType)) {
+                accept({
+                    languageNode: node,
+                    message: `Value type '${valueType.getName()}' is not assignable to variable type '${variableType.getName()}'.`,
                     severity: "error"
                 });
             }

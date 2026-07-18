@@ -70,7 +70,9 @@ internal fun computeVariableVarDeps(
     nodeAnalyzer: ExpressionNodeAnalyzer
 ): Map<String, Set<String>> = variables.associate { varEl ->
     val refs = nodeAnalyzer.findReferencedNodes(varEl.variable.value)
-    varEl.variable.name to refs.filter { it in variableNames }.toSet()
+    // Exclude a self-reference: a reassignment such as `x = x + 1` reads its own incoming
+    // (old) value, which is always already available, so it is never a dependency on itself.
+    varEl.variable.name to refs.filter { it in variableNames && it != varEl.variable.name }.toSet()
 }
 
 /**

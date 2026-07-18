@@ -17,10 +17,12 @@ import {
     type PatternPropertyAssignmentType,
     type PatternObjectInstanceReferenceType,
     type PatternObjectInstanceDeleteType,
+    type PatternVariableReassignmentType,
     PatternObjectInstance,
     PatternLink,
     WhereClause,
     PatternVariable,
+    PatternVariableReassignment,
     PatternObjectInstanceReference,
     PatternObjectInstanceDelete
 } from "../../grammar/modelTransformationTypes.js";
@@ -633,6 +635,19 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
                 varText += ` = ${valueText}`;
 
                 const label = GVariableLabel.builder().id(varId).text(varText).build();
+                variableLabels.push(label);
+            } else if (this.reflection.isInstance(element, PatternVariableReassignment)) {
+                const reassignment = element as PatternVariableReassignmentType;
+                const reassignId = idRegistry.getId(reassignment);
+                const rawName = reassignment.variable?.$refText ?? reassignment.variable?.ref?.name ?? "?";
+                const serializedName = this.modelState.languageServices.AstSerializer.serializePrimitive(
+                    { value: rawName },
+                    ID
+                );
+                const valueText = reassignment.value?.$cstNode?.text ?? "?";
+                const reassignText = `${serializedName} = ${valueText}`;
+
+                const label = GVariableLabel.builder().id(reassignId).text(reassignText).build();
                 variableLabels.push(label);
             }
         }

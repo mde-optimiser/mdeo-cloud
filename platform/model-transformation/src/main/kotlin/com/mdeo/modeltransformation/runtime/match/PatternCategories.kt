@@ -4,6 +4,7 @@ import com.mdeo.modeltransformation.ast.patterns.TypedPattern
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternObjectInstanceElement
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternLinkElement
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternVariableElement
+import com.mdeo.modeltransformation.ast.patterns.TypedPatternVariableReassignmentElement
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternWhereClauseElement
 
 /**
@@ -45,6 +46,7 @@ import com.mdeo.modeltransformation.ast.patterns.TypedPatternWhereClauseElement
  * @property requireInstances Object instances that must exist (positive application condition)
  * @property requireLinks Links that must exist (positive application condition)
  * @property variables Variable definitions for computed values
+ * @property variableReassignments Reassignments of variables declared in enclosing scopes
  * @property whereClauses Boolean expressions constraining the match
  */
 internal data class PatternCategories(
@@ -59,6 +61,7 @@ internal data class PatternCategories(
     val requireInstances: List<TypedPatternObjectInstanceElement>,
     val requireLinks: List<TypedPatternLinkElement>,
     val variables: List<TypedPatternVariableElement>,
+    val variableReassignments: List<TypedPatternVariableReassignmentElement> = emptyList(),
     val whereClauses: List<TypedPatternWhereClauseElement>
 ) {
     /**
@@ -98,8 +101,9 @@ internal data class PatternCategories(
             val requireInstances = mutableListOf<TypedPatternObjectInstanceElement>()
             val requireLinks = mutableListOf<TypedPatternLinkElement>()
             val variables = mutableListOf<TypedPatternVariableElement>()
+            val variableReassignments = mutableListOf<TypedPatternVariableReassignmentElement>()
             val whereClauses = mutableListOf<TypedPatternWhereClauseElement>()
-            
+
             for (element in pattern.elements) {
                 when (element) {
                     is TypedPatternObjectInstanceElement -> categorizeInstance(
@@ -111,14 +115,15 @@ internal data class PatternCategories(
                         forbidLinks, requireLinks
                     )
                     is TypedPatternVariableElement -> variables.add(element)
+                    is TypedPatternVariableReassignmentElement -> variableReassignments.add(element)
                     is TypedPatternWhereClauseElement -> whereClauses.add(element)
                 }
             }
-            
+
             return PatternCategories(
                 matchableInstances, matchableLinks, createInstances, deleteInstances,
                 createLinks, deleteLinks, forbidInstances, forbidLinks,
-                requireInstances, requireLinks, variables, whereClauses
+                requireInstances, requireLinks, variables, variableReassignments, whereClauses
             )
         }
         

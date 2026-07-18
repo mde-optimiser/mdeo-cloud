@@ -15,6 +15,7 @@ import kotlinx.serialization.json.jsonPrimitive
  *
  * Pattern elements include:
  * - variable: Variable declarations within patterns
+ * - variableReassignment: Reassignment of a variable declared in an enclosing scope
  * - objectInstance: Object instance definitions (including delete with modifier)
  * - link: Link definitions between objects
  * - whereClause: Constraint expressions
@@ -36,6 +37,7 @@ object TypedPatternElementSerializer : JsonContentPolymorphicSerializer<TypedPat
         
         return when (kindValue) {
             "variable" -> TypedPatternVariableElement.serializer()
+            "variableReassignment" -> TypedPatternVariableReassignmentElement.serializer()
             "objectInstance" -> TypedPatternObjectInstanceElement.serializer()
             "link" -> TypedPatternLinkElement.serializer()
             "whereClause" -> TypedPatternWhereClauseElement.serializer()

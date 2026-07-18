@@ -56,6 +56,24 @@ export const PatternVariable = createInterface("PatternVariable").attrs({
 export type PatternVariableType = ASTType<typeof PatternVariable>;
 
 /**
+ * Reassignment of a variable declared in an enclosing scope.
+ * Format: name = expression
+ *
+ * Unlike {@link PatternVariable}, this does not declare a new variable; it updates the
+ * value of an already-declared one. Like declarations, the reassignment is performed as
+ * part of the match, before any access in that match block.
+ */
+export const PatternVariableReassignment = createInterface("PatternVariableReassignment").attrs({
+    variable: Ref(() => PatternVariable),
+    value: BaseExpression
+});
+
+/**
+ * Type representing a PatternVariableReassignment AST node.
+ */
+export type PatternVariableReassignmentType = ASTType<typeof PatternVariableReassignment>;
+
+/**
  * Property assignment in a pattern object instance.
  * Uses = for assignment or == for comparison.
  */
@@ -160,6 +178,7 @@ export type WhereClauseType = ASTType<typeof WhereClause>;
  */
 export const PatternElement: BaseType<AstNode> = createType("PatternElement").types(
     PatternVariable,
+    PatternVariableReassignment,
     PatternObjectInstance,
     PatternObjectInstanceDelete,
     PatternLink,

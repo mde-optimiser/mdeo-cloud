@@ -24,6 +24,28 @@ data class TypedPatternVariable(
 )
 
 /**
+ * Reassignment of an already-declared pattern variable within a transformation pattern.
+ *
+ * Unlike [TypedPatternVariable], a reassignment does not declare a new variable; it
+ * updates the value of a variable declared in an enclosing scope (e.g. a variable
+ * declared before a `while` loop). The reassignment is evaluated as part of the match —
+ * "before any access in that match block" — using the incoming (old) value of the
+ * variable for its right-hand side (so `counter = counter + 1` reads the current value
+ * and stores the incremented one). After the match, the new value is written back to the
+ * scope in which the variable was originally declared, so subsequent statements and loop
+ * iterations observe it.
+ *
+ * @param name Name of the variable being reassigned. Must refer to a variable declared in
+ *             an enclosing scope.
+ * @param value The value expression computed and assigned to the variable.
+ */
+@Serializable
+data class TypedPatternVariableReassignment(
+    val name: String,
+    @Contextual val value: TypedExpression
+)
+
+/**
  * Property assignment within a pattern object instance.
  *
  * Represents either an assignment (setting a property value) or a comparison

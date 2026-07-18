@@ -99,6 +99,7 @@ class MatchExecutor {
 
         val analyzer = MatchAnalyzer(context.variableScope)
         elements.variables.forEach { analyzer.analyzeVariable(it) }
+        elements.variableReassignments.forEach { analyzer.analyzeExpression(it.reassignment.value) }
         elements.whereClauses.forEach { analyzer.analyzeWhereClause(it) }
         (elements.matchableInstances + elements.createInstances + elements.deleteInstances)
             .forEach { analyzer.analyzeObjectInstance(it) }
@@ -110,7 +111,8 @@ class MatchExecutor {
         val allMatchable = elements.matchableInstances + elements.deleteInstances
         val matchableNames = allMatchable.map { it.objectInstance.name }.toSet()
 
-        val variableNames = elements.variables.map { it.variable.name }.toSet()
+        val variableNames = elements.variables.map { it.variable.name }.toSet() +
+            elements.variableReassignments.map { it.reassignment.name }.toSet()
         val nodeAnalyzer = ExpressionNodeAnalyzer(matchableNames + variableNames + referencedInstances, context.variableScope.scopeIndex)
 
         val matchPlan = MatchPlanBuilder(
@@ -124,6 +126,17 @@ class MatchExecutor {
             },
             metamodelData = engine.metamodelData
         ).build(elements, referencedInstances)
+
+        // Snapshot the declaring-scope bindings of reassigned variables. Building the
+        // traversal flips them to label bindings (so within-block accesses see the new
+        // value); on a successful match the extractor overwrites them with the computed
+        // value, but on a no-match nothing is extracted, so the originals must be restored.
+        val reassignSnapshots = elements.variableReassignments.mapNotNull { el ->
+            val name = el.reassignment.name
+            context.variableScope.findDeclaringScope(name)?.let { scope ->
+                Triple(name, scope, scope.getLocalBinding(name))
+            }
+        }
 
         val traversal = buildUnifiedTraversal(
             elements, matchPlan,
@@ -140,7 +153,13 @@ class MatchExecutor {
         val allSelectNames = (elements.allInstanceNames + planBoundNames).distinct()
 
         val matchedInstanceNames = allMatchable.map { it.objectInstance.name }
-        return executeTraversalAndExtract(traversal, elements, context, engine, matchedInstanceNames, allSelectNames)
+        val results = executeTraversalAndExtract(traversal, elements, context, engine, matchedInstanceNames, allSelectNames)
+        if (results.isEmpty()) {
+            for ((name, scope, original) in reassignSnapshots) {
+                if (original != null) scope.setBinding(name, original)
+            }
+        }
+        return results
     }
 
     /**
@@ -184,9 +203,17 @@ class MatchExecutor {
         }
         val allSelectNames = (elements.allInstanceNames + planBoundNames).distinct()
 
-        val variableLabels = elements.variables.map { VariableBinding.variableLabel(it.variable.name) }
+        val variableLabels = allVariableLabels(elements)
         return addSelectStep(t, allSelectNames, variableLabels)
     }
+
+    /**
+     * Returns the Gremlin step labels for all bound variables — both declarations and
+     * reassignments — that must be included in the final `select()` and result extraction.
+     */
+    private fun allVariableLabels(elements: PatternCategories): List<String> =
+        elements.variables.map { VariableBinding.variableLabel(it.variable.name) } +
+        elements.variableReassignments.map { VariableBinding.variableLabel(it.reassignment.name) }
 
     /**
      * Applies a `.limit()` step if [limit] is positive.
@@ -247,7 +274,7 @@ class MatchExecutor {
         allSelectNames: List<String>
     ): List<MatchResult.Matched> {
         val instanceNames = elements.allInstanceNames
-        val variableLabels = elements.variables.map { VariableBinding.variableLabel(it.variable.name) }
+        val variableLabels = allVariableLabels(elements)
         val allLabels = allSelectNames + variableLabels
 
         return traversal.toList().map { rawResult ->
@@ -288,6 +315,17 @@ class MatchExecutor {
             val value = result[VariableBinding.variableLabel(varName)]
             bindings[varName] = value
             context.variableScope.setBinding(varName, VariableBinding.ValueBinding(value))
+        }
+
+        // Reassignments write their computed value back to the scope where the variable was
+        // originally declared (not the current match scope), so the update survives the match
+        // scope and is observed by subsequent statements and loop iterations. They are not
+        // added to `bindings`, which would otherwise shadow the variable in the current scope.
+        for (reassignElement in elements.variableReassignments) {
+            val varName = reassignElement.reassignment.name
+            val value = result[VariableBinding.variableLabel(varName)]
+            val declaringScope = context.variableScope.findDeclaringScope(varName) ?: context.variableScope
+            declaringScope.setBinding(varName, VariableBinding.ValueBinding(value))
         }
 
         val instanceMappings = mutableMapOf<String, VertexRef>()

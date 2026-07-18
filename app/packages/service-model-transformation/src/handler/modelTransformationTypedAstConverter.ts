@@ -30,11 +30,14 @@ import {
     type PatternType,
     type TypedPattern,
     type TypedPatternVariableElement,
+    type TypedPatternVariableReassignmentElement,
     type TypedPatternObjectInstanceElement,
     type TypedPatternLinkElement,
     type TypedPatternWhereClauseElement,
     type PatternVariableType,
     type TypedPatternVariable,
+    type PatternVariableReassignmentType,
+    type TypedPatternVariableReassignment,
     type PatternObjectInstanceType,
     type TypedPatternObjectInstance,
     type PatternLinkType,
@@ -53,6 +56,7 @@ import {
     ForMatchStatement,
     MatchStatement,
     PatternVariable,
+    PatternVariableReassignment,
     PatternObjectInstance,
     PatternLink,
     WhereClause,
@@ -291,6 +295,7 @@ export class ModelTransformationTypedAstConverter extends TypedAstConverter {
     private convertPattern(pattern: PatternType): TypedPattern {
         const elements: (
             | TypedPatternVariableElement
+            | TypedPatternVariableReassignmentElement
             | TypedPatternObjectInstanceElement
             | TypedPatternLinkElement
             | TypedPatternWhereClauseElement
@@ -301,6 +306,11 @@ export class ModelTransformationTypedAstConverter extends TypedAstConverter {
                 elements.push({
                     kind: "variable",
                     variable: this.convertPatternVariable(element)
+                });
+            } else if (this.reflection.isInstance(element, PatternVariableReassignment)) {
+                elements.push({
+                    kind: "variableReassignment",
+                    reassignment: this.convertPatternVariableReassignment(element)
                 });
             } else if (this.reflection.isInstance(element, PatternObjectInstance)) {
                 elements.push({
@@ -346,6 +356,21 @@ export class ModelTransformationTypedAstConverter extends TypedAstConverter {
             name: variable.name,
             type: variable.type ? this.getTypeIndex(variable.type) : undefined,
             value: this.convertExpression(variable.value)
+        };
+    }
+
+    /**
+     * Converts a pattern variable reassignment.
+     *
+     * @param reassignment The PatternVariableReassignment AST node
+     * @returns The TypedPatternVariableReassignment representation
+     */
+    private convertPatternVariableReassignment(
+        reassignment: PatternVariableReassignmentType
+    ): TypedPatternVariableReassignment {
+        return {
+            name: reassignment.variable?.$refText ?? "",
+            value: this.convertExpression(reassignment.value)
         };
     }
 
