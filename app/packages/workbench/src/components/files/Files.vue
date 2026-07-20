@@ -38,6 +38,11 @@
                         <FolderIcon />
                         <span>Create New Folder</span>
                     </ContextMenuItem>
+                    <ContextMenuSeparator />
+                    <ContextMenuItem @click="handleDownloadProject">
+                        <DownloadIcon class="size-4 mr-2" />
+                        <span>Download</span>
+                    </ContextMenuItem>
                 </ContextMenuContent>
             </ContextMenu>
         </ScrollArea>
@@ -65,10 +70,11 @@ import { workbenchStateKey } from "../workbench/util";
 import { Uri } from "vscode";
 import { FileType } from "@codingame/monaco-vscode-files-service-override";
 import { findFileInTree } from "@/data/filesystem/util";
-import { FolderIcon } from "lucide-vue-next";
+import { FolderIcon, DownloadIcon } from "lucide-vue-next";
 import FileTypeIcon from "../FileTypeIcon.vue";
 import type { EditorTab } from "@/data/tab/editorTab";
 import { FileCategory, parseUri } from "@mdeo/language-common";
+import { downloadFolderAsZip } from "@/lib/zip";
 
 const workbenchState = inject(workbenchStateKey)!;
 const { fileTree: rootFolder, activeTab, monacoApi, languagePlugins, tabs } = workbenchState;
@@ -189,6 +195,10 @@ function handleCreateFolderFromContext() {
     newItem.value = {
         type: "folder"
     };
+}
+
+async function handleDownloadProject() {
+    await downloadFolderAsZip(monacoApi, rootFolder, rootFolder.name);
 }
 
 const dragAndDropCallbacks: DragAndDropCallbacks = {

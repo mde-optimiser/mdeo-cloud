@@ -103,6 +103,10 @@
                 <Download class="size-4 mr-2" />
                 <span>Download Report</span>
             </ContextMenuItem>
+            <ContextMenuItem v-if="isCompletedSuccessfully" @click="handleDownloadFiles">
+                <Download class="size-4 mr-2" />
+                <span>Download Files</span>
+            </ContextMenuItem>
             <ContextMenuItem v-if="canCancel" @click="handleCancel">
                 <XCircle class="size-4 mr-2" />
                 <span>Cancel</span>
@@ -138,6 +142,7 @@ import ExecutionFileItem from "./ExecutionFileItem.vue";
 import ExecutionStatusIcon from "./ExecutionStatusIcon.vue";
 import type { FileSystemNode } from "@/data/filesystem/file";
 import { formatDuration, calculateDuration } from "@/lib/duration";
+import { downloadFolderAsZip, downloadBlob } from "@/lib/zip";
 
 const props = defineProps<{
     executionData: ExecutionWithLoadedTree;
@@ -219,16 +224,23 @@ function handleCancel() {
 async function handleDownloadReport(): Promise<void> {
     const reportUri = Uri.file(`/${project.value!.id}/executions/${props.executionData.execution.id}/report.md`);
     const result = await monacoApi.fileService.readFile(reportUri);
-    const content = result.value.toString();
-    const blob = new Blob([content], { type: "application/octet-stream" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "report.md";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    downloadBlob(result.value.buffer, "report.md");
+}
+
+async function handleDownloadFiles(): Promise<void> {
+    if (props.executionData.fileTree == undefined && !props.executionData.isLoadingTree) {
+        await workbenchState.loadExecutionFileTree(props.executionData.execution.id);
+    }
+    const tree = props.executionData.fileTree;
+    if (tree == undefined) {
+        return;
+    }
+
+    const reportUri = Uri.file(`/${project.value!.id}/executions/${props.executionData.execution.id}/report.md`);
+    const report = await monacoApi.fileService.readFile(reportUri);
+    const extraFiles = { "report.md": report.value.buffer };
+
+    await downloadFolderAsZip(monacoApi, tree, props.executionData.execution.name, extraFiles);
 }
 
 function handleDelete() {

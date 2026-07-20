@@ -72,13 +72,11 @@
                 </ContextMenuItem>
                 <ContextMenuSeparator />
             </template>
-            <template v-if="entry.type === FileType.File">
-                <ContextMenuItem @click="handleDownload">
-                    <DownloadIcon class="size-4 mr-2" />
-                    <span>Download</span>
-                </ContextMenuItem>
-                <ContextMenuSeparator />
-            </template>
+            <ContextMenuItem @click="handleDownload">
+                <DownloadIcon class="size-4 mr-2" />
+                <span>Download</span>
+            </ContextMenuItem>
+            <ContextMenuSeparator />
             <ContextMenuItem @click="handleRename">
                 <EditIcon />
                 <span>Rename</span>
@@ -140,6 +138,7 @@ import { Uri } from "vscode";
 import FileTypeIcon from "../FileTypeIcon.vue";
 import { ActionDisplayLocation, type FileAction } from "@mdeo/language-common";
 import { getFileExtension } from "@/data/filesystem/util";
+import { downloadFolderAsZip, downloadBlob } from "@/lib/zip";
 import plugin from "vue-sonner";
 import { fetchFileActions as fetchAvailableFileActions, triggerFileAction } from "@/components/action/fileActions";
 
@@ -303,20 +302,12 @@ function handleDeleteClick() {
 }
 
 async function handleDownload(): Promise<void> {
-    if (props.entry.type !== FileType.File) {
+    if (props.entry.type === FileType.Directory) {
+        await downloadFolderAsZip(monacoApi, props.entry, props.entry.name);
         return;
     }
     const result = await monacoApi.fileService.readFile(props.entry.uri);
-    const content = result.value.toString();
-    const blob = new Blob([content], { type: "application/octet-stream" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = props.entry.name;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    downloadBlob(result.value.buffer, props.entry.name);
 }
 
 function handleDelete() {

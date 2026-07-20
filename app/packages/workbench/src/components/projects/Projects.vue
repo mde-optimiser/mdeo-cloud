@@ -23,8 +23,9 @@ import type { ProjectUserInfo } from "@/data/api/backendApi";
 import ProjectsList from "./ProjectsList.vue";
 import ProjectDetails from "./ProjectDetails.vue";
 import { showApiError } from "@/lib/notifications";
+import { importFilesIntoProject, type ImportedFile } from "@/lib/zip";
 
-const { backendApi, project, activeSidebar } = inject(workbenchStateKey)!;
+const { backendApi, project, activeSidebar, monacoApi } = inject(workbenchStateKey)!;
 
 const projects = ref<Project[]>([]);
 const showProjectsList = ref(false);
@@ -66,12 +67,15 @@ function handleCloseToDetails() {
     }
 }
 
-async function handleCreateProject(name: string) {
+async function handleCreateProject(name: string, importFiles?: ImportedFile[]) {
     const result = await backendApi.projects.create(name);
     if (result.success) {
         const created = result.value;
         project.value = created;
         await loadProjects();
+        if (importFiles && importFiles.length > 0) {
+            await importFilesIntoProject(monacoApi, created.id, importFiles);
+        }
     } else {
         showApiError("create project", result.error.message);
     }

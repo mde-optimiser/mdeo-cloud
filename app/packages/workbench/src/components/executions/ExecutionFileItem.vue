@@ -26,19 +26,22 @@
                 </template>
             </TreeItem>
         </ContextMenuTrigger>
-        <ContextMenuContent
-            v-if="!isDirectory || isMarkdownReportFolder"
-            @close-auto-focus="$event.preventDefault()"
-        >
-            <ContextMenuItem
-                v-for="action in contextMenuActions"
-                :key="action.key"
-                @click="() => handleFileAction(action)"
-            >
-                <Icon :iconNode="action.icon" :name="action.key" class="size-4 mr-2" />
-                <span>{{ action.name }}</span>
-            </ContextMenuItem>
-            <ContextMenuItem @click="handleDownload">
+        <ContextMenuContent @close-auto-focus="$event.preventDefault()">
+            <template v-if="!isDirectory || isMarkdownReportFolder">
+                <ContextMenuItem
+                    v-for="action in contextMenuActions"
+                    :key="action.key"
+                    @click="() => handleFileAction(action)"
+                >
+                    <Icon :iconNode="action.icon" :name="action.key" class="size-4 mr-2" />
+                    <span>{{ action.name }}</span>
+                </ContextMenuItem>
+                <ContextMenuItem @click="handleDownload">
+                    <DownloadIcon class="size-4 mr-2" />
+                    <span>Download</span>
+                </ContextMenuItem>
+            </template>
+            <ContextMenuItem v-else @click="handleDownloadFolder">
                 <DownloadIcon class="size-4 mr-2" />
                 <span>Download</span>
             </ContextMenuItem>
@@ -57,6 +60,7 @@ import { FileType } from "vscode";
 import { workbenchStateKey } from "@/components/workbench/util";
 import { ActionDisplayLocation, type FileAction } from "@mdeo/language-common";
 import { fetchFileActions as fetchAvailableFileActions, triggerFileAction } from "@/components/action/fileActions";
+import { downloadFolderAsZip, downloadBlob } from "@/lib/zip";
 
 const props = defineProps<{
     entry: FileSystemNode;
@@ -154,25 +158,23 @@ async function handleDownload(): Promise<void> {
 
     if (isMarkdownReportFolder.value) {
         const folder = props.entry as Folder;
-        const mdFile = folder.children.find(
-            (c) => c.type === FileType.File && (c as File).extension === ".md"
-        ) as File | undefined;
+        const mdFile = folder.children.find((c) => c.type === FileType.File && (c as File).extension === ".md") as
+            | File
+            | undefined;
         if (!mdFile) return;
         downloadUri = mdFile.uri;
         downloadName = mdFile.name;
     }
 
     const result = await monacoApi.fileService.readFile(downloadUri);
-    const content = result.value.toString();
-    const blob = new Blob([content], { type: "application/octet-stream" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = downloadName;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    downloadBlob(result.value.buffer, downloadName);
+}
+
+async function handleDownloadFolder(): Promise<void> {
+    if (props.entry.type !== FileType.Directory) {
+        return;
+    }
+    await downloadFolderAsZip(monacoApi, props.entry, props.entry.name);
 }
 
 async function openTab(temporary: boolean, event?: MouseEvent | KeyboardEvent) {

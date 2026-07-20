@@ -37,8 +37,34 @@
                     <DialogTitle>Create New Project</DialogTitle>
                     <DialogDescription> Enter a name for your new project. </DialogDescription>
                 </DialogHeader>
-                <div class="py-4">
+                <div class="py-4 space-y-3">
                     <Input v-model="newProjectName" placeholder="Project name" @keydown.enter="handleCreateProject" />
+                    <div
+                        class="border-2 border-dashed rounded-md p-4 text-sm transition-colors"
+                        :class="isDragging ? 'border-primary bg-primary/5' : 'border-muted-foreground/25'"
+                        @dragover.prevent="isDragging = true"
+                        @dragenter.prevent="isDragging = true"
+                        @dragleave.prevent="isDragging = false"
+                        @drop.prevent="handleDrop"
+                    >
+                        <div v-if="importFile" class="flex items-center justify-between gap-2">
+                            <span class="flex items-center gap-2 truncate">
+                                <FileArchive class="size-4 shrink-0" />
+                                <span class="truncate">{{ importFile.name }}</span>
+                            </span>
+                            <Button variant="ghost" size="icon" class="h-6 w-6 shrink-0" @click="clearImportFile">
+                                <X class="size-4" />
+                            </Button>
+                        </div>
+                        <label
+                            v-else
+                            class="flex cursor-pointer flex-col items-center gap-1 text-center text-muted-foreground"
+                        >
+                            <Upload class="size-5" />
+                            <span>Drop a .zip here or click to import</span>
+                            <input type="file" accept=".zip" class="hidden" @change="handleFileSelect" />
+                        </label>
+                    </div>
                 </div>
                 <DialogFooter>
                     <Button variant="outline" @click="isNewProjectDialogOpen = false"> Cancel </Button>
@@ -66,15 +92,17 @@ import {
 } from "@/components/ui/dialog";
 import SidebarPanelHeader from "@/components/sidebar/SidebarPanelHeader.vue";
 import type { Project } from "@/data/project/project";
-import { Folder, Plus, X } from "lucide-vue-next";
+import { Folder, Plus, X, Upload, FileArchive } from "lucide-vue-next";
 import { authStateKey, workbenchStateKey } from "../workbench/util";
+import { extractZip, type ImportedFile } from "@/lib/zip";
+import { showApiError } from "@/lib/notifications";
 
 const props = defineProps<{
     projects: Project[];
 }>();
 
 const emit = defineEmits<{
-    createProject: [name: string];
+    createProject: [name: string, importFiles?: ImportedFile[]];
     close: [];
 }>();
 
@@ -85,6 +113,8 @@ const searchText = ref("");
 const expandedItems = ref<Set<any>>(new Set());
 const isNewProjectDialogOpen = ref(false);
 const newProjectName = ref("");
+const importFile = ref<File | null>(null);
+const isDragging = ref(false);
 
 const filteredProjects = computed(() => {
     if (!searchText.value.trim()) {
@@ -105,17 +135,53 @@ function handleSelectProject(selectedProject: Project) {
 
 function openNewProjectDialog() {
     newProjectName.value = "";
+    importFile.value = null;
+    isDragging.value = false;
     isNewProjectDialogOpen.value = true;
 }
 
-function handleCreateProject() {
+function handleFileSelect(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (file) {
+        importFile.value = file;
+    }
+    input.value = "";
+}
+
+function handleDrop(event: DragEvent) {
+    isDragging.value = false;
+    const file = event.dataTransfer?.files?.[0];
+    if (file && file.name.toLowerCase().endsWith(".zip")) {
+        importFile.value = file;
+    }
+}
+
+function clearImportFile() {
+    importFile.value = null;
+}
+
+async function handleCreateProject() {
     const name = newProjectName.value.trim();
     if (!name) {
         return;
     }
-    emit("createProject", name);
+
+    let importFiles: ImportedFile[] | undefined;
+    if (importFile.value) {
+        try {
+            const buffer = new Uint8Array(await importFile.value.arrayBuffer());
+            importFiles = extractZip(buffer);
+        } catch (error) {
+            showApiError("import project archive", error instanceof Error ? error.message : String(error));
+            return;
+        }
+    }
+
+    emit("createProject", name, importFiles);
     isNewProjectDialogOpen.value = false;
     newProjectName.value = "";
+    importFile.value = null;
 }
 
 function handleClose() {

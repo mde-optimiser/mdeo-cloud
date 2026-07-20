@@ -159,7 +159,11 @@
                 <div>
                     <Separator />
                     <SidebarPanelHeader label="Management" />
-                    <div class="px-4 py-2">
+                    <div class="px-4 py-2 space-y-2">
+                        <Button variant="secondary" class="w-full" @click="handleDownloadProject">
+                            <Download class="size-4 mr-2" />
+                            Download as ZIP
+                        </Button>
                         <Button variant="destructive" class="w-full" @click="openDeleteDialog">
                             <Trash2 class="size-4 mr-2" />
                             Delete Project
@@ -224,10 +228,11 @@ import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } 
 import ManagePluginsDialog from "./ManagePluginsDialog.vue";
 import ManageUsersDialog from "./ManageUsersDialog.vue";
 import type { ProjectUserInfo } from "@/data/api/backendApi";
-import { Pencil, Trash2, FolderOpen, User as UserIcon, Settings2, Icon } from "lucide-vue-next";
+import { Pencil, Trash2, Download, FolderOpen, User as UserIcon, Settings2, Icon } from "lucide-vue-next";
 import { workbenchStateKey } from "@/components/workbench/util";
 import type { WorkbenchPlugin } from "@/data/plugin/plugin";
 import { showApiError } from "@/lib/notifications";
+import { downloadFolderAsZip } from "@/lib/zip";
 
 const props = defineProps<{
     users: ProjectUserInfo[];
@@ -240,7 +245,7 @@ const emit = defineEmits<{
     openProjects: [];
 }>();
 
-const { backendApi, project, plugins } = inject(workbenchStateKey)!;
+const { backendApi, project, plugins, monacoApi, fileTree } = inject(workbenchStateKey)!;
 
 const isEditingName = ref(false);
 const editedName = ref("");
@@ -292,6 +297,13 @@ function handleUsersUpdated() {
 
 function handleDeleteProject() {
     emit("deleteProject");
+}
+
+async function handleDownloadProject() {
+    if (!project.value) {
+        return;
+    }
+    await downloadFolderAsZip(monacoApi, fileTree, project.value.name);
 }
 
 function handleOpenProjects() {
