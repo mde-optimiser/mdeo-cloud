@@ -13,7 +13,8 @@ const { ModelState: ModelStateKey } = sharedImport("@eclipse-glsp/server");
  * ToolboxItemProviders (including CreatePatternInstanceOperationHandler).
  *
  * The palette is organized into sections:
- * - Create: One item per non-abstract class for creating new pattern instances
+ * - Create: One item per class for creating new pattern instances (abstract classes are
+ *   only offered when the selected modifier is not "create", since they cannot be instantiated)
  * - Add Instance: Items for referencing/deleting already-declared instances (persist/delete mode only)
  * - Setup: Shown when the metamodel import is missing
  */

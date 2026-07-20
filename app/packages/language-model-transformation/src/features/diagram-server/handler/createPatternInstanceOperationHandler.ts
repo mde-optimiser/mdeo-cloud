@@ -174,14 +174,15 @@ export class CreatePatternInstanceOperationHandler
     /**
      * Provides toolbox items based on the current mode (from args.mode).
      *
-     * - All modes: one "new instance" item per non-abstract class.
+     * - All modes: one "new instance" item per class; abstract classes are only included
+     *   when the mode is not "create" (abstract classes cannot be instantiated).
      * - Persist and delete modes only: one "add instance" item per existing PatternObjectInstance.
      *
      * @param args Args from the toolbox request, including `mode` (NodeCreationMode value).
      */
     async getToolboxItems(args: Args | undefined): Promise<GroupedToolboxItem[]> {
         const mode = (args?.mode as string | undefined) ?? MODIFIER_PERSIST;
-        const classes = this.getAvailableNonAbstractClasses();
+        const classes = this.getAvailableClasses(mode !== "create");
         const items: GroupedToolboxItem[] = [];
 
         for (const classInfo of classes) {
@@ -269,7 +270,7 @@ export class CreatePatternInstanceOperationHandler
                   }
                 : undefined;
 
-        const classType = this.getAvailableNonAbstractClasses().find((c) => c.name === className)?.classType;
+        const classType = this.getAvailableClasses(true).find((c) => c.name === className)?.classType;
         const properties =
             modifier === PatternModifierKind.CREATE && classType !== undefined
                 ? this.createDefaultPatternProperties(classType)
@@ -558,13 +559,15 @@ export class CreatePatternInstanceOperationHandler
     }
 
     /**
-     * Returns all non-abstract classes exported by the imported metamodel.
+     * Returns the classes exported by the imported metamodel.
      * Reads the metamodel file resolved from the transformation's import statement.
      *
-     * @returns An array of `{ name, classType }` entries for each concrete exported class,
+     * @param includeAbstract When `false`, abstract classes are omitted (they cannot be
+     *   instantiated, e.g. in create mode); when `true`, all exported classes are returned.
+     * @returns An array of `{ name, classType }` entries for each matching exported class,
      *   or an empty array when the import or its document is unavailable
      */
-    private getAvailableNonAbstractClasses(): Array<{ name: string; classType: ClassType }> {
+    private getAvailableClasses(includeAbstract: boolean): Array<{ name: string; classType: ClassType }> {
         const sourceModel = this.modelState.sourceModel as ModelTransformationType;
         const sourceModelDoc = sourceModel?.$document;
         const importedFile = (sourceModel?.import as MetamodelFileImportType | undefined)?.file;
@@ -588,9 +591,10 @@ export class CreatePatternInstanceOperationHandler
             if (!this.reflection.isInstance(classType, Class)) {
                 continue;
             }
-            if (!(classType as ClassType).isAbstract) {
-                classes.push({ name: (classType as ClassType).name ?? "Unknown", classType: classType as ClassType });
+            if (!includeAbstract && (classType as ClassType).isAbstract) {
+                continue;
             }
+            classes.push({ name: (classType as ClassType).name ?? "Unknown", classType: classType as ClassType });
         }
 
         return classes;
