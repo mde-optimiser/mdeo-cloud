@@ -87,7 +87,7 @@ async function handleUpdateProjectName(name: string) {
         const updated = result.value;
         await loadProjects();
         if (project.value?.id === updated.id) {
-            project.value = updated;
+            project.value.name = updated.name
         }
     } else {
         showApiError("update project name", result.error.message);
