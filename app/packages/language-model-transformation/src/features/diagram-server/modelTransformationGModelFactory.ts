@@ -840,7 +840,7 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
             const nodeId = `${edgeId}__source-node`;
             const metadata = this.getNodeMetadata(validatedMetadata, nodeId);
 
-            const endNode = GPatternLinkEndNode.builder().id(nodeId).end("target").meta(metadata).build();
+            const endNode = GPatternLinkEndNode.builder().id(nodeId).end("source").meta(metadata).build();
 
             const label = GPatternLinkEndLabel.builder()
                 .id(`${edgeId}__source-label`)
@@ -856,7 +856,7 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
             const nodeId = `${edgeId}__target-node`;
             const metadata = this.getNodeMetadata(validatedMetadata, nodeId);
 
-            const endNode = GPatternLinkEndNode.builder().id(nodeId).end("source").meta(metadata).build();
+            const endNode = GPatternLinkEndNode.builder().id(nodeId).end("target").meta(metadata).build();
 
             const label = GPatternLinkEndLabel.builder()
                 .id(`${edgeId}__target-label`)
