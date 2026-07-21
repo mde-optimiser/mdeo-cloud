@@ -756,6 +756,12 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
         const sourceClassType = sourceInstanceRef?.class?.ref as ClassType | undefined;
         const targetClassType = targetInstanceRef?.class?.ref as ClassType | undefined;
 
+        // Navigable association ends may declare a role name in the metamodel. A pattern link doesn't have to repeat
+        // that name explicitly, so when the link's own DSL omits it, fall back to the resolved association
+        // end name (when available) so the edge can still show a role label.
+        let effectiveSourceProperty = sourceProperty;
+        let effectiveTargetProperty = targetProperty;
+
         if (sourceClassType != undefined && targetClassType != undefined) {
             const resolver = new LinkAssociationResolver(this.reflection);
             const candidates = resolver.findCandidates(sourceClassType, targetClassType);
@@ -769,12 +775,14 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
                 if (tgtClass?.name != undefined) {
                     edgeBuilder.targetClass(tgtClass.name);
                 }
+                effectiveSourceProperty = sourceProperty?.trim() || candidate.sourceEnd.name;
+                effectiveTargetProperty = targetProperty?.trim() || candidate.targetEnd.name;
             }
         }
 
         const edge = edgeBuilder.build();
 
-        await this.addPatternLinkLabels(edge, edgeId, sourceProperty, targetProperty);
+        await this.addPatternLinkLabels(edge, edgeId, effectiveSourceProperty, effectiveTargetProperty);
 
         if (modifier !== PatternModifierKind.NONE) {
             const modifierNodeId = `${edgeId}__modifier-node`;

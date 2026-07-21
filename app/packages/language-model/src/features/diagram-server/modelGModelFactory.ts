@@ -378,6 +378,12 @@ export class ModelGModelFactory extends BaseGModelFactory<PartialModel> {
         const sourceClassType = sourceObj.class?.ref as ClassType | undefined;
         const targetClassType = targetObj.class?.ref as ClassType | undefined;
 
+        // Navigable association ends may declare a role name in the metamodel. A link doesn't have to repeat
+        // that name explicitly, so when the link's own DSL omits it, fall back to the resolved association
+        // end name (when available) so the edge can still show a role label.
+        let effectiveSourceProperty = sourceProperty;
+        let effectiveTargetProperty = targetProperty;
+
         if (sourceClassType != undefined && targetClassType != undefined) {
             const resolver = new LinkAssociationResolver(this.reflection);
             const candidates = resolver.findCandidates(sourceClassType, targetClassType);
@@ -391,11 +397,13 @@ export class ModelGModelFactory extends BaseGModelFactory<PartialModel> {
                 if (tgtClass?.name != undefined) {
                     edgeBuilder.targetClass(tgtClass.name);
                 }
+                effectiveSourceProperty = sourceProperty?.trim() || candidate.sourceEnd.name;
+                effectiveTargetProperty = targetProperty?.trim() || candidate.targetEnd.name;
             }
         }
 
         const edge = edgeBuilder.build();
-        await this.addLinkLabels(edge, edgeId, sourceProperty, targetProperty);
+        await this.addLinkLabels(edge, edgeId, effectiveSourceProperty, effectiveTargetProperty);
 
         return edge;
     }
