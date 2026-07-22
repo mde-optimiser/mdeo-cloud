@@ -5,6 +5,7 @@ WORKDIR /build
 COPY app/ ./
 
 RUN npm ci
+ENV NODE_OPTIONS="--max-old-space-size=6144"
 RUN npm run build
 
 # Workbench runtime (nginx)
