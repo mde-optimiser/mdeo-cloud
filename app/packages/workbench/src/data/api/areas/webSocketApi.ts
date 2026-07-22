@@ -210,10 +210,15 @@ export class WebSocketApi {
     private readonly pendingProjectLoads: Map<string, ProjectLoadCallbacks> = new Map();
     private requestIdCounter = 0;
     /**
-     * Resolves once the socket is open; replaced on each connect().
+     * Resolves once the socket is open, rejects if that connection attempt fails;
+     * replaced on each connect(). Without a reject path here, any caller awaiting
+     * a failed attempt via ensureConnected() would hang forever instead of seeing
+     * an error, which in turn left ModelState.saveMetadata()'s await stuck mid-call
+     * and metadataSaveState permanently at SAVING for the rest of the session.
      */
     private connectedPromise: Promise<void> = Promise.resolve();
     private connectedResolve: (() => void) | null = null;
+    private connectedReject: ((reason: unknown) => void) | null = null;
 
     /**
      * Creates a new WebSocketApi instance
@@ -282,8 +287,9 @@ export class WebSocketApi {
 
         this.connectionState = "connecting";
         this.currentProjectId = projectId ?? null;
-        this.connectedPromise = new Promise<void>((resolve) => {
+        this.connectedPromise = new Promise<void>((resolve, reject) => {
             this.connectedResolve = resolve;
+            this.connectedReject = reject;
         });
 
         this.socket = new WebSocket(this.wsUrl);
@@ -316,6 +322,7 @@ export class WebSocketApi {
         if (this.connectedResolve) {
             this.connectedResolve();
             this.connectedResolve = null;
+            this.connectedReject = null;
         }
 
         if (this.currentProjectId) {
@@ -479,18 +486,28 @@ export class WebSocketApi {
         this.pendingRequests.clear();
         this.pendingProjectLoads.clear();
 
+        // Fail this connection attempt so anyone awaiting ensureConnected() doesn't hang forever.
+        if (this.connectedReject) {
+            this.connectedReject({ code: "Unavailable", message: "WebSocket connection closed" });
+            this.connectedResolve = null;
+            this.connectedReject = null;
+        }
+
         if (!event.wasClean && this.currentProjectId) {
             this.scheduleReconnect();
         }
     }
 
     /**
-     * Handles WebSocket errors
+     * Handles WebSocket errors. The browser follows a failed connection's error event
+     * with a close event, so cleanup and reconnect scheduling stay in handleClose;
+     * this only needs to log, not throw.
      *
-     * @param _event The error event
+     * @param event The error event
      */
-    private handleError(_event: Event): void {
-        throw new Error("WebSocket error occurred");
+    private handleError(event: Event): void {
+        // eslint-disable-next-line no-console
+        console.error("[WebSocketApi] WebSocket error occurred:", event);
     }
 
     /**
