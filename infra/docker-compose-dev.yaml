@@ -129,6 +129,8 @@ services:
         condition: service_healthy
       service-model-csv:
         condition: service_healthy
+      service-csv:
+        condition: service_healthy
     restart: unless-stopped
 
   service-metamodel:
