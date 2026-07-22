@@ -1,8 +1,18 @@
 import type { ModelData, ModelDataInstance, ModelDataPropertyValue } from "@mdeo/language-model";
 
+export interface CsvColumnMappingEntry {
+    csvColumn: string;
+    property: string;
+}
+
 export interface CsvImportEntry {
     className: string;
     csvText: string;
+    /**
+     * Explicit CSV column to property mappings. When omitted or empty, columns
+     * are matched to properties by name (the default behavior).
+     */
+    mappings?: CsvColumnMappingEntry[];
 }
 
 export interface CsvImportResult {
@@ -45,11 +55,7 @@ export function importCsvEntries(
         const dataRows = rows.slice(1);
         const idColIndex = header.indexOf("_id");
 
-        const propertyNames = new Set(classInfo.properties.map(p => p.name));
-        const unknownCols = header.filter(h => h !== "_id" && !propertyNames.has(h));
-        if (unknownCols.length > 0) {
-            warnings.push(`CSV for '${entry.className}' has unknown columns: ${unknownCols.join(", ")} — they will be ignored.`);
-        }
+        const columnToProperty = resolveColumnMapping(entry, header, classInfo, warnings);
 
         dataRows.forEach((row, rowIndex) => {
             const normalizedRow = normalizeRow(row, header.length, rowIndex + 2, warnings);
@@ -65,9 +71,11 @@ export function importCsvEntries(
             const properties: Record<string, ModelDataPropertyValue> = {};
             header.forEach((colName, colIndex) => {
                 if (colName === "_id") return;
-                const prop = classInfo.properties.find(p => p.name === colName);
+                const propName = columnToProperty.get(colName);
+                if (!propName) return;
+                const prop = classInfo.properties.find(p => p.name === propName);
                 if (!prop) return;
-                properties[colName] = convertCellValue(normalizedRow[colIndex], prop);
+                properties[propName] = convertCellValue(normalizedRow[colIndex], prop);
             });
 
             allInstances.push({
@@ -87,9 +95,11 @@ export function importCsvEntries(
 
         const header = rows[0];
         const dataRows = rows.slice(1);
+        const columnToProperty = resolveColumnMapping(entry, header, classInfo, []);
 
         const refCols = header.filter(colName => {
-            const prop = classInfo.properties.find(p => p.name === colName);
+            const propName = columnToProperty.get(colName);
+            const prop = propName ? classInfo.properties.find(p => p.name === propName) : undefined;
             return prop?.isReference;
         });
 
@@ -100,7 +110,8 @@ export function importCsvEntries(
             const sourceInstanceName = `${entry.className}_${rowIndex}`;
 
             refCols.forEach(colName => {
-                const prop = classInfo.properties.find(p => p.name === colName)!;
+                const propName = columnToProperty.get(colName)!;
+                const prop = classInfo.properties.find(p => p.name === propName)!;
                 const rawValue = normalizedRow[header.indexOf(colName)];
                 if (!rawValue) return;
 
@@ -113,7 +124,7 @@ export function importCsvEntries(
                     }
                     allLinks.push({
                         sourceName: sourceInstanceName,
-                        sourceProperty: colName,
+                        sourceProperty: propName,
                         targetName: targetInstanceName,
                         targetProperty: null
                     });
@@ -123,6 +134,52 @@ export function importCsvEntries(
     }
 
     return { instances: allInstances, links: allLinks, warnings };
+}
+
+/**
+ * Resolves which CSV column maps to which metamodel property for one entry.
+ *
+ * When the entry has an explicit mapping, only the mapped columns are included
+ * (this is also how a column can be intentionally skipped). Otherwise, columns
+ * are matched to properties by name, and unmatched columns are warned about.
+ *
+ * @param entry The import entry, whose optional `mappings` take precedence
+ * @param header The CSV header row
+ * @param classInfo The metamodel class the CSV is imported into
+ * @param warnings Warnings accumulator; mutated in place
+ * @returns A map from CSV column name to metamodel property name
+ */
+function resolveColumnMapping(
+    entry: CsvImportEntry,
+    header: string[],
+    classInfo: MetamodelClassInfo,
+    warnings: string[]
+): Map<string, string> {
+    if (entry.mappings != undefined && entry.mappings.length > 0) {
+        const columnToProperty = new Map<string, string>();
+        for (const mapping of entry.mappings) {
+            if (!header.includes(mapping.csvColumn)) {
+                warnings.push(`CSV for '${entry.className}' has no column '${mapping.csvColumn}' referenced by its mapping — skipping.`);
+                continue;
+            }
+            if (!classInfo.properties.some(p => p.name === mapping.property)) {
+                warnings.push(`Class '${entry.className}' has no property '${mapping.property}' referenced by its mapping — skipping.`);
+                continue;
+            }
+            columnToProperty.set(mapping.csvColumn, mapping.property);
+        }
+        return columnToProperty;
+    }
+
+    const propertyNames = new Set(classInfo.properties.map(p => p.name));
+    const columnToProperty = new Map<string, string>(
+        header.filter(h => h !== "_id" && propertyNames.has(h)).map(h => [h, h])
+    );
+    const unknownCols = header.filter(h => h !== "_id" && !columnToProperty.has(h));
+    if (unknownCols.length > 0) {
+        warnings.push(`CSV for '${entry.className}' has unknown columns: ${unknownCols.join(", ")} — they will be ignored.`);
+    }
+    return columnToProperty;
 }
 
 export interface MetamodelPropertyInfo {

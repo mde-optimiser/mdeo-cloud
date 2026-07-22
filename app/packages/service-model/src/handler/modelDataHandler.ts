@@ -86,7 +86,11 @@ export const modelDataHandler: FileDataHandler<ModelData | null, ModelServices> 
             const { content } = await serverApi.readFile(csvPath);
             return {
                 className: entry.class?.ref?.name ?? "",
-                csvText: content
+                csvText: content,
+                mappings: (entry.mappings ?? []).map((mapping: any) => ({
+                    csvColumn: mapping.csvColumn,
+                    property: mapping.property
+                }))
             };
         })
     );
