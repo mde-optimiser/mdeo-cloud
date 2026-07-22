@@ -30,42 +30,50 @@ class EmptyExternalReferenceCollector implements ExternalReferenceCollector {
 
 /**
  * Plugin for generated model transformations (.mt_gen).
+ *
+ * @param languageJsUrl The HTTP URL of this plugin's `language.js` entry file, used
+ * to bind the GED worker so the metadata manager can attempt a smart old-to-new ID
+ * remapping after a textual edit, instead of always falling back to naive ID matching.
  */
-const generatedModelTransformationPlugin: LangiumLanguagePlugin<GeneratedModelTransformationServices> = {
-    rootRule: GeneratedModelTransformationRule,
-    additionalTerminals: [],
-    module: {
-        references: {
-            ExternalReferenceCollector: () => new EmptyExternalReferenceCollector()
-        },
-        action: {
-            ActionHandlerRegistry: (services) => {
-                const registry = new ActionHandlerRegistry();
-                registry.register(
-                    "save-as-model-transformation",
-                    new SaveGeneratedModelTransformationActionHandler(services.shared)
-                );
-                return registry;
+function createGeneratedModelTransformationPlugin(
+    languageJsUrl?: string
+): LangiumLanguagePlugin<GeneratedModelTransformationServices> {
+    return {
+        rootRule: GeneratedModelTransformationRule,
+        additionalTerminals: [],
+        module: {
+            references: {
+                ExternalReferenceCollector: () => new EmptyExternalReferenceCollector()
             },
-            ActionProvider: () => new GeneratedModelTransformationActionProvider()
+            action: {
+                ActionHandlerRegistry: (services) => {
+                    const registry = new ActionHandlerRegistry();
+                    registry.register(
+                        "save-as-model-transformation",
+                        new SaveGeneratedModelTransformationActionHandler(services.shared)
+                    );
+                    return registry;
+                },
+                ActionProvider: () => new GeneratedModelTransformationActionProvider()
+            },
+            workspace: {
+                WorkspaceEdit: (services) => new DefaultWorkspaceEditService(services)
+            }
         },
-        workspace: {
-            WorkspaceEdit: (services) => new DefaultWorkspaceEditService(services)
+        postCreate(services) {
+            services.shared.glsp.serverModule.configureDiagramModule(
+                new GeneratedModelTransformationDiagramModule(services, languageJsUrl)
+            );
         }
-    },
-    postCreate(services) {
-        services.shared.glsp.serverModule.configureDiagramModule(
-            new GeneratedModelTransformationDiagramModule(services)
-        );
-    }
-};
+    };
+}
 
 /**
  * Provider for the generated model transformation language plugin.
  */
 export const generatedModelTransformationPluginProvider: LangiumLanguagePluginProvider<GeneratedModelTransformationServices> =
     {
-        create(): LangiumLanguagePlugin<GeneratedModelTransformationServices> {
-            return generatedModelTransformationPlugin;
+        create(_contributionPlugins, languageJsUrl): LangiumLanguagePlugin<GeneratedModelTransformationServices> {
+            return createGeneratedModelTransformationPlugin(languageJsUrl);
         }
     };
