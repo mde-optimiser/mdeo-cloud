@@ -77,15 +77,31 @@ export class ModelState<T extends AstNode = AstNode> extends DefaultModelState {
 
     /**
      * Asynchronously saves the current metadata to the file system.
+     *
+     * A failed write is caught and logged rather than left to reject silently: since
+     * this is always called fire-and-forget from the `metadata` setter, an uncaught
+     * rejection here would skip the state reset below and leave `metadataSaveState`
+     * stuck at `SAVING` forever, silently no-opping every future save for the rest of
+     * the session (the setter only re-attempts a write when the state is `SAVED`).
+     * The in-memory `_metadata` already reflects every change regardless of whether a
+     * given write succeeded, so resetting to `SAVED` on failure is enough to let the
+     * next edit's write retry with the latest, still-cumulative state.
      */
     private async saveMetadata(): Promise<void> {
         if (this.metadataSaveState === MetadataSaveState.SAVED) {
             do {
                 this.metadataSaveState = MetadataSaveState.SAVING;
-                await this.languageServices.shared.workspace.FileSystemProvider.writeMetadata(
-                    URI.parse(this.sourceUri!),
-                    this._metadata
-                );
+                try {
+                    await this.languageServices.shared.workspace.FileSystemProvider.writeMetadata(
+                        URI.parse(this.sourceUri!),
+                        this._metadata
+                    );
+                } catch (error) {
+                    // eslint-disable-next-line no-console
+                    console.error("[ModelState] Failed to save metadata, will retry on next change:", error);
+                    this.metadataSaveState = MetadataSaveState.SAVED;
+                    return;
+                }
                 if (this.metadataSaveState === MetadataSaveState.SAVING) {
                     this.metadataSaveState = MetadataSaveState.SAVED;
                 }
