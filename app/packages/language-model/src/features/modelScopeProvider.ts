@@ -72,7 +72,7 @@ export class ModelScopeProvider extends DefaultScopeProvider {
     override getScope(context: ReferenceInfo): Scope {
         const document = AstUtils.getDocument(context.container);
 
-        if (context.property === "class" && this.astReflection.isInstance(context.container, ObjectInstance)) {
+        if (context.property === "class") {
             return this.getObjectClassScope(context, document);
         }
         if (context.property === "name" && this.astReflection.isInstance(context.container, PropertyAssignment)) {
@@ -95,16 +95,20 @@ export class ModelScopeProvider extends DefaultScopeProvider {
     }
 
     /**
-     * Gets the scope for object class references.
-     * Resolves the imported metamodel file and returns a scope with all accessible classes.
+     * Gets the scope for class references, wherever they occur in the document
+     * (an object instance, or a class reference inside a plugin-contributed import
+     * such as CSV, at any nesting depth). Resolves the imported metamodel file and
+     * returns a scope with all accessible classes.
      *
      * @param context The reference context
      * @param document The current document
      * @returns A scope containing all accessible classes from the imported metamodel
      */
     private getObjectClassScope(context: ReferenceInfo, document: any): Scope {
-        const model = context.container.$container as ModelType;
-        const metamodelImport = model.import;
+        const model = AstUtils.getContainerOfType(context.container, (node): node is ModelType =>
+            this.astReflection.isInstance(node, Model)
+        );
+        const metamodelImport = model?.import;
         const relativePath = metamodelImport?.file;
 
         if (relativePath == undefined) {

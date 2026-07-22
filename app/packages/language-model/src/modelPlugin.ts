@@ -1,9 +1,17 @@
 import {
     type ExternalReferenceAdditionalServices,
     type LangiumLanguagePlugin,
-    type LangiumLanguagePluginProvider
+    type LangiumLanguagePluginProvider,
+    GrammarDeserializationContext,
+    ID,
+    NEWLINE,
+    HIDDEN_NEWLINE,
+    INT,
+    FLOAT,
+    STRING
 } from "@mdeo/language-common";
-import { ModelRule, ModelTerminals } from "./grammar/modelRules.js";
+import { Class } from "@mdeo/language-metamodel";
+import { createModelRule, ModelTerminals } from "./grammar/modelRules.js";
 import {
     addExternalReferenceCollectionPhase,
     type ActionHandlerRegistryAdditionalServices,
@@ -23,20 +31,38 @@ import { registerModelSerializers } from "./features/modelSerializers.js";
 import { ModelDiagramModule } from "./features/diagram-server/modelDiagramModule.js";
 import { registerModelValidationChecks } from "./validation/modelValidator.js";
 import { ModelCompletionProvider } from "./features/modelCompletionProvider.js";
+import { ModelContributionPlugin } from "./plugin/modelContributionPlugin.js";
+import { resolveModelPlugins } from "./plugin/resolvePlugins.js";
+import type { ServerContributionPlugin } from "@mdeo/plugin";
 
 export type ModelServices = ExternalReferenceAdditionalServices & ActionHandlerRegistryAdditionalServices;
 
-/**
- * The plugin for the Model language.
- * Provides minimal language server functionality for .m files.
- */
-function createModelPlugin(languageJsUrl?: string): LangiumLanguagePlugin<ModelServices> {
+function createModelPlugin(
+    contributionPlugins: ServerContributionPlugin[],
+    languageJsUrl?: string
+): LangiumLanguagePlugin<ModelServices> {
+    const modelPlugins = contributionPlugins.filter(ModelContributionPlugin.is);
+
+    const deserializationContext = GrammarDeserializationContext.create(
+        [Class],
+        [],
+        [ID, NEWLINE, HIDDEN_NEWLINE, INT, FLOAT, STRING]
+    );
+
+    const resolvedPlugins = resolveModelPlugins(modelPlugins, deserializationContext);
+
+    const ModelRule = createModelRule(resolvedPlugins.rules);
+
     return {
         rootRule: ModelRule,
         additionalTerminals: ModelTerminals,
         module: {
             parser: {
-                TokenBuilder: () => new NewlineAwareTokenBuilder(new Set(["{"]), new Set(["("]), new Set(["}", ")"])),
+                TokenBuilder: () => new NewlineAwareTokenBuilder(
+                    new Set(["{"]),
+                    new Set(["("]),
+                    new Set(["}", ")"])
+                ),
                 ValueConverter: () => new IdValueConverter(),
                 ParserConfig: () => ({
                     maxLookahead: 4
@@ -73,11 +99,8 @@ function createModelPlugin(languageJsUrl?: string): LangiumLanguagePlugin<ModelS
     };
 }
 
-/**
- * Provider for the Model language plugin.
- */
 export const modelPluginProvider: LangiumLanguagePluginProvider<ModelServices> = {
-    create(_contributionPlugins, languageJsUrl): LangiumLanguagePlugin<ModelServices> {
-        return createModelPlugin(languageJsUrl);
+    create(contributionPlugins, languageJsUrl): LangiumLanguagePlugin<ModelServices> {
+        return createModelPlugin(contributionPlugins, languageJsUrl);
     }
 };

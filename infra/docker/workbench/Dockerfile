@@ -5,7 +5,7 @@ WORKDIR /build
 COPY app/ ./
 
 RUN npm ci
-RUN npm run build
+RUN NODE_OPTIONS="--max-old-space-size=6144" npm run build
 
 # Workbench runtime (nginx)
 FROM nginx:alpine AS workbench
