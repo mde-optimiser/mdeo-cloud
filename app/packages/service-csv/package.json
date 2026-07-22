@@ -1,12 +1,9 @@
 {
-    "name": "@mdeo/service-model",
+    "name": "@mdeo/service-csv",
     "version": "0.1.0",
     "private": true,
     "type": "module",
-    "files": [
-        "dist",
-        "src"
-    ],
+    "files": ["dist", "src"],
     "scripts": {
         "build:static": "vite build",
         "watch:static": "vite build --watch",
@@ -14,14 +11,12 @@
         "watch": "tsx watch src/index.ts"
     },
     "dependencies": {
-        "@mdeo/editor-model": "^0.1.0",
+        "@mdeo/language-csv": "^0.1.0",
         "@mdeo/language-common": "^0.1.0",
-        "@mdeo/language-model": "^0.1.0",
+        "@mdeo/language-shared": "^0.1.0",
         "@mdeo/plugin": "^0.1.0",
-        "@mdeo/protocol-model": "^0.1.0",
         "@mdeo/service-common": "^0.1.0",
-        "lucide": "^0.575.0",
-        "@mdeo/language-model-csv": "^0.1.0"
+        "lucide": "^0.575.0"
     },
     "devDependencies": {
         "@types/node": "^25.3.1",

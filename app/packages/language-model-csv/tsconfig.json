@@ -1,0 +1,15 @@
+{
+    "extends": "../../tsconfig.json",
+    "compilerOptions": {
+        "rootDir": "src",
+        "outDir": "dist",
+        "composite": true
+    },
+    "include": ["src"],
+    "references": [
+        { "path": "../language-common" },
+        { "path": "../language-model" },
+        { "path": "../language-metamodel" },
+        { "path": "../language-shared" }
+    ]
+}

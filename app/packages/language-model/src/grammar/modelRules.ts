@@ -2,6 +2,8 @@ import {
     createRule,
     or,
     many,
+    optional,
+    group,
     ref,
     ID,
     STRING,
@@ -12,8 +14,8 @@ import {
     ML_COMMENT,
     SL_COMMENT,
     HIDDEN_NEWLINE,
-    optional,
-    group
+    type ParserRule,
+    type RuleEntry
 } from "@mdeo/language-common";
 import { AssociationEnd, Class, Enum, EnumEntry, Property } from "@mdeo/language-metamodel";
 import {
@@ -30,44 +32,24 @@ import {
     Link
 } from "./modelTypes.js";
 
-/**
- * Boolean literal rule.
- * Matches "true" or "false".
- */
 export const BOOLEAN = createRule("BOOLEAN")
     .returns(Boolean)
     .as(() => [or("true", "false")]);
 
-/**
- * Simple value rule.
- * Matches string, number, or boolean literals.
- */
 export const SimpleValueRule = createRule("SimpleValueRule")
     .returns(SimpleValue)
     .as(({ set }) => [
         or(set("stringValue", STRING), set("numberValue", FLOAT), set("numberValue", INT), set("booleanValue", BOOLEAN))
     ]);
 
-/**
- * Enum value rule.
- * Matches an enum entry using EnumName.Entry syntax.
- */
 export const EnumValueRule = createRule("EnumValueRule")
     .returns(EnumValue)
     .as(({ set }) => [set("enumRef", ref(Enum, ID)), ".", set("value", ref(EnumEntry, ID))]);
 
-/**
- * Single value rule.
- * Matches either a simple value or an enum value.
- */
 export const SingleValueRule = createRule("SingleValueRule")
     .returns(SingleValue)
     .as(() => [or(SimpleValueRule, EnumValueRule)]);
 
-/**
- * List value rule.
- * Matches values in square brackets with comma separation.
- */
 export const ListValueRule = createRule("ListValueRule")
     .returns(ListValue)
     .as(({ add }) => [
@@ -76,26 +58,14 @@ export const ListValueRule = createRule("ListValueRule")
         "]"
     ]);
 
-/**
- * Literal value rule.
- * Matches any value type: simple, enum, or list.
- */
 export const LiteralValueRule = createRule("LiteralValueRule")
     .returns(LiteralValue)
     .as(() => [or(ListValueRule, SimpleValueRule, EnumValueRule)]);
 
-/**
- * Property assignment rule.
- * Matches property assignments like "a = 100".
- */
 export const PropertyAssignmentRule = createRule("PropertyAssignmentRule")
     .returns(PropertyAssignment)
     .as(({ set }) => [set("name", ref(Property, ID)), "=", set("value", LiteralValueRule)]);
 
-/**
- * Object instance rule.
- * Matches object definitions like "test : ClassName { ... }".
- */
 export const ObjectInstanceRule = createRule("ObjectInstanceRule")
     .returns(ObjectInstance)
     .as(({ set, add }) => [
@@ -107,10 +77,6 @@ export const ObjectInstanceRule = createRule("ObjectInstanceRule")
         "}"
     ]);
 
-/**
- * Link end rule.
- * Matches an object reference with optional property specification.
- */
 export const LinkEndRule = createRule("LinkEndRule")
     .returns(LinkEnd)
     .as(({ set }) => [
@@ -118,35 +84,50 @@ export const LinkEndRule = createRule("LinkEndRule")
         optional(group(".", set("property", ref(AssociationEnd, ID))))
     ]);
 
-/**
- * Link rule.
- * Matches links between object instances: objectId1[.property] -- objectId2[.property]
- */
 export const LinkRule = createRule("LinkRule")
     .returns(Link)
     .as(({ set }) => [set("source", LinkEndRule), "--", set("target", LinkEndRule)]);
 
-/**
- * Metamodel file import rule.
- * Matches "using" statements for importing metamodel files.
- */
 export const MetamodelFileImportRule = createRule("MetamodelFileImportRule")
     .returns(MetamodelFileImport)
     .as(({ set }) => ["using", set("file", STRING)]);
 
 /**
- * Model root rule.
- * Matches the complete model file structure.
+ * Default root rule for the Model language (without contributed imports).
+ * Use createModelRule() with resolved plugins for the full grammar.
  */
 export const ModelRule = createRule("ModelRule")
     .returns(Model)
     .as(({ add, set }) => [
         many(NEWLINE),
         set("import", MetamodelFileImportRule),
+        many(NEWLINE),
         many(or(add("objects", ObjectInstanceRule), add("links", LinkRule), NEWLINE))
     ]);
 
 /**
- * Additional terminals for the Model language.
+ * Builds the root Model rule, alternating between hand-authored objects/links
+ * and any data imports contributed by plugins (e.g. CSV).
+ *
+ * @param contributedImportRules Wrapper rules for imports contributed by resolved plugins
+ * @returns The root parser rule for the Model language
  */
+export function createModelRule(contributedImportRules: ParserRule<any>[] = []): ParserRule<any> {
+    if (contributedImportRules.length === 0) {
+        return ModelRule;
+    }
+
+    return createRule("ModelRule")
+        .returns(Model)
+        .as(({ add, set }) => {
+            const importAlternatives: RuleEntry[] = contributedImportRules.map((rule) => add("imports", rule));
+            return [
+                many(NEWLINE),
+                set("import", MetamodelFileImportRule),
+                many(NEWLINE),
+                many(or(...importAlternatives, add("objects", ObjectInstanceRule), add("links", LinkRule), NEWLINE))
+            ];
+        });
+}
+
 export const ModelTerminals = [WS, HIDDEN_NEWLINE, ML_COMMENT, SL_COMMENT];

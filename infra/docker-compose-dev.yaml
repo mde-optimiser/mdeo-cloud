@@ -87,7 +87,7 @@ services:
       ADMIN_PASSWORD: admin
       PLUGIN_BASE_URL: ""
       INTERNAL_PLUGIN_BASE_URL: "http://workbench:80"
-      DEFAULT_PLUGIN_URLS: "/plugin/metamodel,/plugin/model,/plugin/script,/plugin/model-transformation,/plugin/config,/plugin/config-optimization,/plugin/config-mdeo"
+      DEFAULT_PLUGIN_URLS: "/plugin/metamodel,/plugin/model,/plugin/script,/plugin/model-transformation,/plugin/config,/plugin/config-optimization,/plugin/config-mdeo,/plugin/csv,/plugin/model-csv"
     depends_on:
       postgres-backend:
         condition: service_healthy
@@ -108,6 +108,8 @@ services:
       PLUGIN_CONFIG_OPTIMIZATION_SERVICE: http://service-config-optimization:3000
       PLUGIN_CONFIG_MDEO_SERVICE: http://service-config-mdeo:3000
       BACKEND_SERVICE: http://backend:8080
+      PLUGIN_CSV_SERVICE: http://service-csv:3000
+      PLUGIN_MODEL_CSV_SERVICE: http://service-model-csv:3000
     ports:
       - "4242:80"
     depends_on:
@@ -124,6 +126,10 @@ services:
       service-config-optimization:
         condition: service_healthy
       service-config-mdeo:
+        condition: service_healthy
+      service-model-csv:
+        condition: service_healthy
+      service-csv:
         condition: service_healthy
     restart: unless-stopped
 
@@ -148,6 +154,23 @@ services:
       start_period: 30s
     restart: unless-stopped
 
+  service-csv:
+    build:
+      context: ..
+      dockerfile: infra/docker/service-csv/Dockerfile
+    environment:
+      PORT: "3000"
+      HOST: "0.0.0.0"
+      BACKEND_API_URL: "http://backend:8080/api"
+      MAX_LANGIUM_INSTANCES: "5"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
   service-model:
     build:
       context: ..
@@ -156,6 +179,27 @@ services:
         SERVICE_VERSION: ${SERVICE_VERSION:-}
     ports:
       - "3002:3000"
+    environment:
+      PORT: "3000"
+      HOST: "0.0.0.0"
+      BACKEND_API_URL: "http://backend:8080/api"
+      MAX_LANGIUM_INSTANCES: "5"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  service-model-csv:
+    build:
+      context: ..
+      dockerfile: infra/docker/service-model-csv/Dockerfile
+      args:
+        SERVICE_VERSION: ${SERVICE_VERSION:-}
+    ports:
+      - "3007:3000"
     environment:
       PORT: "3000"
       HOST: "0.0.0.0"
@@ -310,7 +354,7 @@ services:
       args:
         SERVICE_VERSION: ${SERVICE_VERSION:-}
     ports:
-      - "3007:3000"
+      - "3008:3000"
     environment:
       PORT: "3000"
       HOST: "0.0.0.0"

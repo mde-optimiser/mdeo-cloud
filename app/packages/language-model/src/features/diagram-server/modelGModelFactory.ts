@@ -6,7 +6,8 @@ import {
     GHorizontalDivider,
     EdgeLayoutMetadataUtil,
     NodeLayoutMetadataUtil,
-    parseIdentifier
+    parseIdentifier,
+    resolveRelativePath
 } from "@mdeo/language-shared";
 import type { ModelIdRegistry, GraphMetadata } from "@mdeo/language-shared";
 import type { NodeLayoutMetadata, EdgeLayoutMetadata } from "@mdeo/protocol-common";
@@ -33,6 +34,7 @@ import {
     type EnumValueType,
     type SingleValueType
 } from "../../grammar/modelTypes.js";
+import { getWrapperInterfaceName } from "../../plugin/resolvePlugins.js";
 
 const { injectable } = sharedImport("inversify");
 const { GGraph } = sharedImport("@eclipse-glsp/server");
@@ -56,9 +58,10 @@ export class ModelGModelFactory extends BaseGModelFactory<PartialModel> {
     override async createModelInternal(sourceModel: PartialModel, idRegistry: ModelIdRegistry): Promise<GModelRoot> {
         const graph = GGraph.builder().id("model-graph").addCssClass("editor-model").build();
 
-        const extracted = this.extractElements(sourceModel);
+        const extracted = await this.extractElements(sourceModel);
         await this.createObjectNodes(graph, extracted.objects, idRegistry);
         await this.createLinkEdges(graph, extracted.links, idRegistry);
+        await this.createCsvNodes(graph, sourceModel);
         return graph;
     }
 
@@ -68,10 +71,10 @@ export class ModelGModelFactory extends BaseGModelFactory<PartialModel> {
      * @param model The model containing elements
      * @returns An object containing separate arrays of objects and links
      */
-    private extractElements(model: PartialModel): {
+    private async extractElements(model: PartialModel): Promise<{
         objects: PartialObjectInstance[];
         links: PartialLink[];
-    } {
+    }> {
         const objects: PartialObjectInstance[] = [];
         const links: PartialLink[] = [];
 
@@ -461,4 +464,59 @@ export class ModelGModelFactory extends BaseGModelFactory<PartialModel> {
 
         return nodes;
     }
+    /**
+     * Renders diagram nodes for the CSV import contribution, if present.
+     *
+     * The Model language's grammar has no compile-time knowledge of CSV (it's a
+     * plugin contribution resolved generically via `model.imports`), but rendering
+     * synthetic instance nodes from CSV row data has no equivalent generic extension
+     * point today, so this reads the CSV plugin's contributed import structurally
+     * by its wrapper type name rather than importing its types directly (which would
+     * create a circular package dependency, since language-model-csv depends on
+     * language-model for the contribution plugin contract).
+     */
+    private async createCsvNodes(graph: GGraphType, model: PartialModel): Promise<void> {
+        interface CsvClassImportShape {
+            class?: { ref?: ClassType };
+            file?: string;
+        }
+
+        const csvImport = model.imports?.find((imp) => (imp as { $type?: string }).$type === getWrapperInterfaceName("CSV"));
+        const csvImportContent = (csvImport as { content?: { imports?: CsvClassImportShape[] } } | undefined)?.content;
+        if (csvImportContent?.imports == undefined) return;
+        const doc = this.modelState.sourceModel?.$document;
+        if (!doc) return;
+
+        const validatedMetadata = await this.modelState.getValidatedMetadata();
+
+        let nodeIndex = 0;
+        for (const entry of csvImportContent.imports) {
+            const classRef = entry.class?.ref as ClassType | undefined;
+            if (classRef == undefined) continue;
+            try {
+                const uri = resolveRelativePath(doc, entry.file ?? "");
+                const csvContent = await this.modelState.languageServices.shared.workspace.FileSystemProvider.readFile(uri);
+                const rows = csvContent.split(/\r?\n/).filter((line: string) => line.trim() !== "").map((line: string) => line.split(","));
+                if (rows.length < 2) continue;
+                const classHierarchy = resolveClassChain(classRef, this.reflection).map((c) => c.name);
+                rows.slice(1).forEach((_row: string[], rowIndex: number) => {
+                    const instanceName = `${classRef.name}_${rowIndex}`;
+                    const nodeId = `csv-node-${nodeIndex++}`;
+                    const metadata = validatedMetadata.nodes[nodeId]?.meta ?? {};
+                    const node = GObjectNode.builder()
+                        .id(nodeId)
+                        .name(instanceName)
+                        .typeName(classRef.name)
+                        .classHierarchy(classHierarchy)
+                        .meta(metadata)
+                        .build();
+                    node.children.push(...this.createObjectHeader(nodeId, instanceName, classRef.name));
+                    graph.children.push(node);
+                });
+            } catch {
+                // skip unreadable CSV
+            }
+        }
+    }
+
 }
