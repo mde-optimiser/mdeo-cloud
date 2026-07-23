@@ -296,6 +296,11 @@ export class WebSocketApi {
             this.connectedResolve = resolve;
             this.connectedReject = reject;
         });
+        // A scheduled reconnect attempt can fail with nothing currently awaiting
+        // ensureConnected(), which would otherwise surface as an unhandled rejection
+        // in the console. This attaches a handler without affecting the rejection
+        // that actual awaiters of connectedPromise still receive.
+        this.connectedPromise.catch(() => {});
 
         this.socket = new WebSocket(this.wsUrl);
         this.setupSocketEventHandlers();
@@ -519,15 +524,15 @@ export class WebSocketApi {
     }
 
     /**
-     * Handles WebSocket errors. The browser follows a failed connection's error event
-     * with a close event, so cleanup and reconnect scheduling stay in handleClose;
-     * this only needs to log, not throw.
+     * Handles WebSocket errors. Intentionally a no-op: the browser always follows a
+     * failed connection's error event with a close event, and handleClose already
+     * does the real cleanup, reconnect scheduling, and user notification. This just
+     * needs to exist so the socket's onerror handler doesn't throw.
      *
-     * @param event The error event
+     * @param _event The error event
      */
-    private handleError(event: Event): void {
-        // eslint-disable-next-line no-console
-        console.error("[WebSocketApi] WebSocket error occurred:", event);
+    private handleError(_event: Event): void {
+        // Intentionally empty; see handleClose.
     }
 
     /**
