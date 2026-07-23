@@ -1,5 +1,5 @@
 import type { Execution } from "../../execution/execution";
-import { showSuccess, showError, showInfo } from "@/lib/notifications";
+import { showSuccess, showError, showInfo, showWarning } from "@/lib/notifications";
 
 /**
  * Base interface for all WebSocket messages
@@ -219,6 +219,11 @@ export class WebSocketApi {
     private connectedPromise: Promise<void> = Promise.resolve();
     private connectedResolve: (() => void) | null = null;
     private connectedReject: ((reason: unknown) => void) | null = null;
+    /**
+     * Set while notifying the user of an unexpected disconnect, so the notification
+     * only fires once per outage rather than on every retry in the reconnect loop.
+     */
+    private hasNotifiedDisconnect = false;
 
     /**
      * Creates a new WebSocketApi instance
@@ -318,6 +323,13 @@ export class WebSocketApi {
     private handleOpen(): void {
         this.connectionState = "connected";
         this.reconnectAttempts = 0;
+
+        if (this.hasNotifiedDisconnect) {
+            this.hasNotifiedDisconnect = false;
+            if (this.showNotifications) {
+                showSuccess("Connection restored", { description: "Your changes are saving again." });
+            }
+        }
 
         if (this.connectedResolve) {
             this.connectedResolve();
@@ -494,6 +506,14 @@ export class WebSocketApi {
         }
 
         if (!event.wasClean && this.currentProjectId) {
+            if (!this.hasNotifiedDisconnect) {
+                this.hasNotifiedDisconnect = true;
+                if (this.showNotifications) {
+                    showWarning("Connection lost", {
+                        description: "Changes won't be saved until the connection is restored."
+                    });
+                }
+            }
             this.scheduleReconnect();
         }
     }
