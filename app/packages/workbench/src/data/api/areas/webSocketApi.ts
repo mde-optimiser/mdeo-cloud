@@ -1,5 +1,5 @@
 import type { Execution } from "../../execution/execution";
-import { showSuccess, showError, showInfo } from "@/lib/notifications";
+import { showSuccess, showError, showInfo, showWarning } from "@/lib/notifications";
 
 /**
  * Base interface for all WebSocket messages
@@ -210,10 +210,20 @@ export class WebSocketApi {
     private readonly pendingProjectLoads: Map<string, ProjectLoadCallbacks> = new Map();
     private requestIdCounter = 0;
     /**
-     * Resolves once the socket is open; replaced on each connect().
+     * Resolves once the socket is open, rejects if that connection attempt fails;
+     * replaced on each connect(). Without a reject path here, any caller awaiting
+     * a failed attempt via ensureConnected() would hang forever instead of seeing
+     * an error, which in turn left ModelState.saveMetadata()'s await stuck mid-call
+     * and metadataSaveState permanently at SAVING for the rest of the session.
      */
     private connectedPromise: Promise<void> = Promise.resolve();
     private connectedResolve: (() => void) | null = null;
+    private connectedReject: ((reason: unknown) => void) | null = null;
+    /**
+     * Set while notifying the user of an unexpected disconnect, so the notification
+     * only fires once per outage rather than on every retry in the reconnect loop.
+     */
+    private hasNotifiedDisconnect = false;
 
     /**
      * Creates a new WebSocketApi instance
@@ -282,9 +292,15 @@ export class WebSocketApi {
 
         this.connectionState = "connecting";
         this.currentProjectId = projectId ?? null;
-        this.connectedPromise = new Promise<void>((resolve) => {
+        this.connectedPromise = new Promise<void>((resolve, reject) => {
             this.connectedResolve = resolve;
+            this.connectedReject = reject;
         });
+        // A scheduled reconnect attempt can fail with nothing currently awaiting
+        // ensureConnected(), which would otherwise surface as an unhandled rejection
+        // in the console. This attaches a handler without affecting the rejection
+        // that actual awaiters of connectedPromise still receive.
+        this.connectedPromise.catch(() => {});
 
         this.socket = new WebSocket(this.wsUrl);
         this.setupSocketEventHandlers();
@@ -313,9 +329,17 @@ export class WebSocketApi {
         this.connectionState = "connected";
         this.reconnectAttempts = 0;
 
+        if (this.hasNotifiedDisconnect) {
+            this.hasNotifiedDisconnect = false;
+            if (this.showNotifications) {
+                showSuccess("Connection restored", { description: "Your changes are saving again." });
+            }
+        }
+
         if (this.connectedResolve) {
             this.connectedResolve();
             this.connectedResolve = null;
+            this.connectedReject = null;
         }
 
         if (this.currentProjectId) {
@@ -479,18 +503,36 @@ export class WebSocketApi {
         this.pendingRequests.clear();
         this.pendingProjectLoads.clear();
 
+        // Fail this connection attempt so anyone awaiting ensureConnected() doesn't hang forever.
+        if (this.connectedReject) {
+            this.connectedReject({ code: "Unavailable", message: "WebSocket connection closed" });
+            this.connectedResolve = null;
+            this.connectedReject = null;
+        }
+
         if (!event.wasClean && this.currentProjectId) {
+            if (!this.hasNotifiedDisconnect) {
+                this.hasNotifiedDisconnect = true;
+                if (this.showNotifications) {
+                    showWarning("Connection lost", {
+                        description: "Changes won't be saved until the connection is restored."
+                    });
+                }
+            }
             this.scheduleReconnect();
         }
     }
 
     /**
-     * Handles WebSocket errors
+     * Handles WebSocket errors. Intentionally a no-op: the browser always follows a
+     * failed connection's error event with a close event, and handleClose already
+     * does the real cleanup, reconnect scheduling, and user notification. This just
+     * needs to exist so the socket's onerror handler doesn't throw.
      *
      * @param _event The error event
      */
     private handleError(_event: Event): void {
-        throw new Error("WebSocket error occurred");
+        // Intentionally empty; see handleClose.
     }
 
     /**
