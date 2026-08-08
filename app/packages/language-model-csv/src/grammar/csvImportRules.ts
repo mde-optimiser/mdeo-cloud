@@ -1,5 +1,5 @@
-import { createRule, many, or, ref, createExternalTerminalRule } from "@mdeo/language-common";
-import { CsvClassImport, CsvImportBlock, ExternalClass } from "./csvImportTypes.js";
+import { createRule, many, optional, or, ref, group, createExternalTerminalRule } from "@mdeo/language-common";
+import { CsvClassImport, CsvColumnMapping, CsvImportBlock, ExternalClass } from "./csvImportTypes.js";
 
 /**
  * Stand-ins for the base language's common terminals, so this grammar's
@@ -11,9 +11,28 @@ const ID = createExternalTerminalRule<string>("ID");
 const STRING = createExternalTerminalRule<string>("STRING");
 const NEWLINE = createExternalTerminalRule<string>("NEWLINE");
 
+export const CsvColumnMappingRule = createRule("CsvColumnMappingRule")
+    .returns(CsvColumnMapping)
+    .as(({ set }) => [set("csvColumn", STRING), "=", set("property", ID)]);
+
+/**
+ * A class import, with an optional explicit column mapping block.
+ *
+ * The mapping block uses plain nested braces, like the nested blocks in the
+ * other DSLs. Nothing needs to separate it from `file`: the block can only
+ * start with "{", while the enclosing import list continues with an ID or ends
+ * with "}", so the parser can always tell which one it is from a single token.
+ */
 export const CsvClassImportRule = createRule("CsvClassImportRule")
     .returns(CsvClassImport)
-    .as(({ set }) => [set("class", ref(ExternalClass, ID)), "from", set("file", STRING)]);
+    .as(({ set, add }) => [
+        set("class", ref(ExternalClass, ID)),
+        "from",
+        set("file", STRING),
+        optional(
+            group("{", many(or(add("mappings", CsvColumnMappingRule), NEWLINE)), "}")
+        )
+    ]);
 
 /**
  * The content of a CSV import block (everything between the braces).

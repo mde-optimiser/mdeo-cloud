@@ -47,7 +47,11 @@ export const csvImportRequestHandler: RequestHandler<ModelPluginRequestResponse,
             const { content: csvText } = await context.serverApi.readFile(csvPath);
             entries.push({
                 className: entry.class?.$refText ?? "",
-                csvText
+                csvText,
+                mappings: (entry.mappings ?? []).map((mapping) => ({
+                    csvColumn: mapping.csvColumn,
+                    property: mapping.property
+                }))
             });
         }
     }

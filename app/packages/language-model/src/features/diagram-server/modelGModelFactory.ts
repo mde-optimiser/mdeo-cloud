@@ -497,11 +497,28 @@ export class ModelGModelFactory extends BaseGModelFactory<PartialModel> {
      * by its wrapper type name rather than importing its types directly (which would
      * create a circular package dependency, since language-model-csv depends on
      * language-model for the contribution plugin contract).
+     *
+     * A real generic extension point (a contribution plugin owning its own node
+     * rendering, not language-model reaching into its import) is tracked as #35.
+     * It is not a small follow-up: the workbench, where this diagram actually
+     * renders, loads plugins as a merged grammar only, with no mechanism to call
+     * into another plugin's code at runtime, unlike the backend's plugin-RPC path
+     * (which this session confirmed does not build a live GLSP model today).
+     * Building that generic point means giving plugins a way to contribute their
+     * own rendering the same way `language.js` is already served and dynamically
+     * imported per plugin, which is real, separate work.
+     *
+     * The CSV file itself is read through `LangiumDocuments` rather than the raw
+     * `FileSystemProvider`, so this benefits from Langium's own document caching
+     * and works no matter which `FileSystemProvider` is bound, the same way the
+     * metamodel document is read elsewhere in this codebase rather than opened
+     * as a plain file.
      */
     private async createCsvNodes(graph: GGraphType, model: PartialModel): Promise<void> {
         interface CsvClassImportShape {
             class?: { ref?: ClassType };
             file?: string;
+            mappings?: { csvColumn?: string; property?: string }[];
         }
 
         const csvImport = model.imports?.find((imp) => (imp as { $type?: string }).$type === getWrapperInterfaceName("CSV"));
@@ -522,12 +539,15 @@ export class ModelGModelFactory extends BaseGModelFactory<PartialModel> {
             if (classRef == undefined) continue;
             try {
                 const uri = resolveRelativePath(doc, entry.file ?? "");
-                const csvContent = await this.modelState.languageServices.shared.workspace.FileSystemProvider.readFile(uri);
+                const csvDocument = await this.modelState.languageServices.shared.workspace.LangiumDocuments.getOrCreateDocument(
+                    uri
+                );
+                const csvContent = csvDocument.textDocument.getText();
                 const rows = parseCsv(csvContent);
                 if (rows.length < 2) continue;
                 const classChain = resolveClassChain(classRef, this.reflection);
                 const classHierarchy = classChain.map((c) => c.name);
-                const columns = this.resolveCsvColumns(rows[0], classChain);
+                const columns = this.resolveCsvColumns(rows[0], classChain, entry.mappings);
                 const nameOffset = rowsPerClass.get(classRef.name) ?? 0;
                 rowsPerClass.set(classRef.name, nameOffset + rows.length - 1);
                 rows.slice(1).forEach((row: string[], rowIndex: number) => {
@@ -556,15 +576,23 @@ export class ModelGModelFactory extends BaseGModelFactory<PartialModel> {
     /**
      * Resolves which CSV columns correspond to properties of the imported class.
      *
-     * Columns are matched to properties by name across the class' whole extension
-     * chain, mirroring how the import itself resolves them. Unmatched columns and
-     * the reserved `_id` row identifier are dropped, so they are simply not shown.
+     * When the import declares an explicit mapping, only the mapped columns are
+     * used, so a column can also be left out deliberately. Otherwise columns are
+     * matched to properties by name across the class' whole extension chain. Either
+     * way this mirrors how the import itself resolves them, so the diagram shows
+     * the same columns the import reads. Unmatched columns and the reserved `_id`
+     * row identifier are dropped, so they are simply not shown.
      *
      * @param header The CSV header row
      * @param classChain The imported class and its extended classes
+     * @param mappings The import's explicit column to property mappings, if any
      * @returns The column index and property for every column that maps to one
      */
-    private resolveCsvColumns(header: string[], classChain: ClassType[]): CsvColumnBinding[] {
+    private resolveCsvColumns(
+        header: string[],
+        classChain: ClassType[],
+        mappings?: { csvColumn?: string; property?: string }[]
+    ): CsvColumnBinding[] {
         const propertiesByName = new Map<string, PropertyType>();
         for (const cls of classChain) {
             for (const property of cls.properties ?? []) {
@@ -575,6 +603,21 @@ export class ModelGModelFactory extends BaseGModelFactory<PartialModel> {
         }
 
         const columns: CsvColumnBinding[] = [];
+
+        if (mappings != undefined && mappings.length > 0) {
+            for (const mapping of mappings) {
+                if (mapping.csvColumn == undefined || mapping.property == undefined) {
+                    continue;
+                }
+                const index = header.indexOf(mapping.csvColumn);
+                const property = propertiesByName.get(mapping.property);
+                if (index >= 0 && property != undefined) {
+                    columns.push({ index, property });
+                }
+            }
+            return columns;
+        }
+
         header.forEach((columnName, index) => {
             if (columnName === CSV_ID_COLUMN) {
                 return;

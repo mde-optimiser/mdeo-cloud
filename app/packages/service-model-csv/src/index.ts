@@ -52,7 +52,7 @@ const modelCsvServicePlugin: ServicePluginDefinition = {
     contributionPlugins: [
         {
             languageId: "model",
-            description: 'Provides import CSV { ClassName from "file.csv" } syntax for the model language',
+            description: "Provides import CSV { ClassName from \"file.csv\" { \"column\" = property } } syntax for the model language",
             additionalKeywords: ["import", "CSV", "from"],
             serverContributionPlugins: [createModelCsvContributionPlugin()]
         }
