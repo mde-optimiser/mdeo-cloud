@@ -71,6 +71,11 @@
                     <span>Create New Folder</span>
                 </ContextMenuItem>
                 <ContextMenuSeparator />
+                <ContextMenuItem @click="handleUploadClick">
+                    <UploadIcon />
+                    <span>Upload File...</span>
+                </ContextMenuItem>
+                <ContextMenuSeparator />
             </template>
             <ContextMenuItem @click="handleDownload">
                 <DownloadIcon class="size-4 mr-2" />
@@ -87,6 +92,16 @@
             </ContextMenuItem>
         </ContextMenuContent>
     </ContextMenu>
+
+    <input
+        v-if="entry.type === FileType.Directory"
+        ref="fileInputRef"
+        type="file"
+        :accept="acceptedExtensions"
+        multiple
+        class="hidden"
+        @change="handleFileInputChange"
+    />
 
     <AlertDialog v-model:open="showDeleteDialog">
         <AlertDialogContent>
@@ -106,8 +121,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, inject, computed } from "vue";
-import { FolderIcon, EditIcon, Trash2Icon, DownloadIcon, Icon } from "@lucide/vue";
+import { ref, inject, computed, useTemplateRef } from "vue";
+import { FolderIcon, EditIcon, Trash2Icon, DownloadIcon, UploadIcon, Icon } from "@lucide/vue";
 import TreeItem from "@/components/tree/TreeItem.vue";
 import TreeItemInput from "../tree/TreeItemInput.vue";
 import FileSystemItemList from "./FileSystemItemList.vue";
@@ -142,6 +157,7 @@ import { getFileExtension } from "@/data/filesystem/util";
 import { downloadFolderAsZip, downloadBlob } from "@/lib/zip";
 import plugin from "vue-sonner";
 import { fetchFileActions as fetchAvailableFileActions, triggerFileAction } from "@/components/action/fileActions";
+import { uploadFiles } from "@/data/filesystem/uploadFiles";
 
 const props = defineProps<{
     entry: FileSystemNode;
@@ -152,6 +168,7 @@ const {
     monacoApi,
     languagePlugins,
     activeTab,
+    tabs,
     languagePluginByExtension,
     languageClient,
     pendingAction,
@@ -173,6 +190,7 @@ const emit = defineEmits<{
 const isRenaming = ref(false);
 const showDeleteDialog = ref(false);
 const fileActions = ref<FileAction[]>([]);
+const fileInputRef = useTemplateRef("fileInputRef");
 
 const newFileSystemItemState = inject(newFileSystemItemStateKey)!;
 
@@ -297,6 +315,28 @@ function handleCreateFolder() {
     } else {
         emit("delegateCreateFolder");
     }
+}
+
+/**
+ * The file picker's `accept` attribute, listing every extension a registered
+ * language plugin handles, so the OS dialog only offers files that can
+ * actually be uploaded.
+ */
+const acceptedExtensions = computed(() => Array.from(languagePluginByExtension.value.keys()).join(","));
+
+function handleUploadClick() {
+    fileInputRef.value?.click();
+}
+
+async function handleFileInputChange(event: Event) {
+    if (props.entry.type !== FileType.Directory) {
+        return;
+    }
+    const input = event.target as HTMLInputElement;
+    if (input.files != undefined && input.files.length > 0) {
+        await uploadFiles(input.files, props.entry.uri, monacoApi.fileService, tabs, activeTab, languagePluginByExtension);
+    }
+    input.value = "";
 }
 
 function handleKeydown(event: KeyboardEvent) {

@@ -88,9 +88,21 @@
                         <DownloadIcon class="size-4 mr-2" />
                         <span>Download</span>
                     </ContextMenuItem>
+                    <ContextMenuItem @click="handleUploadClick">
+                        <UploadIcon />
+                        <span>Upload File...</span>
+                    </ContextMenuItem>
                 </ContextMenuContent>
             </ContextMenu>
         </ScrollArea>
+        <input
+            ref="fileInputRef"
+            type="file"
+            :accept="acceptedExtensions"
+            multiple
+            class="hidden"
+            @change="handleFileInputChange"
+        />
     </div>
 </template>
 
@@ -106,7 +118,7 @@ import {
     ContextMenuSeparator
 } from "@/components/ui/context-menu";
 import type { FileSystemNode, Folder } from "@/data/filesystem/file";
-import type { DragAndDropCallbacks } from "@/components/tree/util";
+import type { DragAndDropCallbacks, TreeItem } from "@/components/tree/util";
 import FileSystemItemList, { type NewItemState } from "./FileSystemItemList.vue";
 import { newFileSystemItemStateKey, type NewFileSystemItemState } from "./util";
 import { Button } from "@/components/ui/button";
@@ -124,14 +136,16 @@ import { workbenchStateKey } from "../workbench/util";
 import { Uri } from "vscode";
 import { FileType } from "@codingame/monaco-vscode-files-service-override";
 import { findFileInTree } from "@/data/filesystem/util";
-import { FolderIcon, FilePlusIcon, FolderPlusIcon, DownloadIcon } from "@lucide/vue";
+import { FolderIcon, FilePlusIcon, FolderPlusIcon, DownloadIcon, UploadIcon } from "@lucide/vue";
 import FileTypeIcon from "../FileTypeIcon.vue";
 import type { EditorTab } from "@/data/tab/editorTab";
 import { FileCategory, parseUri } from "@mdeo/language-common";
 import { downloadFolderAsZip } from "@/lib/zip";
+import { uploadFiles } from "@/data/filesystem/uploadFiles";
 
 const workbenchState = inject(workbenchStateKey)!;
-const { fileTree: rootFolder, activeTab, monacoApi, languagePlugins, tabs } = workbenchState;
+const { fileTree: rootFolder, activeTab, monacoApi, languagePlugins, languagePluginByExtension, tabs } =
+    workbenchState;
 
 const activeEntry = ref<FileSystemNode>();
 const expandedItems = ref<Set<FileSystemNode>>(new Set());
@@ -185,6 +199,7 @@ watch(newFileMenuOpen, (open) => {
 });
 
 const treeRef = useTemplateRef("treeRef");
+const fileInputRef = useTemplateRef("fileInputRef");
 
 watch(
     activeTab,
@@ -383,6 +398,32 @@ async function handleDownloadProject() {
     await downloadFolderAsZip(monacoApi, rootFolder, rootFolder.name);
 }
 
+/**
+ * The file picker's `accept` attribute, listing every extension a registered
+ * language plugin handles, so the OS dialog only offers files that can
+ * actually be uploaded.
+ */
+const acceptedExtensions = computed(() => Array.from(languagePluginByExtension.value.keys()).join(","));
+
+function handleUploadClick() {
+    fileInputRef.value?.click();
+}
+
+async function handleFileInputChange(event: Event) {
+    const input = event.target as HTMLInputElement;
+    if (input.files != undefined && input.files.length > 0) {
+        await uploadFiles(input.files, rootFolder.uri, monacoApi.fileService, tabs, activeTab, languagePluginByExtension);
+    }
+    input.value = "";
+}
+
+async function handleFilesDropped(files: FileList, targetItem: TreeItem | undefined) {
+    const targetNode = targetItem as FileSystemNode | undefined;
+    const targetFolderUri =
+        targetNode != undefined && targetNode.type === FileType.Directory ? targetNode.uri : rootFolder.uri;
+    await uploadFiles(files, targetFolderUri, monacoApi.fileService, tabs, activeTab, languagePluginByExtension);
+}
+
 const dragAndDropCallbacks: DragAndDropCallbacks = {
     canDrop: (draggedItemId, targetItem) => {
         const draggedNode = findFileInRoot(Uri.file(draggedItemId));
@@ -435,7 +476,9 @@ const dragAndDropCallbacks: DragAndDropCallbacks = {
         }
 
         handleMove(draggedNode.uri, rootFolder.uri);
-    }
+    },
+
+    onFilesDropped: handleFilesDropped
 };
 
 function findFileInRoot(uri: Uri): FileSystemNode | undefined {

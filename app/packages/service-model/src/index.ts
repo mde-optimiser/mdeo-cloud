@@ -35,7 +35,7 @@ const modelLanguagePlugin: LanguagePlugin = {
         languageConfiguration: defaultLanguageConfiguration,
         monarchTokensProvider: serializeMonarchTokensProvider({
             ...defaultMonarchTokenProvider,
-            keywords: ["using"]
+            keywords: ["using", "import", "CSV", "from"]
         })
     },
     isGenerated: false,

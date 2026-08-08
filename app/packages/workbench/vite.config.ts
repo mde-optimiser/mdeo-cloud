@@ -33,7 +33,7 @@ export default defineConfig({
         // config, and plain csv last.
         proxy: {
             "/plugin/model-transformation": {
-                target: "http://localhost:3003",
+                target: "http://localhost:3004",
                 changeOrigin: true,
                 secure: false,
                 ws: true,
@@ -49,7 +49,7 @@ export default defineConfig({
                 configure: addCoopCoepHeaders
             },
             "/plugin/metamodel": {
-                target: "http://localhost:3000",
+                target: "http://localhost:3001",
                 changeOrigin: true,
                 secure: false,
                 ws: true,
@@ -57,7 +57,7 @@ export default defineConfig({
                 configure: addCoopCoepHeaders
             },
             "/plugin/model": {
-                target: "http://localhost:3001",
+                target: "http://localhost:3002",
                 changeOrigin: true,
                 secure: false,
                 ws: true,
@@ -65,7 +65,7 @@ export default defineConfig({
                 configure: addCoopCoepHeaders
             },
             "/plugin/script": {
-                target: "http://localhost:3002",
+                target: "http://localhost:3003",
                 changeOrigin: true,
                 secure: false,
                 ws: true,
@@ -73,7 +73,7 @@ export default defineConfig({
                 configure: addCoopCoepHeaders
             },
             "/plugin/config-optimization": {
-                target: "http://localhost:3005",
+                target: "http://localhost:3006",
                 changeOrigin: true,
                 secure: false,
                 ws: true,
@@ -81,7 +81,7 @@ export default defineConfig({
                 configure: addCoopCoepHeaders
             },
             "/plugin/config-mdeo": {
-                target: "http://localhost:3006",
+                target: "http://localhost:3008",
                 changeOrigin: true,
                 secure: false,
                 ws: true,
@@ -89,7 +89,7 @@ export default defineConfig({
                 configure: addCoopCoepHeaders
             },
             "/plugin/config": {
-                target: "http://localhost:3004",
+                target: "http://localhost:3005",
                 changeOrigin: true,
                 secure: false,
                 ws: true,
