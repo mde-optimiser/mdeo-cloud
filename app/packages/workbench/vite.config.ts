@@ -111,6 +111,11 @@ export default defineConfig({
                 ws: true,
                 rewriteWsOrigin: true,
                 configure: addCoopCoepHeaders
+            },
+            "/git": {
+                target: "http://localhost:8080",
+                changeOrigin: true,
+                secure: false
             }
         }
     },

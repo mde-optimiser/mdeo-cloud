@@ -49,6 +49,8 @@ object ErrorCodes {
     const val FILE_IS_A_DIRECTORY = "FileIsADirectory"
     const val FILE_NOT_A_DIRECTORY = "FileNotADirectory"
     const val DIRECTORY_NOT_EMPTY = "DirectoryNotEmpty"
+    const val RESERVED_PATH = "ReservedPath"
+    const val VERSION_CONFLICT = "VersionConflict"
     
     const val PROJECT_NOT_FOUND = "ProjectNotFound"
     

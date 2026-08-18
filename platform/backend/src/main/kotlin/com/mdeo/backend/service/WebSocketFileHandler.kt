@@ -152,7 +152,14 @@ class WebSocketFileHandler(
             return
         }
 
-        val result = fileService.writeFile(projectId, message.path, content, message.create, message.overwrite)
+        val result = fileService.writeFile(
+            projectId,
+            message.path,
+            content,
+            message.create,
+            message.overwrite,
+            message.expectedVersion
+        )
         sendApiResult(message.requestId, result)
     }
 

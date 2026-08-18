@@ -3,8 +3,10 @@ package com.mdeo.backend.service
 import com.mdeo.common.model.ExecutionState
 import com.mdeo.backend.database.ExecutionsTable
 import com.mdeo.backend.database.FilesTable
+import com.mdeo.backend.database.FileVersionCountersTable
 import com.mdeo.common.model.*
 import kotlinx.serialization.json.Json
+import org.jetbrains.exposed.v1.core.statements.StatementType
 import org.jetbrains.exposed.v1.jdbc.*
 import org.jetbrains.exposed.v1.core.*
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
@@ -16,12 +18,92 @@ import kotlin.uuid.toJavaUuid
 import kotlin.uuid.toKotlinUuid
 
 /**
+ * Path of the file carrying a project's enabled plugins when served over
+ * git. Reserved here, and generated fresh by
+ * [com.mdeo.backend.git.GitRepositoryService] rather than ever written
+ * through the ordinary file API; see [FileService.checkNotReserved].
+ */
+const val RESERVED_PLUGINS_PATH = ".mdeo"
+
+/**
  * Service for managing files and directories within projects.
  *
  * @param services The injected services providing access to configuration and other services
  */
 class FileService(services: InjectedServices) : BaseService(), InjectedServices by services {
-    
+
+    /**
+     * Returns a failure result if [path] is a reserved path a project may not
+     * write to directly.
+     *
+     * `.mdeo` carries a project's enabled plugins when served over git (see
+     * [com.mdeo.backend.git.GitRepositoryService]), generated from the
+     * database rather than stored as an ordinary file. Reserving the name
+     * here, not just skipping it when a git commit is applied, is what
+     * actually keeps it out of collision with real project content: without
+     * this, an old client that had it locally, a `git add .`, or the file
+     * explorer's own UI could create a real row at that exact path, which
+     * would then make every later git operation on the project fail (two
+     * entries claiming the same path in one tree).
+     *
+     * @param path The already-normalized path to check
+     * @return ApiResult.Failure if the path is reserved, null otherwise
+     */
+    private fun checkNotReserved(path: String): ApiResult.Failure? {
+        return if (path == RESERVED_PLUGINS_PATH) {
+            ApiResult.Failure(
+                ApiError(ErrorCodes.RESERVED_PATH, "'$path' is reserved and cannot be written to directly")
+            )
+        } else {
+            null
+        }
+    }
+
+    /**
+     * Returns the version number a newly (re)created file at [path] should
+     * start at, guaranteed higher than any version that path has ever used
+     * before, even across a delete in between.
+     *
+     * A plain per-row counter, reset by [FilesTable.insert] to 1 every time,
+     * would let a deleted-then-recreated file collide with a stale cache
+     * entry elsewhere that recorded a dependency on the old file at that
+     * same version 1 (the common case for a file that was created and never
+     * edited). [FileVersionCountersTable] tracks the next version
+     * separately, in a row this method never deletes, so it survives the
+     * file's own row being deleted and keeps counting up from there.
+     *
+     * The insert and the conflict-driven increment are one atomic statement
+     * so two concurrent creations at the same path can never be handed the
+     * same version.
+     *
+     * @param projectId The project the file belongs to
+     * @param path The already-normalized path being (re)created
+     * @return A version number never used before for this exact path
+     */
+    private fun JdbcTransaction.nextVersion(projectId: UUID, path: String): Int {
+        return exec(
+            """
+            INSERT INTO file_version_counters (project_id, path, next_version)
+            VALUES (?, ?, 1)
+            ON CONFLICT (project_id, path)
+            DO UPDATE SET next_version = file_version_counters.next_version + 1
+            RETURNING next_version
+            """.trimIndent(),
+            listOf(
+                FileVersionCountersTable.projectId.columnType to projectId.toKotlinUuid(),
+                FileVersionCountersTable.path.columnType to path
+            ),
+            // Not StatementType.INSERT: Exposed executes that via JDBC's
+            // executeUpdate(), which expects an update count and throws on
+            // a statement that actually returns rows. This one does,
+            // because of RETURNING, so it needs the query path instead.
+            StatementType.SELECT
+        ) { rs ->
+            check(rs.next()) { "INSERT ... RETURNING produced no row" }
+            rs.getInt(1)
+        }!!
+    }
+
     /**
      * Checks if a project is locked due to an execution in initializing state.
      *
@@ -94,24 +176,31 @@ class FileService(services: InjectedServices) : BaseService(), InjectedServices 
      * @param content The content to write as a byte array
      * @param create Whether to create the file if it doesn't exist
      * @param overwrite Whether to overwrite the file if it already exists
+     * @param expectedVersion When set, the write is rejected unless the file's current version
+     *   matches exactly, so a caller editing a version it already knows is stale (for instance a
+     *   workbench tab that has been open since before a git push moved the file forward) fails
+     *   loudly instead of silently overwriting content it never saw. Not checked when the file
+     *   does not exist yet, since there is nothing for it to be stale against.
      * @return ApiResult indicating success or containing an error
      */
     fun writeFile(
-        projectId: UUID, 
-        path: String, 
-        content: ByteArray, 
-        create: Boolean, 
-        overwrite: Boolean
+        projectId: UUID,
+        path: String,
+        content: ByteArray,
+        create: Boolean,
+        overwrite: Boolean,
+        expectedVersion: Int? = null
     ): ApiResult<Unit> {
         val normalizedPath = normalizePath(path)
         val now = Instant.now()
-        
+
         return transaction {
             checkProjectLock(projectId)?.let { return@transaction it }
+            checkNotReserved(normalizedPath)?.let { return@transaction it }
             val existing = FilesTable.selectAll()
                 .where { (FilesTable.projectId eq projectId.toKotlinUuid()) and (FilesTable.path eq normalizedPath) }
                 .firstOrNull()
-            
+
             if (existing != null) {
                 if (existing[FilesTable.fileType] == FileType.DIRECTORY) {
                     return@transaction fileSystemFailure(ErrorCodes.FILE_IS_A_DIRECTORY, "Is a directory: $path")
@@ -119,7 +208,13 @@ class FileService(services: InjectedServices) : BaseService(), InjectedServices 
                 if (!overwrite) {
                     return@transaction fileSystemFailure(ErrorCodes.FILE_EXISTS, "File already exists: $path")
                 }
-                
+                if (expectedVersion != null && existing[FilesTable.version] != expectedVersion) {
+                    return@transaction fileSystemFailure(
+                        ErrorCodes.VERSION_CONFLICT,
+                        "File $path is at version ${existing[FilesTable.version]}, expected $expectedVersion"
+                    )
+                }
+
                 val currentVersion = existing[FilesTable.version]
                 val contentText = Base64.getEncoder().encodeToString(content)
                 FilesTable.update({ (FilesTable.projectId eq projectId.toKotlinUuid()) and (FilesTable.path eq normalizedPath) }) {
@@ -143,7 +238,7 @@ class FileService(services: InjectedServices) : BaseService(), InjectedServices 
                     it[FilesTable.parentPath] = parentPath
                     it[fileType] = FileType.FILE
                     it[FilesTable.content] = contentText
-                    it[version] = 1
+                    it[version] = nextVersion(projectId, normalizedPath)
                     it[createdAt] = now
                     it[updatedAt] = now
                 }
@@ -167,18 +262,19 @@ class FileService(services: InjectedServices) : BaseService(), InjectedServices 
         
         return transaction {
             checkProjectLock(projectId)?.let { return@transaction it }
-            
+            checkNotReserved(normalizedPath)?.let { return@transaction it }
+
             val existing = FilesTable.selectAll()
                 .where { (FilesTable.projectId eq projectId.toKotlinUuid()) and (FilesTable.path eq normalizedPath) }
                 .firstOrNull()
-            
+
             if (existing != null) {
                 if (existing[FilesTable.fileType] == FileType.DIRECTORY) {
                     return@transaction success(Unit)
                 }
                 return@transaction fileSystemFailure(ErrorCodes.FILE_EXISTS, "File already exists: $path")
             }
-            
+
             ensureParentDirectories(projectId, normalizedPath, now)
             
             val parentPath = getParentPath(normalizedPath)
@@ -355,7 +451,8 @@ class FileService(services: InjectedServices) : BaseService(), InjectedServices 
         
         return transaction {
             checkProjectLock(projectId)?.let { return@transaction it }
-            
+            checkNotReserved(normalizedTo)?.let { return@transaction it }
+
             val sourceRow = FilesTable.selectAll()
                 .where { (FilesTable.projectId eq projectId.toKotlinUuid()) and (FilesTable.path eq normalizedFrom) }
                 .firstOrNull()

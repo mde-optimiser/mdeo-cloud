@@ -67,6 +67,24 @@ data class ExecutionStateChangedMessage(
     override val type: String = "event/executionStateChanged"
 }
 
+/**
+ * Notification that a project's files changed from outside the connections
+ * subscribed to it, most commonly a git push. The platform has no per-file
+ * change broadcast at all today (an edit in one browser tab is equally
+ * invisible to another), so this is deliberately coarse: it says only that
+ * something changed, not what, and a client that cares reloads whatever it
+ * currently has open rather than trying to reconcile a diff it never saw.
+ *
+ * @property projectId The project whose files changed
+ */
+@Serializable
+data class FilesChangedMessage(
+    val projectId: String
+) : WebSocketMessage {
+    @SerialName("messageType")
+    override val type: String = "event/filesChanged"
+}
+
 // ─── Initialization Messages ──────────────────────────────────────────────────
 
 /**
@@ -169,6 +187,9 @@ data class ReadFileMessage(
  * @property content Base64-encoded file content
  * @property create Whether to create the file if it does not exist
  * @property overwrite Whether to overwrite the file if it exists
+ * @property expectedVersion When set, the write fails with a version conflict unless the file's
+ *   current version matches exactly. Optional so an older client omitting it keeps writing
+ *   unconditionally, same as before this existed.
  */
 @Serializable
 data class WriteFileMessage(
@@ -177,7 +198,8 @@ data class WriteFileMessage(
     val path: String,
     val content: String,
     val create: Boolean = true,
-    val overwrite: Boolean = false
+    val overwrite: Boolean = false,
+    val expectedVersion: Int? = null
 ) : WebSocketMessage {
     @SerialName("messageType")
     override val type: String = "file/writeFile"
@@ -567,7 +589,21 @@ class WebSocketNotificationService {
     suspend fun broadcastExecutionStateChange(projectId: UUID, execution: Execution) {
         val message = ExecutionStateChangedMessage(execution)
         val messageJson = json.encodeToString(message as WebSocketMessage)
-        
+
+        broadcastToProject(projectId, messageJson)
+    }
+
+    /**
+     * Broadcasts that a project's files changed from outside its subscribed
+     * connections, so open clients know to reload rather than silently
+     * saving over content they never saw change underneath them.
+     *
+     * @param projectId The project whose files changed
+     */
+    suspend fun broadcastFilesChanged(projectId: UUID) {
+        val message = FilesChangedMessage(projectId.toString())
+        val messageJson = json.encodeToString(message as WebSocketMessage)
+
         broadcastToProject(projectId, messageJson)
     }
 

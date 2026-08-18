@@ -1,11 +1,13 @@
 package com.mdeo.backend.routes
 
 import com.mdeo.backend.plugins.*
+import com.mdeo.backend.service.AuthRateLimiter
 import com.mdeo.backend.service.UserService
 import com.mdeo.backend.service.JwtService
 import com.mdeo.common.model.*
 import com.mdeo.common.model.UserRoles
 import io.ktor.http.*
+import io.ktor.server.plugins.origin
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
@@ -17,18 +19,25 @@ import java.time.Instant
  *
  * @param userService Service for user authentication and management
  * @param jwtService Service for JWT operations
+ * @param authRateLimiter Throttles login attempts, shared with git's HTTP basic authentication
  */
-fun Route.authRoutes(userService: UserService, jwtService: JwtService) {
+fun Route.authRoutes(userService: UserService, jwtService: JwtService, authRateLimiter: AuthRateLimiter) {
     route("/api/auth") {
         /**
          * Authenticates a user and creates a session.
          *
          * @param body LoginRequest containing username and password
-         * @return LoginResponse with user information on success, 401 Unauthorized on failure
+         * @return LoginResponse with user information on success, 401 Unauthorized on failure,
+         *   429 Too Many Requests when rate limited
          */
         post("/login") {
             val request = call.receive<LoginRequest>()
-            
+
+            if (!authRateLimiter.tryAcquire(request.username, call.request.origin.remoteHost)) {
+                call.respond(HttpStatusCode.TooManyRequests, mapOf("error" to "Too many attempts, try again later"))
+                return@post
+            }
+
             val user = userService.verifyPassword(request.username, request.password)
             if (user == null) {
                 call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "Invalid credentials"))

@@ -78,3 +78,32 @@ its status and, once it finishes, its result files. See [Reading the results](/g
 
 A whole project can be exported as a zip and imported again, folders included. This is the easiest
 way to move an experiment between instances or to hand one to a colleague.
+
+## Cloning a project with git
+
+Every project is also a real git repository. The project details panel has a **Git** section with the
+clone URL:
+
+```
+git clone https://<host>/git/<project-id>.git
+```
+
+Cloning and pushing use your ordinary MDEO Cloud username and password, over HTTP Basic
+authentication — there is nothing separate to set up. You need read access to clone and write access
+to push, the same permissions that govern the workbench itself.
+
+A clone contains every project file, plus a `.mdeo` file listing the project's enabled
+plugins, so a fresh clone opened as a new project comes up with the same languages available.
+Changing that file over a push requires admin permission on the project, the same bar
+changing plugins from the workbench itself is held to, not merely write access.
+Diagram layout is not included: it is purely visual and changes on nearly every interaction with a
+diagram, so a project opened for the first time from a clone will need its nodes laid out again.
+
+History is not one commit per save. The current state is committed only when someone actually looks —
+cloning or fetching — and only if it differs from what is already there, so the log reflects points
+where something changed rather than every keystroke.
+
+A push is applied the same way a workbench edit is: the same validation, and the same conflict
+handling projects already have for two people editing live. A push that is not a fast-forward is
+rejected, exactly as git rejects one anywhere else, and you reconcile it locally with the tools you
+already use.

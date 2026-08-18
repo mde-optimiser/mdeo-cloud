@@ -72,4 +72,10 @@ interface InjectedServices {
      * Service for executing language plugin requests.
      */
     val languagePluginRequestService: LanguagePluginRequestService
+
+    /**
+     * Throttles password verification attempts, shared between the login
+     * route and git's HTTP basic authentication.
+     */
+    val authRateLimiter: AuthRateLimiter
 }

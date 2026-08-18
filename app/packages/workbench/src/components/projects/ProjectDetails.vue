@@ -158,6 +158,41 @@
 
                 <div>
                     <Separator />
+                    <SidebarPanelHeader label="Git" />
+                    <div class="px-4 py-2 space-y-2">
+                        <div class="flex items-center gap-2">
+                            <Input
+                                :model-value="gitCloneUrl"
+                                readonly
+                                class="flex-1 text-xs font-mono"
+                                @focus="($event.target as HTMLInputElement).select()"
+                            />
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        class="h-8 w-8 shrink-0"
+                                        :aria-label="isGitUrlCopied ? 'Copied' : 'Copy clone URL'"
+                                        @click="handleCopyGitUrl"
+                                    >
+                                        <Check v-if="isGitUrlCopied" class="size-4" />
+                                        <Copy v-else class="size-4" />
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent side="right">
+                                    {{ isGitUrlCopied ? "Copied" : "Copy clone URL" }}
+                                </TooltipContent>
+                            </Tooltip>
+                        </div>
+                        <p class="text-xs text-muted-foreground">
+                            Clone or push this project with git, using your MDEO Cloud login.
+                        </p>
+                    </div>
+                </div>
+
+                <div>
+                    <Separator />
                     <SidebarPanelHeader label="Management" />
                     <div class="px-4 py-2 space-y-2">
                         <Button variant="secondary" class="w-full" @click="handleDownloadProject">
@@ -228,7 +263,7 @@ import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } 
 import ManagePluginsDialog from "./ManagePluginsDialog.vue";
 import ManageUsersDialog from "./ManageUsersDialog.vue";
 import type { ProjectUserInfo } from "@/data/api/backendApi";
-import { Pencil, Trash2, Download, FolderOpen, User as UserIcon, Settings2, Icon } from "@lucide/vue";
+import { Pencil, Trash2, Download, FolderOpen, User as UserIcon, Settings2, Icon, Copy, Check } from "@lucide/vue";
 import { workbenchStateKey } from "@/components/workbench/util";
 import type { WorkbenchPlugin } from "@/data/plugin/plugin";
 import { showApiError } from "@/lib/notifications";
@@ -257,10 +292,23 @@ const selectedPluginIdForDialog = ref<string | undefined>(undefined);
 const selectedUserIdForDialog = ref<string | undefined>(undefined);
 const removingPluginIds = reactive(new Set<string>());
 const removingUserIds = reactive(new Set<string>());
+const isGitUrlCopied = ref(false);
 
 const sortedPlugins = computed(() => {
     return Array.from(plugins.value.values()).sort((a, b) => a.name.localeCompare(b.name));
 });
+
+// Same origin as the workbench itself: nginx (and the vite dev proxy) forward
+// /git/ to the backend alongside /api/, so no separate backend URL is needed.
+const gitCloneUrl = computed(() => `${window.location.origin}/git/${project.value!.id}.git`);
+
+async function handleCopyGitUrl() {
+    await navigator.clipboard.writeText(gitCloneUrl.value);
+    isGitUrlCopied.value = true;
+    setTimeout(() => {
+        isGitUrlCopied.value = false;
+    }, 1500);
+}
 
 function handleEditName() {
     editedName.value = project.value!.name;

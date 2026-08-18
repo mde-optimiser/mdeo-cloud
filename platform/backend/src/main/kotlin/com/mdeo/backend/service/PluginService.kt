@@ -135,6 +135,63 @@ class PluginService(services: InjectedServices) : BaseService(), InjectedService
     }
 
     /**
+     * Urls of the plugins enabled for a project, as registered rather than
+     * resolved against a base url, sorted for a stable order.
+     *
+     * Used to publish a project's plugin selection as part of its git tree
+     * (see [com.mdeo.backend.git.GitRepositoryService]), where the registered
+     * url is what a push can be matched back against.
+     *
+     * @param projectId The UUID of the project
+     * @return The enabled plugins' registered urls
+     */
+    fun getProjectPluginUrls(projectId: UUID): List<String> {
+        return transaction {
+            (ProjectPluginsTable innerJoin PluginsTable)
+                .select(PluginsTable.url)
+                .where { ProjectPluginsTable.projectId eq projectId.toKotlinUuid() }
+                .map { it[PluginsTable.url] }
+                .sorted()
+        }
+    }
+
+    /**
+     * Replaces a project's enabled plugins to match exactly the given urls.
+     *
+     * A url that does not match a registered plugin is skipped rather than
+     * failing the call, since a git clone can be pushed back to a different
+     * MDEO instance than the one it came from, which may not have every
+     * plugin registered.
+     *
+     * @param projectId The UUID of the project
+     * @param urls The urls that should be enabled, replacing the current set
+     * @return The urls that did not match a registered plugin
+     */
+    fun setProjectPlugins(projectId: UUID, urls: List<String>): List<String> {
+        val normalized = urls.map { it.trimEnd('/') + "/" }.toSet()
+
+        val unknown = transaction {
+            val resolved = PluginsTable.selectAll()
+                .where { PluginsTable.url inList normalized }
+                .associate { it[PluginsTable.url] to it[PluginsTable.id] }
+
+            val project = projectId.toKotlinUuid()
+            ProjectPluginsTable.deleteWhere { ProjectPluginsTable.projectId eq project }
+            for (pluginId in resolved.values) {
+                ProjectPluginsTable.insert {
+                    it[ProjectPluginsTable.projectId] = project
+                    it[ProjectPluginsTable.pluginId] = pluginId
+                }
+            }
+
+            normalized - resolved.keys
+        }
+
+        fileDataService.invalidateProjectData(projectId)
+        return unknown.toList()
+    }
+
+    /**
      * Retrieves a specific plugin by ID.
      *
      * @param pluginId The UUID of the plugin

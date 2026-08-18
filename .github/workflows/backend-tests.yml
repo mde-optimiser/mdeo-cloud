@@ -1,0 +1,28 @@
+name: Backend tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "platform/**"
+      - ".github/workflows/backend-tests.yml"
+  pull_request:
+    paths:
+      - "platform/**"
+      - ".github/workflows/backend-tests.yml"
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Run backend unit tests
+        working-directory: platform
+        run: ./gradlew :backend:test --no-daemon

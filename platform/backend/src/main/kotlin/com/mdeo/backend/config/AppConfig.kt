@@ -22,7 +22,8 @@ data class AppConfig(
     val defaultNewUserCanCreateProject: Boolean,
     val plugin: PluginConfig,
     val jwt: JwtConfig,
-    val fileData: FileDataConfig
+    val fileData: FileDataConfig,
+    val git: GitConfig
 ) {
     companion object {
         /**
@@ -102,6 +103,12 @@ data class AppConfig(
                 fileData = FileDataConfig(
                     computationTimeoutSeconds = System.getenv("FILE_DATA_COMPUTATION_TIMEOUT_SECONDS")?.toLongOrNull()
                         ?: TimeUnit.MINUTES.toSeconds(5)
+                ),
+                git = GitConfig(
+                    maxPushPackSizeBytes = System.getenv("GIT_MAX_PUSH_PACK_SIZE_BYTES")?.toLongOrNull()
+                        ?: (100L * 1024 * 1024),
+                    maxProjectStorageBytes = System.getenv("GIT_MAX_PROJECT_STORAGE_BYTES")?.toLongOrNull()
+                        ?: (2L * 1024 * 1024 * 1024)
                 )
             )
         }
@@ -204,4 +211,22 @@ data class JwtConfig(
  */
 data class FileDataConfig(
     val computationTimeoutSeconds: Long
+)
+
+/**
+ * Git server configuration.
+ *
+ * @property maxPushPackSizeBytes Largest pack a push may send, in bytes (default 100 MiB). JGit
+ *   rejects an oversized pack while unpacking it, before any of its content reaches
+ *   [com.mdeo.backend.git.GitRepositoryService.applyCommitToProject], so this fails the push
+ *   cleanly rather than partway through applying it.
+ * @property maxProjectStorageBytes Largest total git object storage one project may hold, in
+ *   bytes (default 2 GiB), checked before a push is applied. Nothing else reclaims storage a
+ *   rejected push already wrote except the sweep this cap's own rejection triggers, so without
+ *   it a write-capable user could otherwise grow the database without bound by pushing large
+ *   rejected packs in a loop.
+ */
+data class GitConfig(
+    val maxPushPackSizeBytes: Long,
+    val maxProjectStorageBytes: Long
 )

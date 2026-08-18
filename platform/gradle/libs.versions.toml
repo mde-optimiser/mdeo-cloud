@@ -6,6 +6,7 @@ hikari = "7.1.0"
 postgresql = "42.7.13"
 logback = "1.6.3"
 bcrypt = "0.10.2"
+jgit = "7.3.0.202506031305-r"
 kotlinx-serialization = "1.11.0"
 kotlinx-coroutines = "1.11.0"
 junit = "6.1.3"
@@ -55,6 +56,9 @@ hikari = { module = "com.zaxxer:HikariCP", version.ref = "hikari" }
 
 # Security
 bcrypt = { module = "at.favre.lib:bcrypt", version.ref = "bcrypt" }
+
+# Git
+jgit = { module = "org.eclipse.jgit:org.eclipse.jgit", version.ref = "jgit" }
 auth0-jwt = { module = "com.auth0:java-jwt", version.ref = "auth0-jwt" }
 auth0-jwks = { module = "com.auth0:jwks-rsa", version.ref = "auth0-jwks" }
 

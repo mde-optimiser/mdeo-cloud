@@ -43,6 +43,9 @@ dependencies {
     // Security
     implementation(libs.bcrypt)
     
+    // Git (project repositories served over smart HTTP)
+    implementation(libs.jgit)
+    
     // Logging
     implementation(libs.logback)
     
@@ -60,4 +63,8 @@ tasks.shadowJar {
     archiveClassifier.set("")
     archiveVersion.set("")
     mergeServiceFiles()
+}
+
+tasks.test {
+    useJUnitPlatform()
 }

@@ -6,6 +6,7 @@ import com.mdeo.backend.config.configureSerialization
 import com.mdeo.backend.config.configureStatusPages
 import com.mdeo.backend.database.DatabaseFactory
 import com.mdeo.backend.plugins.*
+import com.mdeo.backend.git.GitRepositoryService
 import com.mdeo.backend.routes.*
 import com.mdeo.backend.service.*
 import io.ktor.server.application.*
@@ -60,6 +61,15 @@ fun Application.module(appConfig: AppConfig) {
         override val executionService: ExecutionService by lazy { ExecutionService(this) }
         override val webSocketNotificationService: WebSocketNotificationService by lazy { WebSocketNotificationService() }
         override val languagePluginRequestService: LanguagePluginRequestService by lazy { LanguagePluginRequestService(this) }
+        override val authRateLimiter: AuthRateLimiter by lazy { AuthRateLimiter() }
+        val gitRepositoryService: GitRepositoryService by lazy {
+            GitRepositoryService(
+                fileService,
+                pluginService,
+                appConfig.git.maxPushPackSizeBytes,
+                appConfig.git.maxProjectStorageBytes
+            )
+        }
     }
     
     services.jwtService.init()
@@ -106,7 +116,19 @@ fun Application.module(appConfig: AppConfig) {
     
     routing {
         healthRoutes()
-        authRoutes(services.userService, services.jwtService)
+        authRoutes(services.userService, services.jwtService, services.authRateLimiter)
+
+        // Outside the session and JWT blocks on purpose: git clients cannot
+        // present either, so these routes authenticate the HTTP basic
+        // credentials themselves.
+        gitRoutes(
+            services.gitRepositoryService,
+            services.projectService,
+            services.userService,
+            services.authRateLimiter,
+            services.webSocketNotificationService,
+            appConfig.git.maxPushPackSizeBytes
+        )
         
         authenticate(AUTH_SESSION, AUTH_JWT, optional = true) {
             fileRoutes(services.fileService, services.projectService)
