@@ -1,6 +1,6 @@
 import type { GNode, ModelState, GModelIndex } from "@mdeo/language-shared";
 import { BaseCreateEdgeOperationHandler, sharedImport, type CreateEdgeResult } from "@mdeo/language-shared";
-import type { CreateEdgeOperation } from "@mdeo/protocol-common";
+import { CreateEdgeOperation } from "@mdeo/protocol-common";
 import type { PartialObjectInstance } from "../../../grammar/modelPartialTypes.js";
 import { ObjectInstance, Link, LinkEnd } from "../../../grammar/modelTypes.js";
 import type { LinkType, LinkEndType } from "../../../grammar/modelTypes.js";
@@ -16,7 +16,7 @@ const { ModelState: ModelStateKey, GModelIndex: GModelIndexKey } = sharedImport(
  */
 @injectable()
 export class CreateLinkOperationHandler extends BaseCreateEdgeOperationHandler {
-    override readonly operationType = "createEdge";
+    override readonly operationType = CreateEdgeOperation.KIND;
     override label = "Create edge";
     readonly elementTypeIds = [ModelElementType.EDGE_LINK];
 

@@ -9,7 +9,7 @@ import {
     ExtendsIcon
 } from "../icon-registry/customIcons.js";
 import type { IconNode } from "lucide";
-import { EdgeCreationType } from "./edgeCreationType.js";
+import { EdgeCreationType } from "@mdeo/protocol-metamodel";
 
 const { html } = sharedImport("@eclipse-glsp/sprotty");
 

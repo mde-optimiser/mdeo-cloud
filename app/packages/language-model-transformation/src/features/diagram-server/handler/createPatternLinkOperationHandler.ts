@@ -5,7 +5,7 @@ import {
     DefaultModelIdRegistry,
     type ModelIdRegistry
 } from "@mdeo/language-shared";
-import type { CreateEdgeOperation } from "@mdeo/protocol-common";
+import { CreateEdgeOperation } from "@mdeo/protocol-common";
 import { LinkAssociationResolver, type LinkAssociationDisambiguation } from "@mdeo/language-model";
 import type { AstNode } from "langium";
 import type { CompositeCstNode } from "langium";
@@ -22,7 +22,9 @@ import {
     type PatternLinkType,
     type PatternLinkEndType,
     type PatternModifierType,
-    type PatternType
+    type PatternType,
+    PatternApplicationCondition,
+    type PatternApplicationConditionType
 } from "../../../grammar/modelTransformationTypes.js";
 import type { ClassType } from "@mdeo/language-metamodel";
 import { ModelTransformationElementType, PatternModifierKind } from "@mdeo/protocol-model-transformation";
@@ -31,6 +33,13 @@ import type { WorkspaceEdit } from "vscode-languageserver-types";
 
 const { injectable, inject } = sharedImport("inversify");
 const { ModelState: ModelStateKey, GModelIndex: GModelIndexKey } = sharedImport("@eclipse-glsp/server");
+const { GrammarUtils } = sharedImport("langium");
+
+/**
+ * A container that can hold pattern links: either the match pattern itself or one of its
+ * application condition blocks.
+ */
+type LinkContainer = PatternType | PatternApplicationConditionType;
 
 /**
  * Parameters included in the create-edge schema for pattern links.
@@ -64,9 +73,9 @@ interface ResolvedPatternInstance {
      */
     modifier: PatternModifierKind;
     /**
-     * The Pattern AST node that contains this element.
+     * The Pattern or application condition block that contains this element.
      */
-    pattern: PatternType;
+    pattern: LinkContainer;
 }
 
 /**
@@ -79,7 +88,7 @@ interface ResolvedPatternInstance {
  */
 @injectable()
 export class CreatePatternLinkOperationHandler extends BaseCreateEdgeOperationHandler {
-    override readonly operationType = "createEdge";
+    override readonly operationType = CreateEdgeOperation.KIND;
     override label = "Create pattern link";
     readonly elementTypeIds = [ModelTransformationElementType.EDGE_PATTERN_LINK];
 
@@ -95,6 +104,9 @@ export class CreatePatternLinkOperationHandler extends BaseCreateEdgeOperationHa
      * Validates that both source and target are {@link GPatternInstanceNode}s belonging to
      * the same pattern, infers the link modifier, checks for a valid metamodel association,
      * serializes the link, and inserts it into the pattern via {@link insertIntoScope}.
+     *
+     * Inside a condition block a link has no modifier of its own: the block says whether the
+     * graph it belongs to is forbidden or required.
      *
      * @param operation The create-edge operation
      * @param sourceElement The source GNode (must be a GPatternInstanceNode)
@@ -130,12 +142,15 @@ export class CreatePatternLinkOperationHandler extends BaseCreateEdgeOperationHa
             return undefined;
         }
 
-        if (sourceInfo.pattern !== targetInfo.pattern) {
+        const container = this.resolveLinkContainer(sourceInfo.pattern, targetInfo.pattern);
+        if (container == undefined) {
             return undefined;
         }
+        const reflection = this.localModelState.languageServices.shared.AstReflection;
+        const insideCondition = reflection.isInstance(container, PatternApplicationCondition);
 
         const params = operation.schema.params as PatternLinkSchemaParams;
-        const modifier = this.modifierStringToKind(params.modifier);
+        const modifier = insideCondition ? PatternModifierKind.NONE : this.modifierStringToKind(params.modifier);
 
         const associationResolver = new LinkAssociationResolver(
             this.localModelState.languageServices.shared.AstReflection
@@ -174,13 +189,13 @@ export class CreatePatternLinkOperationHandler extends BaseCreateEdgeOperationHa
         };
 
         const linkText = await this.serializeNode(linkNode);
-        const workspaceEdit = this.insertLinkIntoPattern(sourceInfo.pattern, linkText);
+        const workspaceEdit = this.insertLinkIntoPattern(container, linkText);
 
         return {
             edgeType: ModelTransformationElementType.EDGE_PATTERN_LINK,
             workspaceEdit,
             insertSpecification: {
-                container: sourceInfo.pattern,
+                container,
                 property: "elements",
                 elements: [linkNode]
             },
@@ -226,7 +241,7 @@ export class CreatePatternLinkOperationHandler extends BaseCreateEdgeOperationHa
             const name = registry?.getName(instance as AstNode) ?? instance.name;
             const classType = instance.class?.ref as ClassType | undefined;
             const modifier = this.modifierStringToKind(instance.modifier?.modifier);
-            const pattern = instance.$container as PatternType;
+            const pattern = instance.$container as LinkContainer;
             if (!name || !classType) return undefined;
             return { name, classType, modifier, pattern };
         }
@@ -237,7 +252,7 @@ export class CreatePatternLinkOperationHandler extends BaseCreateEdgeOperationHa
             if (!instance) return undefined;
             const name = registry?.getName(instance as AstNode) ?? instance.name;
             const classType = instance.class?.ref as ClassType | undefined;
-            const pattern = ref.$container as PatternType;
+            const pattern = ref.$container as LinkContainer;
             if (!name || !classType) return undefined;
             return { name, classType, modifier: PatternModifierKind.NONE, pattern };
         }
@@ -248,7 +263,7 @@ export class CreatePatternLinkOperationHandler extends BaseCreateEdgeOperationHa
             if (!instance) return undefined;
             const name = registry?.getName(instance as AstNode) ?? instance.name;
             const classType = instance.class?.ref as ClassType | undefined;
-            const pattern = del.$container as PatternType;
+            const pattern = del.$container as LinkContainer;
             if (!name || !classType) return undefined;
             return { name, classType, modifier: PatternModifierKind.DELETE, pattern };
         }
@@ -257,26 +272,69 @@ export class CreatePatternLinkOperationHandler extends BaseCreateEdgeOperationHa
     }
 
     /**
-     * Inserts a serialized link text into the given pattern using {@link insertIntoScope}.
+     * Determines the container a new link belongs to, given the containers of its endpoints.
      *
-     * The opening `{` and closing `}` keyword nodes are extracted from the pattern's
-     * composite CST node. A blank line is added before the content when the pattern
-     * already contains elements.
+     * A link joins the graph both of its endpoints belong to. When one endpoint is a node of
+     * an application condition and the other is a node of the enclosing match, the link is
+     * part of the condition: it anchors the condition graph to the match. Endpoints living in
+     * two different conditions have no common graph, so no link can be drawn between them.
      *
-     * @param pattern The target pattern whose CST scope receives the new link
+     * @param sourceContainer The container of the source endpoint
+     * @param targetContainer The container of the target endpoint
+     * @returns The container that receives the link, or `undefined` when there is none
+     */
+    private resolveLinkContainer(
+        sourceContainer: LinkContainer,
+        targetContainer: LinkContainer
+    ): LinkContainer | undefined {
+        if (sourceContainer === targetContainer) {
+            return sourceContainer;
+        }
+        if (this.isConditionOf(sourceContainer, targetContainer)) {
+            return sourceContainer;
+        }
+        if (this.isConditionOf(targetContainer, sourceContainer)) {
+            return targetContainer;
+        }
+        return undefined;
+    }
+
+    /**
+     * Checks whether [candidate] is a condition block of [pattern].
+     *
+     * @param candidate The potential condition block
+     * @param pattern The potential enclosing pattern
+     * @returns `true` when the candidate is a block declared in that pattern
+     */
+    private isConditionOf(candidate: LinkContainer, pattern: LinkContainer): boolean {
+        const reflection = this.localModelState.languageServices.shared.AstReflection;
+        return (
+            reflection.isInstance(candidate, PatternApplicationCondition) &&
+            (candidate as AstNode).$container === pattern
+        );
+    }
+
+    /**
+     * Inserts a serialized link text into the given container using {@link insertIntoScope}.
+     *
+     * A blank line is added before the content when the container already holds elements.
+     *
+     * @param container The target pattern or condition block whose CST scope receives the link
      * @param text The already-serialized link text to insert
      * @returns The workspace edit that inserts the link before the closing `}`
-     * @throws {Error} If the pattern has no CST node
+     * @throws {Error} If the container has no CST node or no braces
      */
-    private insertLinkIntoPattern(pattern: PatternType, text: string): WorkspaceEdit {
-        const patternCst = pattern.$cstNode as CompositeCstNode | undefined;
-        if (!patternCst) {
+    private insertLinkIntoPattern(container: LinkContainer, text: string): WorkspaceEdit {
+        const containerCst = container.$cstNode as CompositeCstNode | undefined;
+        if (!containerCst) {
             throw new Error("Pattern has no CST node; cannot insert link.");
         }
-        const content = patternCst.content;
-        const openBrace = content[0]!;
-        const closeBrace = content[content.length - 1]!;
-        const hasContent = (pattern.elements?.length ?? 0) > 0;
+        const openBrace = GrammarUtils.findNodeForKeyword(containerCst, "{");
+        const closeBrace = GrammarUtils.findNodeForKeyword(containerCst, "}");
+        if (openBrace == undefined || closeBrace == undefined) {
+            throw new Error("Pattern has no braces; cannot insert link.");
+        }
+        const hasContent = (container.elements?.length ?? 0) > 0;
         return this.insertIntoScope(openBrace, closeBrace, hasContent, text);
     }
 

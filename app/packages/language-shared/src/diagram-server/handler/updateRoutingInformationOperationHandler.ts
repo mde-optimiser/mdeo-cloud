@@ -4,7 +4,8 @@ import { sharedImport } from "../../sharedImport.js";
 import { BaseOperationHandler } from "./baseOperationHandler.js";
 import { OperationHandlerCommand } from "./operationHandlerCommand.js";
 import type { EdgeMetadata } from "../metadata.js";
-import type { EdgeLayoutMetadata, UpdateRoutingInformationOperation } from "@mdeo/protocol-common";
+import type { EdgeLayoutMetadata } from "@mdeo/protocol-common";
+import { UpdateRoutingInformationOperation } from "@mdeo/protocol-common";
 
 const { injectable } = sharedImport("inversify");
 
@@ -17,7 +18,7 @@ export class UpdateRoutingInformationOperationHandler extends BaseOperationHandl
     /**
      * The operation type this handler processes
      */
-    override readonly operationType: UpdateRoutingInformationOperation["kind"] = "updateRoutingInformation";
+    override readonly operationType = UpdateRoutingInformationOperation.KIND;
 
     /**
      * Creates a command to execute the update routing information operation.

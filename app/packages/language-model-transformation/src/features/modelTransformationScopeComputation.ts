@@ -1,6 +1,11 @@
 import { sharedImport } from "@mdeo/language-shared";
 import type { LangiumDocument, AstNodeDescription, AstNode, MultiMap } from "langium";
-import { MatchStatement, PatternObjectInstance, PatternVariable } from "../grammar/modelTransformationTypes.js";
+import {
+    MatchStatement,
+    PatternApplicationCondition,
+    PatternObjectInstance,
+    PatternVariable
+} from "../grammar/modelTransformationTypes.js";
 import type { ModelTransformationType } from "../grammar/modelTransformationTypes.js";
 import type { AstReflection, ExtendedLangiumServices } from "@mdeo/language-common";
 import type { CancellationToken } from "vscode-jsonrpc";
@@ -52,15 +57,31 @@ export class ModelTransformationScopeComputation extends DefaultScopeComputation
         );
     }
 
+    /**
+     * Registers a locally declared symbol.
+     *
+     * An instance declared inside a condition block belongs to that block's own graph, so it
+     * is registered on the block: it is visible to the rest of the block, but not to the
+     * enclosing pattern or to any sibling block.
+     *
+     * @param node The node to register
+     * @param document The document being scoped
+     * @param symbols The symbol table to add to
+     */
     protected override addLocalSymbol(
         node: AstNode,
         document: LangiumDocument,
         symbols: MultiMap<AstNode, AstNodeDescription>
     ): void {
         if (this.astReflection.isInstance(node, PatternObjectInstance)) {
-            let container = node.$container?.$container;
-            if (this.astReflection.isInstance(container, MatchStatement)) {
-                container = container.$container;
+            let container: AstNode | undefined;
+            if (this.astReflection.isInstance(node.$container, PatternApplicationCondition)) {
+                container = node.$container;
+            } else {
+                container = node.$container?.$container;
+                if (this.astReflection.isInstance(container, MatchStatement)) {
+                    container = container.$container;
+                }
             }
             if (container != undefined) {
                 const name = this.nameProvider.getName(node);

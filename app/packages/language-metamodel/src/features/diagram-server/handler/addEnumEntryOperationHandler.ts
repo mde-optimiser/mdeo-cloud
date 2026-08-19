@@ -6,8 +6,7 @@ import {
     GHorizontalDivider
 } from "@mdeo/language-shared";
 import { Enum, EnumEntry, type EnumType } from "../../../grammar/metamodelTypes.js";
-import type { AddEnumEntryOperation } from "@mdeo/protocol-metamodel";
-import { MetamodelElementType } from "@mdeo/protocol-metamodel";
+import { AddEnumEntryOperation, MetamodelElementType } from "@mdeo/protocol-metamodel";
 import type { AstNode } from "langium";
 import type { Command, GModelElement } from "@eclipse-glsp/server";
 import type { ContextActionRequestContext, ContextItemProvider } from "@mdeo/language-shared";
@@ -30,7 +29,7 @@ export const NEW_ENUM_ENTRY_LABEL_PREFIX = "__new-label-entry-";
  */
 @injectable()
 export class AddEnumEntryOperationHandler extends BaseOperationHandler implements ContextItemProvider {
-    override readonly operationType = "addEnumEntry";
+    override readonly operationType = AddEnumEntryOperation.KIND;
 
     /**
      * Creates a workspace-edit command that inserts a new enum entry.
@@ -119,7 +118,7 @@ export class AddEnumEntryOperationHandler extends BaseOperationHandler implement
             .id(labelId)
             .text("")
             .isNewLabel(true)
-            .newLabelOperationKind("enum-entry-edit")
+            .newLabelOperationKind(AddEnumEntryOperation.NEW_LABEL_KIND)
             .newLabelParentElementId(nodeId)
             .build();
 

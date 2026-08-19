@@ -2,7 +2,8 @@ import type { Operation } from "@eclipse-glsp/protocol";
 import type { NewLabelOperation } from "@mdeo/protocol-common";
 
 /**
- * Operation to add a where clause to a match node.
+ * Operation to add a where clause to a match node or to one of its application condition
+ * blocks.
  */
 export interface AddWhereClauseOperation extends NewLabelOperation {
     /**
@@ -14,6 +15,12 @@ export interface AddWhereClauseOperation extends NewLabelOperation {
      * Identifier of the match node to add the where clause to.
      */
     matchNodeId: string;
+
+    /**
+     * Index of the `forbid` / `require` block of that match to add the clause to, counted in
+     * declaration order. When absent the clause is added to the match pattern itself.
+     */
+    conditionIndex?: number;
 }
 
 /**
@@ -24,6 +31,12 @@ export namespace AddWhereClauseOperation {
      * Operation kind constant.
      */
     export const KIND = "addWhereClause";
+
+    /**
+     * Identifier carried in `newLabelOperationKind` by a new where-clause placeholder label,
+     * by which the label view recognises a label it has to commit through this operation.
+     */
+    export const NEW_LABEL_KIND = "add-where-clause";
 
     /**
      * Payload for creating an add-where-clause operation.
@@ -39,6 +52,12 @@ export namespace AddWhereClauseOperation {
          * The server reads this verbatim and inserts it into the source file.
          */
         labelText?: string;
+
+        /**
+         * Index of the application condition block to add the clause to, in declaration
+         * order. Omitted when the clause belongs to the match pattern itself.
+         */
+        conditionIndex?: number;
     }
 
     /**
@@ -53,7 +72,8 @@ export namespace AddWhereClauseOperation {
             isOperation: true,
             matchNodeId: options.matchNodeId,
             parentElementId: options.matchNodeId,
-            labelText: options.labelText ?? ""
+            labelText: options.labelText ?? "",
+            conditionIndex: options.conditionIndex
         };
     }
 

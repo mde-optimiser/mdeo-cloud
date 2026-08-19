@@ -10,8 +10,8 @@ const { injectable } = sharedImport("inversify");
  * Handles commit for newly created property value labels by dispatching
  * {@link AddPropertyValueOperation}.
  *
- * The property name is encoded in {@code newLabelOperationKind} as
- * {@code "property-value-edit:<propertyName>"}.
+ * A pre-selected property is prefilled into the label text and recorded in the label ID; the
+ * operation kind names nothing but the operation.
  */
 @injectable()
 export class GPropertyValueLabelView extends GLabelView {
@@ -26,7 +26,7 @@ export class GPropertyValueLabelView extends GLabelView {
      * @returns The operation to dispatch
      */
     protected override createNewLabelOperation(model: Readonly<GLabel>, editText: string): Operation {
-        if (model.newLabelOperationKind !== "property-value-edit") {
+        if (model.newLabelOperationKind !== AddPropertyValueOperation.NEW_LABEL_KIND) {
             return super.createNewLabelOperation(model, editText);
         }
 

@@ -36,9 +36,14 @@ import {
     type UntilMatchStatementType,
     type ForMatchStatementType
 } from "../../../grammar/modelTransformationTypes.js";
-import { ModelTransformationElementType, PatternModifierKind } from "@mdeo/protocol-model-transformation";
+import {
+    ModelTransformationElementType,
+    NodeCreationMode,
+    PatternModifierKind
+} from "@mdeo/protocol-model-transformation";
 import type { ModelTransformationMetadataManager } from "../modelTransformationMetadataManager.js";
 import type { ModelTransformationGModelFactory } from "../modelTransformationGModelFactory.js";
+import { findContainingCondition } from "../modelTransformationPatternUtils.js";
 import type { WorkspaceEdit } from "vscode-languageserver-types";
 import {
     Class,
@@ -71,11 +76,6 @@ const { CreateNodeOperation: CreateNodeOperationKind, TriggerNodeCreationAction 
     sharedImport("@eclipse-glsp/protocol");
 const { GModelFactory } = sharedImport("@eclipse-glsp/server");
 const { AstUtils } = sharedImport("langium");
-
-/**
- * The modifier arg value used for persist mode (no modifier keyword in grammar).
- */
-const MODIFIER_PERSIST = "persist";
 
 /**
  * Operation handler for creating new pattern object instances in a model transformation diagram.
@@ -122,13 +122,13 @@ export class CreatePatternInstanceOperationHandler
 
         const actionType = operation.args?.actionType as string | undefined;
         const instanceName = operation.args?.instanceName as string | undefined;
-        const modifier = operation.args?.modifier as string | undefined;
+        const modifier = operation.args?.modifier as NodeCreationMode | undefined;
 
         let workspaceEdit: WorkspaceEdit;
         let insertedNode: AstNode;
 
         if (actionType === "add-instance" && instanceName) {
-            if (modifier === "delete") {
+            if (modifier === NodeCreationMode.DELETE) {
                 const deleteNode = this.createDeleteAst(instanceName);
                 workspaceEdit = await this.insertIntoPattern(pattern, deleteNode);
                 insertedNode = deleteNode;
@@ -142,9 +142,14 @@ export class CreatePatternInstanceOperationHandler
             if (!className) {
                 return undefined;
             }
-            const modifierKind = this.modifierStringToKind(modifier);
+            const conditionKind = this.getConditionKind(modifier);
+            const modifierKind =
+                conditionKind != undefined ? PatternModifierKind.NONE : this.modifierStringToKind(modifier);
             const newInstance = await this.createPatternObjectInstanceAst(className, modifierKind);
-            workspaceEdit = await this.insertIntoPattern(pattern, newInstance);
+            workspaceEdit =
+                conditionKind != undefined
+                    ? await this.insertIntoNewCondition(pattern, conditionKind, newInstance)
+                    : await this.insertIntoPattern(pattern, newInstance);
             insertedNode = newInstance;
         }
 
@@ -181,8 +186,8 @@ export class CreatePatternInstanceOperationHandler
      * @param args Args from the toolbox request, including `mode` (NodeCreationMode value).
      */
     async getToolboxItems(args: Args | undefined): Promise<GroupedToolboxItem[]> {
-        const mode = (args?.mode as string | undefined) ?? MODIFIER_PERSIST;
-        const classes = this.getAvailableClasses(mode !== "create");
+        const mode = (args?.mode as NodeCreationMode | undefined) ?? NodeCreationMode.PERSIST;
+        const classes = this.getAvailableClasses(mode !== NodeCreationMode.CREATE);
         const items: GroupedToolboxItem[] = [];
 
         for (const classInfo of classes) {
@@ -209,9 +214,9 @@ export class CreatePatternInstanceOperationHandler
             });
         }
 
-        if (mode === MODIFIER_PERSIST || mode === "delete") {
+        if (mode === NodeCreationMode.PERSIST || mode === NodeCreationMode.DELETE) {
             const existingInstances = this.getAllPatternObjectInstances();
-            const isDeleteMode = mode === "delete";
+            const isDeleteMode = mode === NodeCreationMode.DELETE;
             for (const instance of existingInstances) {
                 const name = instance.name;
                 if (name == undefined) {
@@ -462,6 +467,55 @@ export class CreatePatternInstanceOperationHandler
     }
 
     /**
+     * Returns the condition kind a creation mode stands for, or `undefined` for the modes
+     * that create an element of the match pattern itself.
+     *
+     * @param mode The creation mode from the toolbox
+     * @returns `"forbid"` / `"require"`, or `undefined`
+     */
+    private getConditionKind(mode: NodeCreationMode | undefined): "forbid" | "require" | undefined {
+        if (mode === NodeCreationMode.FORBID || mode === NodeCreationMode.REQUIRE) {
+            return mode;
+        }
+        return undefined;
+    }
+
+    /**
+     * Inserts a new instance into a freshly created application condition block.
+     *
+     * Every node created in `forbid` / `require` mode starts out in a block of its own, so
+     * that it rejects (or demands) a match independently of the other conditions. Blocks are
+     * merged afterwards by moving one into the other's block, which is the only way to
+     * express that two elements must be found *together*.
+     *
+     * @param pattern The pattern receiving the new block
+     * @param conditionKind Whether a `forbid` or a `require` block is created
+     * @param element The instance the block holds
+     * @returns A workspace edit inserting the new block
+     * @throws {Error} If the pattern has no CST node
+     */
+    private async insertIntoNewCondition(
+        pattern: PatternType,
+        conditionKind: "forbid" | "require",
+        element: AstNode
+    ): Promise<WorkspaceEdit> {
+        const serialized = await this.serializeNode(element);
+        const patternCst = pattern.$cstNode as CompositeCstNode | undefined;
+        if (!patternCst) {
+            throw new Error("Pattern has no CST node; cannot insert element.");
+        }
+        const content = patternCst.content;
+        const openBrace = content[0]!;
+        const closeBrace = content[content.length - 1]!;
+        const hasContent = (pattern.elements?.length ?? 0) > 0;
+        const body = serialized
+            .split("\n")
+            .map((line) => `    ${line}`)
+            .join("\n");
+        return this.insertIntoScope(openBrace, closeBrace, hasContent, `${conditionKind} {\n${body}\n}`);
+    }
+
+    /**
      * Inserts a new pattern element AST node into the given pattern using {@link insertIntoScope}.
      * The serialized element is placed just before the closing `}` of the pattern block.
      * When the pattern already contains elements, a blank line is added before the content.
@@ -601,10 +655,13 @@ export class CreatePatternInstanceOperationHandler
     }
 
     /**
-     * Returns all PatternObjectInstances declared anywhere in the transformation.
-     * Used to populate "add instance" toolbox items.
+     * Returns the PatternObjectInstances that can be referenced from a match pattern.
      *
-     * @returns All `PatternObjectInstance` AST nodes found in the entire source model,
+     * Instances declared in an application condition block are left out: their names belong to
+     * the block's own graph and cannot be named from anywhere else, so referencing one would
+     * only produce an unresolvable reference.
+     *
+     * @returns The referenceable `PatternObjectInstance` AST nodes of the entire source model,
      *   or an empty array when the source model is unavailable
      */
     private getAllPatternObjectInstances(): PatternObjectInstanceType[] {
@@ -613,7 +670,10 @@ export class CreatePatternInstanceOperationHandler
 
         const instances: PatternObjectInstanceType[] = [];
         for (const node of AstUtils.streamAllContents(sourceModel)) {
-            if (this.reflection.isInstance(node, PatternObjectInstance)) {
+            if (
+                this.reflection.isInstance(node, PatternObjectInstance) &&
+                findContainingCondition(node, this.reflection) == undefined
+            ) {
                 instances.push(node as PatternObjectInstanceType);
             }
         }

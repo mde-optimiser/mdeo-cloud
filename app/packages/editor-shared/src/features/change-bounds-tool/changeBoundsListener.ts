@@ -6,17 +6,13 @@ import type {
     GModelElement
 } from "@eclipse-glsp/client";
 import type { Action, Operation } from "@eclipse-glsp/sprotty";
-import type {
-    PartialElementAndBounds,
-    PartialChangeBoundsOperation,
-    EdgeRoutingUpdate,
-    UpdateRoutingInformationOperation
-} from "@mdeo/protocol-common";
+import type { PartialElementAndBounds, EdgeRoutingUpdate } from "@mdeo/protocol-common";
 import type { ExtendedSetBoundsFeedbackAction } from "../metadata/setBoundsFeedbackCommand.js";
 import { sharedImport } from "../../sharedImport.js";
 import { GNode } from "../../model/node.js";
 import type { GEdge } from "../../model/edge.js";
 import type { ChangeBoundsTool } from "./changeBoundsTool.js";
+import { PartialChangeBoundsOperation, UpdateRoutingInformationOperation } from "@mdeo/protocol-common";
 
 const {
     ChangeBoundsListener: GLSPChangeBoundsListener,
@@ -146,7 +142,7 @@ export class ChangeBoundsListener extends GLSPChangeBoundsListener {
             });
         }
         const operation: UpdateRoutingInformationOperation = {
-            kind: "updateRoutingInformation",
+            kind: UpdateRoutingInformationOperation.KIND,
             isOperation: true,
             updates
         };
@@ -163,7 +159,7 @@ export class ChangeBoundsListener extends GLSPChangeBoundsListener {
         elementAndBounds: PartialElementAndBounds[]
     ): PartialChangeBoundsOperation {
         return {
-            kind: "partialChangeBounds",
+            kind: PartialChangeBoundsOperation.KIND,
             newBounds: elementAndBounds,
             isOperation: true
         };

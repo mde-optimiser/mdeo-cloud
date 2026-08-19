@@ -2,6 +2,8 @@ package com.mdeo.optimizer.rulegen
 
 import com.mdeo.modeltransformation.ast.TypedAst
 import com.mdeo.modeltransformation.ast.patterns.TypedPattern
+import com.mdeo.modeltransformation.ast.patterns.TypedPatternApplicationCondition
+import com.mdeo.modeltransformation.ast.patterns.TypedPatternApplicationConditionElement
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternElement
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternLinkElement
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternLink
@@ -346,8 +348,8 @@ object MutationAstBuilder {
         elements += objectInstance(modifier = null, name = "target", className = ref.targetClass)
 
         // NAC: don't add if already connected
-        elements += linkElement(
-            modifier = "forbid",
+        elements += forbidLinkCondition(
+            name = "notConnected",
             sourceObj = "source",
             sourceClassName = spec.className,
             sourceRef = refName,
@@ -497,8 +499,8 @@ object MutationAstBuilder {
         )
 
         // NAC: new target not already connected
-        elements += linkElement(
-            modifier = "forbid",
+        elements += forbidLinkCondition(
+            name = "notConnected",
             sourceObj = "source",
             sourceClassName = spec.className,
             sourceRef = refName,
@@ -588,7 +590,7 @@ object MutationAstBuilder {
         elements += linkElement(modifier = "create", sourceObj = "otherSource", sourceClassName = spec.className, sourceRef = refName, targetObj = "target", info = info)
 
         // NAC: ensure targets are different (avoid trivial no-op)
-        elements += linkElement(modifier = "forbid", sourceObj = "source", sourceClassName = spec.className, sourceRef = refName, targetObj = "otherTarget", info = info)
+        elements += forbidLinkCondition(name = "notCrossConnected", sourceObj = "source", sourceClassName = spec.className, sourceRef = refName, targetObj = "otherTarget", info = info)
 
         // No multiplicity guards – SWAP is cardinality-preserving by construction.
 
@@ -733,7 +735,7 @@ object MutationAstBuilder {
         elements += objectInstance(modifier = null, name = otherName, className = spec.className)
 
         // NAC: replacement not already connected to the neighbour
-        elements += linkElement(modifier = "forbid", sourceObj = otherName, sourceClassName = spec.className, sourceRef = refName, targetObj = neighborName, info = info)
+        elements += forbidLinkCondition(name = "notConnected", sourceObj = otherName, sourceClassName = spec.className, sourceRef = refName, targetObj = neighborName, info = info)
 
         // Create the new connection: replacement → neighbour
         elements += linkElement(modifier = "create", sourceObj = otherName, sourceClassName = spec.className, sourceRef = refName, targetObj = neighborName, info = info)
@@ -810,7 +812,7 @@ object MutationAstBuilder {
             val neighborName = "neighbor_${refName}_$i"
             val otherName = "other_${refName}_$i"
             elements += objectInstance(modifier = null, name = otherName, className = spec.className)
-            elements += linkElement(modifier = "forbid", sourceObj = otherName, sourceClassName = spec.className, sourceRef = refName, targetObj = neighborName, info = info)
+            elements += forbidLinkCondition(name = "notConnected_$i", sourceObj = otherName, sourceClassName = spec.className, sourceRef = refName, targetObj = neighborName, info = info)
             elements += linkElement(modifier = "create", sourceObj = otherName, sourceClassName = spec.className, sourceRef = refName, targetObj = neighborName, info = info)
             if (ref.upper != -1) {
                 elements += guardBuilder.buildUpperBoundGuard(
@@ -849,6 +851,46 @@ object MutationAstBuilder {
             name = name,
             className = className,
             properties = emptyList()
+        )
+    )
+
+    /**
+     * Builds a negative application condition holding a single link.
+     *
+     * Every generated NAC is its own block, so several of them reject the match
+     * independently of one another — which is what a mutation rule needs: each guard
+     * ("this edge must not exist yet") must hold on its own, not merely in conjunction with
+     * the other guards.
+     *
+     * @param name Name identifying the condition block.
+     * @param sourceObj The source object name.
+     * @param sourceClassName The class of the source object.
+     * @param sourceRef The reference name of the link.
+     * @param targetObj The target object name.
+     * @param info The metamodel information used to canonicalise the link.
+     * @return The application-condition element holding the forbidden link.
+     */
+    private fun forbidLinkCondition(
+        name: String?,
+        sourceObj: String,
+        sourceClassName: String,
+        sourceRef: String,
+        targetObj: String,
+        info: MetamodelInfo
+    ) = TypedPatternApplicationConditionElement(
+        condition = TypedPatternApplicationCondition(
+            negative = true,
+            name = name,
+            elements = listOf(
+                linkElement(
+                    modifier = null,
+                    sourceObj = sourceObj,
+                    sourceClassName = sourceClassName,
+                    sourceRef = sourceRef,
+                    targetObj = targetObj,
+                    info = info
+                )
+            )
         )
     )
 

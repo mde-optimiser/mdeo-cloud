@@ -18,7 +18,7 @@ const { GrammarUtils } = sharedImport("langium");
  */
 @injectable()
 export class ToggleAbstractClassOperationHandler extends BaseOperationHandler implements ContextItemProvider {
-    override readonly operationType = "toggleAbstractClass";
+    override readonly operationType = ToggleAbstractClassOperation.KIND;
 
     /**
      * Creates a workspace-edit command that toggles class abstractness.

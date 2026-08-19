@@ -16,6 +16,7 @@ export * from "./features/diagram-server/generated/generatedModelTransformationG
 export * from "./features/diagram-server/generated/generatedModelTransformationMetadataManager.js";
 export * from "./features/diagram-server/generated/generatedModelTransformationToolPaletteItemProvider.js";
 export * from "./features/diagram-server/handler/insertControlFlowStatementOperationHandler.js";
+export * from "./features/diagram-server/handler/movePatternElementToConditionOperationHandler.js";
 export * from "./features/diagram-server/handler/modelTransformationApplyLabelEditOperationHandler.js";
 export * from "./features/diagram-server/handler/modelTransformationDeleteElementOperationHandler.js";
 export * from "./features/diagram-server/handler/modelTransformationPasteOperationHandler.js";
@@ -49,7 +50,7 @@ export * from "./features/diagram-server/modelTransformationDiagramModule.js";
 export * from "./features/diagram-server/modelTransformationGModelFactory.js";
 export * from "./features/diagram-server/modelTransformationIdGenerator.js";
 export * from "./features/diagram-server/modelTransformationLabelEditValidator.js";
-export * from "./features/diagram-server/modelTransformationLabelParseUtils.js";
+export * from "./features/diagram-server/modelTransformationLabelFormat.js";
 export * from "./features/diagram-server/modelTransformationLayoutEngine.js";
 export * from "./features/diagram-server/modelTransformationMetadataManager.js";
 export * from "./features/diagram-server/modelTransformationModelIdProvider.js";

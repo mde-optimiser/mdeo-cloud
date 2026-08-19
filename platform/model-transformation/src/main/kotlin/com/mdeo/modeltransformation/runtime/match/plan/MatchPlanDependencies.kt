@@ -79,8 +79,10 @@ internal fun computeVariableVarDeps(
  * Computes a greedy traversal-priority score for every matchable and PAC instance.
  *
  * The priority of an instance A is the number of its *transitive descendants* in the
- * pseudo-composition DAG induced by the metamodel over the combined matchable + require
- * link set.  A is a parent of B when there is a link (A–B or B–A) whose metamodel edge
+ * pseudo-composition DAG induced by the metamodel over the matchable link set.  Nodes of
+ * application conditions never take part: they are matched inside the condition's own
+ * traversal and are never a starting point of the main traversal.  A is a parent of B
+ * when there is a link (A–B or B–A) whose metamodel edge
  * type is composition-like (the DAG is an over-approximation: ambiguous associations
  * are included in both directions).
  *
@@ -91,9 +93,7 @@ internal fun computeVariableVarDeps(
  * disconnected instances.
  *
  * @param allMatchable All matchable (main-pattern) instance elements.
- * @param requireInstances Instance elements that appear only inside PAC (require) islands.
  * @param matchableLinks All matchable link elements.
- * @param requireLinks Link elements that appear only inside PAC islands.
  * @param pseudoCompositionDag Set of (parentClass, childClass) pairs representing the
  *        approximate composition hierarchy derived from the metamodel.
  * @return A map from instance name to priority score (higher = more selective /
@@ -101,22 +101,17 @@ internal fun computeVariableVarDeps(
  */
 internal fun computeInstancePriorities(
     allMatchable: List<TypedPatternObjectInstanceElement>,
-    requireInstances: List<TypedPatternObjectInstanceElement>,
     matchableLinks: List<TypedPatternLinkElement>,
-    requireLinks: List<TypedPatternLinkElement>,
     pseudoCompositionDag: Set<Pair<String, String>>
 ): Map<String, Int> {
-    val regularNames = allMatchable.map { it.objectInstance.name }.toSet()
-    val requireNames = requireInstances.map { it.objectInstance.name }.toSet()
-    val priorityNames = regularNames + requireNames
+    val priorityNames = allMatchable.map { it.objectInstance.name }.toSet()
 
     val classOf = HashMap<String, String>()
     for (inst in allMatchable) inst.objectInstance.className?.let { classOf[inst.objectInstance.name] = it }
-    for (inst in requireInstances) inst.objectInstance.className?.let { classOf[inst.objectInstance.name] = it }
 
     val priorityChildren = priorityNames.associateWith { mutableSetOf<String>() }.toMutableMap()
 
-    for (link in matchableLinks + requireLinks) {
+    for (link in matchableLinks) {
         val srcName = link.link.source.objectName
         val tgtName = link.link.target.objectName
         if (srcName !in priorityNames || tgtName !in priorityNames) continue

@@ -62,6 +62,14 @@ export class GLabel extends GChildElement {
     parentElementId?: string;
 
     /**
+     * Everything the commit operation needs beyond the parent element ID, for a label whose
+     * target is not a GModel element of its own — the clause of an application condition
+     * block, for instance, sits on the match node but belongs to one of its blocks.
+     * Only used when isNewLabel is true.
+     */
+    newLabelOperationArgs?: Record<string, string | number | boolean>;
+
+    /**
      * The IDs of the root-level GModel elements that were inserted by the corresponding
      * {@link InsertNewLabelAction} (set by {@code InsertNewLabelCommand} after insertion).
      * Used by the label view when building a {@link RemoveNewLabelAction}.

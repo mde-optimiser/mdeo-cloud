@@ -6,8 +6,7 @@ import {
     GHorizontalDivider
 } from "@mdeo/language-shared";
 import { ObjectInstance, type ObjectInstanceType } from "../../../grammar/modelTypes.js";
-import type { AddPropertyValueOperation } from "@mdeo/protocol-model";
-import { ModelElementType } from "@mdeo/protocol-model";
+import { AddPropertyValueOperation, ModelElementType } from "@mdeo/protocol-model";
 import type { Command, GModelElement } from "@eclipse-glsp/server";
 import type { ContextActionRequestContext, ContextItemProvider } from "@mdeo/language-shared";
 import type { ContextItem } from "@mdeo/protocol-common";
@@ -37,7 +36,7 @@ export const NEW_PROPERTY_VALUE_LABEL_PREFIX = "__new-label-propval-";
  */
 @injectable()
 export class AddPropertyValueOperationHandler extends BaseOperationHandler implements ContextItemProvider {
-    override readonly operationType = "addPropertyValue";
+    override readonly operationType = AddPropertyValueOperation.KIND;
 
     /**
      * Creates a workspace-edit command that inserts a new property assignment.
@@ -156,7 +155,7 @@ export class AddPropertyValueOperationHandler extends BaseOperationHandler imple
             .id(labelId)
             .text(prefillText)
             .isNewLabel(true)
-            .newLabelOperationKind("property-value-edit")
+            .newLabelOperationKind(AddPropertyValueOperation.NEW_LABEL_KIND)
             .newLabelParentElementId(nodeId)
             .build();
 

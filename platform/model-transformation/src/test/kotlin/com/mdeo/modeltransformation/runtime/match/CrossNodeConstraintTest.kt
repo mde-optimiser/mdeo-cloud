@@ -22,12 +22,12 @@ import kotlin.test.assertEquals
 /**
  * Tests for constraint scenarios that cross-reference matched nodes:
  *
- * 1. **Forbid islands** whose property conditions reference a matched node's field.
- * 2. **Require islands** whose property conditions reference a matched node's field.
+ * 1. **Forbid blocks** whose property conditions reference a matched node's field.
+ * 2. **Require blocks** whose property conditions reference a matched node's field.
  * 3. **Main-match property inlining** – constant properties inlined as `.has()` and
  *    cross-node expressions inlined when the referenced node is already bound.
  * 4. **Where-clause cross-node comparisons** – `where a.value == b.value`.
- * 5. **Combined** – constant main-match filter together with a cross-node forbid island.
+ * 5. **Combined** – constant main-match filter together with a cross-node forbid block.
  *
  * ## Test metamodel
  *
@@ -168,60 +168,10 @@ class CrossNodeConstraintTest {
             )
         )
 
-    /** Forbid instance – no properties. */
-    private fun forbidNode(name: String) = TypedPatternObjectInstanceElement(
-        objectInstance = TypedPatternObjectInstance(
-            modifier = "forbid", name = name, className = "Node", properties = emptyList()
-        )
-    )
-
-    /** Forbid instance with a single `==` property constraint. */
-    private fun forbidNodeWithProp(name: String, propName: String, value: TypedExpression) =
-        TypedPatternObjectInstanceElement(
-            objectInstance = TypedPatternObjectInstance(
-                modifier = "forbid", name = name, className = "Node",
-                properties = listOf(TypedPatternPropertyAssignment(propName, "==", value))
-            )
-        )
-
-    /** Require instance – no properties. */
-    private fun requireNode(name: String) = TypedPatternObjectInstanceElement(
-        objectInstance = TypedPatternObjectInstance(
-            modifier = "require", name = name, className = "Node", properties = emptyList()
-        )
-    )
-
-    /** Require instance with a single `==` property constraint. */
-    private fun requireNodeWithProp(name: String, propName: String, value: TypedExpression) =
-        TypedPatternObjectInstanceElement(
-            objectInstance = TypedPatternObjectInstance(
-                modifier = "require", name = name, className = "Node",
-                properties = listOf(TypedPatternPropertyAssignment(propName, "==", value))
-            )
-        )
-
-    /** Match link element (to/from association). */
+    /** Link element (to/from association). */
     private fun matchLink(src: String, tgt: String) = TypedPatternLinkElement(
         link = TypedPatternLink(
             modifier = null,
-            source = TypedPatternLinkEnd(objectName = src, propertyName = "to"),
-            target = TypedPatternLinkEnd(objectName = tgt, propertyName = "from")
-        )
-    )
-
-    /** Forbid link element (to/from association). */
-    private fun forbidLink(src: String, tgt: String) = TypedPatternLinkElement(
-        link = TypedPatternLink(
-            modifier = "forbid",
-            source = TypedPatternLinkEnd(objectName = src, propertyName = "to"),
-            target = TypedPatternLinkEnd(objectName = tgt, propertyName = "from")
-        )
-    )
-
-    /** Require link element (to/from association). */
-    private fun requireLink(src: String, tgt: String) = TypedPatternLinkElement(
-        link = TypedPatternLink(
-            modifier = "require",
             source = TypedPatternLinkEnd(objectName = src, propertyName = "to"),
             target = TypedPatternLinkEnd(objectName = tgt, propertyName = "from")
         )
@@ -250,14 +200,14 @@ class CrossNodeConstraintTest {
         MatchExecutor().executeMatchAll(TypedPattern(elements = elements.toList()), context, engine).size
 
     // =========================================================================
-    // 1. Forbid island with property referencing a matched node's field
+    // 1. Forbid block with property referencing a matched node's field
     // =========================================================================
 
     @Nested
-    inner class ForbidIslandCrossNodePropertyTests {
+    inner class ForbidBlockCrossNodePropertyTests {
 
         @Test
-        fun `1a - forbid triggers when island node value equals matched node value`() {
+        fun `1a - forbid triggers when block node value equals matched node value`() {
             // nodeA →(to/from)→ nodeB, both value="same"
             val nodeA = addNode("same"); val nodeB = addNode("same"); addEdge(nodeA, nodeB)
 
@@ -266,14 +216,16 @@ class CrossNodeConstraintTest {
             // nodeB: no outgoing edge                               → forbid never matches → included
             val count = matchCount(
                 matchNode("a"),
-                forbidNodeWithProp("b", "value", nodeValueExpr("a")),
-                forbidLink("a", "b")
+                forbidBlock(
+                    matchNodeWithProp("b", "value", nodeValueExpr("a")),
+                    matchLink("a", "b")
+                )
             )
             assertEquals(1, count, "Only nodeB should match; nodeA is excluded by forbid")
         }
 
         @Test
-        fun `1b - forbid does not trigger when island node value differs from matched node`() {
+        fun `1b - forbid does not trigger when block node value differs from matched node`() {
             // nodeA.value="x", nodeB.value="y", nodeA→nodeB
             val nodeA = addNode("x"); val nodeB = addNode("y"); addEdge(nodeA, nodeB)
 
@@ -281,8 +233,10 @@ class CrossNodeConstraintTest {
             // nodeB: no outgoing edge → included
             val count = matchCount(
                 matchNode("a"),
-                forbidNodeWithProp("b", "value", nodeValueExpr("a")),
-                forbidLink("a", "b")
+                forbidBlock(
+                    matchNodeWithProp("b", "value", nodeValueExpr("a")),
+                    matchLink("a", "b")
+                )
             )
             assertEquals(2, count, "Both nodes match; values differ so forbid never triggers")
         }
@@ -297,8 +251,10 @@ class CrossNodeConstraintTest {
 
             val count = matchCount(
                 matchNode("a"),
-                forbidNodeWithProp("b", "value", nodeValueExpr("a")),
-                forbidLink("a", "b")
+                forbidBlock(
+                    matchNodeWithProp("b", "value", nodeValueExpr("a")),
+                    matchLink("a", "b")
+                )
             )
             // nodeA: edge to nodeB, nodeB.value=="x"==nodeA.value → EXCLUDED
             // nodeB: no outgoing edge → included
@@ -314,8 +270,10 @@ class CrossNodeConstraintTest {
 
             val count = matchCount(
                 matchNode("a"),
-                forbidNodeWithProp("b", "tag", nodeTagExpr("a")),
-                forbidLink("a", "b")
+                forbidBlock(
+                    matchNodeWithProp("b", "tag", nodeTagExpr("a")),
+                    matchLink("a", "b")
+                )
             )
             // nodeA: edge to nodeB whose tag == nodeA.tag → EXCLUDED
             // nodeB: no outgoing edge → included
@@ -323,7 +281,7 @@ class CrossNodeConstraintTest {
         }
 
         @Test
-        fun `1e - forbid island with two hops, property check on final island node`() {
+        fun `1e - forbid block with two hops, property check on final block node`() {
             // Chain: nodeA → nodeB → nodeC (three hops: a=match, b=forbid, c=forbid)
             // nodeA.value="x", nodeB has no property constraint, nodeC.value="x" (same as A)
             val nodeA = addNode("x"); val nodeB = addNode("y"); val nodeC = addNode("x")
@@ -333,10 +291,12 @@ class CrossNodeConstraintTest {
             // forbidLink a.to->b.from, b.to->c.from
             val count = matchCount(
                 matchNode("a"),
-                forbidNode("b"),
-                forbidNodeWithProp("c", "value", nodeValueExpr("a")),
-                forbidLink("a", "b"),
-                forbidLink("b", "c")
+                forbidBlock(
+                    matchNode("b"),
+                    matchNodeWithProp("c", "value", nodeValueExpr("a")),
+                    matchLink("a", "b"),
+                    matchLink("b", "c")
+                )
             )
             // nodeA: chain A→B→C exists and C.value="x"==A.value="x" → FORBID CHAIN MATCHES → EXCLUDED
             // nodeB: chain B→C exists. b=nodeC. c? nodeC has no outgoing "to" edge → chain incomplete → included
@@ -345,17 +305,19 @@ class CrossNodeConstraintTest {
         }
 
         @Test
-        fun `1f - forbid island where no outgoing edge exists is never triggered`() {
+        fun `1f - forbid block where no outgoing edge exists is never triggered`() {
             // nodeA(value="x"), nodeB(value="x"), but NO edge between them
             addNode("x"); addNode("x")
 
             val count = matchCount(
                 matchNode("a"),
-                forbidNodeWithProp("b", "value", nodeValueExpr("a")),
-                forbidLink("a", "b")
+                forbidBlock(
+                    matchNodeWithProp("b", "value", nodeValueExpr("a")),
+                    matchLink("a", "b")
+                )
             )
-            // No edges → forbid island never walks to any "b" → never triggers
-            assertEquals(2, count, "No edges means forbid island never matches; both nodes included")
+            // No edges → forbid block never walks to any "b" → never triggers
+            assertEquals(2, count, "No edges means forbid block never matches; both nodes included")
         }
 
         @Test
@@ -367,12 +329,14 @@ class CrossNodeConstraintTest {
             // nodeA: outgoing edge exists only if added, but we don't add any
             val count = matchCount(
                 matchNode("a"),
-                forbidNodeWithProp("b", "value", str("forbidden")),
-                forbidLink("a", "b")
+                forbidBlock(
+                    matchNodeWithProp("b", "value", str("forbidden")),
+                    matchLink("a", "b")
+                )
             )
-            // nodeA has no "to" edges → forbid island finds no match → nodeA included
+            // nodeA has no "to" edges → forbid block finds no match → nodeA included
             // nodeB has no outgoing "to" edge → included
-            assertEquals(2, count, "No edges from nodeA; forbid island never fires")
+            assertEquals(2, count, "No edges from nodeA; forbid block never fires")
         }
 
         @Test
@@ -383,8 +347,10 @@ class CrossNodeConstraintTest {
 
             val count = matchCount(
                 matchNode("a"),
-                forbidNodeWithProp("b", "value", str("forbidden")),
-                forbidLink("a", "b")
+                forbidBlock(
+                    matchNodeWithProp("b", "value", str("forbidden")),
+                    matchLink("a", "b")
+                )
             )
             // nodeA: edge to nodeB which has value="forbidden" → EXCLUDED
             // nodeB: no outgoing edge → included
@@ -397,7 +363,7 @@ class CrossNodeConstraintTest {
             //        nodeA→nodeX, nodeX.value="same"  (extra unmatched node with same value)
             //        nodeC→nodeD, nodeC.value="x",    nodeD.value="y"
             //
-            // With island injective semantics, the forbid island node c must be distinct
+            // With block injective semantics, the forbid block node c must be distinct
             // from ALL main-pattern nodes (a and b). nodeB is already matched as b, so it
             // cannot act as c. Only a truly fresh node (nodeX) can trigger the forbid.
             val nodeA = addNode("same"); val nodeB = addNode("same"); addEdge(nodeA, nodeB)
@@ -406,13 +372,15 @@ class CrossNodeConstraintTest {
 
             // match a:Node, b:Node, link a.to→b.from,
             // forbid c:Node { value == a.value }, forbidLink a.to→c.from
-            // c must be distinct from a and b (injective island semantics).
+            // c must be distinct from a and b (injective block semantics).
             val count = matchCount(
                 matchNode("a"),
                 matchNode("b"),
                 matchLink("a", "b"),
-                forbidNodeWithProp("c", "value", nodeValueExpr("a")),
-                forbidLink("a", "c")
+                forbidBlock(
+                    matchNodeWithProp("c", "value", nodeValueExpr("a")),
+                    matchLink("a", "c")
+                )
             )
             // (a=nodeA, b=nodeB): Forbid looks for c (!=nodeA,!=nodeB) linked from nodeA with value="same".
             //   nodeX.value="same" and nodeA→nodeX, nodeX!=nodeA and !=nodeB → forbid fires → EXCLUDED.
@@ -424,22 +392,24 @@ class CrossNodeConstraintTest {
     }
 
     // =========================================================================
-    // 2. Require island with property referencing a matched node's field
+    // 2. Require block with property referencing a matched node's field
     // =========================================================================
 
     @Nested
-    inner class RequireIslandCrossNodePropertyTests {
+    inner class RequireBlockCrossNodePropertyTests {
 
         @Test
-        fun `2a - require island passes when connected node has same value as matched node`() {
+        fun `2a - require block passes when connected node has same value as matched node`() {
             // nodeA.value="target", nodeB.value="target", nodeA→nodeB
             val nodeA = addNode("target"); val nodeB = addNode("target"); addEdge(nodeA, nodeB)
 
             // match a:Node, require b:Node { value == a.value }, requireLink a.to→b.from
             val count = matchCount(
                 matchNode("a"),
-                requireNodeWithProp("b", "value", nodeValueExpr("a")),
-                requireLink("a", "b")
+                requireBlock(
+                    matchNodeWithProp("b", "value", nodeValueExpr("a")),
+                    matchLink("a", "b")
+                )
             )
             // nodeA: edge to nodeB, nodeB.value == nodeA.value → REQUIRE MET → included
             // nodeB: no outgoing edge → REQUIRE FAILS → excluded
@@ -447,14 +417,16 @@ class CrossNodeConstraintTest {
         }
 
         @Test
-        fun `2b - require island fails when connected node has different value`() {
+        fun `2b - require block fails when connected node has different value`() {
             // nodeA.value="x", nodeB.value="y", nodeA→nodeB
             val nodeA = addNode("x"); val nodeB = addNode("y"); addEdge(nodeA, nodeB)
 
             val count = matchCount(
                 matchNode("a"),
-                requireNodeWithProp("b", "value", nodeValueExpr("a")),
-                requireLink("a", "b")
+                requireBlock(
+                    matchNodeWithProp("b", "value", nodeValueExpr("a")),
+                    matchLink("a", "b")
+                )
             )
             // nodeA: edge to nodeB but nodeB.value="y" != nodeA.value="x" → REQUIRE NOT MET → excluded
             // nodeB: no outgoing edge → REQUIRE FAILS → excluded
@@ -462,7 +434,7 @@ class CrossNodeConstraintTest {
         }
 
         @Test
-        fun `2c - require island - one of three candidates satisfies it`() {
+        fun `2c - require block - one of three candidates satisfies it`() {
             // nodeA.value="target", nodeB.value="target", nodeC.value="other"
             // nodeA→nodeB (same values), nodeC→nodeB (C.value != B.value)
             val nodeA = addNode("target"); val nodeB = addNode("target"); val nodeC = addNode("other")
@@ -471,8 +443,10 @@ class CrossNodeConstraintTest {
 
             val count = matchCount(
                 matchNode("a"),
-                requireNodeWithProp("b", "value", nodeValueExpr("a")),
-                requireLink("a", "b")
+                requireBlock(
+                    matchNodeWithProp("b", "value", nodeValueExpr("a")),
+                    matchLink("a", "b")
+                )
             )
             assertEquals(1, count, "Only nodeA satisfies the require (nodeB.value == nodeA.value)")
         }
@@ -486,8 +460,10 @@ class CrossNodeConstraintTest {
 
             val count = matchCount(
                 matchNode("a"),
-                requireNodeWithProp("b", "value", str("required")),
-                requireLink("a", "b")
+                requireBlock(
+                    matchNodeWithProp("b", "value", str("required")),
+                    matchLink("a", "b")
+                )
             )
             // nodeA: edge to nodeB(value="required") → REQUIRE MET → included
             // nodeB: no outgoing edge → excluded
@@ -497,15 +473,17 @@ class CrossNodeConstraintTest {
         }
 
         @Test
-        fun `2e - require island with tag cross-reference`() {
+        fun `2e - require block with tag cross-reference`() {
             // nodeA.tag="good", nodeB.tag="good", nodeA→nodeB
             val nodeA = addNode("v", "good"); val nodeB = addNode("v", "good"); addEdge(nodeA, nodeB)
             addNode("v", "bad")  // nodeC isolated, different tag
 
             val count = matchCount(
                 matchNode("a"),
-                requireNodeWithProp("b", "tag", nodeTagExpr("a")),
-                requireLink("a", "b")
+                requireBlock(
+                    matchNodeWithProp("b", "tag", nodeTagExpr("a")),
+                    matchLink("a", "b")
+                )
             )
             // nodeA: edge to nodeB, nodeB.tag=="good"==nodeA.tag → included
             // nodeB: no outgoing edge → excluded
@@ -522,14 +500,16 @@ class CrossNodeConstraintTest {
 
             val count = matchCount(
                 matchNode("a"),
-                requireNodeWithProp("b", "value", nodeValueExpr("a")),
-                requireLink("a", "b")
+                requireBlock(
+                    matchNodeWithProp("b", "value", nodeValueExpr("a")),
+                    matchLink("a", "b")
+                )
             )
             // nodeA satisfies the require (both nodeB and nodeC qualify)
-            // Require islands must NOT multiply matches – even though two nodes satisfy the require,
+            // Require blocks must NOT multiply matches – even though two nodes satisfy the require,
             // we should still get exactly one match for nodeA.
             // nodeB and nodeC have no outgoing edges → excluded.
-            assertEquals(1, count, "Require island must not multiply result set when multiple nodes satisfy it")
+            assertEquals(1, count, "Require block must not multiply result set when multiple nodes satisfy it")
         }
     }
 
@@ -699,7 +679,7 @@ class CrossNodeConstraintTest {
         }
 
         @Test
-        fun `4d - where b_value == a_value combined with constant forbid island`() {
+        fun `4d - where b_value == a_value combined with constant forbid block`() {
             // nodeA.value="X"→nodeB.value="X"→nodeC.value="X"
             val nodeA = addNode("X"); val nodeB = addNode("X"); val nodeC = addNode("X")
             addEdge(nodeA, nodeB); addEdge(nodeB, nodeC)
@@ -712,8 +692,10 @@ class CrossNodeConstraintTest {
                 matchNode("b"),
                 matchLink("a", "b"),
                 whereClause(eq(nodeValueExpr("b"), nodeValueExpr("a"))),
-                forbidNodeWithProp("c", "value", str("X")),
-                forbidLink("b", "c")
+                forbidBlock(
+                    matchNodeWithProp("c", "value", str("X")),
+                    matchLink("b", "c")
+                )
             )
             // (a=nodeA, b=nodeB): where nodeB.value=="X"==nodeA.value ✓
             //   forbid: b=nodeB has outgoing edge to nodeC(value="X") → FORBID → excluded
@@ -752,7 +734,7 @@ class CrossNodeConstraintTest {
     inner class CombinedConstraintTests {
 
         @Test
-        fun `5a - constant main-match filter plus cross-node forbid island`() {
+        fun `5a - constant main-match filter plus cross-node forbid block`() {
             // nodeA(value="X")→nodeB(value="X"), nodeC(value="X")→nodeD(value="Y"),
             // nodeE(value="Z")  (isolated, value != "X")
             val nodeA = addNode("X"); val nodeB = addNode("X")
@@ -763,8 +745,10 @@ class CrossNodeConstraintTest {
             // match a:Node { value == "X" }, forbid b:Node { value == a.value }, forbidLink a→b
             val count = matchCount(
                 matchNodeWithProp("a", "value", str("X")),
-                forbidNodeWithProp("b", "value", nodeValueExpr("a")),
-                forbidLink("a", "b")
+                forbidBlock(
+                    matchNodeWithProp("b", "value", nodeValueExpr("a")),
+                    matchLink("a", "b")
+                )
             )
             // nodeA: value="X" ✓, outgoing → nodeB(value="X"==nodeA.value) → FORBIDDEN → excluded
             // nodeB: value="X" ✓, no outgoing edge → included
@@ -785,8 +769,10 @@ class CrossNodeConstraintTest {
             // Main match: a must have value="X".  Require: a must link to a node with same value.
             val count = matchCount(
                 matchNodeWithProp("a", "value", str("X")),
-                requireNodeWithProp("b", "value", nodeValueExpr("a")),
-                requireLink("a", "b")
+                requireBlock(
+                    matchNodeWithProp("b", "value", nodeValueExpr("a")),
+                    matchLink("a", "b")
+                )
             )
             // nodeA: value="X" ✓, edge to nodeB(value="X"==nodeA.value) → REQUIRE MET → included
             // nodeB: value="X" ✓, no outgoing edge → REQUIRE FAILS → excluded
@@ -796,7 +782,7 @@ class CrossNodeConstraintTest {
         }
 
         @Test
-        fun `5c - forbid and require islands on same matched node, both cross-node`() {
+        fun `5c - forbid and require blocks on same matched node, both cross-node`() {
             // nodeA(value="X") → nodeB(value="X") → nodeC(value="X")
             // forbid: a must NOT link to a node with value == a.value that also has an outgoing edge
             // require: a must link to a node with value="good"
@@ -812,10 +798,15 @@ class CrossNodeConstraintTest {
             // require req:Node { value == a.value, tag == "good" }, requireLink a→req
             val count = matchCount(
                 matchNode("a"),
-                forbidNodeWithProp("fbd", "tag", str("bad")),   // using constant on forbid
-                forbidLink("a", "fbd"),
-                requireNodeWithProp("req", "value", nodeValueExpr("a")),
-                requireLink("a", "req")
+                forbidBlock(
+                    // a constant constraint on the condition node
+                    matchNodeWithProp("fbd", "tag", str("bad")),
+                    matchLink("a", "fbd")
+                ),
+                requireBlock(
+                    matchNodeWithProp("req", "value", nodeValueExpr("a")),
+                    matchLink("a", "req")
+                )
             )
             // nodeA: forbid check: a.to→fbd with fbd.tag=="bad" → nodeB.tag="bad" → FORBIDDEN
             // nodeB: no outgoing edge → forbid doesn't trigger. require: no outgoing edge → REQUIRE FAILS
@@ -827,31 +818,35 @@ class CrossNodeConstraintTest {
     }
 
     // =========================================================================
-    // 6. Forbid/require islands with branching trees (N-2 backtracking via cross-node ref)
+    // 6. Forbid/require blocks with branching trees (N-2 backtracking via cross-node ref)
     // =========================================================================
 
     @Nested
-    inner class BranchingIslandCrossNodePropertyTests {
+    inner class BranchingConditionCrossNodePropertyTests {
 
         @Test
         fun `6a - branching forbid tree with cross-node property on each branch`() {
             // Matched: nodeA(value="X")
             // Forbid tree: nodeA → nodeB, nodeA → nodeC
-            // forbid b:Node { value == a.value }, forbidLink a→b
-            // forbid c:Node { value == a.value }, forbidLink a→c
-            // (two separate single-hop islands, both cross-referencing a)
+            // forbid { b:Node { value == a.value }; a -- b }
+            // forbid { c:Node { value == a.value }; a -- c }
+            // (two separate single-hop blocks, both cross-referencing a)
             val nodeA = addNode("X"); val nodeB = addNode("X"); val nodeC = addNode("X")
             addEdge(nodeA, nodeB); addEdge(nodeA, nodeC)
 
             val count = matchCount(
                 matchNode("a"),
-                forbidNodeWithProp("b", "value", nodeValueExpr("a")),
-                forbidLink("a", "b"),
-                forbidNodeWithProp("c", "value", nodeValueExpr("a")),
-                forbidLink("a", "c")
+                forbidBlock(
+                    matchNodeWithProp("b", "value", nodeValueExpr("a")),
+                    matchLink("a", "b")
+                ),
+                forbidBlock(
+                    matchNodeWithProp("c", "value", nodeValueExpr("a")),
+                    matchLink("a", "c")
+                )
             )
             // nodeA: both b and c can be satisfied (nodeB and nodeC have same value) → BOTH FORBIDS TRIGGER
-            //   (each forbid is a separate island; both are forbidden)
+            //   (each forbid is a separate block; both are forbidden)
             //   → nodeA excluded
             // nodeB: no outgoing edges → neither forbid triggers → nodeB included
             // nodeC: no outgoing edges → included
@@ -865,21 +860,24 @@ class CrossNodeConstraintTest {
             addEdge(nodeA, nodeB); addEdge(nodeA, nodeC)
 
             // forbid b on value; forbid c on tag – should trigger for b (X==X) but not test a's tag
-            // Island 1: forbid b { value == a.value }, link a→b → triggers for nodeA (nodeB.value == nodeA.value)
-            // Island 2: forbid c { tag == a.tag }, link a→c → triggers for nodeA (nodeC.tag == nodeA.tag)
+            // Block 1: forbid { b { value == a.value }; a -- b } → triggers for nodeA
+            // Block 2: forbid { c { tag == a.tag };     a -- c } → triggers for nodeA
             // nodeA falls to both forbids → excluded
-            val forbidBelem = forbidNodeWithProp("b", "value", nodeValueExpr("a"))
-            val forbidCelem = forbidNodeWithProp("c", "tag", nodeTagExpr("a"))
-
             val count = matchCount(
                 matchNode("a"),
-                forbidBelem, forbidLink("a", "b"),
-                forbidCelem, forbidLink("a", "c")
+                forbidBlock(
+                    matchNodeWithProp("b", "value", nodeValueExpr("a")),
+                    matchLink("a", "b")
+                ),
+                forbidBlock(
+                    matchNodeWithProp("c", "tag", nodeTagExpr("a")),
+                    matchLink("a", "c")
+                )
             )
-            // nodeA: island 1 triggers (b matches by value), island 2 triggers (c matches by tag) → excluded
+            // nodeA: block 1 triggers (b matches by value), block 2 triggers (c matches by tag) → excluded
             // nodeB: no outgoing edge → included
             // nodeC: no outgoing edge → included
-            assertEquals(2, count, "nodeA excluded by two independent cross-node forbid islands")
+            assertEquals(2, count, "nodeA excluded by two independent cross-node forbid blocks")
         }
     }
 }

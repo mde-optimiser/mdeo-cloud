@@ -103,7 +103,7 @@ export class ModelTransformationDiagramConfiguration implements DiagramConfigura
                 elementTypeId: ModelTransformationElementType.NODE_MATCH,
                 repositionable: true,
                 deletable: true,
-                resizable: false,
+                resizable: true,
                 reparentable: false,
                 containableElementTypeIds: [ModelTransformationElementType.NODE_PATTERN_INSTANCE]
             },

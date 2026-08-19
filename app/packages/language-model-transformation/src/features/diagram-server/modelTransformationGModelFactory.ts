@@ -24,7 +24,8 @@ import {
     PatternVariable,
     PatternVariableReassignment,
     PatternObjectInstanceReference,
-    PatternObjectInstanceDelete
+    PatternObjectInstanceDelete,
+    type PatternApplicationConditionType
 } from "../../grammar/modelTransformationTypes.js";
 import {
     ModelTransformationControlFlowConverter,
@@ -60,6 +61,13 @@ import { EndNodeKind, ModelTransformationElementType, PatternModifierKind } from
 import { ID } from "@mdeo/language-common";
 import { ModelTransformationIdGenerator } from "./modelTransformationIdGenerator.js";
 import { adaptGeneratedModelTransformationText } from "./generated/generatedModelTransformationAstAdapter.js";
+import {
+    conditionDisplayName,
+    flattenPatternElements,
+    patternModifierKind,
+    type FlattenedPatternElement
+} from "./modelTransformationPatternUtils.js";
+import { stereotypeText, whereClauseLabelText } from "./modelTransformationLabelFormat.js";
 
 const { injectable } = sharedImport("inversify");
 const { GGraph } = sharedImport("@eclipse-glsp/server");
@@ -165,6 +173,24 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
     }
 
     /**
+     * Returns the stereotype text for an element of an application condition block, or
+     * `undefined` for elements of the match pattern itself.
+     *
+     * The block is always named in the stereotype, an unnamed one by its number, so that
+     * the elements of two blocks drawn in the same match node stay distinguishable.
+     *
+     * @param condition The condition block an element belongs to, if any.
+     * @returns The stereotype text (without guillemets), or `undefined`.
+     */
+    private getConditionStereotype(condition: PatternApplicationConditionType | undefined): string | undefined {
+        if (condition == undefined) {
+            return undefined;
+        }
+        const kind = condition.kind ?? "forbid";
+        return `${kind} ${conditionDisplayName(condition, this.reflection)}`;
+    }
+
+    /**
      * Creates a match node with its pattern elements.
      *
      * @param graph The graph to add the node to
@@ -188,8 +214,10 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
         const deletedInstances = new Set<string>();
         const deletedInstanceNodes = new Map<string, PatternObjectInstanceDeleteType>();
 
-        if (cfgMatchNode.pattern?.elements != undefined) {
-            for (const element of cfgMatchNode.pattern.elements) {
+        const patternElements = flattenPatternElements(cfgMatchNode.pattern, this.reflection);
+
+        {
+            for (const { element } of patternElements) {
                 if (this.reflection.isInstance(element, PatternObjectInstance)) {
                     const instance = element as PatternObjectInstanceType;
                     if (instance.name) {
@@ -231,11 +259,9 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
             }
         }
 
-        if (cfgMatchNode.pattern?.elements != undefined) {
-            for (const element of cfgMatchNode.pattern.elements) {
-                if (this.reflection.isInstance(element, PatternObjectInstance)) {
-                    await this.addPatternInstanceNode(node, element, idRegistry);
-                }
+        for (const { element, condition } of patternElements) {
+            if (this.reflection.isInstance(element, PatternObjectInstance)) {
+                await this.addPatternInstanceNode(node, element, idRegistry, condition);
             }
         }
 
@@ -257,20 +283,14 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
             }
         }
 
-        if (cfgMatchNode.pattern?.elements != undefined) {
-            for (const element of cfgMatchNode.pattern.elements) {
-                if (this.reflection.isInstance(element, PatternLink)) {
-                    await this.createPatternLinkEdge(node, element, idRegistry);
-                }
+        for (const { element, condition } of patternElements) {
+            if (this.reflection.isInstance(element, PatternLink)) {
+                await this.createPatternLinkEdge(node, element, idRegistry, condition);
             }
         }
 
         if (cfgMatchNode.pattern?.elements != undefined) {
-            const container = this.createConstraintCompartments(
-                cfgMatchNode.id,
-                cfgMatchNode.pattern.elements,
-                idRegistry
-            );
+            const container = this.createConstraintCompartments(cfgMatchNode.id, patternElements, idRegistry);
             if (container != undefined) {
                 node.children.push(container);
             }
@@ -295,17 +315,23 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
      * @param nodeId The unique node ID
      * @param metadata The layout metadata for the node
      * @param idRegistry The ID registry for element ID generation
+     * @param condition The application condition block the instance belongs to, if any
      * @returns The constructed GPatternInstanceNode
      */
     createPatternInstanceNode(
         instance: PatternObjectInstanceType,
         nodeId: string,
         metadata: NodeLayoutMetadata,
-        idRegistry: ModelIdRegistry
+        idRegistry: ModelIdRegistry,
+        condition?: PatternApplicationConditionType
     ): GPatternInstanceNode {
         const name = instance.name ?? "unnamed";
         const typeName = instance.class?.$refText ?? instance.class?.ref?.name ?? undefined;
-        const modifier = this.getPatternModifierKind(instance.modifier?.modifier);
+        const stereotype = this.getConditionStereotype(condition);
+        const modifier =
+            condition != undefined
+                ? patternModifierKind(condition.kind)
+                : patternModifierKind(instance.modifier?.modifier);
         const resolvedClass = instance.class?.ref as ClassType | undefined;
         const classHierarchy =
             resolvedClass != undefined
@@ -328,7 +354,7 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
 
             const modifierLabel = GPatternModifierLabel.builder()
                 .id(`${nodeId}__modifier-label`)
-                .text(`\u00ab${modifier}\u00bb`)
+                .text(stereotypeText(stereotype ?? modifier))
                 .build();
             modifierCompartment.children.push(modifierLabel);
 
@@ -355,16 +381,18 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
      * @param parent The parent match node to add the instance node to
      * @param instance The pattern object instance AST node to create the visual node for
      * @param idRegistry The model ID registry, used to obtain the unique node ID for the instance
+     * @param condition The application condition block the instance belongs to, if any
      */
     private async addPatternInstanceNode(
         parent: GMatchNode,
         instance: PatternObjectInstanceType,
-        idRegistry: ModelIdRegistry
+        idRegistry: ModelIdRegistry,
+        condition?: PatternApplicationConditionType
     ): Promise<void> {
         const nodeId = idRegistry.getId(instance);
         const validatedMetadata = await this.modelState.getValidatedMetadata();
         const metadata = this.getNodeMetadata(validatedMetadata, nodeId);
-        parent.children.push(this.createPatternInstanceNode(instance, nodeId, metadata, idRegistry));
+        parent.children.push(this.createPatternInstanceNode(instance, nodeId, metadata, idRegistry, condition));
     }
 
     /**
@@ -478,7 +506,7 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
 
         const modifierLabel = GPatternModifierLabel.builder()
             .id(`${nodeId}__modifier-label`)
-            .text(`\u00ab${PatternModifierKind.DELETE}\u00bb`)
+            .text(stereotypeText(PatternModifierKind.DELETE))
             .readonly(true)
             .build();
         modifierCompartment.children.push(modifierLabel);
@@ -597,28 +625,36 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
      * The container also includes horizontal dividers between compartments.
      * Returns undefined if there are no where-clauses or variables.
      *
+     * A where clause declared inside a `forbid` / `require` block is rendered like every
+     * other member of a block: with the block's stereotype in front of it, so that it is
+     * visible which condition the constraint belongs to.
+     *
      * @param nodeId The parent node ID
-     * @param elements The pattern elements
+     * @param patternElements The pattern elements, each with the condition block it belongs to
      * @param idRegistry The model ID registry
      * @returns A GMatchNodeCompartments container, or undefined if empty
      */
     private createConstraintCompartments(
         nodeId: string,
-        elements: unknown[],
+        patternElements: FlattenedPatternElement[],
         idRegistry: ModelIdRegistry
     ): GMatchNodeCompartments | undefined {
         const whereClauseLabels: GModelElement[] = [];
-        for (const element of elements) {
+        for (const { element, condition } of patternElements) {
             if (this.reflection.isInstance(element, WhereClause)) {
                 const whereId = idRegistry.getId(element);
                 const exprText = element.expression?.$cstNode?.text ?? "?";
-                const label = GWhereClauseLabel.builder().id(whereId).text(`where ${exprText}`).build();
+                const stereotype = this.getConditionStereotype(condition);
+                const label = GWhereClauseLabel.builder()
+                    .id(whereId)
+                    .text(whereClauseLabelText(exprText, stereotype))
+                    .build();
                 whereClauseLabels.push(label);
             }
         }
 
         const variableLabels: GModelElement[] = [];
-        for (const element of elements) {
+        for (const { element } of patternElements) {
             if (this.reflection.isInstance(element, PatternVariable)) {
                 const varId = idRegistry.getId(element);
                 const name = element.name ?? "?";
@@ -706,11 +742,13 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
      * @param parent The parent node (match node)
      * @param link The pattern link
      * @param idRegistry The model ID registry
+     * @param condition The application condition block the link belongs to, if any
      */
     private async createPatternLinkEdge(
         parent: GMatchNode,
         link: PatternLinkType,
-        idRegistry: ModelIdRegistry
+        idRegistry: ModelIdRegistry,
+        condition?: PatternApplicationConditionType
     ): Promise<void> {
         const edgeId = idRegistry.getId(link);
 
@@ -728,7 +766,9 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
             return;
         }
 
-        const modifier = this.getPatternModifierKind(link.modifier?.modifier);
+        const stereotype = this.getConditionStereotype(condition);
+        const modifier =
+            condition != undefined ? patternModifierKind(condition.kind) : patternModifierKind(link.modifier?.modifier);
         const sourceProperty = link.source?.property?.$refText;
         const targetProperty = link.target?.property?.$refText;
 
@@ -796,7 +836,7 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
 
             const modifierLabel = GPatternLinkModifierLabel.builder()
                 .id(`${edgeId}__modifier-label`)
-                .text(`\u00ab${modifier}\u00bb`)
+                .text(stereotypeText(stereotype ?? modifier))
                 .build();
 
             modifierNode.children.push(modifierLabel);
@@ -949,21 +989,6 @@ export class ModelTransformationGModelFactory extends BaseGModelFactory<ModelTra
         }
 
         graph.children.push(edge);
-    }
-
-    private getPatternModifierKind(modifier: string | undefined): PatternModifierKind {
-        switch (modifier) {
-            case "create":
-                return PatternModifierKind.CREATE;
-            case "delete":
-                return PatternModifierKind.DELETE;
-            case "forbid":
-                return PatternModifierKind.FORBID;
-            case "require":
-                return PatternModifierKind.REQUIRE;
-            default:
-                return PatternModifierKind.NONE;
-        }
     }
 
     /**

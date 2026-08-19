@@ -21,6 +21,13 @@ export class GMatchNodeView extends GNodeViewBase {
     static readonly MIN_CONTENT_SIZE = 80;
 
     /**
+     * Distance at which the shadow copy of a `multiple` (for) match is drawn behind the frame.
+     * It grows the bounds of the node beyond its frame, which is why the model has to know it
+     * as well when it converts a dragged size back into a frame size.
+     */
+    static readonly SHADOW_OFFSET = 8;
+
+    /**
      * Renders the match node as an SVG group containing:
      * - Background control elements (selection rect, resize handles)
      * - Double-border outlines (single or double, for `multiple` patterns)
@@ -35,26 +42,10 @@ export class GMatchNodeView extends GNodeViewBase {
      */
     override render(model: Readonly<GMatchNode>, context: RenderingContext): VNode | undefined {
         const { markers } = this.splitChildren(model);
-        const { innerChildren, containerNode, innerChildrenBounds, innerChildrenTranslation } = model.getRenderInfo();
+        const { innerChildren, containerNode, innerChildrenTranslation, frameSize, patternAreaHeight } =
+            model.getRenderInfo();
 
-        const patternContentRight = innerChildrenBounds.width + GMatchNodeView.INNER_PADDING * 2;
-        const patternAreaHeight = innerChildrenBounds.height + GMatchNodeView.INNER_PADDING * 2;
-
-        const containerBounds = containerNode?.bounds;
-        const containerBoundsValid =
-            containerBounds != undefined && containerBounds.width >= 0 && containerBounds.height >= 0;
-        const containerHeight = containerBoundsValid ? containerBounds.height : 0;
-        const containerWidth = containerBoundsValid ? containerBounds.width : 0;
-
-        const totalWidth = Math.max(
-            patternContentRight,
-            GMatchNodeView.MIN_CONTENT_SIZE + GMatchNodeView.INNER_PADDING * 2,
-            containerWidth
-        );
-        const patternAreaBottomY = patternAreaHeight;
-        const totalHeight = patternAreaBottomY + containerHeight;
-
-        const outlines = this.renderOutlines(totalWidth, totalHeight, model.multiple);
+        const outlines = this.renderOutlines(frameSize.width, frameSize.height, model.multiple);
 
         const { x: translateX, y: translateY } = innerChildrenTranslation;
         const innerGroup = svg(
@@ -65,7 +56,7 @@ export class GMatchNodeView extends GNodeViewBase {
                 .filter((vnode): vnode is VNode => vnode !== undefined)
         );
 
-        const bottomVNodes = this.renderContainerArea(containerNode, context, totalWidth, patternAreaBottomY);
+        const bottomVNodes = this.renderContainerArea(containerNode, context, frameSize.width, patternAreaHeight);
 
         return svg(
             "g",
@@ -115,8 +106,6 @@ export class GMatchNodeView extends GNodeViewBase {
      * @returns An array of SVG foreignObject VNodes (one or two).
      */
     private renderOutlines(width: number, height: number, isMultiple: boolean): VNode[] {
-        const SHADOW_OFFSET = 8;
-
         const divChildren: VNode[] = [];
 
         if (isMultiple) {
@@ -126,8 +115,8 @@ export class GMatchNodeView extends GNodeViewBase {
                     {
                         style: {
                             gridArea: "1 / 1",
-                            "margin-left": `${SHADOW_OFFSET}px`,
-                            "margin-top": `${SHADOW_OFFSET}px`
+                            "margin-left": `${GMatchNodeView.SHADOW_OFFSET}px`,
+                            "margin-top": `${GMatchNodeView.SHADOW_OFFSET}px`
                         }
                     },
                     this.renderOutlineDiv(width, height)
@@ -151,11 +140,18 @@ export class GMatchNodeView extends GNodeViewBase {
             svg(
                 "foreignObject",
                 {
+                    // The object is a shadow offset larger than the frame so that the shadow copy of a
+                    // `for match` fits into it. That overhang lies on top of the resize handles, which
+                    // start at the edge of the node, so only the frame itself may take pointer events.
+                    class: {
+                        "pointer-events-none": true,
+                        "[&_*]:pointer-events-auto": true
+                    },
                     attrs: {
                         x: 0,
                         y: 0,
-                        width: width + SHADOW_OFFSET,
-                        height: height + SHADOW_OFFSET,
+                        width: width + GMatchNodeView.SHADOW_OFFSET,
+                        height: height + GMatchNodeView.SHADOW_OFFSET,
                         [ATTR_BBOX_ELEMENT]: true
                     }
                 },

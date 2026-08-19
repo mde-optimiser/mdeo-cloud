@@ -25,6 +25,16 @@ internal class ExpressionNodeAnalyzer(
     private val currentScopeIndex: Int
 ) {
     /**
+     * Returns an analyser for the expressions of a scope nested one level inside this one,
+     * such as the constraints of an application condition block: the names the block
+     * declares are recorded one level deeper than the match's, so an analyser of the match
+     * would discard every reference to them.
+     *
+     * @return An analyser over the same names, one scope level deeper.
+     */
+    fun nested(): ExpressionNodeAnalyzer = ExpressionNodeAnalyzer(matchNodeNames, currentScopeIndex + 1)
+
+    /**
      * Collects all match node names referenced by [expression].
      *
      * Recursively traverses the expression tree, collecting identifiers whose scope

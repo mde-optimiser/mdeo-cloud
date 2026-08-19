@@ -26,6 +26,12 @@ export namespace AddVariableOperation {
     export const KIND = "addVariable";
 
     /**
+     * Identifier carried in `newLabelOperationKind` by a new variable placeholder label,
+     * by which the label view recognises a label it has to commit through this operation.
+     */
+    export const NEW_LABEL_KIND = "add-variable";
+
+    /**
      * Payload for creating an add-variable operation.
      */
     export interface Options {

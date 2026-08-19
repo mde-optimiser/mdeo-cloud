@@ -33,6 +33,7 @@ import {
     type ControlFlowEdge
 } from "./modelTransformationControlFlowConverter.js";
 import { ModelTransformationIdGenerator } from "./modelTransformationIdGenerator.js";
+import { flattenPatternElements } from "./modelTransformationPatternUtils.js";
 import { adaptGeneratedModelTransformationText } from "./generated/generatedModelTransformationAstAdapter.js";
 
 const { injectable, inject } = sharedImport("inversify");
@@ -62,12 +63,18 @@ export class ModelTransformationMetadataManager extends MetadataManager<ModelTra
         if (
             model.type === ModelTransformationElementType.NODE_START ||
             model.type === ModelTransformationElementType.NODE_END ||
-            model.type === ModelTransformationElementType.NODE_MATCH ||
             model.type === ModelTransformationElementType.NODE_SPLIT ||
             model.type === ModelTransformationElementType.NODE_MERGE ||
             model.type === ModelTransformationElementType.NODE_PATTERN_INSTANCE
         ) {
             return NodeLayoutMetadataUtil.verify(model.meta, 250);
+        }
+
+        // A match node is as large as the pattern it shows, so it has no default size to fall
+        // back to: a preferred size on it means that the user dragged it to that size, and
+        // supplying one here would both widen small matches and make "Reset Layout" a no-op.
+        if (model.type === ModelTransformationElementType.NODE_MATCH) {
+            return NodeLayoutMetadataUtil.verify(model.meta);
         }
 
         if (
@@ -222,8 +229,10 @@ export class ModelTransformationMetadataManager extends MetadataManager<ModelTra
         const deletedInstances = new Set<string>();
         const deletedInstanceNodes = new Map<string, PatternObjectInstanceDeleteType>();
 
+        const patternElements = flattenPatternElements(pattern, this.reflection).map(({ element }) => element);
+
         if (pattern?.elements != undefined) {
-            for (const element of pattern.elements) {
+            for (const element of patternElements) {
                 if (this.reflection.isInstance(element, PatternObjectInstance)) {
                     if (element.name != undefined) {
                         localInstances.set(element.name, element);
@@ -243,7 +252,7 @@ export class ModelTransformationMetadataManager extends MetadataManager<ModelTra
                     }
                 }
             }
-            for (const element of pattern.elements) {
+            for (const element of patternElements) {
                 if (this.reflection.isInstance(element, PatternLink)) {
                     const sourceInstanceName = element.source?.object?.ref?.name;
                     const targetInstanceName = element.target?.object?.ref?.name;
@@ -334,7 +343,7 @@ export class ModelTransformationMetadataManager extends MetadataManager<ModelTra
                 }
             }
 
-            for (const element of pattern.elements) {
+            for (const element of patternElements) {
                 if (this.reflection.isInstance(element, PatternLink)) {
                     this.addPatternLinkEdge(
                         element as PatternLinkType,

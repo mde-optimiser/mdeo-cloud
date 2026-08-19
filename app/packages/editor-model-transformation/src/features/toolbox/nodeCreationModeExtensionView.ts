@@ -1,7 +1,7 @@
 import type { VNode } from "snabbdom";
 import { sharedImport, generateIcon, iconButtonClasses } from "@mdeo/editor-shared";
 import type { ModelTransformationToolbox } from "./modelTransformationToolbox.js";
-import { NodeCreationMode } from "./nodeCreationMode.js";
+import { NodeCreationMode } from "@mdeo/protocol-model-transformation";
 import type { IconNode } from "lucide";
 
 const { html } = sharedImport("@eclipse-glsp/sprotty");

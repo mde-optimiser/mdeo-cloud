@@ -7,7 +7,6 @@ export * from "./features/icon-registry/featureModule.js";
 export * from "./features/icon-registry/modelTransformationIconRegistry.js";
 export * from "./features/toolbox/featureModule.js";
 export * from "./features/toolbox/modelTransformationToolbox.js";
-export * from "./features/toolbox/nodeCreationMode.js";
 export * from "./features/toolbox/nodeCreationModeExtensionView.js";
 export * from "./model/controlFlowEdge.js";
 export * from "./model/controlFlowLabel.js";

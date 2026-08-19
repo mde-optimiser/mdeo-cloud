@@ -7,6 +7,7 @@ import com.mdeo.expression.ast.expressions.TypedMemberAccessExpression
 import com.mdeo.metamodel.data.*
 import com.mdeo.modeltransformation.ast.patterns.*
 import com.mdeo.modeltransformation.runtime.match.ExpressionNodeAnalyzer
+import com.mdeo.modeltransformation.runtime.match.forbidBlock
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
@@ -52,8 +53,8 @@ import kotlin.test.assertTrue
  * 1. `plan` is matched first — it has the highest *instance priority* (sprint2 is pseudo-composited
  *    on it via the regular `sprint2 -- plan` link, which corresponds to a real composition).
  * 2. `workItem` is scanned next — equal instance priority to sprint2 (priority 0), but scanning
- *    workItem unlocks a cheap NAC island (sprint1 anchored at workItem) before the sprint2 walk.
- * 3. The NAC island fires immediately after workItem is covered.
+ *    workItem unlocks a cheap NAC block (sprint1 anchored at workItem) before the sprint2 walk.
+ * 3. The NAC block fires immediately after workItem is covered.
  * 4. `sprint2` is walked from `plan`.
  */
 class MatchPlanOrderingTest {
@@ -281,7 +282,7 @@ class MatchPlanOrderingTest {
             assertTrue(workItemIdx >= 0, "workItem must be scanned")
             assertTrue(nacIndices.isNotEmpty(), "there must be at least one ApplicationCondition")
 
-            // The NAC island (anchors: workItem + plan) fires immediately after workItem is covered,
+            // The NAC block (anchors: workItem + plan) fires immediately after workItem is covered,
             // BEFORE sprint2 is walked.  All NACs must still come after workItem.
             for (nacIdx in nacIndices) {
                 assertTrue(nacIdx > workItemIdx,
@@ -294,7 +295,7 @@ class MatchPlanOrderingTest {
             val plan = buildPlan()
             val conditions = plan.baseSteps.filterIsInstance<BaseStep.ApplicationCondition>()
 
-            // Orphan link (single-edge check) should come before the multi-anchor NAC island
+            // Orphan link (single-edge check) should come before the multi-anchor NAC block
             if (conditions.size >= 2) {
                 // The orphan link condition has no inner VertexScan (it starts at an anchor and does one EdgeWalk)
                 val orphanCandidates = conditions.filter { ac ->
@@ -343,7 +344,7 @@ class MatchPlanOrderingTest {
 
             // workItem and sprint2 have equal instance priority (both 0 — no regular/PAC
             // link pseudo-composes workItem onto anything), but covering workItem unlocks the
-            // NAC island (anchors = {workItem, plan}) at lower cost than walking to sprint2.
+            // NAC block (anchors = {workItem, plan}) at lower cost than walking to sprint2.
             // The step-level greedy therefore scans workItem before walking plan→sprint2,
             // allowing the NAC to prune traversers before the sprint2 fan-out.
             val workItemIdx = steps.indexOfFirst { step ->
@@ -361,11 +362,11 @@ class MatchPlanOrderingTest {
         }
 
         @Test
-        fun `NAC island fires before sprint2 walk`() {
+        fun `NAC block fires before sprint2 walk`() {
             val plan = buildPlan()
             val steps = plan.baseSteps
 
-            // The NAC island (anchors: workItem + plan) should be emitted inline as soon as
+            // The NAC block (anchors: workItem + plan) should be emitted inline as soon as
             // workItem is covered — i.e. before the EdgeWalk to sprint2.
             val sprint2Idx = steps.indexOfFirst { step ->
                 step is BaseStep.EdgeWalk && step.toInstanceName == "sprint2"
@@ -379,7 +380,7 @@ class MatchPlanOrderingTest {
             assertTrue(sprint2Idx >= 0, "EdgeWalk to sprint2 must be present")
             if (islandNacIdx >= 0) {
                 assertTrue(islandNacIdx < sprint2Idx,
-                    "NAC island (idx=$islandNacIdx) should fire before sprint2 walk (idx=$sprint2Idx)")
+                    "NAC block (idx=$islandNacIdx) should fire before sprint2 walk (idx=$sprint2Idx)")
             }
         }
 
@@ -397,7 +398,7 @@ class MatchPlanOrderingTest {
          *
          * create  workItem -- sprint1      (sprint1.committedItems <--> workItem.isPlannedFor)
          * forbid  workItem -- sprint1      (orphan forbid link — both are main-pattern nodes)
-         * forbid  sprint2  -- workItem     (sprint2 NAC island, anchored at workItem)
+         * forbid { sprint2 : Sprint {} ; sprint2 -- workItem }   (anchored at workItem)
          * ```
          *
          * Because the Sprint→WorkItem composition link is *not* in the regular matchable links,
@@ -421,17 +422,20 @@ class MatchPlanOrderingTest {
                     makeLink("create", "sprint1", "committedItems", "workItem", "isPlannedFor")
                 ),
                 deleteLinks = emptyList(),
-                forbidInstances = listOf(makeInstance("forbid", "sprint2", "Sprint")),
-                forbidLinks = listOf(
-                    // orphan forbid link: both sprint1 and workItem are main-pattern nodes
-                    makeLink("forbid", "sprint1", "committedItems", "workItem", "isPlannedFor"),
-                    // NAC island: sprint2 anchored at workItem
-                    makeLink("forbid", "sprint2", "committedItems", "workItem", "isPlannedFor")
-                ),
-                requireInstances = emptyList(),
-                requireLinks = emptyList(),
                 variables = emptyList(),
-                whereClauses = emptyList()
+                whereClauses = emptyList(),
+                conditions = listOf(
+                    // both endpoints are main-pattern nodes, so this block only needs the
+                    // two anchors
+                    forbidBlock(
+                        makeLink(null, "sprint1", "committedItems", "workItem", "isPlannedFor")
+                    ),
+                    // condition graph of its own: sprint2, anchored at workItem
+                    forbidBlock(
+                        makeInstance(null, "sprint2", "Sprint"),
+                        makeLink(null, "sprint2", "committedItems", "workItem", "isPlannedFor")
+                    )
+                )
             )
 
             val plan = MatchPlanBuilder(
@@ -444,7 +448,7 @@ class MatchPlanOrderingTest {
             val steps = plan.baseSteps
 
             // workItem should be scanned before sprint1 because covering workItem unlocks
-            // the sprint2 NAC island (anchor = workItem) while covering sprint1 unlocks nothing.
+            // the sprint2 NAC block (anchor = workItem) while covering sprint1 unlocks nothing.
             val workItemIdx = steps.indexOfFirst {
                 it is BaseStep.VertexScan && it.instanceName == "workItem"
             }
@@ -471,16 +475,21 @@ class MatchPlanOrderingTest {
      * Builds the PatternCategories for the scrum transformation pattern:
      *
      * ```
-     * forbid sprint1 : Sprint {}
      * sprint2        : Sprint {}
      * plan           : Plan {}
      * workItem       : WorkItem {}
      *
-     * forbid workItem -- sprint1   (sprint1.committedItems <--> workItem.isPlannedFor)
      * sprint2         -- plan      (plan.sprints <>-> sprint2.plan)
      * create sprint2  -- workItem  (sprint2.committedItems <--> workItem.isPlannedFor)
-     * forbid sprint2  -- workItem  (sprint2.committedItems <--> workItem.isPlannedFor)
-     * forbid plan     -- sprint1   (plan.sprints <>-> sprint1.plan)
+     *
+     * forbid {
+     *     sprint1 : Sprint {}
+     *     sprint1 -- workItem      (sprint1.committedItems <--> workItem.isPlannedFor)
+     *     plan    -- sprint1       (plan.sprints <>-> sprint1.plan)
+     * }
+     * forbid {
+     *     sprint2 -- workItem      (sprint2.committedItems <--> workItem.isPlannedFor)
+     * }
      * ```
      */
     private fun buildScrumPatternElements(): com.mdeo.modeltransformation.runtime.match.PatternCategories {
@@ -488,9 +497,6 @@ class MatchPlanOrderingTest {
             makeInstance(null, "sprint2",  "Sprint"),
             makeInstance(null, "plan",     "Plan"),
             makeInstance(null, "workItem", "WorkItem")
-        )
-        val forbidInstances = listOf(
-            makeInstance("forbid", "sprint1", "Sprint")
         )
         val matchableLinks = listOf(
             // sprint2 -- plan  (plan.sprints <>-> sprint2.plan)
@@ -500,13 +506,19 @@ class MatchPlanOrderingTest {
             // create sprint2 -- workItem (sprint2.committedItems <--> workItem.isPlannedFor)
             makeLink("create", "sprint2", "committedItems", "workItem", "isPlannedFor")
         )
-        val forbidLinks = listOf(
-            // forbid workItem -- sprint1  (sprint1.committedItems <--> workItem.isPlannedFor)
-            makeLink("forbid", "sprint1", "committedItems", "workItem", "isPlannedFor"),
-            // forbid sprint2 -- workItem  (orphan link, both main-pattern nodes)
-            makeLink("forbid", "sprint2", "committedItems", "workItem", "isPlannedFor"),
-            // forbid plan -- sprint1  (plan.sprints <>-> sprint1.plan)
-            makeLink("forbid", "plan", "sprints", "sprint1", "plan")
+        val conditions = listOf(
+            // one condition graph: sprint1 together with both of its links
+            forbidBlock(
+                makeInstance(null, "sprint1", "Sprint"),
+                // sprint1.committedItems <--> workItem.isPlannedFor
+                makeLink(null, "sprint1", "committedItems", "workItem", "isPlannedFor"),
+                // plan.sprints <>-> sprint1.plan
+                makeLink(null, "plan", "sprints", "sprint1", "plan")
+            ),
+            // a second block over two main-pattern nodes only
+            forbidBlock(
+                makeLink(null, "sprint2", "committedItems", "workItem", "isPlannedFor")
+            )
         )
 
         return com.mdeo.modeltransformation.runtime.match.PatternCategories(
@@ -516,12 +528,9 @@ class MatchPlanOrderingTest {
             deleteInstances = emptyList(),
             createLinks = createLinks,
             deleteLinks = emptyList(),
-            forbidInstances = forbidInstances,
-            forbidLinks = forbidLinks,
-            requireInstances = emptyList(),
-            requireLinks = emptyList(),
             variables = emptyList(),
-            whereClauses = emptyList()
+            whereClauses = emptyList(),
+            conditions = conditions
         )
     }
 
@@ -601,10 +610,6 @@ class MatchPlanOrderingTest {
                 deleteLinks = listOf(
                     makeLink("delete", "s1", "committedItems", "wi", "isPlannedFor")
                 ),
-                forbidInstances = emptyList(),
-                forbidLinks = emptyList(),
-                requireInstances = emptyList(),
-                requireLinks = emptyList(),
                 variables = emptyList(),
                 whereClauses = emptyList()
             )
@@ -727,8 +732,6 @@ class MatchPlanOrderingTest {
                 matchableLinks = listOf(link),
                 createInstances = emptyList(), deleteInstances = emptyList(),
                 createLinks = emptyList(), deleteLinks = emptyList(),
-                forbidInstances = emptyList(), forbidLinks = emptyList(),
-                requireInstances = emptyList(), requireLinks = emptyList(),
                 variables = listOf(varElement),
                 whereClauses = emptyList()
             )
@@ -809,8 +812,6 @@ class MatchPlanOrderingTest {
                 matchableLinks = emptyList(),
                 createInstances = emptyList(), deleteInstances = emptyList(),
                 createLinks = emptyList(), deleteLinks = emptyList(),
-                forbidInstances = emptyList(), forbidLinks = emptyList(),
-                requireInstances = emptyList(), requireLinks = emptyList(),
                 variables = listOf(varX, varY),
                 whereClauses = listOf(whereClause)
             )
@@ -913,13 +914,14 @@ class MatchPlanOrderingTest {
                 matchableLinks = emptyList(),
                 createInstances = emptyList(), deleteInstances = emptyList(),
                 createLinks = emptyList(), deleteLinks = emptyList(),
-                forbidInstances = listOf(makeInstance("forbid", "sprint1", "Sprint")),
-                forbidLinks = listOf(
-                    makeLink("forbid", "sprint1", "committedItems", "workItem", "isPlannedFor")
-                ),
-                requireInstances = emptyList(), requireLinks = emptyList(),
                 variables = listOf(varElement),
-                whereClauses = emptyList()
+                whereClauses = emptyList(),
+                conditions = listOf(
+                    forbidBlock(
+                        makeInstance(null, "sprint1", "Sprint"),
+                        makeLink(null, "sprint1", "committedItems", "workItem", "isPlannedFor")
+                    )
+                )
             )
 
             val plan = MatchPlanBuilder(

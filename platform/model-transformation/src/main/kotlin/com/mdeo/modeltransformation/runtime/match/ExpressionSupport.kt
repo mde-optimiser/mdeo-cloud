@@ -7,6 +7,7 @@ import com.mdeo.modeltransformation.ast.patterns.TypedPatternPropertyAssignment
 import com.mdeo.modeltransformation.compiler.CompilationContext
 import com.mdeo.modeltransformation.compiler.CompilationResult
 import com.mdeo.modeltransformation.compiler.LabelIdGenerator
+import com.mdeo.modeltransformation.compiler.VariableScope
 import com.mdeo.modeltransformation.compiler.expressions.EqualityCompilerUtil
 import com.mdeo.modeltransformation.runtime.TransformationExecutionContext
 import com.mdeo.modeltransformation.runtime.TransformationEngine
@@ -24,20 +25,37 @@ internal const val MATCH_ANCHOR_LABEL = "_"
  * Centralises the common boilerplate of creating [CompilationContext] instances,
  * compiling expressions, and applying property equality filters — eliminating the
  * need to pass `engine`, `context`, and `labelIdGenerator` separately to every helper.
+ *
+ * @property scope The scope every expression is compiled in. It is the match's own scope
+ *           except inside an application condition block, which is a scope of its own and
+ *           compiles its constraints against a child of it — see [withScope].
  */
 internal class ExpressionSupport(
     val engine: TransformationEngine,
     val context: TransformationExecutionContext,
-    private val labelIdGenerator: LabelIdGenerator
+    private val labelIdGenerator: LabelIdGenerator,
+    val scope: VariableScope = context.variableScope
 ) {
     /** Creates a fresh [CompilationContext] backed by the shared [labelIdGenerator]. */
     fun newCompilationContext(): CompilationContext = CompilationContext(
         types = engine.types,
-        currentScope = context.variableScope,
+        currentScope = scope,
         traversalSource = engine.traversalSource,
         typeRegistry = engine.typeRegistry,
         idGenerator = labelIdGenerator
     )
+
+    /**
+     * Returns a view of this support that compiles expressions in [scope].
+     *
+     * The label generator is shared with the original, so labels stay unique across the
+     * whole traversal even though the scopes differ.
+     *
+     * @param scope The scope to compile in.
+     * @return A support object over the same engine and execution context.
+     */
+    fun withScope(scope: VariableScope): ExpressionSupport =
+        ExpressionSupport(engine, context, labelIdGenerator, scope)
 
     /** Returns the [ValueType] for [expression], or null when index is out of range. */
     fun resolveExpressionType(expression: TypedExpression): ValueType? {

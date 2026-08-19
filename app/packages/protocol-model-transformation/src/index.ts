@@ -5,5 +5,6 @@ export * from "./operations/changePatternElementModifierOperation.js";
 export * from "./operations/changePropertyTypeLinkOperation.js";
 export * from "./operations/convertMatchNodeOperation.js";
 export * from "./operations/insertControlFlowStatementOperation.js";
+export * from "./operations/movePatternElementToConditionOperation.js";
 export * from "./layoutConstants.js";
 export * from "./types.js";

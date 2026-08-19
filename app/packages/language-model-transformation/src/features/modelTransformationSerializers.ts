@@ -57,7 +57,9 @@ import {
     type LambdaExpressionType,
     type StatementsScopeType,
     type PatternObjectInstanceReferenceType,
-    PatternObjectInstanceReference
+    PatternObjectInstanceReference,
+    PatternApplicationCondition,
+    type PatternApplicationConditionType
 } from "../grammar/modelTransformationTypes.js";
 
 const { doc } = sharedImport("prettier");
@@ -109,6 +111,7 @@ export function registerModelTransformationSerializers(services: ModelTransforma
     AstSerializer.registerNodeSerializer(PatternLinkEnd, (ctx) => printPatternLinkEnd(ctx));
     AstSerializer.registerNodeSerializer(PatternLink, (ctx) => printPatternLink(ctx));
     AstSerializer.registerNodeSerializer(WhereClause, (ctx) => printWhereClause(ctx));
+    AstSerializer.registerNodeSerializer(PatternApplicationCondition, (ctx) => printPatternApplicationCondition(ctx));
     AstSerializer.registerNodeSerializer(Pattern, (ctx) => printPattern(ctx));
 
     AstSerializer.registerNodeSerializer(StatementsScope, (ctx) => printStatementsScope(ctx));
@@ -291,6 +294,32 @@ function printPatternLink(context: PrintContext<PatternLinkType>): Doc {
 function printWhereClause(context: PrintContext<WhereClauseType>): Doc {
     const { path, print } = context;
     return ["where ", path.call(print, "expression")];
+}
+
+/**
+ * Prints an application condition block (`forbid`/`require`).
+ *
+ * @param context The print context.
+ * @returns The formatted condition block, including its optional name.
+ */
+function printPatternApplicationCondition(context: PrintContext<PatternApplicationConditionType>): Doc {
+    const { ctx, printPrimitive, getPrimitive } = context;
+    const docs: Doc[] = [ctx.kind ?? "forbid"];
+
+    if (ctx.name != undefined) {
+        docs.push(" ", printPrimitive(getPrimitive(ctx, "name"), ID));
+    }
+
+    docs.push(" {");
+
+    const content = serializeNewlineSep(context, ["elements"], doc.builders);
+    if (content.length > 0) {
+        docs.push(indent([hardline, content]), hardline);
+    }
+
+    docs.push("}");
+
+    return group(docs);
 }
 
 /**

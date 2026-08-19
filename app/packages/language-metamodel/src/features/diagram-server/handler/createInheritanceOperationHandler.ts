@@ -1,6 +1,6 @@
 import type { GNode, CreateEdgeResult } from "@mdeo/language-shared";
 import { sharedImport } from "@mdeo/language-shared";
-import type { CreateEdgeOperation } from "@mdeo/protocol-common";
+import { CreateEdgeOperation } from "@mdeo/protocol-common";
 import type { AstNode } from "langium";
 import {
     ClassExtension,
@@ -21,7 +21,7 @@ const { GrammarUtils } = sharedImport("langium");
  */
 @injectable()
 export class CreateInheritanceOperationHandler extends MetamodelBaseCreateEdgeOperationHandler {
-    override readonly operationType = "createEdge";
+    override readonly operationType = CreateEdgeOperation.KIND;
     override label = "Create inheritance edge";
     readonly elementTypeIds = [MetamodelElementType.EDGE_INHERITANCE];
 

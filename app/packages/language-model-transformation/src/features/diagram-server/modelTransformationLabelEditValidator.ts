@@ -16,14 +16,17 @@ import {
     parseInstanceLabel,
     parseVariableLabel,
     parseVariableReassignmentLabel,
-    parseModelTransformationPropertyLabel as parsePropertyLabel
-} from "./modelTransformationLabelParseUtils.js";
+    parseModelTransformationPropertyLabel as parsePropertyLabel,
+    extractWhereClauseExpression,
+    parseModifierText
+} from "./modelTransformationLabelFormat.js";
 import { NEW_PROPERTY_COMPARISON_LABEL_PREFIX } from "./handler/addPropertyValueComparisonOperationHandler.js";
 import {
     NEW_VARIABLE_LABEL_PREFIX,
     NEW_VARIABLE_REASSIGNMENT_LABEL_PREFIX
 } from "./handler/addVariableOperationHandler.js";
 import { NEW_WHERE_CLAUSE_LABEL_PREFIX } from "./handler/addWhereClauseOperationHandler.js";
+import { effectivePatternModifier } from "./modelTransformationPatternUtils.js";
 
 const { injectable, inject } = sharedImport("inversify");
 const { ValidationStatus, GModelIndex: GModelIndexKey } = sharedImport("@eclipse-glsp/server");
@@ -205,7 +208,7 @@ export class ModelTransformationLabelEditValidator extends BaseLabelEditValidato
         }
 
         if (this.reflection.isInstance(astNode, PatternObjectInstance)) {
-            return modifierStringToKind((astNode as PatternObjectInstanceType).modifier?.modifier);
+            return effectivePatternModifier(astNode, this.reflection);
         }
         if (this.reflection.isInstance(astNode, PatternObjectInstanceReference)) {
             return "reference";
@@ -298,9 +301,9 @@ export class ModelTransformationLabelEditValidator extends BaseLabelEditValidato
     /**
      * Validates a where clause label.
      *
-     * Only checks that the text starts with the required `where ` prefix and
-     * that the expression is non-empty.  The expression itself is not further
-     * validated (parsing expressions is out of scope for now).
+     * Only checks that the label states a clause at all and that its expression is
+     * non-empty.  The expression itself is not further validated (parsing expressions is out
+     * of scope for now).
      *
      * @param label The label text to validate
      * @returns A validation status if invalid, undefined if valid
@@ -310,10 +313,10 @@ export class ModelTransformationLabelEditValidator extends BaseLabelEditValidato
             return undefined;
         }
 
-        if (!label.startsWith("where ")) {
+        const expression = extractWhereClauseExpression(label);
+        if (expression == undefined) {
             return this.error("Where clause must start with 'where '.");
         }
-        const expression = label.substring("where ".length).trim();
         if (expression.length === 0) {
             return this.error("Where clause expression cannot be empty.");
         }
@@ -456,8 +459,7 @@ export class ModelTransformationLabelEditValidator extends BaseLabelEditValidato
                 const container = prop.$container;
                 if (container != undefined) {
                     if (this.reflection.isInstance(container, PatternObjectInstance)) {
-                        const instance = container as PatternObjectInstanceType;
-                        return modifierStringToKind(instance.modifier?.modifier);
+                        return effectivePatternModifier(container, this.reflection);
                     }
                     if (this.reflection.isInstance(container, PatternObjectInstanceReference)) {
                         return "reference";
@@ -558,7 +560,7 @@ export class ModelTransformationLabelEditValidator extends BaseLabelEditValidato
      * @returns A validation status if invalid, undefined if valid
      */
     private validateModifierLabel(label: string): ValidationStatusType | undefined {
-        const modifier = this.parseModifierText(label);
+        const modifier = parseModifierText(label);
         if (!this.isValidModifier(modifier)) {
             return this.error("Modifier must be one of: create, delete, forbid, require (or empty for none).");
         }
@@ -566,28 +568,14 @@ export class ModelTransformationLabelEditValidator extends BaseLabelEditValidato
     }
 
     /**
-     * Strips guillemet characters and trims the label to extract the modifier value.
-     */
-    private parseModifierText(label: string): string {
-        return label
-            .replace(/\u00ab/g, "")
-            .replace(/\u00bb/g, "")
-            .trim()
-            .toLowerCase();
-    }
-
-    /**
      * Checks whether a modifier string is one of the permitted values.
+     *
+     * `forbid` / `require` are not modifiers: they identify an application condition block,
+     * and an element joins one through the "Change Modifier" menu, which moves it there,
+     * rather than by editing its stereotype label.
      */
     private isValidModifier(modifier: string): boolean {
-        return (
-            modifier === "" ||
-            modifier === "none" ||
-            modifier === "create" ||
-            modifier === "delete" ||
-            modifier === "forbid" ||
-            modifier === "require"
-        );
+        return modifier === "" || modifier === "none" || modifier === "create" || modifier === "delete";
     }
 
     /**
@@ -603,26 +591,5 @@ export class ModelTransformationLabelEditValidator extends BaseLabelEditValidato
             return this.error("Condition expression cannot be empty.");
         }
         return undefined;
-    }
-}
-
-/**
- * Converts a modifier string value from the AST to a {@link PatternModifierKind} enum value.
- *
- * @param modifier The raw string modifier value (e.g., `"create"`, `"delete"`)
- * @returns The corresponding {@link PatternModifierKind}
- */
-function modifierStringToKind(modifier: string | undefined): PatternModifierKind {
-    switch (modifier) {
-        case "create":
-            return PatternModifierKind.CREATE;
-        case "delete":
-            return PatternModifierKind.DELETE;
-        case "forbid":
-            return PatternModifierKind.FORBID;
-        case "require":
-            return PatternModifierKind.REQUIRE;
-        default:
-            return PatternModifierKind.NONE;
     }
 }

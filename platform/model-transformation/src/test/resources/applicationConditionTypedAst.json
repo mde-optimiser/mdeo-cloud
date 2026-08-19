@@ -1,0 +1,204 @@
+{
+  "types": [
+    {
+      "kind": "void"
+    },
+    {
+      "package": "builtin",
+      "type": "string",
+      "isNullable": false,
+      "typeArgs": {}
+    },
+    {
+      "package": "builtin",
+      "type": "double",
+      "isNullable": false,
+      "typeArgs": {}
+    },
+    {
+      "package": "builtin",
+      "type": "boolean",
+      "isNullable": false,
+      "typeArgs": {}
+    },
+    {
+      "package": "builtin",
+      "type": "Any",
+      "isNullable": true
+    },
+    {
+      "package": "builtin",
+      "type": "int",
+      "isNullable": false,
+      "typeArgs": {}
+    },
+    {
+      "package": "class/home/devbox/workspace/mdeo-cloud/app/.harness/ac/surgery.mm",
+      "type": "Patient",
+      "isNullable": false,
+      "typeArgs": {}
+    }
+  ],
+  "metamodelPath": "/home/devbox/workspace/mdeo-cloud/app/.harness/ac/surgery.mm",
+  "statements": [
+    {
+      "kind": "match",
+      "pattern": {
+        "elements": [
+          {
+            "kind": "objectInstance",
+            "objectInstance": {
+              "name": "patient",
+              "className": "Patient",
+              "properties": [
+                {
+                  "propertyName": "isMandatory",
+                  "operator": "==",
+                  "value": {
+                    "kind": "booleanLiteral",
+                    "evalType": 3,
+                    "value": false
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "variable",
+            "variable": {
+              "name": "patientDuration",
+              "value": {
+                "kind": "memberAccess",
+                "evalType": 5,
+                "expression": {
+                  "kind": "identifier",
+                  "evalType": 6,
+                  "name": "patient",
+                  "scope": 1
+                },
+                "member": "surgeryDuration",
+                "isNullChaining": false
+              }
+            }
+          },
+          {
+            "kind": "applicationCondition",
+            "condition": {
+              "negative": true,
+              "name": "alreadyAdmitted",
+              "elements": [
+                {
+                  "kind": "objectInstance",
+                  "objectInstance": {
+                    "name": "existingAdmission",
+                    "className": "Admission",
+                    "properties": []
+                  }
+                },
+                {
+                  "kind": "link",
+                  "link": {
+                    "source": {
+                      "objectName": "existingAdmission",
+                      "propertyName": "patient"
+                    },
+                    "target": {
+                      "objectName": "patient"
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "applicationCondition",
+            "condition": {
+              "negative": true,
+              "name": "betterCandidate",
+              "elements": [
+                {
+                  "kind": "objectInstance",
+                  "objectInstance": {
+                    "name": "betterPatient",
+                    "className": "Patient",
+                    "properties": [
+                      {
+                        "propertyName": "isMandatory",
+                        "operator": "==",
+                        "value": {
+                          "kind": "booleanLiteral",
+                          "evalType": 3,
+                          "value": false
+                        }
+                      }
+                    ]
+                  }
+                },
+                {
+                  "kind": "whereClause",
+                  "whereClause": {
+                    "expression": {
+                      "kind": "binary",
+                      "evalType": 3,
+                      "operator": "<",
+                      "left": {
+                        "kind": "memberAccess",
+                        "evalType": 5,
+                        "expression": {
+                          "kind": "identifier",
+                          "evalType": 6,
+                          "name": "betterPatient",
+                          "scope": 1
+                        },
+                        "member": "surgeryDuration",
+                        "isNullChaining": false
+                      },
+                      "right": {
+                        "kind": "identifier",
+                        "evalType": 5,
+                        "name": "patientDuration",
+                        "scope": 1
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "objectInstance",
+            "objectInstance": {
+              "modifier": "create",
+              "name": "admission",
+              "className": "Admission",
+              "properties": [
+                {
+                  "propertyName": "day",
+                  "operator": "=",
+                  "value": {
+                    "kind": "intLiteral",
+                    "evalType": 5,
+                    "value": "1"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "link",
+            "link": {
+              "modifier": "create",
+              "source": {
+                "objectName": "admission",
+                "propertyName": "patient"
+              },
+              "target": {
+                "objectName": "patient"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -19,7 +19,7 @@ export class GEnumEntryLabelView extends GLabelView {
      * @returns The operation to dispatch
      */
     protected override createNewLabelOperation(model: Readonly<GLabel>, editText: string): Operation {
-        if (model.newLabelOperationKind !== "enum-entry-edit") {
+        if (model.newLabelOperationKind !== AddEnumEntryOperation.NEW_LABEL_KIND) {
             return super.createNewLabelOperation(model, editText);
         }
 

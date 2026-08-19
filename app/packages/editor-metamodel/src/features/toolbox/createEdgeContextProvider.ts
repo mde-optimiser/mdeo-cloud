@@ -5,6 +5,7 @@ import {
 } from "@mdeo/editor-shared";
 import type { GNode } from "@mdeo/editor-shared";
 import type { MetamodelToolbox } from "./metamodelToolbox.js";
+import type { MetamodelEdgeCreationContext } from "@mdeo/protocol-metamodel";
 
 const { injectable, inject } = sharedImport("inversify");
 
@@ -18,11 +19,11 @@ export class MetamodelCreateEdgeContextProvider implements ICreateEdgeContextPro
     @inject(Toolbox)
     protected readonly toolbox!: MetamodelToolbox;
 
-    getInitialContext(_source: GNode): unknown {
+    getInitialContext(_source: GNode): MetamodelEdgeCreationContext {
         return { edgeType: this.toolbox.selectedEdgeType };
     }
 
-    getTargetContext(_source: GNode, _target: GNode): unknown {
+    getTargetContext(_source: GNode, _target: GNode): MetamodelEdgeCreationContext {
         return { edgeType: this.toolbox.selectedEdgeType };
     }
 }

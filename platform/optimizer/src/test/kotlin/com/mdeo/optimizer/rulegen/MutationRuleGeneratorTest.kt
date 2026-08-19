@@ -7,6 +7,7 @@ import com.mdeo.metamodel.data.MetamodelData
 import com.mdeo.metamodel.data.MultiplicityData
 import com.mdeo.modeltransformation.ast.statements.TypedMatchStatement
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternObjectInstanceElement
+import com.mdeo.modeltransformation.ast.patterns.TypedPatternApplicationConditionElement
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternLinkElement
 import com.mdeo.optimizer.config.RefinementConfig
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternWhereClauseElement
@@ -350,7 +351,7 @@ class MutationRuleGeneratorTest {
         private val mmPath = "/project/home.mm"
 
         @Test
-        fun `ADD rule produces match with forbid and create link`() {
+        fun `ADD rule produces match with a forbid block and a create link`() {
             val spec = RepairSpec("Room", "windows", RepairSpecType.ADD)
             val ast = MutationAstBuilder.build("ADD_Room_windows", spec, mmPath, info)
 
@@ -361,8 +362,12 @@ class MutationRuleGeneratorTest {
             val stmt = ast.statements[0] as TypedMatchStatement
             val links = stmt.pattern.elements.filterIsInstance<TypedPatternLinkElement>()
             val modifiers = links.map { it.link.modifier }.toSet()
-            assertTrue(modifiers.contains("forbid"), "Expected forbid NAC")
             assertTrue(modifiers.contains("create"), "Expected create link")
+
+            val conditions = stmt.pattern.elements.filterIsInstance<TypedPatternApplicationConditionElement>()
+            assertEquals(1, conditions.size, "Expected one NAC block")
+            assertTrue(conditions[0].condition.negative, "The block must be negative")
+            assertEquals(1, conditions[0].condition.elements.size, "The block holds exactly the forbidden link")
         }
 
         @Test
@@ -388,7 +393,10 @@ class MutationRuleGeneratorTest {
             val modifiers = links.map { it.link.modifier }.toSet()
             assertTrue(modifiers.contains("delete"))
             assertTrue(modifiers.contains("create"))
-            assertTrue(modifiers.contains("forbid"))
+
+            val conditions = stmt.pattern.elements.filterIsInstance<TypedPatternApplicationConditionElement>()
+            assertEquals(1, conditions.size, "Expected one NAC block guarding the new target")
+            assertTrue(conditions[0].condition.negative)
         }
 
         @Test
@@ -1745,7 +1753,7 @@ class NewCpoVariantTests {
         }
 
         @Test
-        fun `DELETE_REPAIR_SINGLE has merged delete node, neighbour match, other match, forbid and create links`() {
+        fun `DELETE_REPAIR_SINGLE has merged delete node, neighbour match, other match, a forbid block and a create link`() {
             val info = MetamodelInfo(metaWP)
             val spec = RepairSpec("Worker", "project", RepairSpecType.DELETE_REPAIR_SINGLE)
             val ast  = MutationAstBuilder.build("name", spec, "/t/wp.mm", info)
@@ -1766,9 +1774,12 @@ class NewCpoVariantTests {
             val links = stmt.pattern.elements.filterIsInstance<TypedPatternLinkElement>()
             val modifiers = links.map { it.link.modifier }.toSet()
             assertTrue(modifiers.contains(null),      "Expected match link (node→neighbour)")
-            assertTrue(modifiers.contains("forbid"),  "Expected forbid NAC link")
             assertTrue(modifiers.contains("create"),  "Expected create link")
             assertFalse(modifiers.contains("delete"), "DELETE_REPAIR_SINGLE must not have explicit delete link")
+
+            val conditions = stmt.pattern.elements.filterIsInstance<TypedPatternApplicationConditionElement>()
+            assertEquals(1, conditions.size, "Expected one NAC block")
+            assertTrue(conditions[0].condition.negative)
         }
 
         @Test
@@ -1840,23 +1851,27 @@ class NewCpoVariantTests {
         }
 
         @Test
-        fun `DELETE_REPAIR_MULTI with k=2 produces 2 neighbours, 2 others, 2 forbid and 2 create links`() {
+        fun `DELETE_REPAIR_MULTI with k=2 produces 2 neighbours, 2 others, 2 forbid blocks and 2 create links`() {
             val info = MetamodelInfo(metaTP)
             val spec = RepairSpec("Team", "members", RepairSpecType.DELETE_REPAIR_MULTI)
             val ast  = MutationAstBuilder.build("name", spec, "/t/tp.mm", info)
             val stmt = ast.statements[0] as TypedMatchStatement
 
             val objects = stmt.pattern.elements.filterIsInstance<TypedPatternObjectInstanceElement>()
-            // node (match) + node (delete) + 2 neighbours + 2 others = 6
-            assertEquals(6, objects.size, "Expected 6 objects")
+            // node (delete) + 2 neighbours + 2 others = 5
+            assertEquals(5, objects.size, "Expected 5 objects")
             assertEquals(2, objects.count { it.objectInstance.name.startsWith("neighbor_members_") }, "Expected 2 neighbours")
             assertEquals(2, objects.count { it.objectInstance.name.startsWith("other_members_") },    "Expected 2 others")
 
             val links = stmt.pattern.elements.filterIsInstance<TypedPatternLinkElement>()
-            assertEquals(6, links.size, "Expected 6 links: 2 match + 2 forbid + 2 create")
+            assertEquals(4, links.size, "Expected 4 links: 2 match + 2 create")
             assertEquals(2, links.count { it.link.modifier == null },     "Expected 2 match links")
-            assertEquals(2, links.count { it.link.modifier == "forbid" }, "Expected 2 forbid links")
             assertEquals(2, links.count { it.link.modifier == "create" }, "Expected 2 create links")
+
+            // each replacement gets its own NAC block, so the guards reject independently
+            val conditions = stmt.pattern.elements.filterIsInstance<TypedPatternApplicationConditionElement>()
+            assertEquals(2, conditions.size, "Expected 2 NAC blocks")
+            assertTrue(conditions.all { it.condition.negative })
 
             val wheres = stmt.pattern.elements.filterIsInstance<TypedPatternWhereClauseElement>()
             assertTrue(wheres.isEmpty(), "Expected no guards when ref upper=-1")

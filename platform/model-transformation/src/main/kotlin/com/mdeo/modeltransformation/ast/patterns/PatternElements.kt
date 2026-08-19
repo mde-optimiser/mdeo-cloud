@@ -75,8 +75,9 @@ data class TypedPatternPropertyAssignment(
  * or deletion of objects through modifiers.
  *
  * @param modifier Optional modifier for the object instance: "create" to create a new object,
- *                 "delete" to delete a matched object, "forbid" to specify objects that must not exist,
- *                 or null for simple matching.
+ *                 "delete" to delete a matched object, or null for simple matching.
+ *                 Negative and positive application conditions are not modifiers; they are
+ *                 expressed as [TypedPatternApplicationCondition] blocks.
  * @param name Name of the object instance, used for referencing in links and expressions.
  * @param className Fully qualified class name of the object's type. When null, refers to a previously
  *                  matched node with the same name, allowing property assignments and comparisons on
@@ -115,8 +116,9 @@ data class TypedPatternLinkEnd(
  * [com.mdeo.modeltransformation.ast.EdgeLabelUtils.computeEdgeLabel].
  *
  * @param modifier Optional modifier for the link: "create" to create a new link,
- *                 "delete" to delete a matched link, "forbid" to specify links that must not exist,
- *                 or null for simple matching.
+ *                 "delete" to delete a matched link, or null for simple matching.
+ *                 Negative and positive application conditions are not modifiers; they are
+ *                 expressed as [TypedPatternApplicationCondition] blocks.
  * @param source Source end of the link.
  * @param target Target end of the link.
  */
@@ -138,4 +140,34 @@ data class TypedPatternLink(
 @Serializable
 data class TypedWhereClause(
     @Contextual val expression: TypedExpression
+)
+
+/**
+ * A negative (`forbid`) or positive (`require`) application condition.
+ *
+ * A condition carries a graph of its own: its elements are matched together, and
+ * independently of the enclosing pattern and of every other condition. A negative
+ * condition rejects the match as soon as its whole graph can be found; a positive one
+ * demands that its whole graph is found. Two negative conditions therefore reject the
+ * match if *either* of them matches, whereas the elements of a single condition only
+ * reject it when they *all* match together.
+ *
+ * The elements are restricted to object instances, links and where clauses. An instance
+ * with a `className` declares a node that belongs to the condition graph alone; an
+ * instance without one references a node of the enclosing pattern (an *anchor*) and only
+ * contributes the property constraints listed on it. A where clause constrains the
+ * condition graph as a whole and may read both the condition's own nodes and the nodes
+ * and variables bound by the enclosing match.
+ *
+ * @param negative `true` for a negative application condition (`forbid`), `false` for a
+ *                 positive one (`require`).
+ * @param name Optional name identifying the condition graph in diagnostics and in the
+ *             graphical syntax.
+ * @param elements The elements forming the condition graph.
+ */
+@Serializable
+data class TypedPatternApplicationCondition(
+    val negative: Boolean,
+    val name: String? = null,
+    val elements: List<@Contextual TypedPatternElement>
 )

@@ -93,6 +93,8 @@ sealed interface VariableBinding {
  * - Match does NOT increment scope
  * - IfMatchConditionAndBlock, WhileMatchStatement, UntilMatchStatement, 
  *   ForMatchStatement, StatementsScope, LambdaExpression all increment scope by 1
+ * - A `forbid` / `require` block increments scope by 1: its nodes are matched inside the
+ *   block's own sub-traversal, and their names are visible to the block alone
  *
  * @param scopeIndex The index/level of this scope (0 = global, 1 = file, 2+ = nested)
  * @param bindings A map of variable names to their bindings declared in this scope (converted to mutable internally)
@@ -241,3 +243,21 @@ class VariableScope(
         }
     }
 }
+
+/**
+ * Opens the scope of an application condition block declaring [localNames].
+ *
+ * A `forbid` / `require` block is a scope of its own: its nodes are matched inside the block's
+ * own sub-traversal, and their names are visible to the constraints of that block and nowhere
+ * else. They are bound without a vertex, the way the nodes of a match are bound before it runs
+ * — a reference to one of them compiles to a `select` on the step label the condition's chain
+ * assigns.
+ *
+ * @param localNames The names the block declares.
+ * @return A child scope one level inside this one, holding [localNames].
+ */
+fun VariableScope.conditionScope(localNames: Set<String>): VariableScope =
+    createChild(
+        scopeIndex + 1,
+        localNames.associateWith { VariableBinding.InstanceBinding(vertexRef = null) }
+    )

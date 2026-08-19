@@ -1,6 +1,7 @@
 import type { IconNode } from "lucide";
 import { sharedImport, DefaultIconRegistry } from "@mdeo/editor-shared";
 import { VariablePlus } from "./customIcons.js";
+import { ModelTransformationIcon } from "@mdeo/protocol-model-transformation";
 
 const { injectable } = sharedImport("inversify");
 
@@ -14,14 +15,14 @@ const { injectable } = sharedImport("inversify");
  * 1. Built-in model transformation icons matched by name.
  * 2. Standard lucide icons via the parent implementation.
  *
- * The registered custom icon names are:
- * - `"variable-plus"` — plus sign, used to indicate a variable that can hold multiple values (e.g., a collection).
+ * The custom names are the members of {@link ModelTransformationIcon}; the server names the
+ * same constants when it puts an icon on a context item.
  */
 @injectable()
 export class ModelTransformationIconRegistry extends DefaultIconRegistry {
     protected override getIconNode(iconName: string): IconNode | undefined {
         switch (iconName) {
-            case "variable-plus":
+            case ModelTransformationIcon.VARIABLE_PLUS:
                 return VariablePlus;
             default:
                 return super.getIconNode(iconName);

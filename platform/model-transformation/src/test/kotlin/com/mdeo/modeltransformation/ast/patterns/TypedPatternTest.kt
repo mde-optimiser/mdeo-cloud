@@ -11,6 +11,7 @@ import kotlinx.serialization.modules.SerializersModule
 import kotlinx.serialization.modules.contextual
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import kotlin.test.assertIs
 
 /**
@@ -359,30 +360,42 @@ class TypedPatternTest {
     }
     
     @Test
-    fun `deserialize TypedPattern with forbid modifier`() {
+    fun `deserialize TypedPattern with an application condition block`() {
         val jsonString = """{
             "elements": [
                 {
                     "kind": "objectInstance",
-                    "objectInstance": {"modifier": "forbid", "name": "forbidden", "className": "BadNode", "properties": []}
+                    "objectInstance": {"name": "a", "className": "Node", "properties": []}
                 },
                 {
-                    "kind": "link",
-                    "link": {
-                        "modifier": "forbid",
-            "name": "forbidden",
-            "isOutgoing": true,
-                        "source": {"objectName": "a"},
-                        "target": {"objectName": "forbidden"}
+                    "kind": "applicationCondition",
+                    "condition": {
+                        "negative": true,
+                        "name": "noBadNode",
+                        "elements": [
+                            {
+                                "kind": "objectInstance",
+                                "objectInstance": {"name": "forbidden", "className": "BadNode", "properties": []}
+                            },
+                            {
+                                "kind": "link",
+                                "link": {
+                                    "source": {"objectName": "a"},
+                                    "target": {"objectName": "forbidden"}
+                                }
+                            }
+                        ]
                     }
                 }
             ]
         }"""
         val result = json.decodeFromString(TypedPattern.serializer(), jsonString)
-        
+
         assertEquals(2, result.elements.size)
-        assertEquals("forbid", (result.elements[0] as TypedPatternObjectInstanceElement).objectInstance.modifier)
-        assertEquals("forbid", (result.elements[1] as TypedPatternLinkElement).link.modifier)
+        val condition = (result.elements[1] as TypedPatternApplicationConditionElement).condition
+        assertTrue(condition.negative)
+        assertEquals("noBadNode", condition.name)
+        assertEquals(2, condition.elements.size)
     }
     
     // ========== Large Pattern Tests ==========

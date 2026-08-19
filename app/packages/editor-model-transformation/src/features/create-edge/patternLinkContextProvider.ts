@@ -1,20 +1,9 @@
 import type { GNode } from "@mdeo/editor-shared";
 import { sharedImport, Toolbox, type CreateEdgeContextProvider } from "@mdeo/editor-shared";
 import type { ModelTransformationToolbox } from "../toolbox/modelTransformationToolbox.js";
+import type { PatternLinkCreationContext } from "@mdeo/protocol-model-transformation";
 
 const { injectable, inject } = sharedImport("inversify");
-
-/**
- * Context payload forwarded to the diagram server with each schema request.
- * The server uses the `mode` field to pre-select the edge modifier when
- * both source and target endpoints have no modifier (persist-persist pair).
- */
-export interface PatternLinkEdgeContext {
-    /**
-     * The active node creation mode (e.g. `"persist"`, `"create"`, `"delete"`).
-     */
-    mode: string;
-}
 
 /**
  * Client-side context provider for pattern link edge creation in model transformation diagrams.
@@ -37,7 +26,7 @@ export class PatternLinkContextProvider implements CreateEdgeContextProvider {
      * @param _source The selected source node (unused; mode is toolbox-global)
      * @returns The context carrying the active creation mode
      */
-    getInitialContext(_source: GNode): PatternLinkEdgeContext {
+    getInitialContext(_source: GNode): PatternLinkCreationContext {
         return { mode: this.toolbox.selectedMode };
     }
 
@@ -48,7 +37,7 @@ export class PatternLinkContextProvider implements CreateEdgeContextProvider {
      * @param _target The target node (unused)
      * @returns The context carrying the active creation mode
      */
-    getTargetContext(_source: GNode, _target: GNode): PatternLinkEdgeContext {
+    getTargetContext(_source: GNode, _target: GNode): PatternLinkCreationContext {
         return { mode: this.toolbox.selectedMode };
     }
 }

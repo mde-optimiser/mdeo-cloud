@@ -33,3 +33,13 @@ export interface PartialElementAndBounds {
      */
     newPosition?: Point;
 }
+
+/**
+ * Namespace helpers for partial-change-bounds operations.
+ */
+export namespace PartialChangeBoundsOperation {
+    /**
+     * Operation kind constant.
+     */
+    export const KIND = "partialChangeBounds";
+}

@@ -28,6 +28,7 @@ import { ChangeLinkTypeOperationHandler } from "./handler/changeLinkTypeOperatio
 import { ChangePatternElementModifierOperationHandler } from "./handler/changePatternElementModifierOperationHandler.js";
 import { InsertControlFlowStatementOperationHandler } from "./handler/insertControlFlowStatementOperationHandler.js";
 import { ConvertMatchNodeOperationHandler } from "./handler/convertMatchNodeOperationHandler.js";
+import { MovePatternElementToConditionOperationHandler } from "./handler/movePatternElementToConditionOperationHandler.js";
 import { ModelTransformationRequestClipboardDataActionHandler } from "./handler/modelTransformationRequestClipboardDataActionHandler.js";
 import { ModelTransformationPasteOperationHandler } from "./handler/modelTransformationPasteOperationHandler.js";
 import { ModelTransformationLabelEditValidator } from "./modelTransformationLabelEditValidator.js";
@@ -80,6 +81,7 @@ export class ModelTransformationDiagramModule extends BaseDiagramModule {
         binding.add(ChangePatternElementModifierOperationHandler);
         binding.add(InsertControlFlowStatementOperationHandler);
         binding.add(ConvertMatchNodeOperationHandler);
+        binding.add(MovePatternElementToConditionOperationHandler);
         binding.add(ModelTransformationPasteOperationHandler);
     }
 

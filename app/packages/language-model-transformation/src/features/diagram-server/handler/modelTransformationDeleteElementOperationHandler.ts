@@ -2,6 +2,7 @@ import type { DeleteElementOperation, GModelElement } from "@eclipse-glsp/server
 import { BaseDeleteElementOperationHandler, type DeleteOperationResult, sharedImport } from "@mdeo/language-shared";
 import {
     Pattern,
+    PatternApplicationCondition,
     PatternLink,
     PatternObjectInstance,
     PatternObjectInstanceReference,
@@ -21,9 +22,11 @@ import {
     type PatternObjectInstanceReferenceType,
     type PatternObjectInstanceDeleteType,
     type BaseTransformationStatementType,
-    type IfExpressionStatementType
+    type IfExpressionStatementType,
+    type PatternApplicationConditionType
 } from "../../../grammar/modelTransformationTypes.js";
 import { ModelTransformationIdGenerator } from "../modelTransformationIdGenerator.js";
+import { findContainingPattern } from "../modelTransformationPatternUtils.js";
 import type { AstNode } from "langium";
 import type { WorkspaceEdit } from "vscode-languageserver-types";
 
@@ -44,7 +47,9 @@ const { AstUtils } = sharedImport("langium");
  *
  * Transitive closure rules:
  * - Deleting an instance also deletes all pattern links in the same pattern that reference
- *   that instance by name.
+ *   that instance by name, wherever they are declared: a condition block anchors its graph to
+ *   the match with such a link.
+ * - Deleting the last element of an application condition block also deletes the block.
  * - Deleting a match pattern node (for if/while/until/for match) deletes the whole
  *   containing statement, including all nested patterns and statements.
  * - Implicitly deleted descendants are tracked and excluded from explicit CST deletion
@@ -114,8 +119,9 @@ export class ModelTransformationDeleteElementOperationHandler extends BaseDelete
      *    means deleting the entire block that uses it).
      * 2. Cascade deleted statements: add all descendant AST nodes so that their
      *    GModel elements can be collected for metadata cleanup.
-     * 3. For each deleted instance, add all PatternLinks in the same Pattern that
-     *    reference that instance.
+     * 3. For each deleted instance, add all PatternLinks of the same Pattern that
+     *    reference that instance, including the links of its application condition blocks.
+     * 4. Add every condition block whose elements are all being deleted.
      *
      * @param elements The directly requested AST nodes
      * @returns The full set of AST nodes to logically delete
@@ -151,22 +157,19 @@ export class ModelTransformationDeleteElementOperationHandler extends BaseDelete
             if (this.reflection.isInstance(element, PatternObjectInstance)) {
                 const instance = element as PatternObjectInstanceType;
                 if (instance.name != undefined) {
-                    const pattern = instance.$container as PatternType;
-                    this.addInstanceName(deletedInstanceNamesPerPattern, pattern, instance.name);
+                    this.addInstanceName(deletedInstanceNamesPerPattern, instance, instance.name);
                 }
             } else if (this.reflection.isInstance(element, PatternObjectInstanceReference)) {
                 const ref = element as PatternObjectInstanceReferenceType;
                 const name = ref.instance?.ref?.name ?? ref.instance?.$refText;
                 if (name != undefined) {
-                    const pattern = ref.$container as PatternType;
-                    this.addInstanceName(deletedInstanceNamesPerPattern, pattern, name);
+                    this.addInstanceName(deletedInstanceNamesPerPattern, ref, name);
                 }
             } else if (this.reflection.isInstance(element, PatternObjectInstanceDelete)) {
                 const del = element as PatternObjectInstanceDeleteType;
                 const name = del.instance?.ref?.name ?? del.instance?.$refText;
                 if (name != undefined) {
-                    const pattern = del.$container as PatternType;
-                    this.addInstanceName(deletedInstanceNamesPerPattern, pattern, name);
+                    this.addInstanceName(deletedInstanceNamesPerPattern, del, name);
                 }
             }
         }
@@ -189,16 +192,14 @@ export class ModelTransformationDeleteElementOperationHandler extends BaseDelete
                     const name = ref.instance?.ref?.name ?? ref.instance?.$refText;
                     if (name != undefined && allDeletedInstanceNames.has(name)) {
                         result.add(node);
-                        const pattern = ref.$container as PatternType;
-                        this.addInstanceName(deletedInstanceNamesPerPattern, pattern, name);
+                        this.addInstanceName(deletedInstanceNamesPerPattern, ref, name);
                     }
                 } else if (this.reflection.isInstance(node, PatternObjectInstanceDelete)) {
                     const del = node as PatternObjectInstanceDeleteType;
                     const name = del.instance?.ref?.name ?? del.instance?.$refText;
                     if (name != undefined && allDeletedInstanceNames.has(name)) {
                         result.add(node);
-                        const pattern = del.$container as PatternType;
-                        this.addInstanceName(deletedInstanceNamesPerPattern, pattern, name);
+                        this.addInstanceName(deletedInstanceNamesPerPattern, del, name);
                     }
                 }
             }
@@ -208,8 +209,9 @@ export class ModelTransformationDeleteElementOperationHandler extends BaseDelete
             for (const node of AstUtils.streamAst(sourceModel)) {
                 if (this.reflection.isInstance(node, PatternLink)) {
                     const link = node as PatternLinkType;
-                    const pattern = link.$container as PatternType;
-                    const instanceNames = deletedInstanceNamesPerPattern.get(pattern);
+                    const pattern = findContainingPattern(link, this.reflection);
+                    const instanceNames =
+                        pattern != undefined ? deletedInstanceNamesPerPattern.get(pattern) : undefined;
                     if (instanceNames != undefined) {
                         const srcRef = link.source?.object?.$refText;
                         const tgtRef = link.target?.object?.$refText;
@@ -224,7 +226,36 @@ export class ModelTransformationDeleteElementOperationHandler extends BaseDelete
             }
         }
 
+        this.addEmptiedConditionBlocks(result);
+
         return result;
+    }
+
+    /**
+     * Adds every application condition block whose elements are all being deleted.
+     *
+     * A block is not drawn as an element of its own - its members carry its stereotype - so an
+     * emptied block could neither be selected nor deleted from the diagram, while an empty
+     * `forbid` / `require` block is not a valid condition. Deleting the last member therefore
+     * deletes the block with it.
+     *
+     * @param result The deletion set, extended in place
+     */
+    private addEmptiedConditionBlocks(result: Set<AstNode>): void {
+        const sourceModel = this.modelState.sourceModel;
+        if (sourceModel == undefined) {
+            return;
+        }
+
+        for (const node of AstUtils.streamAst(sourceModel)) {
+            if (!this.reflection.isInstance(node, PatternApplicationCondition) || result.has(node)) {
+                continue;
+            }
+            const elements = (node as PatternApplicationConditionType).elements ?? [];
+            if (elements.length > 0 && elements.every((element) => result.has(element as AstNode))) {
+                result.add(node);
+            }
+        }
     }
 
     /**
@@ -264,26 +295,30 @@ export class ModelTransformationDeleteElementOperationHandler extends BaseDelete
     }
 
     /**
-     * Removes elements that will be implicitly deleted as part of a parent statement's
-     * deletion, preventing double-deletion of nested content.
+     * Removes elements that will be implicitly deleted as part of a parent's deletion,
+     * preventing double-deletion of nested content.
      *
-     * An element is implicitly deleted if any of its `$container` ancestors is itself
-     * a {@link BaseTransformationStatement} that is being explicitly deleted.
+     * An element is implicitly deleted if any of its `$container` ancestors is itself a
+     * {@link BaseTransformationStatement} or a {@link PatternApplicationCondition} that is
+     * being explicitly deleted.
      *
      * @param elements The full logical deletion set
      * @returns Only the elements that must be explicitly deleted via a CST edit
      */
     private removeAutoDeletedElements(elements: Set<AstNode>): Set<AstNode> {
-        const deletedStatements = new Set<AstNode>();
+        const deletedContainers = new Set<AstNode>();
         for (const element of elements) {
-            if (this.reflection.isInstance(element, BaseTransformationStatement)) {
-                deletedStatements.add(element);
+            if (
+                this.reflection.isInstance(element, BaseTransformationStatement) ||
+                this.reflection.isInstance(element, PatternApplicationCondition)
+            ) {
+                deletedContainers.add(element);
             }
         }
 
         const result = new Set<AstNode>();
         for (const element of elements) {
-            if (!this.isDescendantOfAny(element, deletedStatements)) {
+            if (!this.isDescendantOfAny(element, deletedContainers)) {
                 result.add(element);
             }
         }
@@ -395,11 +430,19 @@ export class ModelTransformationDeleteElementOperationHandler extends BaseDelete
     /**
      * Helper to add an instance name to the per-pattern tracking map.
      *
+     * The name is tracked under the enclosing pattern even when the node is declared in an
+     * application condition block, so that a deleted instance and the links that reference it
+     * end up under the same key no matter which of the two lives in a block.
+     *
      * @param map The map to update
-     * @param pattern The pattern containing the instance
+     * @param node The declaring node the name was taken from
      * @param name The instance name to track
      */
-    private addInstanceName(map: Map<PatternType, Set<string>>, pattern: PatternType, name: string): void {
+    private addInstanceName(map: Map<PatternType, Set<string>>, node: AstNode, name: string): void {
+        const pattern = findContainingPattern(node, this.reflection);
+        if (pattern == undefined) {
+            return;
+        }
         if (!map.has(pattern)) {
             map.set(pattern, new Set());
         }

@@ -23,7 +23,7 @@ export class GVariableLabelView extends GLabelView {
      * @returns The operation to dispatch
      */
     protected override createNewLabelOperation(model: Readonly<GLabel>, editText: string): Operation {
-        if (model.newLabelOperationKind !== "add-variable") {
+        if (model.newLabelOperationKind !== AddVariableOperation.NEW_LABEL_KIND) {
             return super.createNewLabelOperation(model, editText);
         }
         return AddVariableOperation.create({

@@ -45,3 +45,14 @@ export interface CreateEdgeOperation extends Operation {
      */
     schema: CreateEdgeSchema;
 }
+
+/**
+ * Namespace helpers for create-edge operations.
+ */
+export namespace CreateEdgeOperation {
+    /**
+     * Operation kind constant. It mirrors the kind of the GLSP operation this one stands in
+     * for, so that the handlers registering for it and the tool sending it agree on one name.
+     */
+    export const KIND = "createEdge";
+}

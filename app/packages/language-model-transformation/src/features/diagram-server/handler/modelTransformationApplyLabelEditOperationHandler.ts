@@ -28,8 +28,9 @@ import {
     parseModelTransformationPropertyLabel,
     parseVariableLabel,
     parseVariableReassignmentLabel,
-    extractWhereClauseExpression
-} from "../modelTransformationLabelParseUtils.js";
+    extractWhereClauseExpression,
+    parseModifierText
+} from "../modelTransformationLabelFormat.js";
 
 const { injectable } = sharedImport("inversify");
 const { GrammarUtils } = sharedImport("langium");
@@ -305,18 +306,6 @@ export class ModelTransformationApplyLabelEditOperationHandler extends BaseApply
     }
 
     /**
-     * Strips guillemet characters (« »), trims, and lowercases the text to extract
-     * the raw modifier value.
-     */
-    private parseModifier(text: string): string {
-        return text
-            .replace(/\u00ab/g, "")
-            .replace(/\u00bb/g, "")
-            .trim()
-            .toLowerCase();
-    }
-
-    /**
      * Creates a workspace edit for updating the modifier on a pattern link.
      * When `text` is empty (after stripping guillemets), the modifier is removed from the AST.
      * Returns undefined when the modifier cannot be resolved or needs insertion.
@@ -326,7 +315,7 @@ export class ModelTransformationApplyLabelEditOperationHandler extends BaseApply
      * @returns The workspace edit, or undefined if not applicable
      */
     private async createLinkModifierEdit(node: PatternLinkType, text: string): Promise<WorkspaceEdit | undefined> {
-        const modifierText = this.parseModifier(text);
+        const modifierText = parseModifierText(text);
 
         if (modifierText === "") {
             const modifierNode = node.modifier;
@@ -336,7 +325,7 @@ export class ModelTransformationApplyLabelEditOperationHandler extends BaseApply
             return this.deleteCstNode(modifierNode.$cstNode);
         }
 
-        const validModifiers = ["create", "delete", "forbid", "require"];
+        const validModifiers = ["create", "delete"];
         if (!validModifiers.includes(modifierText)) {
             return undefined;
         }
@@ -367,7 +356,7 @@ export class ModelTransformationApplyLabelEditOperationHandler extends BaseApply
         node: PatternObjectInstanceType,
         text: string
     ): Promise<WorkspaceEdit | undefined> {
-        const modifierText = this.parseModifier(text);
+        const modifierText = parseModifierText(text);
 
         if (modifierText === "") {
             const instanceModifier = node.modifier;
@@ -377,7 +366,7 @@ export class ModelTransformationApplyLabelEditOperationHandler extends BaseApply
             return this.deleteCstNode(instanceModifier.$cstNode);
         }
 
-        const validModifiers = ["create", "delete", "forbid", "require"];
+        const validModifiers = ["create", "delete"];
         if (!validModifiers.includes(modifierText)) {
             return undefined;
         }

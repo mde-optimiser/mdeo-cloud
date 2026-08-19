@@ -9,10 +9,10 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Unit tests for [IslandTraversalUtils.selectBestAnchor].
+ * Unit tests for [ConditionTraversalUtils.selectBestAnchor].
  *
- * The function should prefer anchors that reach the island via an association with
- * a low upper multiplicity bound so that the island traversal chain scans the
+ * The function should prefer anchors that reach the condition via an association with
+ * a low upper multiplicity bound so that the condition traversal chain scans the
  * fewest nodes in the common case.
  *
  * ## Test metamodel (Scrum-inspired)
@@ -23,14 +23,14 @@ import kotlin.test.assertTrue
  * ```
  *
  * For the pattern `forbid sprint1 -- workItem; forbid plan -- sprint1`:
- * - island = {sprint1}
+ * - condition = {sprint1}
  * - anchors = {workItem, plan}
  * - workItem → sprint1 via WorkItem.isPlannedFor[0..1]  → score 1   (to-one, cheap)
  * - plan     → sprint1 via Plan.sprints[0..*]           → score MAX (to-many, expensive)
  *
  * The function should select `workItem` as the best anchor.
  */
-class IslandTraversalUtilsTest {
+class ConditionTraversalUtilsTest {
 
     // ── Scrum metamodel ───────────────────────────────────────────────────────
 
@@ -95,7 +95,7 @@ class IslandTraversalUtilsTest {
 
         @Test
         fun `returns null when anchors set is empty`() {
-            val result = IslandTraversalUtils.selectBestAnchor(
+            val result = ConditionTraversalUtils.selectBestAnchor(
                 anchors = emptySet(),
                 links = emptyList(),
                 metamodelData = scrumMetamodel
@@ -108,7 +108,7 @@ class IslandTraversalUtilsTest {
             val links = listOf(
                 forbidLink("workItem", "isPlannedFor", "sprint1", "committedItems")
             )
-            val result = IslandTraversalUtils.selectBestAnchor(
+            val result = ConditionTraversalUtils.selectBestAnchor(
                 anchors = setOf("workItem"),
                 links = links,
                 metamodelData = scrumMetamodel
@@ -123,7 +123,7 @@ class IslandTraversalUtilsTest {
         /**
          * Core regression test for the scrum-pattern slowdown:
          *
-         * Island = {sprint1}, anchors = {workItem, plan}
+         * Condition = {sprint1}, anchors = {workItem, plan}
          *   - workItem → sprint1 via WorkItem.isPlannedFor[0..1]  → upper = 1  (cheap)
          *   - plan     → sprint1 via Plan.sprints[0..*]           → upper = MAX (expensive)
          *
@@ -132,13 +132,13 @@ class IslandTraversalUtilsTest {
         @Test
         fun `prefers anchor with lower multiplicity upper bound`() {
             val links = listOf(
-                // sprint1 (island) -- workItem (anchor), workItem side = isPlannedFor[0..1]
+                // sprint1 (condition) -- workItem (anchor), workItem side = isPlannedFor[0..1]
                 forbidLink("sprint1", "committedItems", "workItem", "isPlannedFor"),
-                // plan (anchor) -- sprint1 (island), plan side = sprints[0..*]
+                // plan (anchor) -- sprint1 (condition), plan side = sprints[0..*]
                 forbidLink("plan", "sprints", "sprint1", "plan")
             )
 
-            val result = IslandTraversalUtils.selectBestAnchor(
+            val result = ConditionTraversalUtils.selectBestAnchor(
                 anchors = setOf("workItem", "plan"),
                 links = links,
                 metamodelData = scrumMetamodel
@@ -150,16 +150,16 @@ class IslandTraversalUtilsTest {
         @Test
         fun `prefers anchor with bounded multiplicity over unbounded`() {
             // Sprint.plan[1] is single → upper=1; Plan.sprints[0..*] → upper=-1 (unbounded)
-            // If the island has Sprint and anchors are {plan, someOtherNode}, and someOtherNode
-            // reaches the island via a [1] multiplicity association, it should be preferred.
+            // If the condition has Sprint and anchors are {plan, someOtherNode}, and someOtherNode
+            // reaches the condition via a [1] multiplicity association, it should be preferred.
             val links = listOf(
-                // sprint1 (island) -- plan (anchor): plan.sprints[0..*] → plan side unbounded
+                // sprint1 (condition) -- plan (anchor): plan.sprints[0..*] → plan side unbounded
                 forbidLink("plan", "sprints", "sprint1", "plan"),
-                // sprint1 (island) -- workItem (anchor): workItem.isPlannedFor[0..1] → upper=1
+                // sprint1 (condition) -- workItem (anchor): workItem.isPlannedFor[0..1] → upper=1
                 forbidLink("sprint1", "committedItems", "workItem", "isPlannedFor")
             )
 
-            val result = IslandTraversalUtils.selectBestAnchor(
+            val result = ConditionTraversalUtils.selectBestAnchor(
                 anchors = setOf("plan", "workItem"),
                 links = links,
                 metamodelData = scrumMetamodel
@@ -172,12 +172,12 @@ class IslandTraversalUtilsTest {
         fun `falls back to arbitrary anchor when no association found in metamodel`() {
             // Links with property names not present in the metamodel — score = MAX for all.
             val links = listOf(
-                forbidLink("anchorA", "unknownProp", "islandNode", null),
-                forbidLink("anchorB", "anotherUnknown", "islandNode", null)
+                forbidLink("anchorA", "unknownProp", "conditionNode", null),
+                forbidLink("anchorB", "anotherUnknown", "conditionNode", null)
             )
 
             // Should not throw; returns one of the anchors deterministically.
-            val result = IslandTraversalUtils.selectBestAnchor(
+            val result = ConditionTraversalUtils.selectBestAnchor(
                 anchors = setOf("anchorA", "anchorB"),
                 links = links,
                 metamodelData = scrumMetamodel
@@ -192,11 +192,11 @@ class IslandTraversalUtilsTest {
         @Test
         fun `with empty metamodel falls back to arbitrary anchor without error`() {
             val links = listOf(
-                forbidLink("anchorA", "prop", "islandNode", null),
-                forbidLink("anchorB", "prop2", "islandNode", null)
+                forbidLink("anchorA", "prop", "conditionNode", null),
+                forbidLink("anchorB", "prop2", "conditionNode", null)
             )
 
-            val result = IslandTraversalUtils.selectBestAnchor(
+            val result = ConditionTraversalUtils.selectBestAnchor(
                 anchors = setOf("anchorA", "anchorB"),
                 links = links,
                 metamodelData = MetamodelData.empty()
@@ -239,7 +239,7 @@ class IslandTraversalUtilsTest {
             val link1 = matchLink("sprint2", "sprints", "plan",     "plan")
             val link2 = matchLink("sprint2", "committedItems", "workItem", "isPlannedFor")
 
-            val result = IslandTraversalUtils.orderLinksByBFS(
+            val result = ConditionTraversalUtils.orderLinksByBFS(
                 links = listOf(link1, link2),
                 startAnchor = "sprint2"
             )
@@ -273,7 +273,7 @@ class IslandTraversalUtilsTest {
             val expensiveLink = matchLink("plan", "sprints", "sprint1", "plan")
 
             // Start from workItem; cheapLink reachable (workItem is target-end, upper=1).
-            val result = IslandTraversalUtils.orderLinksByBFS(
+            val result = ConditionTraversalUtils.orderLinksByBFS(
                 links = listOf(expensiveLink, cheapLink), // expensive listed first
                 startAnchor = "workItem",
                 metamodelData = scrumMetamodel
@@ -303,7 +303,7 @@ class IslandTraversalUtilsTest {
             val link1 = matchLink("workItem", "someProp1", "nodeA", null)
             val link2 = matchLink("workItem", "someProp2", "nodeB", null)
 
-            val result = IslandTraversalUtils.orderLinksByBFS(
+            val result = ConditionTraversalUtils.orderLinksByBFS(
                 links = listOf(link1, link2),
                 startAnchor = "workItem",
                 metamodelData = MetamodelData.empty()

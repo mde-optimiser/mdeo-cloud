@@ -8,8 +8,10 @@ import {
 import type { Command, GModelElement } from "@eclipse-glsp/server";
 import { ID } from "@mdeo/language-common";
 import { PatternObjectInstance, type PatternObjectInstanceType } from "../../../grammar/modelTransformationTypes.js";
-import type { AddPropertyValueComparisonOperation } from "@mdeo/protocol-model-transformation";
-import { ModelTransformationElementType } from "@mdeo/protocol-model-transformation";
+import {
+    AddPropertyValueComparisonOperation,
+    ModelTransformationElementType
+} from "@mdeo/protocol-model-transformation";
 import type { ContextActionRequestContext, ContextItemProvider } from "@mdeo/language-shared";
 import type { ContextItem } from "@mdeo/protocol-common";
 import { InsertNewLabelAction } from "@mdeo/protocol-common";
@@ -38,7 +40,7 @@ export const NEW_PROPERTY_COMPARISON_LABEL_PREFIX = "__new-label-patprop-";
  */
 @injectable()
 export class AddPropertyValueComparisonOperationHandler extends BaseOperationHandler implements ContextItemProvider {
-    override readonly operationType = "addPropertyValueComparison";
+    override readonly operationType = AddPropertyValueComparisonOperation.KIND;
 
     /**
      * Creates a command for add-property-value-comparison operations.
@@ -156,7 +158,7 @@ export class AddPropertyValueComparisonOperationHandler extends BaseOperationHan
             .id(labelId)
             .text(prefillText)
             .isNewLabel(true)
-            .newLabelOperationKind("property-value-comparison-edit")
+            .newLabelOperationKind(AddPropertyValueComparisonOperation.NEW_LABEL_KIND)
             .newLabelParentElementId(nodeId)
             .build();
 

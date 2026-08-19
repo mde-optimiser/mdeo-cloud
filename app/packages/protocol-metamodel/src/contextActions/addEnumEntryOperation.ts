@@ -34,6 +34,12 @@ export namespace AddEnumEntryOperation {
     export const KIND = "addEnumEntry";
 
     /**
+     * Identifier carried in `newLabelOperationKind` by a new enum entry placeholder label,
+     * by which the label view recognises a label it has to commit through this operation.
+     */
+    export const NEW_LABEL_KIND = "enum-entry-edit";
+
+    /**
      * Parameters used to create an add-enum-entry operation.
      */
     export interface Options {

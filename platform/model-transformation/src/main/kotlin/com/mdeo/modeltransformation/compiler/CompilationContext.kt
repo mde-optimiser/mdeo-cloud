@@ -83,14 +83,24 @@ class CompilationContext(
      * @param childBindings Initial bindings for the child scope
      * @return A new [CompilationContext] with the child scope as current
      */
-    fun withChildScope(scopeIndex: Int, childBindings: Map<String, VariableBinding> = emptyMap()): CompilationContext {
-        val childScope = currentScope.createChild(scopeIndex, childBindings)
-        return CompilationContext(
-            types = types,
-            currentScope = childScope,
-            traversalSource = traversalSource,
-            typeRegistry = typeRegistry,
-            idGenerator = idGenerator
-        )
-    }
+    fun withChildScope(scopeIndex: Int, childBindings: Map<String, VariableBinding> = emptyMap()): CompilationContext =
+        withScope(currentScope.createChild(scopeIndex, childBindings))
+
+    /**
+     * Creates a new context that compiles in [scope].
+     *
+     * Everything else — the types, the traversal source, the registry and the label
+     * generator — is shared with this context, so labels stay unique across a traversal
+     * whose parts are compiled in different scopes.
+     *
+     * @param scope The scope to compile in.
+     * @return A new [CompilationContext] over [scope].
+     */
+    fun withScope(scope: VariableScope): CompilationContext = CompilationContext(
+        types = types,
+        currentScope = scope,
+        traversalSource = traversalSource,
+        typeRegistry = typeRegistry,
+        idGenerator = idGenerator
+    )
 }

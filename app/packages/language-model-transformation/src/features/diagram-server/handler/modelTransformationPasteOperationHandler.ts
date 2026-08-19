@@ -20,6 +20,7 @@ import {
     UntilMatchStatement,
     ForMatchStatement,
     Pattern,
+    PatternApplicationCondition,
     PatternObjectInstance,
     PatternObjectInstanceReference,
     PatternObjectInstanceDelete,
@@ -77,6 +78,10 @@ export class ModelTransformationPasteOperationHandler extends BasePasteOperation
      * PatternObjectInstance nodes. Looks first in the co-pasted nodes, then
      * in the current pattern (when pasting into a selected match block) or the
      * entire source model.
+     *
+     * Instances declared in an application condition block are not candidates: their names are
+     * visible inside that block only, so a pasted element could not name them. A link that ends
+     * on one is dropped by {@link validateNode} rather than pasted as a broken reference.
      */
     protected override resolveReference(
         refText: string,
@@ -93,6 +98,9 @@ export class ModelTransformationPasteOperationHandler extends BasePasteOperation
     }
 
     private findPatternInstance(node: AstNode, name: string): AstNode | undefined {
+        if (node.$type === PatternApplicationCondition.name) {
+            return undefined;
+        }
         if (node.$type === PatternObjectInstance.name && (node as PatternObjectInstanceType).name === name) {
             return node;
         }

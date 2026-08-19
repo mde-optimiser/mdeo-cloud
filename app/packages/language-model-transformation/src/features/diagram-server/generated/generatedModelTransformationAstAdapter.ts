@@ -12,7 +12,8 @@ import type {
     TypedForMatchStatement,
     TypedStopStatement,
     TypedElseIfBranch,
-    TypedPatternObjectInstance
+    TypedPatternObjectInstance,
+    TypedPatternApplicationCondition
 } from "../../../plugin/typedAst.js";
 import type { PartialGeneratedModelTransformation } from "../../../grammar/generatedModelTransformationPartialTypes.js";
 import type { ModelTransformationType } from "../../../grammar/modelTransformationTypes.js";
@@ -285,7 +286,49 @@ function convertPatternElement(
         };
     }
 
+    if (element.kind === "applicationCondition") {
+        return convertApplicationCondition(element.condition, localInstances, resolvedLinkInstances);
+    }
+
     return undefined;
+}
+
+/**
+ * Converts an application condition block into its synthetic node.
+ *
+ * The members of a block are ordinary pattern elements, so they are converted by the same
+ * code as the members of the match pattern. They share the instance maps with it as well:
+ * a block is anchored to the pattern it constrains by referring to its nodes, and those
+ * references have to resolve to the very nodes the pattern converted.
+ *
+ * @param condition The typed condition block
+ * @param localInstances The instances declared so far, by name
+ * @param resolvedLinkInstances The placeholder instances created for forward references
+ * @returns The synthetic condition node
+ */
+function convertApplicationCondition(
+    condition: TypedPatternApplicationCondition,
+    localInstances: Map<string, SyntheticNode>,
+    resolvedLinkInstances: Map<string, SyntheticNode>
+): SyntheticNode {
+    const conditionNode: SyntheticNode = {
+        $type: "PatternApplicationCondition",
+        kind: condition.negative ? "forbid" : "require",
+        name: condition.name,
+        elements: []
+    };
+
+    const elements: SyntheticNode[] = [];
+    for (const element of condition.elements) {
+        const converted = convertPatternElement(element, localInstances, resolvedLinkInstances);
+        if (converted != undefined) {
+            elements.push(converted);
+        }
+    }
+
+    conditionNode.elements = elements;
+    assignArray(conditionNode, "elements", elements);
+    return conditionNode;
 }
 
 function convertTypedPatternObjectInstance(

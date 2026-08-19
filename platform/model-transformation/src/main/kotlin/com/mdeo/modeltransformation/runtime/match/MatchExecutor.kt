@@ -3,6 +3,7 @@ package com.mdeo.modeltransformation.runtime.match
 import com.mdeo.modeltransformation.ast.patterns.TypedPattern
 import com.mdeo.modeltransformation.compiler.SequentialLabelIdGenerator
 import com.mdeo.modeltransformation.compiler.VariableBinding
+import com.mdeo.modeltransformation.compiler.conditionScope
 import com.mdeo.modeltransformation.graph.VertexRef
 import com.mdeo.modeltransformation.runtime.TransformationExecutionContext
 import com.mdeo.modeltransformation.runtime.TransformationEngine
@@ -84,6 +85,15 @@ class MatchExecutor {
      * Orchestrates the complete match pipeline: plan building, traversal assembly, execution,
      * and result extraction.
      *
+     * The links and constraints of a condition may reference nodes of the enclosing match;
+     * those have to be part of the referenced set, so that the planner covers them before the
+     * condition is emitted.
+     *
+     * The nodes of an application condition are bound inside the condition's own
+     * sub-traversal, never by the match, and their names live in a scope of their own: they
+     * are visible to the constraints of their block and to nothing else. Nothing has to be
+     * unbound afterwards — the scope simply ends with the block it belongs to.
+     *
      * @param elements Categorised pattern elements.
      * @param context The current transformation execution context.
      * @param engine The transformation engine providing graph access and type information.
@@ -110,10 +120,9 @@ class MatchExecutor {
         elements.whereClauses.forEach { analyzer.analyzeWhereClause(it) }
         (elements.matchableInstances + elements.createInstances + elements.deleteInstances)
             .forEach { analyzer.analyzeObjectInstance(it) }
-        (elements.matchableLinks + elements.createLinks + elements.deleteLinks +
-            elements.forbidLinks + elements.requireLinks)
+        (elements.matchableLinks + elements.createLinks + elements.deleteLinks)
             .forEach { analyzer.analyzeLink(it) }
-        val referencedInstances = analyzer.getReferencedInstances()
+        val referencedInstances = analyzer.getReferencedInstances() + analyzeConditions(elements, context)
 
         val allMatchable = elements.matchableInstances + elements.deleteInstances
         val matchableNames = allMatchable.map { it.objectInstance.name }.toSet()
@@ -173,6 +182,35 @@ class MatchExecutor {
     }
 
     /**
+     * Analyses the application conditions of the pattern and returns everything their
+     * elements read.
+     *
+     * Every block is analysed in a scope of its own — a child of the match's scope holding
+     * the block's own nodes — because that is where the names of a block live: an expression
+     * inside a block records them one level deeper than the match, so an analyser of the match
+     * would not recognise a single reference to them.
+     *
+     * @param elements The categorised pattern elements.
+     * @param context The current transformation execution context.
+     * @return The names referenced from inside the blocks, condition-local and outer alike.
+     */
+    private fun analyzeConditions(
+        elements: PatternCategories,
+        context: TransformationExecutionContext
+    ): Set<String> {
+        val referenced = mutableSetOf<String>()
+        for (condition in elements.conditions) {
+            val block = ApplicationConditionBlock.from(condition)
+            val analyzer = MatchAnalyzer(context.variableScope.conditionScope(block.instanceNames))
+            (block.instances + block.references).forEach { analyzer.analyzeObjectInstance(it) }
+            block.links.forEach { analyzer.analyzeLink(it) }
+            block.whereClauses.forEach { analyzer.analyzeWhereClause(it) }
+            referenced += analyzer.getReferencedInstances()
+        }
+        return referenced
+    }
+
+    /**
      * Prints a one-line-per-step summary of [plan] to stdout.
      *
      * Only the structural shape is printed (scans, walks, conditions and filter kinds); the
@@ -198,8 +236,10 @@ class MatchExecutor {
         is BaseStep.InlinePropertyConstraint ->
             "prop   ${step.instanceName}.${step.property.propertyName}${if (step.isConstant) " (const)" else ""}"
         is BaseStep.DeferredPropertyConstraint -> "prop*  ${step.instanceName}.${step.property.propertyName}"
+        is BaseStep.SelectNode -> "select ${step.instanceName}"
         is BaseStep.ApplicationCondition ->
-            "${if (step.isNegative) "forbid" else "require"} anchor=${step.anchorName ?: "-"} " +
+            "${if (step.isNegative) "forbid" else "require"}${step.name?.let { " $it" } ?: ""} " +
+                "anchor=${step.anchorName ?: "-"} " +
                 "inner=[${step.innerSteps.joinToString("; ") { describeStep(it) }}]"
         is BaseStep.EqualityFilter -> "eq     ${step.instanceName}"
         is BaseStep.VariableBinding -> "var    ${step.variable.variable.name}"
@@ -212,7 +252,7 @@ class MatchExecutor {
      * and the final select step.
      *
      * The traversal is fully imperative — no `match()` step is used. All constraints
-     * (island, property, injective, where-clauses, variables) are expressed as imperative
+     * (application-condition, property, injective, where-clauses, variables) are expressed as imperative
      * steps and post-match filters.
      *
      * @param elements Categorised pattern elements.

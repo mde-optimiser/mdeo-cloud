@@ -42,6 +42,19 @@ export class GLabel extends GModelElement {
      * Only meaningful when {@link isNewLabel} is {@code true}.
      */
     parentElementId?: string;
+
+    /**
+     * Everything the commit operation needs beyond {@link parentElementId}.
+     *
+     * A label whose target is not a GModel element of its own cannot be described by a
+     * parent ID alone — the clause of an application condition block, for instance, is
+     * placed on the match node but belongs to one of its blocks. Such a label carries what
+     * distinguishes it here, instead of encoding it into {@link newLabelOperationKind} or
+     * into the label ID, which the receiving view would then have to take apart again.
+     *
+     * Only meaningful when {@link isNewLabel} is {@code true}.
+     */
+    newLabelOperationArgs?: Record<string, string | number | boolean>;
 }
 
 /**
@@ -106,6 +119,18 @@ export class GLabelBuilder<T extends GLabel = GLabel> extends GModelElementBuild
      */
     newLabelParentElementId(parentElementId: string): this {
         this.proxy.parentElementId = parentElementId;
+        return this;
+    }
+
+    /**
+     * Sets the arguments forwarded to the commit operation factory alongside the
+     * parent element ID.
+     *
+     * @param args The arguments the operation needs; see {@link GLabel.newLabelOperationArgs}
+     * @returns This builder for chaining
+     */
+    newLabelOperationArgs(args: Record<string, string | number | boolean>): this {
+        this.proxy.newLabelOperationArgs = args;
         return this;
     }
 }

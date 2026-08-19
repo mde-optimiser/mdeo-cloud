@@ -1,7 +1,7 @@
 import type { VNode } from "snabbdom";
 import { sharedImport, Toolbox, ToolType } from "@mdeo/editor-shared";
 import { generateEdgeTypeExtensionView } from "./edgeTypeExtensionView.js";
-import { EdgeCreationType } from "./edgeCreationType.js";
+import { EdgeCreationType } from "@mdeo/protocol-metamodel";
 
 const { injectable } = sharedImport("inversify");
 

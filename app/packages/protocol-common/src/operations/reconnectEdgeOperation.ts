@@ -32,3 +32,13 @@ export interface ReconnectEdgeOperation extends Operation {
      */
     targetAnchor: EdgeAnchor | undefined;
 }
+
+/**
+ * Namespace helpers for reconnect-edge operations.
+ */
+export namespace ReconnectEdgeOperation {
+    /**
+     * Operation kind constant.
+     */
+    export const KIND = "reconnectEdge";
+}

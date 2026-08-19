@@ -1,5 +1,5 @@
 import type { Action, MaybePromise } from "@eclipse-glsp/server";
-import type { RevealSourceAction } from "@mdeo/protocol-common";
+import { RevealSourceAction } from "@mdeo/protocol-common";
 import { createRevealSourceProtocol } from "@mdeo/language-common";
 import type { ModelState } from "../modelState.js";
 import type { GModelIndex } from "../modelIndex.js";
@@ -30,7 +30,7 @@ export class RevealSourceActionHandler {
     /**
      * The GLSP action kinds handled by this handler.
      */
-    readonly actionKinds = ["revealSource"];
+    readonly actionKinds = [RevealSourceAction.KIND];
 
     /**
      * The GLSP model state providing access to source model and LSP connection.

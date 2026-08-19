@@ -14,7 +14,9 @@ import {
     Pattern,
     PatternLink,
     PatternObjectInstance,
+    PatternObjectInstanceReference,
     PatternVariable,
+    PatternApplicationCondition,
     type ModelTransformationType,
     type PatternObjectInstanceType,
     type PatternObjectInstanceReferenceType,
@@ -28,7 +30,8 @@ import {
     type IfExpressionStatementType,
     type WhileExpressionStatementType,
     type ElseIfBranchType,
-    type IfMatchStatementType
+    type IfMatchStatementType,
+    type PatternApplicationConditionType
 } from "../grammar/modelTransformationTypes.js";
 import { climbsAboveProjectRoot, resolveRelativeDocument, sharedImport } from "@mdeo/language-shared";
 
@@ -56,6 +59,7 @@ interface NamedElement {
  */
 interface ModelTransformationAstTypes {
     ModelTransformation: ModelTransformationType;
+    PatternApplicationCondition: PatternApplicationConditionType;
     PatternObjectInstance: PatternObjectInstanceType;
     PatternObjectInstanceReference: PatternObjectInstanceReferenceType;
     PatternObjectDelete: PatternObjectInstanceDeleteType;
@@ -74,6 +78,7 @@ export function registerModelTransformationValidationChecks(services: ExtendedLa
 
     const checks: ValidationChecks<ModelTransformationAstTypes> = {
         ModelTransformation: validator.validateTransformation.bind(validator),
+        PatternApplicationCondition: validator.validateApplicationCondition.bind(validator),
         PatternObjectInstance: validator.validateObjectInstance.bind(validator),
         PatternObjectInstanceReference: validator.validateObjectInstanceReference.bind(validator),
         PatternObjectDelete: validator.validateObjectInstanceDelete.bind(validator),
@@ -297,6 +302,9 @@ export class ModelTransformationValidator extends BaseModelValidator {
     /**
      * Collects names from a pattern.
      *
+     * Instances of a condition block live in their own graph, but their names take part in the
+     * same uniqueness check, so that every name identifies exactly one node.
+     *
      * @param pattern The pattern to collect names from
      * @param names The multimap to add collected names to
      */
@@ -309,6 +317,16 @@ export class ModelTransformationValidator extends BaseModelValidator {
             } else if (this.reflection.isInstance(element, PatternVariable)) {
                 if (element.name) {
                     names.add(element.name, { name: element.name, node: element, type: "variable" });
+                }
+            } else if (this.reflection.isInstance(element, PatternApplicationCondition)) {
+                for (const conditionElement of element.elements ?? []) {
+                    if (this.reflection.isInstance(conditionElement, PatternObjectInstance) && conditionElement.name) {
+                        names.add(conditionElement.name, {
+                            name: conditionElement.name,
+                            node: conditionElement,
+                            type: "object"
+                        });
+                    }
                 }
             }
         }
@@ -331,6 +349,149 @@ export class ModelTransformationValidator extends BaseModelValidator {
                 }
             }
         }
+    }
+
+    /**
+     * Validates an application condition block (`forbid` / `require`).
+     *
+     * A condition block describes a separate graph that is matched independently of the
+     * enclosing pattern, which constrains what may appear inside it:
+     * - it must not be empty, since an empty condition is either always or never satisfied,
+     * - it must not create or delete anything, because a condition never rewrites the model,
+     *   which also rules out assigning a property,
+     * - it must be connected to the enclosing pattern or self-contained, which the reference
+     *   resolution already guarantees, and
+     * - its name, when given, must be unique among the blocks of the same pattern.
+     *
+     * Where clauses are allowed: a block is a graph plus the constraints on it, and a clause
+     * declared inside the block is part of the condition — it decides, together with the
+     * block's graph, whether the condition holds.
+     *
+     * @param condition The application condition to validate
+     * @param accept The validation acceptor
+     */
+    validateApplicationCondition(condition: PatternApplicationConditionType, accept: ValidationAcceptor): void {
+        const kind = condition.kind ?? "forbid";
+        const elements = condition.elements ?? [];
+
+        if (elements.length === 0) {
+            accept("error", `A '${kind}' block must contain at least one element.`, {
+                node: condition
+            });
+        }
+
+        for (const element of elements) {
+            if (this.reflection.isInstance(element, PatternObjectInstance)) {
+                const modifier = element.modifier?.modifier;
+                if (modifier != undefined) {
+                    accept("error", `Cannot use the '${modifier}' modifier inside a '${kind}' block.`, {
+                        node: element,
+                        property: "modifier"
+                    });
+                }
+                this.validateNoAssignmentsInCondition(element.properties, kind, accept);
+            } else if (this.reflection.isInstance(element, PatternObjectInstanceReference)) {
+                this.validateNoAssignmentsInCondition(
+                    (element as PatternObjectInstanceReferenceType).properties,
+                    kind,
+                    accept
+                );
+            } else if (this.reflection.isInstance(element, PatternLink)) {
+                const modifier = element.modifier?.modifier;
+                if (modifier != undefined) {
+                    accept("error", `Cannot use the '${modifier}' modifier inside a '${kind}' block.`, {
+                        node: element,
+                        property: "modifier"
+                    });
+                }
+            }
+        }
+
+        this.validateApplicationConditionNameUnique(condition, accept);
+    }
+
+    /**
+     * Reports every property assignment of a condition element.
+     *
+     * A condition decides whether a match is admissible, it never writes to the model, so `=`
+     * has nothing to do inside a block: the runtime applies the modifications of the match
+     * pattern only and would drop the assignment without a trace. The comparison operators
+     * express what is meant instead.
+     *
+     * @param properties The properties of a condition element
+     * @param kind The kind of the enclosing block, used in the message
+     * @param accept The validation acceptor
+     */
+    private validateNoAssignmentsInCondition(
+        properties: PatternPropertyAssignmentType[] | undefined,
+        kind: string,
+        accept: ValidationAcceptor
+    ): void {
+        for (const property of properties ?? []) {
+            if (property.operator === "=") {
+                accept(
+                    "error",
+                    `Cannot assign a property inside a '${kind}' block. Use a comparison operator (==, !=, <, >, <=, >=).`,
+                    { node: property, property: "operator" }
+                );
+            }
+        }
+    }
+
+    /**
+     * Validates that a named condition block does not share its name with another block of the
+     * same pattern, so that the name identifies exactly one condition graph.
+     *
+     * @param condition The application condition to validate
+     * @param accept The validation acceptor
+     */
+    private validateApplicationConditionNameUnique(
+        condition: PatternApplicationConditionType,
+        accept: ValidationAcceptor
+    ): void {
+        const name = condition.name;
+        if (name == undefined) {
+            return;
+        }
+
+        const pattern = condition.$container as PatternType | undefined;
+        for (const sibling of pattern?.elements ?? []) {
+            if (sibling === condition || !this.reflection.isInstance(sibling, PatternApplicationCondition)) {
+                continue;
+            }
+            if (sibling.name === name) {
+                accept("error", `Duplicate condition block name '${name}' in the same pattern.`, {
+                    node: condition,
+                    property: "name"
+                });
+                return;
+            }
+        }
+    }
+
+    /**
+     * Returns the application condition block a node belongs to, if any.
+     *
+     * @param node The node to inspect
+     * @returns The enclosing condition block, or `undefined` when the node belongs to the
+     *          main pattern
+     */
+    private findContainingApplicationCondition(node: {
+        $container?: AstNode;
+    }): PatternApplicationConditionType | undefined {
+        let current = node.$container;
+
+        while (current != undefined) {
+            if (this.reflection.isInstance(current, PatternApplicationCondition)) {
+                return current as PatternApplicationConditionType;
+            }
+            if (this.reflection.isInstance(current, Pattern)) {
+                return undefined;
+            }
+            current = current.$container;
+        }
+
+        return undefined;
     }
 
     /**
@@ -522,6 +683,9 @@ export class ModelTransformationValidator extends BaseModelValidator {
     /**
      * Validates that a reference does not refer to an instance defined in the same pattern.
      *
+     * Inside a condition block, referencing an instance of the enclosing pattern is the normal
+     * way to anchor the condition graph to the match, and is therefore allowed.
+     *
      * @param referenceNode The reference node (PatternObjectInstanceReference or PatternObjectDelete)
      * @param targetInstance The referenced instance
      * @param property The property name for diagnostics
@@ -533,6 +697,13 @@ export class ModelTransformationValidator extends BaseModelValidator {
         property: string,
         accept: ValidationAcceptor
     ): void {
+        const referenceCondition = this.findContainingApplicationCondition(referenceNode);
+        const instanceCondition = this.findContainingApplicationCondition(targetInstance);
+
+        if (referenceCondition != undefined && referenceCondition !== instanceCondition) {
+            return;
+        }
+
         const referencePattern = this.findContainingPattern(referenceNode);
         const instancePattern = this.findContainingPattern(targetInstance);
 
@@ -619,7 +790,8 @@ export class ModelTransformationValidator extends BaseModelValidator {
      * Validates that a single link endpoint instance has a modifier compatible with the link's modifier.
      *
      * An endpoint is compatible when it has no modifier (always accepted as an endpoint by any link)
-     * or when its modifier exactly matches the link's modifier.
+     * or when its modifier exactly matches the link's modifier. Links declared inside an
+     * application condition are exempt: they only observe the graph.
      *
      * @param link The pattern link being validated
      * @param endpointObject The endpoint object instance to check
@@ -632,6 +804,10 @@ export class ModelTransformationValidator extends BaseModelValidator {
         endpointProperty: "source" | "target",
         accept: ValidationAcceptor
     ): void {
+        if (this.findContainingApplicationCondition(link) != undefined) {
+            return;
+        }
+
         const linkModifier = link.modifier?.modifier;
         const linkPattern = this.findContainingPattern(link);
         const endpointModifier = this.resolveEffectiveModifier(linkPattern, endpointObject);
@@ -641,10 +817,6 @@ export class ModelTransformationValidator extends BaseModelValidator {
         }
 
         if (endpointModifier === linkModifier) {
-            return;
-        }
-
-        if (endpointModifier === "delete" && (linkModifier === "require" || linkModifier === "forbid")) {
             return;
         }
 
@@ -717,13 +889,6 @@ export class ModelTransformationValidator extends BaseModelValidator {
         const connectedLinks = this.collectConnectedLinks(pattern, obj);
         for (const link of connectedLinks) {
             if (link.modifier?.modifier === instanceModifier) {
-                continue;
-            }
-
-            if (
-                instanceModifier === "delete" &&
-                (link.modifier?.modifier === "require" || link.modifier?.modifier === "forbid")
-            ) {
                 continue;
             }
 

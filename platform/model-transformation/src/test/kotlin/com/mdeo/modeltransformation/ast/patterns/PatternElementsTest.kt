@@ -12,6 +12,8 @@ import kotlinx.serialization.modules.contextual
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 
@@ -208,16 +210,48 @@ class PatternElementsTest {
     }
     
     @Test
-    fun `deserialize TypedPatternObjectInstance with forbid modifier`() {
+    fun `deserialize TypedPatternApplicationCondition`() {
         val jsonString = """{
-            "modifier": "forbid",
-            "name": "forbidden",
-            "className": "com.example.Person",
-            "properties": []
+            "negative": true,
+            "name": "noOtherRoom",
+            "elements": [
+                {
+                    "kind": "objectInstance",
+                    "objectInstance": {"name": "other", "className": "com.example.Room", "properties": []}
+                },
+                {
+                    "kind": "link",
+                    "link": {
+                        "source": {"objectName": "house", "propertyName": "rooms"},
+                        "target": {"objectName": "other"}
+                    }
+                }
+            ]
         }"""
-        val result = json.decodeFromString(TypedPatternObjectInstance.serializer(), jsonString)
-        
-        assertEquals("forbid", result.modifier)
+        val result = json.decodeFromString(TypedPatternApplicationCondition.serializer(), jsonString)
+
+        assertTrue(result.negative)
+        assertEquals("noOtherRoom", result.name)
+        assertEquals(2, result.elements.size)
+        assertEquals("other", (result.elements[0] as TypedPatternObjectInstanceElement).objectInstance.name)
+    }
+
+    @Test
+    fun `deserialize TypedPatternApplicationCondition defaults to unnamed`() {
+        val jsonString = """{
+            "negative": false,
+            "elements": [
+                {
+                    "kind": "objectInstance",
+                    "objectInstance": {"name": "any", "className": "com.example.Room", "properties": []}
+                }
+            ]
+        }"""
+        val result = json.decodeFromString(TypedPatternApplicationCondition.serializer(), jsonString)
+
+        assertFalse(result.negative)
+        assertNull(result.name)
+        assertEquals(1, result.elements.size)
     }
     
     @Test
@@ -384,19 +418,6 @@ class PatternElementsTest {
         val result = json.decodeFromString(TypedPatternLink.serializer(), jsonString)
         
         assertEquals("delete", result.modifier)
-    }
-    
-    @Test
-    fun `deserialize TypedPatternLink with forbid modifier`() {
-        val jsonString = """{
-            "modifier": "forbid",
-            "isOutgoing": true,
-            "source": {"objectName": "person1"},
-            "target": {"objectName": "person2"}
-        }"""
-        val result = json.decodeFromString(TypedPatternLink.serializer(), jsonString)
-        
-        assertEquals("forbid", result.modifier)
     }
     
     @Test

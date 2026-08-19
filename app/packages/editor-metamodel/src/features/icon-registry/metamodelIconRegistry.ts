@@ -1,6 +1,7 @@
 import type { IconNode } from "lucide";
 import { sharedImport, DefaultIconRegistry } from "@mdeo/editor-shared";
 import { PlainLineIcon, UnidirectionalAssociationIcon, CompositionIcon } from "./customIcons.js";
+import { MetamodelIcon } from "@mdeo/protocol-metamodel";
 
 const { injectable } = sharedImport("inversify");
 
@@ -15,11 +16,8 @@ const { injectable } = sharedImport("inversify");
  * 1. Built-in metamodel icons matched by name.
  * 2. Standard lucide icons via the parent implementation.
  *
- * The registered custom icon names are:
- * - `"none-association"` — plain diagonal line, no decorator.
- * - `"unidirectional-association"` — diagonal line with a single arrowhead.
- * - `"composition"` — diagonal line with a filled diamond at the target end.
- * - `"variable-plus"` — plus sign, used to indicate a variable that can hold multiple values (e.g., a collection).
+ * The custom names are the members of {@link MetamodelIcon}; the server names the same
+ * constants when it puts an icon on a context item.
  */
 @injectable()
 export class MetamodelIconRegistry extends DefaultIconRegistry {
@@ -33,11 +31,11 @@ export class MetamodelIconRegistry extends DefaultIconRegistry {
      */
     protected override getIconNode(iconName: string): IconNode | undefined {
         switch (iconName) {
-            case "none-association":
+            case MetamodelIcon.NONE_ASSOCIATION:
                 return PlainLineIcon;
-            case "unidirectional-association":
+            case MetamodelIcon.UNIDIRECTIONAL_ASSOCIATION:
                 return UnidirectionalAssociationIcon;
-            case "composition":
+            case MetamodelIcon.COMPOSITION:
                 return CompositionIcon;
             default:
                 return super.getIconNode(iconName);

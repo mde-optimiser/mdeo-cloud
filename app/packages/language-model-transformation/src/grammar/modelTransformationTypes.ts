@@ -29,7 +29,11 @@ export const expressionTypes = generateExpressionTypes(expressionConfig, typeTyp
 export const BaseExpression = expressionTypes.baseExpressionType;
 
 /**
- * Modifier for pattern elements (create, delete, forbid, require).
+ * Modifier for pattern elements (create, delete).
+ *
+ * Negative and positive application conditions are no longer expressed as element
+ * modifiers; they are expressed as {@link PatternApplicationCondition} blocks, which
+ * carry their own (separate) graph.
  */
 export const PatternModifier = createInterface("PatternModifier").attrs({
     modifier: String
@@ -90,7 +94,7 @@ export type PatternPropertyAssignmentType = ASTType<typeof PatternPropertyAssign
 
 /**
  * Pattern object instance definition.
- * Optionally prefixed with create, delete, forbid, or require.
+ * Optionally prefixed with create or delete.
  */
 export const PatternObjectInstance = createInterface("PatternObjectInstance").attrs({
     modifier: Optional(PatternModifier),
@@ -148,7 +152,7 @@ export type PatternLinkEndType = ASTType<typeof PatternLinkEnd>;
 
 /**
  * Link definition in a pattern.
- * Optionally prefixed with create, delete, forbid, or require.
+ * Optionally prefixed with create or delete.
  */
 export const PatternLink = createInterface("PatternLink").attrs({
     modifier: Optional(PatternModifier),
@@ -174,6 +178,53 @@ export const WhereClause = createInterface("WhereClause").attrs({
 export type WhereClauseType = ASTType<typeof WhereClause>;
 
 /**
+ * Element type union for the body of an application-condition block.
+ *
+ * A condition block describes its own, separate graph, so it may only contain the
+ * structural elements of that graph: object instances (and references to instances of
+ * the enclosing pattern), links, and where clauses.
+ */
+export const ApplicationConditionElement: BaseType<AstNode> = createType("ApplicationConditionElement").types(
+    PatternObjectInstance,
+    PatternObjectInstanceReference,
+    PatternLink,
+    WhereClause
+);
+
+/**
+ * Type representing an ApplicationConditionElement AST node.
+ */
+export type ApplicationConditionElementType = ASTType<typeof ApplicationConditionElement>;
+
+/**
+ * A negative (`forbid`) or positive (`require`) application condition.
+ *
+ * Format: `forbid [name] { ... }` / `require [name] { ... }`
+ *
+ * Each block is a graph of its own that is matched independently of every other block:
+ * a `forbid` block rejects the match as soon as *its whole* sub-pattern can be found,
+ * a `require` block demands that its whole sub-pattern can be found. Two separate
+ * `forbid` blocks therefore reject the match if *either* of them matches, while the
+ * elements inside one block only reject it when they *all* match together — the
+ * distinction that element-level `forbid` modifiers could not express.
+ *
+ * The optional name follows Henshin's nested-name style; it identifies the block in the
+ * graphical syntax (elements are tagged with `«forbid name»`) and in diagnostics. A name
+ * is only worth writing when it says something, so the editor leaves the blocks it
+ * creates unnamed and shows them numbered instead.
+ */
+export const PatternApplicationCondition = createInterface("PatternApplicationCondition").attrs({
+    kind: String,
+    name: Optional(String),
+    elements: [ApplicationConditionElement]
+});
+
+/**
+ * Type representing a PatternApplicationCondition AST node.
+ */
+export type PatternApplicationConditionType = ASTType<typeof PatternApplicationCondition>;
+
+/**
  * Base pattern element type union.
  */
 export const PatternElement: BaseType<AstNode> = createType("PatternElement").types(
@@ -182,7 +233,8 @@ export const PatternElement: BaseType<AstNode> = createType("PatternElement").ty
     PatternObjectInstance,
     PatternObjectInstanceDelete,
     PatternLink,
-    WhereClause
+    WhereClause,
+    PatternApplicationCondition
 );
 
 /**

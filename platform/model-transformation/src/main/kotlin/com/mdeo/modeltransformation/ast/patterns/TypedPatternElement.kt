@@ -74,3 +74,15 @@ data class TypedPatternWhereClauseElement(
     override val kind: String = "whereClause",
     val whereClause: TypedWhereClause
 ) : TypedPatternElement
+
+/**
+ * Pattern element containing an application condition block.
+ *
+ * @param kind Always "applicationCondition" for this element type.
+ * @param condition The application condition and its own graph.
+ */
+@Serializable
+data class TypedPatternApplicationConditionElement(
+    override val kind: String = "applicationCondition",
+    val condition: TypedPatternApplicationCondition
+) : TypedPatternElement

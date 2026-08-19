@@ -6,7 +6,12 @@ import {
     type AssociationType,
     type MetamodelAssociationOperators
 } from "../../../grammar/metamodelTypes.js";
-import { ChangeAssociationEndOperation, AssociationEndKind, MetamodelElementType } from "@mdeo/protocol-metamodel";
+import {
+    AssociationEndKind,
+    ChangeAssociationEndOperation,
+    MetamodelElementType,
+    MetamodelIcon
+} from "@mdeo/protocol-metamodel";
 import type { AstNode } from "langium";
 import type { Command, GModelElement } from "@eclipse-glsp/server";
 import type { WorkspaceEdit } from "vscode-languageserver-types";
@@ -24,7 +29,7 @@ const { GrammarUtils } = sharedImport("langium");
  */
 @injectable()
 export class ChangeAssociationEndOperationHandler extends BaseOperationHandler implements ContextItemProvider {
-    override readonly operationType = "changeAssociationEnd";
+    override readonly operationType = ChangeAssociationEndOperation.KIND;
 
     /**
      * Creates a workspace-edit command that updates the association operator and, when
@@ -171,9 +176,9 @@ export class ChangeAssociationEndOperationHandler extends BaseOperationHandler i
         const currentKinds = this.getEndKindsFromOperator(association?.operator);
         const items: ContextItem[] = [];
         const endTypes = [
-            { kind: AssociationEndKind.NONE, label: "None", icon: "none-association" },
-            { kind: AssociationEndKind.ARROW, label: "Arrow", icon: "unidirectional-association" },
-            { kind: AssociationEndKind.COMPOSITION, label: "Composition", icon: "composition" }
+            { kind: AssociationEndKind.NONE, label: "None", icon: MetamodelIcon.NONE_ASSOCIATION },
+            { kind: AssociationEndKind.ARROW, label: "Arrow", icon: MetamodelIcon.UNIDIRECTIONAL_ASSOCIATION },
+            { kind: AssociationEndKind.COMPOSITION, label: "Composition", icon: MetamodelIcon.COMPOSITION }
         ];
 
         for (const endType of ["source", "target"] as const) {

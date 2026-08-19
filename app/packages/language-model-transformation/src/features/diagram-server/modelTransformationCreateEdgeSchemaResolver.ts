@@ -24,23 +24,18 @@ import { GPatternLinkEdge } from "./model/patternLinkEdge.js";
 import { GPatternLinkEndNode } from "./model/patternLinkEndNode.js";
 import { GPatternLinkEndLabel } from "./model/patternLinkEndLabel.js";
 import { ModelTransformationElementType, PatternModifierKind } from "@mdeo/protocol-model-transformation";
+import type { PatternLinkCreationContext } from "@mdeo/protocol-model-transformation";
 import type { GModelElementSchema } from "@eclipse-glsp/protocol";
 import type { PatternLinkSchemaParams } from "./handler/createPatternLinkOperationHandler.js";
+import {
+    effectivePatternModifier,
+    findContainingCondition,
+    findContainingPattern,
+    patternModifierKind
+} from "./modelTransformationPatternUtils.js";
 
 const { injectable, inject } = sharedImport("inversify");
 const { ModelState: ModelStateKey, GModelIndex: GModelIndexKey } = sharedImport("@eclipse-glsp/server");
-
-/**
- * Context payload forwarded by the client's {@code PatternLinkContextProvider}.
- * Carries the currently active creation mode so the server can pre-select the
- * edge modifier for persist-persist pairs.
- */
-interface PatternLinkCreationContext {
-    /**
-     * The active node creation mode string (e.g. `"persist"`, `"create"`, `"delete"`).
-     */
-    mode?: string;
-}
 
 /**
  * Create-edge schema resolver for model transformation diagrams.
@@ -88,7 +83,7 @@ export class ModelTransformationCreateEdgeSchemaResolver extends CreateEdgeSchem
             {
                 modifier:
                     sourceInfo.modifier === PatternModifierKind.NONE
-                        ? this.modifierStringToKind(context?.mode)
+                        ? patternModifierKind(context?.mode)
                         : sourceInfo.modifier
             },
             undefined,
@@ -119,8 +114,12 @@ export class ModelTransformationCreateEdgeSchemaResolver extends CreateEdgeSchem
             return undefined;
         }
 
+        if (!this.shareAGraph(sourceInfo.declaration, targetInfo.declaration)) {
+            return undefined;
+        }
+
         const context = request.context as PatternLinkCreationContext | undefined;
-        const contextModifier = this.modifierStringToKind(context?.mode);
+        const contextModifier = patternModifierKind(context?.mode);
         const modifier = this.determineEdgeModifier(sourceInfo.modifier, targetInfo.modifier, contextModifier);
         if (modifier === undefined) {
             return undefined;
@@ -255,7 +254,7 @@ export class ModelTransformationCreateEdgeSchemaResolver extends CreateEdgeSchem
      */
     protected resolvePatternInstanceByElementId(
         elementId: string
-    ): { classType: ClassType; modifier: PatternModifierKind } | undefined {
+    ): { classType: ClassType; modifier: PatternModifierKind; declaration: AstNode } | undefined {
         const modelElement = this.modelState.index.find(elementId);
         if (modelElement === undefined || !(modelElement instanceof GPatternInstanceNode)) {
             return undefined;
@@ -271,29 +270,59 @@ export class ModelTransformationCreateEdgeSchemaResolver extends CreateEdgeSchem
             const instance = astNode as PatternObjectInstanceType;
             const classType = instance.class?.ref as ClassType | undefined;
             if (!classType) return undefined;
-            const modifier = this.modifierStringToKind(instance.modifier?.modifier);
-            return { classType, modifier };
+            const modifier = effectivePatternModifier(instance, reflection);
+            return { classType, modifier, declaration: astNode };
         }
 
         if (reflection.isInstance(astNode, PatternObjectInstanceReference)) {
             const ref = astNode as PatternObjectInstanceReferenceType;
             const classType = ref.instance?.ref?.class?.ref as ClassType | undefined;
             if (!classType) return undefined;
-            return { classType, modifier: PatternModifierKind.NONE };
+            return { classType, modifier: effectivePatternModifier(ref, reflection), declaration: astNode };
         }
 
         if (reflection.isInstance(astNode, PatternObjectInstanceDelete)) {
             const del = astNode as PatternObjectInstanceDeleteType;
             const classType = del.instance?.ref?.class?.ref as ClassType | undefined;
             if (!classType) return undefined;
-            return { classType, modifier: PatternModifierKind.DELETE };
+            return { classType, modifier: PatternModifierKind.DELETE, declaration: astNode };
         }
 
         return undefined;
     }
 
     /**
+     * Checks whether two endpoints belong to a graph a link could join them in.
+     *
+     * They have to be declared in the same pattern, and an element of an application condition
+     * block can only be linked within its own block or to the enclosing match: two blocks are
+     * matched independently of each other, so there is no graph that spans both.
+     *
+     * @param source The declaring node of the source endpoint
+     * @param target The declaring node of the target endpoint
+     * @returns `true` when a link between the two endpoints has a container
+     */
+    private shareAGraph(source: AstNode, target: AstNode): boolean {
+        const reflection = this.modelState.languageServices.shared.AstReflection;
+        const sourcePattern = findContainingPattern(source, reflection);
+        if (sourcePattern == undefined || sourcePattern !== findContainingPattern(target, reflection)) {
+            return false;
+        }
+
+        const sourceCondition = findContainingCondition(source, reflection);
+        const targetCondition = findContainingCondition(target, reflection);
+        return sourceCondition == undefined || targetCondition == undefined || sourceCondition === targetCondition;
+    }
+
+    /**
      * Determines the modifier for a new edge given the effective modifiers of its two endpoints.
+     *
+     * For elements of an application condition block the "modifier" is the block kind, so
+     * this also decides whether a link may join a condition node to a node of the match: it
+     * may, and the link then belongs to the condition.
+     *
+     * A link between a created or deleted element and a condition node has no meaning, on the
+     * other hand, since a condition never rewrites the model.
      *
      * @param sourceModifier The effective modifier of the source node
      * @param targetModifier The effective modifier of the target node
@@ -315,40 +344,8 @@ export class ModelTransformationCreateEdgeSchemaResolver extends CreateEdgeSchem
             return sourceModifier;
         } else if (sourceModifier === targetModifier) {
             return sourceModifier;
-        } else if (
-            sourceModifier === PatternModifierKind.DELETE &&
-            (targetModifier === PatternModifierKind.REQUIRE || targetModifier === PatternModifierKind.FORBID)
-        ) {
-            return targetModifier;
-        } else if (
-            (sourceModifier === PatternModifierKind.REQUIRE || sourceModifier === PatternModifierKind.FORBID) &&
-            targetModifier === PatternModifierKind.DELETE
-        ) {
-            return sourceModifier;
         } else {
             return undefined;
-        }
-    }
-
-    /**
-     * Converts a modifier string to a {@link PatternModifierKind}.
-     * Unknown or absent strings default to {@link PatternModifierKind.NONE}.
-     *
-     * @param modifier The raw modifier string
-     * @returns The corresponding {@link PatternModifierKind}
-     */
-    private modifierStringToKind(modifier: string | undefined): PatternModifierKind {
-        switch (modifier) {
-            case "create":
-                return PatternModifierKind.CREATE;
-            case "delete":
-                return PatternModifierKind.DELETE;
-            case "require":
-                return PatternModifierKind.REQUIRE;
-            case "forbid":
-                return PatternModifierKind.FORBID;
-            default:
-                return PatternModifierKind.NONE;
         }
     }
 }

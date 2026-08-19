@@ -19,6 +19,7 @@ import kotlinx.serialization.json.jsonPrimitive
  * - objectInstance: Object instance definitions (including delete with modifier)
  * - link: Link definitions between objects
  * - whereClause: Constraint expressions
+ * - applicationCondition: Negative (`forbid`) or positive (`require`) condition blocks
  */
 object TypedPatternElementSerializer : JsonContentPolymorphicSerializer<TypedPatternElement>(
     TypedPatternElement::class
@@ -41,6 +42,7 @@ object TypedPatternElementSerializer : JsonContentPolymorphicSerializer<TypedPat
             "objectInstance" -> TypedPatternObjectInstanceElement.serializer()
             "link" -> TypedPatternLinkElement.serializer()
             "whereClause" -> TypedPatternWhereClauseElement.serializer()
+            "applicationCondition" -> TypedPatternApplicationConditionElement.serializer()
             else -> throw IllegalArgumentException("Unknown pattern element kind: $kindValue")
         }
     }

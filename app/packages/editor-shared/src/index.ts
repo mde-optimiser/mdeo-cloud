@@ -6,6 +6,7 @@ export * from "./features/bounds/hiddenBoundsUpdater.js";
 export * from "./features/bounds/resetCanvasBoundsCommand.js";
 export * from "./features/bounds/updateModelBoundsActionHandler.js";
 export * from "./features/change-bounds-tool/changeBoundsListener.js";
+export * from "./features/change-bounds-tool/changeBoundsManager.js";
 export * from "./features/change-bounds-tool/changeBoundsTool.js";
 export * from "./features/change-bounds-tool/changeBoundsToolFeedback.js";
 export * from "./features/change-bounds-tool/featureModule.js";

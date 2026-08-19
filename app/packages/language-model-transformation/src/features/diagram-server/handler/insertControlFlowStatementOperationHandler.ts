@@ -78,7 +78,7 @@ interface StatementInsertResult {
  */
 @injectable()
 export class InsertControlFlowStatementOperationHandler extends BaseOperationHandler implements ContextItemProvider {
-    override readonly operationType = "insertControlFlowStatement";
+    override readonly operationType = InsertControlFlowStatementOperation.KIND;
 
     @inject(ModelIdProviderKey)
     protected idProvider!: ModelIdProvider;

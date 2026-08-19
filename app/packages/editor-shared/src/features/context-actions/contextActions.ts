@@ -163,17 +163,19 @@ export class ContextActionsUIExtension implements IVNodePostprocessor {
     private currentVNode: VNode | undefined;
 
     /**
-     * Set of item IDs for which the submenu should open to the left (instead of
-     * the default right) because there is not enough viewport space on the right.
+     * Set of item IDs whose menu opens on the far side of its trigger — to the left
+     * instead of the right for a menu that opens sideways, above instead of below for
+     * one that drops down — because the viewport ends before the near side does.
      */
-    private readonly leftPositionedMenus = new Set<string>();
+    private readonly flippedMenus = new Set<string>();
 
     /**
-     * Set of item IDs (on horizontal rails) for which the submenu should be
-     * right-aligned (`right-0`) instead of left-aligned (`left-0`) because there
-     * is not enough viewport space to the right.
+     * Set of item IDs whose menu is aligned to its far end across the direction it opens
+     * in — its bottom to the trigger's bottom for a menu that opens sideways, its right
+     * edge to the trigger's right for one that drops down — because the viewport ends
+     * before the near end does.
      */
-    private readonly rightAlignedMenus = new Set<string>();
+    private readonly endAlignedMenus = new Set<string>();
 
     /**
      * Snabbdom patcher initialised with the modules required by the overlay VNodes.
@@ -800,26 +802,8 @@ export class ContextActionsUIExtension implements IVNodePostprocessor {
      */
     private renderMenuButton(item: ContextActionItem, orientation: ContextActionRailOrientation): VNode {
         const iconVNode = this.renderIcon(item);
-        const openLeft = orientation === "vertical" && this.leftPositionedMenus.has(item.id);
         const menuVNode = this.renderContextMenu(item.children ?? [], orientation, item.id);
-
-        const bridgeVNode = html("div", {
-            class: {
-                absolute: true,
-                "left-full": orientation === "vertical" && !openLeft,
-                "right-full": orientation === "vertical" && openLeft,
-                "top-0": orientation === "vertical",
-                "h-full": orientation === "vertical",
-                "w-3": orientation === "vertical",
-                "-ml-1": orientation === "vertical" && !openLeft,
-                "-mr-1": orientation === "vertical" && openLeft,
-                "top-full": orientation === "horizontal",
-                "left-0": orientation === "horizontal",
-                "w-full": orientation === "horizontal",
-                "h-3": orientation === "horizontal",
-                "-mt-1": orientation === "horizontal"
-            }
-        });
+        const bridgeVNode = html("div", { class: this.menuBridgeClasses(item.id, orientation, false) });
 
         return html(
             "div",
@@ -894,59 +878,166 @@ export class ContextActionsUIExtension implements IVNodePostprocessor {
     }
 
     /**
-     * Checks whether the submenu for *itemId* needs to be repositioned to avoid
-     * overflowing the viewport and updates the relevant positioning set when the
-     * required direction changes.  Triggers a rail re-render when the state changes.
+     * Checks whether the menu of *itemId* still fits the viewport where it currently opens,
+     * and records the direction it has to take when it does not.
      *
-     * @param groupEl     The menu-button group element (used to measure its position).
-     * @param itemId      The ID of the menu item being examined.
-     * @param orientation The orientation of the parent rail.
+     * Both directions are examined: the one the menu opens in — sideways for a submenu of a
+     * vertical rail and for every nested menu, downwards for a submenu of a horizontal one —
+     * and the one it extends along. A menu only gives up its natural side when the opposite
+     * one has room for it, so a menu wider or taller than the viewport stays where it is
+     * rather than swapping one overflow for another.
+     *
+     * @param groupEl     The hover group element holding the trigger and the menu.
+     * @param itemId      The ID of the item the menu belongs to.
+     * @param orientation The orientation of the rail the menu ultimately hangs off.
+     * @param nested      Whether this is a menu of a menu row rather than of a rail button.
      */
-    private updateSubmenuFlip(groupEl: HTMLElement, itemId: string, orientation: ContextActionRailOrientation): void {
-        const submenuEl = groupEl.lastElementChild as HTMLElement | null;
-        const submenuWidth = submenuEl?.offsetWidth ?? 288;
+    private updateMenuPlacement(
+        groupEl: HTMLElement,
+        itemId: string,
+        orientation: ContextActionRailOrientation,
+        nested: boolean
+    ): void {
+        const menuEl = groupEl.lastElementChild as HTMLElement | null;
+        const menuWidth = menuEl?.offsetWidth ?? 288;
+        const menuHeight = menuEl?.offsetHeight ?? 0;
         const rect = groupEl.getBoundingClientRect();
 
-        if (orientation === "vertical") {
-            const needsLeft = rect.right + submenuWidth > window.innerWidth;
-            const wasLeft = this.leftPositionedMenus.has(itemId);
-            if (needsLeft !== wasLeft) {
-                if (needsLeft) {
-                    this.leftPositionedMenus.add(itemId);
-                } else {
-                    this.leftPositionedMenus.delete(itemId);
-                }
-                this.doUpdateRails();
-            }
-        } else {
-            // Horizontal rail — submenu opens below. Flip to right-aligned when there
-            // is not enough space to extend rightward from the button's left edge.
-            const needsRightAlign = rect.left + submenuWidth > window.innerWidth;
-            const wasRightAligned = this.rightAlignedMenus.has(itemId);
-            if (needsRightAlign !== wasRightAligned) {
-                if (needsRightAlign) {
-                    this.rightAlignedMenus.add(itemId);
-                } else {
-                    this.rightAlignedMenus.delete(itemId);
-                }
-                this.doUpdateRails();
-            }
+        const sideways = this.opensSideways(orientation, nested);
+        const flipped = sideways
+            ? rect.right + menuWidth > window.innerWidth && rect.left - menuWidth >= 0
+            : rect.bottom + menuHeight > window.innerHeight && rect.top - menuHeight >= 0;
+        const endAligned = sideways
+            ? rect.top + menuHeight > window.innerHeight && rect.bottom - menuHeight >= 0
+            : rect.left + menuWidth > window.innerWidth && rect.right - menuWidth >= 0;
+
+        const flipChanged = this.setPlacement(this.flippedMenus, itemId, flipped);
+        const alignChanged = this.setPlacement(this.endAlignedMenus, itemId, endAligned);
+        if (flipChanged || alignChanged) {
+            this.doUpdateRails();
         }
+    }
+
+    /**
+     * Records a placement decision for *itemId*.
+     *
+     * @param placement The set holding the IDs the decision applies to.
+     * @param itemId    The ID of the item.
+     * @param applies   Whether the decision applies to it.
+     * @returns `true` when this changed the set, and a re-render is needed.
+     */
+    private setPlacement(placement: Set<string>, itemId: string, applies: boolean): boolean {
+        if (placement.has(itemId) === applies) {
+            return false;
+        }
+        if (applies) {
+            placement.add(itemId);
+        } else {
+            placement.delete(itemId);
+        }
+        return true;
+    }
+
+    /**
+     * Whether a menu opens beside its trigger rather than below it.
+     *
+     * @param orientation The orientation of the rail the menu ultimately hangs off.
+     * @param nested      Whether this is a menu of a menu row rather than of a rail button.
+     * @returns `true` when the menu opens sideways.
+     */
+    private opensSideways(orientation: ContextActionRailOrientation, nested: boolean): boolean {
+        return nested || orientation === "vertical";
+    }
+
+    /**
+     * Returns the positioning classes for a menu, following the placement recorded for it.
+     *
+     * @param itemId      The ID of the item the menu belongs to.
+     * @param orientation The orientation of the rail the menu ultimately hangs off.
+     * @param nested      Whether this is a menu of a menu row rather than of a rail button.
+     * @returns The classes placing the menu relative to its trigger.
+     */
+    private menuPlacementClasses(
+        itemId: string,
+        orientation: ContextActionRailOrientation,
+        nested: boolean
+    ): Record<string, boolean> {
+        const flipped = this.flippedMenus.has(itemId);
+        const endAligned = this.endAlignedMenus.has(itemId);
+
+        if (this.opensSideways(orientation, nested)) {
+            return {
+                "left-full": !flipped,
+                "ml-1": !flipped,
+                "right-full": flipped,
+                "mr-1": flipped,
+                "top-0": !endAligned,
+                "bottom-0": endAligned
+            };
+        }
+        return {
+            "top-full": !flipped,
+            "mt-1": !flipped,
+            "bottom-full": flipped,
+            "mb-1": flipped,
+            "left-0": !endAligned,
+            "right-0": endAligned
+        };
+    }
+
+    /**
+     * Returns the classes for the transparent bridge that keeps the hover state alive while
+     * the pointer travels from the trigger to the menu, on the side the menu opens to.
+     *
+     * @param itemId      The ID of the item the menu belongs to.
+     * @param orientation The orientation of the rail the menu ultimately hangs off.
+     * @param nested      Whether this is a menu of a menu row rather than of a rail button.
+     * @returns The classes placing the bridge.
+     */
+    private menuBridgeClasses(
+        itemId: string,
+        orientation: ContextActionRailOrientation,
+        nested: boolean
+    ): Record<string, boolean> {
+        const flipped = this.flippedMenus.has(itemId);
+
+        if (this.opensSideways(orientation, nested)) {
+            return {
+                absolute: true,
+                "top-0": true,
+                "h-full": true,
+                "w-3": true,
+                "left-full": !flipped,
+                "-ml-1": !flipped,
+                "right-full": flipped,
+                "-mr-1": flipped
+            };
+        }
+        return {
+            absolute: true,
+            "left-0": true,
+            "w-full": true,
+            "h-3": true,
+            "top-full": !flipped,
+            "-mt-1": !flipped,
+            "bottom-full": flipped,
+            "-mb-1": flipped
+        };
     }
 
     /**
      * `mouseenter` handler for the menu-button group element.
      * Elevates the parent overlay div above sibling rails and updates the
-     * submenu's overflow direction if needed.
+     * menu's placement if needed.
      *
      * @param event       The DOM mouseenter event.
      * @param itemId      The ID of the menu item.
-     * @param orientation The orientation of the parent rail.
+     * @param orientation The orientation of the rail.
      */
     private onMenuButtonMouseEnter(event: MouseEvent, itemId: string, orientation: ContextActionRailOrientation): void {
         const groupEl = event.currentTarget as HTMLElement;
         this.setOverlayZIndex(groupEl, "100");
-        this.updateSubmenuFlip(groupEl, itemId, orientation);
+        this.updateMenuPlacement(groupEl, itemId, orientation, false);
     }
 
     /**
@@ -975,56 +1066,8 @@ export class ContextActionsUIExtension implements IVNodePostprocessor {
         orientation: ContextActionRailOrientation,
         itemId: string
     ): VNode {
-        const openLeft = orientation === "vertical" && this.leftPositionedMenus.has(itemId);
-        const rightAligned = orientation === "horizontal" && this.rightAlignedMenus.has(itemId);
-        const positionClasses: Record<string, boolean> =
-            orientation === "vertical"
-                ? openLeft
-                    ? { "right-full": true, "top-0": true, "mr-1": true }
-                    : { "left-full": true, "top-0": true, "ml-1": true }
-                : rightAligned
-                  ? { "top-full": true, "right-0": true, "mt-1": true }
-                  : { "top-full": true, "left-0": true, "mt-1": true };
-
-        const menuItems = items.map((item) => {
-            const iconVNode = this.renderIcon(item);
-            const labelNode = item.label ? html("span", { class: { truncate: true } }, item.label) : undefined;
-            const children: VNode[] = [];
-            if (iconVNode) children.push(iconVNode);
-            if (labelNode) children.push(labelNode);
-
-            return html(
-                "button",
-                {
-                    class: {
-                        flex: true,
-                        "w-full": true,
-                        "items-center": true,
-                        "gap-2": true,
-                        "rounded-sm": true,
-                        "px-2": true,
-                        "py-1.5": true,
-                        "text-sm": true,
-                        "cursor-pointer": true,
-                        "transition-colors": true,
-                        "hover:bg-accent": true,
-                        "hover:text-accent-foreground": true,
-                        "focus-visible:outline-none": true,
-                        "focus-visible:ring-2": true,
-                        "focus-visible:ring-ring": true
-                    },
-                    attrs: { "data-item-id": item.id, type: "button", title: item.label || "" },
-                    on: {
-                        click: (event: MouseEvent) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            this.handleItemClick(item);
-                        }
-                    }
-                },
-                ...children
-            );
-        });
+        const positionClasses = this.menuPlacementClasses(itemId, orientation, false);
+        const menuItems = items.map((item) => this.renderMenuRow(item, orientation));
 
         return html(
             "div",
@@ -1053,6 +1096,147 @@ export class ContextActionsUIExtension implements IVNodePostprocessor {
                     "group-hover:visible": true,
                     "group-hover:opacity-100": true,
                     "group-hover:pointer-events-auto": true
+                }
+            },
+            ...menuItems
+        );
+    }
+
+    /**
+     * Renders one row of a dropdown menu.
+     *
+     * A row that has children of its own is wrapped in a hover group that carries a nested
+     * submenu, so a menu can offer a choice within a choice — picking a kind of thing on the
+     * row and which one of them in its submenu — without a second trip to the server.
+     *
+     * @param item        The item to render as a row.
+     * @param orientation The orientation of the rail the menu hangs off, which a nested menu
+     *                    needs to place itself.
+     * @returns A `<button>` VNode, or a group `<div>` VNode when the row has a submenu.
+     */
+    private renderMenuRow(item: ContextActionItem, orientation: ContextActionRailOrientation): VNode {
+        const hasChildren = item.children != null && item.children.length > 0;
+        const rowVNode = this.renderMenuRowButton(item, hasChildren);
+        if (!hasChildren) {
+            return rowVNode;
+        }
+
+        return html(
+            "div",
+            {
+                class: { "group/nested": true, relative: true, flex: true },
+                key: item.id,
+                on: {
+                    mouseenter: (event: MouseEvent) =>
+                        this.updateMenuPlacement(event.currentTarget as HTMLElement, item.id, orientation, true)
+                }
+            },
+            rowVNode,
+            html("div", { class: this.menuBridgeClasses(item.id, orientation, true) }),
+            this.renderNestedMenu(item.children ?? [], item.id, orientation)
+        );
+    }
+
+    /**
+     * Renders the clickable part of a menu row: icon, label, and a chevron when the row
+     * opens a submenu.
+     *
+     * @param item        The item the row stands for.
+     * @param hasChildren Whether the row opens a submenu.
+     * @returns A `<button>` VNode.
+     */
+    private renderMenuRowButton(item: ContextActionItem, hasChildren: boolean): VNode {
+        const iconVNode = this.renderIcon(item);
+        const labelNode = item.label ? html("span", { class: { truncate: true } }, item.label) : undefined;
+        const chevronVNode = hasChildren
+            ? (this.iconRegistry.getIcon("chevron-right", 14, "ml-auto shrink-0") as VNode | undefined)
+            : undefined;
+        const children: VNode[] = [];
+        if (iconVNode) children.push(iconVNode);
+        if (labelNode) children.push(labelNode);
+        if (chevronVNode) children.push(chevronVNode);
+
+        return html(
+            "button",
+            {
+                class: {
+                    flex: true,
+                    "w-full": true,
+                    "items-center": true,
+                    "gap-2": true,
+                    "rounded-sm": true,
+                    "px-2": true,
+                    "py-1.5": true,
+                    "text-sm": true,
+                    "cursor-pointer": true,
+                    "transition-colors": true,
+                    "hover:bg-accent": true,
+                    "hover:text-accent-foreground": true,
+                    "focus-visible:outline-none": true,
+                    "focus-visible:ring-2": true,
+                    "focus-visible:ring-ring": true
+                },
+                attrs: { "data-item-id": item.id, type: "button", title: item.label || "" },
+                on: {
+                    click: (event: MouseEvent) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        this.handleItemClick(item);
+                    }
+                }
+            },
+            ...children
+        );
+    }
+
+    /**
+     * Builds the dropdown menu of a row that has children, revealed on hover of that row.
+     *
+     * The rows of a nested menu are leaves: the menu is not itself nested further, which
+     * keeps the hover-driven trail between the rail and the deepest row short enough to
+     * follow with a pointer.
+     *
+     * @param items       The child items to render as menu rows.
+     * @param itemId      The ID of the row the menu belongs to.
+     * @param orientation The orientation of the rail the menu ultimately hangs off.
+     * @returns A positioned dropdown `<div>` VNode.
+     */
+    private renderNestedMenu(
+        items: ContextActionItem[],
+        itemId: string,
+        orientation: ContextActionRailOrientation
+    ): VNode {
+        const menuItems = items.map((item) => this.renderMenuRowButton(item, false));
+
+        return html(
+            "div",
+            {
+                class: {
+                    invisible: true,
+                    absolute: true,
+                    ...this.menuPlacementClasses(itemId, orientation, true),
+                    "max-h-96": true,
+                    "overflow-y-auto": true,
+                    "z-50": true,
+                    flex: true,
+                    "min-w-32": true,
+                    "max-w-72": true,
+                    "flex-col": true,
+                    "gap-0.5": true,
+                    "rounded-md": true,
+                    border: true,
+                    "border-border": true,
+                    "bg-popover": true,
+                    "p-1": true,
+                    "text-popover-foreground": true,
+                    "opacity-0": true,
+                    "shadow-md": true,
+                    "pointer-events-none": true,
+                    "transition-opacity": true,
+                    "duration-150": true,
+                    "group-hover/nested:visible": true,
+                    "group-hover/nested:opacity-100": true,
+                    "group-hover/nested:pointer-events-auto": true
                 }
             },
             ...menuItems

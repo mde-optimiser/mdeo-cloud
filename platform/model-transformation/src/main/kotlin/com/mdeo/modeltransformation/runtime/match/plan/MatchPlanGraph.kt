@@ -9,24 +9,26 @@ import com.mdeo.modeltransformation.ast.patterns.TypedPatternObjectInstanceEleme
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternVariable
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternVariableElement
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternWhereClauseElement
+import com.mdeo.modeltransformation.runtime.match.ApplicationConditionBlock
+import com.mdeo.modeltransformation.runtime.match.ConditionTraversalUtils
 import com.mdeo.modeltransformation.runtime.match.ExpressionNodeAnalyzer
-import com.mdeo.modeltransformation.runtime.match.Island
-import com.mdeo.modeltransformation.runtime.match.IslandGrouper
-import com.mdeo.modeltransformation.runtime.match.IslandTraversalUtils
 import com.mdeo.modeltransformation.runtime.match.PatternCategories
 
 /**
- * A condition island that has not yet been emitted into the match plan.
+ * An application condition that has not yet been emitted into the match plan.
  *
- * @property island The structural island describing the condition sub-pattern (instances
- *           and links exclusive to the condition).
- * @property isNegative `true` for a NAC (negative application condition / forbid);
- *           `false` for a PAC (positive application condition / require).
+ * @property block The condition graph declared by one `forbid` / `require` block.
  */
 internal data class PendingCondition(
-    val island: Island,
+    val block: ApplicationConditionBlock
+) {
+    /**
+     * `true` for a NAC (negative application condition / `forbid`); `false` for a PAC
+     * (positive application condition / `require`).
+     */
     val isNegative: Boolean
-)
+        get() = block.isNegative
+}
 
 /**
  * Immutable representation of the match problem as a typed graph.
@@ -53,8 +55,7 @@ internal data class PendingCondition(
  *           not themselves matchable (e.g. context objects bound by the caller).
  * @property conditions Ordered list of all pending application conditions (NAC + PAC),
  *           with NAC conditions listed before PAC conditions.
- * @property forbidIslands Structural islands derived from forbid (NAC) elements,
- *           including synthetic single-link islands for orphan forbid links.  Used by
+ * @property negativeConditions The condition graphs of all `forbid` blocks. Used by
  *           [canOmitNacInjectiveConstraint].
  * @property variableNodeDeps Transitive instance-level dependencies per variable name,
  *           as computed by [computeVariableNodeDeps].
@@ -85,7 +86,7 @@ internal class MatchPlanGraph(
     val whereClauses: List<TypedPatternWhereClauseElement>,
     val referencedInstances: Set<String>,
     val conditions: List<PendingCondition>,
-    val forbidIslands: List<Island>,
+    val negativeConditions: List<ApplicationConditionBlock>,
     val variableNodeDeps: Map<String, Set<String>>,
     val variableVarDeps: Map<String, Set<String>>,
     val instancePriorities: Map<String, Int>,
@@ -96,6 +97,14 @@ internal class MatchPlanGraph(
     val nodeAnalyzer: ExpressionNodeAnalyzer,
     val isCollectionExpression: (TypedExpression) -> Boolean
 ) {
+    /**
+     * The analyser for the expressions declared inside an application condition block.
+     *
+     * A block is a scope of its own, so the names it declares are recorded one level deeper
+     * than the match's; its constraints have to be read with that in mind.
+     */
+    val conditionNodeAnalyzer: ExpressionNodeAnalyzer = nodeAnalyzer.nested()
+
     /**
      * Model-sensitive cost estimates, or `null` when no statistics were supplied.
      *
@@ -145,22 +154,22 @@ internal class MatchPlanGraph(
 
     /**
      * Returns the set of main-pattern instance names that share a metamodel class with
-     * at least one instance in [island].
+     * at least one node of [block].
      *
-     * Before an application condition for [island] can be emitted, every instance in
+     * Before an application condition for [block] can be emitted, every instance in
      * this set must already be covered so that injective inequality constraints between
      * the condition's nodes and the same-class main-pattern nodes can be expressed as
      * `where(neq(...))` checks against already-labelled Gremlin traverser steps.
      *
-     * @param island The condition island whose injective requirements are computed.
+     * @param block The condition graph whose injective requirements are computed.
      * @return The set of main-pattern instance names that require prior coverage.
      */
-    fun computeInjectiveRequiredNodes(island: Island): Set<String> {
+    fun computeInjectiveRequiredNodes(block: ApplicationConditionBlock): Set<String> {
         val result = mutableSetOf<String>()
-        for (islandInst in island.instances) {
-            val islandClass = islandInst.objectInstance.className ?: continue
+        for (conditionInst in block.instances) {
+            val conditionClass = conditionInst.objectInstance.className ?: continue
             for (mainInst in instances) {
-                if (mainInst.objectInstance.className == islandClass)
+                if (mainInst.objectInstance.className == conditionClass)
                     result.add(mainInst.objectInstance.name)
             }
         }
@@ -172,65 +181,70 @@ internal class MatchPlanGraph(
      * [pending] can be emitted.
      *
      * The required set is the union of:
-     * 1. **Anchor nodes** — main-pattern instances that appear as endpoints of island
-     *    links, forming the structural attachment points for the condition sub-traversal.
-     * 2. **Injective-required nodes** — main-pattern instances that share a class with an
-     *    island node and therefore need injective inequality constraints.  For single-node
-     *    NACs the set may be smaller due to the [canOmitNacInjectiveConstraint]
-     *    optimisation.
+     * 1. **Anchor nodes** — main-pattern instances that appear as endpoints of condition
+     *    links or are referenced by the block, forming the structural attachment points
+     *    for the condition sub-traversal.
+     * 2. **Injective-required nodes** — main-pattern instances that share a class with a
+     *    condition node and therefore need injective inequality constraints.  For
+     *    single-node NACs the set may be smaller due to the
+     *    [canOmitNacInjectiveConstraint] optimisation.
      *
      * @param pending The condition whose readiness requirements are to be determined.
      * @return The set of main-pattern instance names that must all be covered before this
      *         condition can be safely emitted.
      */
     fun pendingConditionRequiredNodes(pending: PendingCondition): Set<String> {
-        val island = pending.island
-        val islandNames = island.instances.map { it.objectInstance.name }.toSet()
-        val anchors = IslandTraversalUtils.findAnchorNames(island.links, islandNames, matchableNames)
-        val isSingleNodeNac = island.instances.size == 1
-        val injectiveRequired = computeInjectiveRequiredNodes(island).filter { mainInstName ->
+        val block = pending.block
+        val anchors = ConditionTraversalUtils.findAnchorNames(block.links, block.instanceNames, matchableNames)
+        val referencedAnchors = block.references
+            .map { it.objectInstance.name }
+            .filter { it in matchableNames }
+            .toSet()
+        val isSingleNodeNac = block.instances.size == 1
+        val injectiveRequired = computeInjectiveRequiredNodes(block).filter { mainInstName ->
             if (!isSingleNodeNac) return@filter true
-            val islandNode = island.instances.firstOrNull()?.objectInstance?.name ?: return@filter true
-            !canOmitNacInjectiveConstraint(islandNode, mainInstName, island.links)
+            val conditionNode = block.instances.firstOrNull()?.objectInstance?.name ?: return@filter true
+            !canOmitNacInjectiveConstraint(conditionNode, mainInstName, block.links)
         }.toSet()
-        return anchors + injectiveRequired
+        return anchors + referencedAnchors + injectiveRequired
     }
 
     /**
      * Returns `true` when the injective inequality constraint `xName ≠ zName` is
-     * redundant for a single-node NAC island and can be safely omitted.
+     * redundant for a single-node NAC block and can be safely omitted.
      *
-     * **Correctness argument:** Suppose the NAC island has exactly one node X, and the
+     * **Correctness argument:** Suppose the NAC block has exactly one node X, and the
      * main pattern contains a node Z of the same class.  The constraint `X ≠ Z` prevents
      * the NAC from firing when X and Z map to the same vertex V.  However, the NAC fires
      * on V only when V is connected via a NAC edge (X–Yᵢ) to some neighbour Yᵢ.  If
-     * there exists a *forbid orphan link* (Z–Yᵢ) with the same edge label and direction,
+     * there exists a *forbid block consisting of the single link* (Z–Yᵢ) with the same
+     * edge label and direction,
      * the overall match is rejected the moment that edge is found — independently of
      * whether X = Z.  Therefore `X ≠ Z` is redundant: the rejection is already
      * guaranteed by the orphan-link check.
      *
      * The optimisation is conservative: it returns `true` only when *every* NAC edge
-     * (X–Yᵢ) has a matching forbid orphan link (Z–Yᵢ); returns `false` as soon as one
+     * (X–Yᵢ) has such a matching single-link block; returns `false` as soon as one
      * NAC edge lacks such coverage.
      *
-     * @param xName The single island node in the NAC.
+     * @param xName The single condition node in the NAC.
      * @param zName The main-pattern node of the same class as [xName].
-     * @param nacIslandLinks The links of the NAC island (all incident on [xName]).
+     * @param nacLinks The links of the NAC block (all incident on [xName]).
      * @return `true` if the constraint can be omitted without affecting correctness.
      */
     fun canOmitNacInjectiveConstraint(
         xName: String,
         zName: String,
-        nacIslandLinks: List<TypedPatternLinkElement>
+        nacLinks: List<TypedPatternLinkElement>
     ): Boolean {
-        for (nacLink in nacIslandLinks) {
+        for (nacLink in nacLinks) {
             val xIsSrc = nacLink.link.source.objectName == xName
             val yiName = if (xIsSrc) nacLink.link.target.objectName else nacLink.link.source.objectName
             val srcProp = nacLink.link.source.propertyName
             val tgtProp = nacLink.link.target.propertyName
-            for (orphanIsland in forbidIslands) {
-                if (orphanIsland.instances.isNotEmpty()) continue
-                val orphanLink = orphanIsland.links.singleOrNull() ?: continue
+            for (orphanBlock in negativeConditions) {
+                if (orphanBlock.instances.isNotEmpty()) continue
+                val orphanLink = orphanBlock.links.singleOrNull() ?: continue
                 if (orphanLink.link.source.propertyName != srcProp ||
                     orphanLink.link.target.propertyName != tgtProp) continue
                 val zOnSameSide = if (xIsSrc) orphanLink.link.source.objectName == zName
@@ -251,14 +265,18 @@ internal class MatchPlanGraph(
          * Steps performed:
          * 1. Compute the pseudo-composition DAG from the metamodel.
          * 2. Merge matchable + delete instances by name into a deduplicated list.
-         * 3. Build condition islands for forbid and require elements, including synthetic
-         *    single-link islands for orphan links.
+         * 3. Build the condition graph of every `forbid` / `require` block, with the
+         *    negative blocks ordered before the positive ones.
+         *    Every block keeps its own graph — nothing is regrouped into connected
+         *    components — so two blocks stay two conditions even when they overlap
+         *    structurally, and one block stays one condition even when its graph is not
+         *    connected.
          * 4. Compute dependency maps and priority scores via [MatchPlanDependencies]
          *    functions.
          * 5. Assemble and return the fully populated [MatchPlanGraph].
          *
-         * @param elements All categorised pattern elements (matchable, delete, forbid,
-         *        require, variables, where-clauses).
+         * @param elements All categorised pattern elements (matchable, delete, variables,
+         *        where-clauses, application conditions).
          * @param referencedInstances Names of instances referenced from expressions but
          *        not themselves part of the matchable pattern.
          * @param getVertexId Function returning a pre-bound vertex ID for an instance
@@ -286,7 +304,6 @@ internal class MatchPlanGraph(
             val pseudoCompositionDag = MetamodelClassPriority.computePseudoCompositionDag(metamodelData)
             val instances = mergeInstancesByName(elements.matchableInstances + elements.deleteInstances)
             val links = elements.matchableLinks + elements.deleteLinks
-            val matchableNames = instances.map { it.objectInstance.name }.toSet()
 
             // Represent reassignments as synthetic variable elements so they participate in
             // the same dependency-ordering machinery as variable declarations. Their names
@@ -300,10 +317,10 @@ internal class MatchPlanGraph(
             val variables = elements.variables + reassignmentVars
             val variableNames = variables.map { it.variable.name }.toSet()
 
-            val forbidIslands = buildIslandsIncludingOrphanLinks(elements.forbidInstances, elements.forbidLinks, matchableNames)
-            val requireIslands = buildIslandsIncludingOrphanLinks(elements.requireInstances, elements.requireLinks, matchableNames)
-            val conditions = forbidIslands.map { PendingCondition(it, true) } +
-                             requireIslands.map { PendingCondition(it, false) }
+            val blocks = elements.conditions.map { ApplicationConditionBlock.from(it) }
+            val negativeConditions = blocks.filter { it.isNegative }
+            val conditions = negativeConditions.map { PendingCondition(it) } +
+                             blocks.filter { !it.isNegative }.map { PendingCondition(it) }
 
             return MatchPlanGraph(
                 instances = instances,
@@ -313,10 +330,10 @@ internal class MatchPlanGraph(
                 whereClauses = elements.whereClauses,
                 referencedInstances = referencedInstances,
                 conditions = conditions,
-                forbidIslands = forbidIslands,
+                negativeConditions = negativeConditions,
                 variableNodeDeps = computeVariableNodeDeps(variables, variableNames, nodeAnalyzer),
                 variableVarDeps = computeVariableVarDeps(variables, variableNames, nodeAnalyzer),
-                instancePriorities = computeInstancePriorities(instances, elements.requireInstances, links, elements.requireLinks, pseudoCompositionDag),
+                instancePriorities = computeInstancePriorities(instances, links, pseudoCompositionDag),
                 injectivePairs = computeInjectivePairs(instances),
                 metamodelData = metamodelData,
                 statistics = statistics,
@@ -358,39 +375,6 @@ internal class MatchPlanGraph(
                     )
                 )
             }
-        }
-
-        /**
-         * Groups condition elements into structural islands and additionally creates
-         * synthetic single-link islands for *orphan links*.
-         *
-         * An **orphan link** is a condition link whose both endpoints are main-pattern
-         * (matchable) nodes, meaning neither endpoint is a condition-exclusive instance.
-         * Such a link has no island after [IslandGrouper.groupIntoIslands] runs (the
-         * grouper only considers condition-exclusive instances).  A synthetic [Island]
-         * with an empty instance list and a single link is created for each orphan link,
-         * so the planner can emit it as an [BaseStep.ApplicationCondition] anchored to
-         * the two main-pattern endpoints.
-         *
-         * @param conditionInstances Instance elements exclusive to the condition.
-         * @param conditionLinks All link elements belonging to the condition.
-         * @param matchableNames The set of main-pattern instance names.
-         * @return The combined list of regular and orphan-link islands.
-         */
-        private fun buildIslandsIncludingOrphanLinks(
-            conditionInstances: List<TypedPatternObjectInstanceElement>,
-            conditionLinks: List<TypedPatternLinkElement>,
-            matchableNames: Set<String>
-        ): List<Island> {
-            val conditionNames = conditionInstances.map { it.objectInstance.name }.toSet()
-            val regularIslands = IslandGrouper.groupIntoIslands(conditionInstances, conditionLinks)
-            val orphanLinks = conditionLinks.filter { link ->
-                val src = link.link.source.objectName
-                val tgt = link.link.target.objectName
-                src !in conditionNames && src in matchableNames &&
-                tgt !in conditionNames && tgt in matchableNames
-            }
-            return regularIslands + orphanLinks.map { Island(instances = emptyList(), links = listOf(it)) }
         }
     }
 }

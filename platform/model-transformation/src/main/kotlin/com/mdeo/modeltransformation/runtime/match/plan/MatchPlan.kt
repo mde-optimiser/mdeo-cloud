@@ -61,12 +61,31 @@ internal sealed class BaseStep {
      *
      * Constant values are translated to `.has(key, value)`.
      * Non-constant expressions are translated to `.filter(equalityExpr.is(true))`.
+     *
+     * [conditionNodes] is empty for a constraint of the main pattern. For a constraint
+     * declared inside a `forbid` / `require` block it holds the names of the block's own
+     * nodes that the compared expression reads, which have to be labelled inside the
+     * condition chain before the expression can select them.
      */
     data class InlinePropertyConstraint(
         val instanceName: String,
         val className: String?,
         val property: TypedPatternPropertyAssignment,
-        val isConstant: Boolean
+        val isConstant: Boolean,
+        val conditionNodes: Set<String> = emptySet()
+    ) : BaseStep()
+
+    /**
+     * Repositions the traverser onto an already-bound node inside a condition chain.
+     *
+     * Used when the graph of an application condition falls apart into several components:
+     * after one component has been walked, the chain jumps to the anchor of the next one
+     * instead of continuing from wherever the previous walk ended.
+     *
+     * Translated to `.select(stepLabel(instanceName))`.
+     */
+    data class SelectNode(
+        val instanceName: String
     ) : BaseStep()
 
     /**
@@ -85,8 +104,11 @@ internal sealed class BaseStep {
     /**
      * A positive or negative application condition (PAC/NAC).
      *
-     * All PAC/NACs — whether connected (with a main-pattern anchor) or disconnected
-     * (no anchor) — are represented uniformly through this single step type.
+     * One step represents one `forbid` / `require` block. All PAC/NACs — whether connected
+     * (with a main-pattern anchor) or disconnected (no anchor), and whether their graph is
+     * connected or falls into several components — are represented uniformly through this
+     * single step type: the whole block is one traversal, so it is satisfied only when
+     * *all* of its components match simultaneously.
      *
      * When [anchorName] is non-null the sub-traversal starts at that anchor node.
      * When [anchorName] is null the first [innerStep][innerSteps] must be a [VertexScan]
@@ -96,9 +118,11 @@ internal sealed class BaseStep {
      * anchor and the chain is built as `select(anchor).where(innerChain)` instead of
      * applying [innerSteps] directly.
      *
-     * [innerSteps] are regular [BaseStep] instances ([VertexScan], [EdgeWalk],
+     * [innerSteps] are regular [BaseStep] instances ([VertexScan], [SelectNode], [EdgeWalk],
      * [InlinePropertyConstraint], [EqualityFilter]) that encode the condition pattern.
-     * This allows reusing the same step translation logic as for the main pattern.
+     * This allows reusing the same step translation logic as for the main pattern. A
+     * [VertexScan] or [SelectNode] in a non-initial position starts the next component of
+     * the condition graph.
      *
      * [injectiveConstraints] maps the step label of each condition-only node to the list
      * of outer (or earlier inner) step labels that the node must be distinct from.
@@ -107,13 +131,20 @@ internal sealed class BaseStep {
      *
      * Application conditions are sorted by estimated evaluation cost: cheaper conditions
      * (anchored, fewer steps) are placed before more expensive ones (unanchored, many steps).
+     *
+     * [localNames] are the names the block itself declares. They name a scope of their own:
+     * the block's nodes are bound inside its sub-traversal and nowhere else, so the chain is
+     * compiled against a child scope holding exactly these names. It is empty for the
+     * synthetic conditions that check the existence of a link, which declare nothing.
      */
     data class ApplicationCondition(
         val isNegative: Boolean,
         val anchorName: String?,
         val needsSelect: Boolean,
         val innerSteps: List<BaseStep>,
-        val injectiveConstraints: Map<String, List<String>> = emptyMap()
+        val injectiveConstraints: Map<String, List<String>> = emptyMap(),
+        val name: String? = null,
+        val localNames: Set<String> = emptySet()
     ) : BaseStep()
 
     /**
@@ -147,12 +178,18 @@ internal sealed class BaseStep {
     ) : BaseStep()
 
     /**
-     * A where-clause filter applied after all instances and variables are bound.
+     * A where-clause filter applied after all instances and variables it reads are bound.
      *
      * Translated to `.where(compiledExpression.is(true))`.
+     *
+     * [conditionNodes] is empty for a where clause of the main pattern. For a clause
+     * declared inside a `forbid` / `require` block it holds the names of the block's own
+     * nodes that the expression reads: those nodes live only inside the condition chain,
+     * so they have to be labelled there before the filter can select them.
      */
     data class WhereFilter(
-        val whereClause: TypedPatternWhereClauseElement
+        val whereClause: TypedPatternWhereClauseElement,
+        val conditionNodes: Set<String> = emptySet()
     ) : BaseStep()
 
     /**

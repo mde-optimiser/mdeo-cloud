@@ -3,6 +3,7 @@ package com.mdeo.modeltransformation.runtime
 import com.mdeo.expression.ast.expressions.*
 import com.mdeo.modeltransformation.ast.TypedAst
 import com.mdeo.modeltransformation.ast.patterns.*
+import com.mdeo.modeltransformation.runtime.match.forbidBlock
 import com.mdeo.modeltransformation.ast.statements.*
 import com.mdeo.modeltransformation.compiler.ExpressionCompilerRegistry
 import com.mdeo.modeltransformation.graph.tinker.TinkerModelGraph
@@ -194,33 +195,35 @@ class EdgeCaseBugHuntingTest {
                                 properties = emptyList()
                             )
                         ),
-                        TypedPatternObjectInstanceElement(
-                            objectInstance = TypedPatternObjectInstance(
-                                modifier = "forbid",
-                                name = "room",
-                                className = "Room",
-                                properties = listOf(
-                                    TypedPatternPropertyAssignment(
-                                        propertyName = "name",
-                                        operator = "==",
-                                        value = TypedStringLiteralExpression(
-                                            evalType = 0,
-                                            value = "Kitchen"
+                        forbidBlock(
+                            TypedPatternObjectInstanceElement(
+                                objectInstance = TypedPatternObjectInstance(
+                                    modifier = null,
+                                    name = "room",
+                                    className = "Room",
+                                    properties = listOf(
+                                        TypedPatternPropertyAssignment(
+                                            propertyName = "name",
+                                            operator = "==",
+                                            value = TypedStringLiteralExpression(
+                                                evalType = 0,
+                                                value = "Kitchen"
+                                            )
                                         )
                                     )
                                 )
-                            )
-                        ),
-                        TypedPatternLinkElement(
-                            link = TypedPatternLink(
-                                modifier = "forbid",
-                                source = TypedPatternLinkEnd(
-                                    objectName = "house",
-                                    propertyName = "rooms"
-                                ),
-                                target = TypedPatternLinkEnd(
-                                    objectName = "room",
-                                    propertyName = null
+                            ),
+                            TypedPatternLinkElement(
+                                link = TypedPatternLink(
+                                    modifier = null,
+                                    source = TypedPatternLinkEnd(
+                                        objectName = "house",
+                                        propertyName = "rooms"
+                                    ),
+                                    target = TypedPatternLinkEnd(
+                                        objectName = "room",
+                                        propertyName = null
+                                    )
                                 )
                             )
                         )
@@ -253,24 +256,26 @@ class EdgeCaseBugHuntingTest {
                                 properties = emptyList()
                             )
                         ),
-                        TypedPatternObjectInstanceElement(
-                            objectInstance = TypedPatternObjectInstance(
-                                modifier = "forbid",
-                                name = "room",
-                                className = "Room",
-                                properties = emptyList()
-                            )
-                        ),
-                        TypedPatternLinkElement(
-                            link = TypedPatternLink(
-                                modifier = "forbid",
-                                source = TypedPatternLinkEnd(
-                                    objectName = "house",
-                                    propertyName = "rooms"
-                                ),
-                                target = TypedPatternLinkEnd(
-                                    objectName = "room",
-                                    propertyName = null
+                        forbidBlock(
+                            TypedPatternObjectInstanceElement(
+                                objectInstance = TypedPatternObjectInstance(
+                                    modifier = null,
+                                    name = "room",
+                                    className = "Room",
+                                    properties = emptyList()
+                                )
+                            ),
+                            TypedPatternLinkElement(
+                                link = TypedPatternLink(
+                                    modifier = null,
+                                    source = TypedPatternLinkEnd(
+                                        objectName = "house",
+                                        propertyName = "rooms"
+                                    ),
+                                    target = TypedPatternLinkEnd(
+                                        objectName = "room",
+                                        propertyName = null
+                                    )
                                 )
                             )
                         )

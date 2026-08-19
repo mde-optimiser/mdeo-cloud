@@ -39,7 +39,9 @@ import {
     MatchStatement,
     UntilMatchStatement,
     PatternObjectInstance,
-    PatternVariable
+    PatternVariable,
+    PatternApplicationCondition,
+    type PatternApplicationConditionType
 } from "../../grammar/modelTransformationTypes.js";
 import { ModelTransformationLambdaScope } from "./modelTransformationLambdaScope.js";
 
@@ -103,6 +105,7 @@ export class ModelTransformationTypirScopeProvider extends BaseScopeProvider<
             [IfMatchConditionAndBlock.name, (node, parent) => this.createIfMatchConditionScope(node, parent)],
             [WhileMatchStatement.name, (node, parent) => this.createWhileMatchScope(node, parent)],
             [ForMatchStatement.name, (node, parent) => this.createForMatchScope(node, parent)],
+            [PatternApplicationCondition.name, (node, parent) => this.createApplicationConditionScope(node, parent)],
             [LambdaExpression.name, (node, parent) => this.createLambdaScope(node, parent)]
         ]);
     }
@@ -120,6 +123,7 @@ export class ModelTransformationTypirScopeProvider extends BaseScopeProvider<
             this.reflection.isInstance(node, IfMatchConditionAndBlock) ||
             this.reflection.isInstance(node, WhileMatchStatement) ||
             this.reflection.isInstance(node, ForMatchStatement) ||
+            this.reflection.isInstance(node, PatternApplicationCondition) ||
             this.reflection.isInstance(node, LambdaExpression)
         );
     }
@@ -378,6 +382,41 @@ export class ModelTransformationTypirScopeProvider extends BaseScopeProvider<
             (scope) => this.collectPatternEntriesFromPattern(node.pattern, scope),
             () => [],
             this.collectPatternInitializationsFromPattern(node.pattern),
+            node
+        );
+    }
+
+    /**
+     * Creates a scope for an application condition block.
+     *
+     * The block's own instances are only visible inside the block; everything declared in
+     * the enclosing pattern (instances and variables) stays reachable through the parent
+     * scope, so condition constraints — property comparisons and the block's where clauses —
+     * can compare against outer nodes and variables.
+     *
+     * A block is a scope in its own right, at run time as well: its nodes are matched inside
+     * the block's own sub-traversal, and the execution engine binds their names in a scope of
+     * that level and no other. An identifier resolved here therefore records the block's
+     * level, one level deeper than the pattern's.
+     *
+     * @param node The application condition node.
+     * @param parentScope The parent scope.
+     * @returns A new scope holding the block-local instances.
+     */
+    private createApplicationConditionScope(
+        node: PatternApplicationConditionType,
+        parentScope: BoundScope<TypirLangiumSpecifics> | undefined
+    ): Scope<TypirLangiumSpecifics> {
+        return new DefaultScope<TypirLangiumSpecifics>(
+            parentScope,
+            (scope) =>
+                (node.elements ?? [])
+                    .filter((element) => this.reflection.isInstance(element, PatternObjectInstance))
+                    .map((element) => this.createObjectInstanceEntry(element as PatternObjectInstanceType, -1, scope)),
+            () => [],
+            (node.elements ?? [])
+                .filter((element) => this.reflection.isInstance(element, PatternObjectInstance))
+                .map((element) => ({ name: (element as PatternObjectInstanceType).name, position: -1 })),
             node
         );
     }

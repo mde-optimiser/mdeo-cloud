@@ -1,5 +1,4 @@
 import type { Command } from "@eclipse-glsp/server";
-import type { ReconnectEdgeOperation as ReconnectEdgeOperationType } from "@mdeo/protocol-common";
 import type { AstNode } from "langium";
 import type { WorkspaceEdit } from "vscode-languageserver-types";
 import type { GNode } from "../model/node.js";
@@ -8,13 +7,9 @@ import { BaseOperationHandler } from "./baseOperationHandler.js";
 import { OperationHandlerCommand } from "./operationHandlerCommand.js";
 import type { EdgeMetadata } from "../metadata.js";
 import { GEdge } from "../model/edge.js";
+import { ReconnectEdgeOperation } from "@mdeo/protocol-common";
 
 const { injectable } = sharedImport("inversify");
-
-/**
- * The kind identifier for reconnect edge operations.
- */
-const RECONNECT_EDGE_OPERATION_KIND = "reconnectEdge";
 
 /**
  * Container for old and new source/target nodes during reconnection.
@@ -61,9 +56,9 @@ export interface ReconnectEdgeResult {
  */
 @injectable()
 export abstract class BaseReconnectEdgeOperationHandler extends BaseOperationHandler {
-    override readonly operationType = RECONNECT_EDGE_OPERATION_KIND;
+    override readonly operationType = ReconnectEdgeOperation.KIND;
 
-    override async createCommand(operation: ReconnectEdgeOperationType): Promise<Command | undefined> {
+    override async createCommand(operation: ReconnectEdgeOperation): Promise<Command | undefined> {
         const edge = this.modelState.index.find(operation.edgeElementId);
         if (edge == undefined) {
             throw new Error(`Edge with ID ${operation.edgeElementId} not found in model.`);
@@ -94,7 +89,7 @@ export abstract class BaseReconnectEdgeOperationHandler extends BaseOperationHan
      */
     protected async createReconnectEditWithEndpoints(
         edge: GEdge,
-        operation: ReconnectEdgeOperationType
+        operation: ReconnectEdgeOperation
     ): Promise<ReconnectEdgeResult | undefined> {
         const sourceElement = this.index.getAstNode(edge);
         if (sourceElement == undefined) {
@@ -112,7 +107,7 @@ export abstract class BaseReconnectEdgeOperationHandler extends BaseOperationHan
      * @param operation The reconnect operation
      * @returns The reconnect endpoints
      */
-    protected extractEndpoints(edge: any, operation: ReconnectEdgeOperationType): ReconnectEndpoints {
+    protected extractEndpoints(edge: any, operation: ReconnectEdgeOperation): ReconnectEndpoints {
         const oldSource = this.modelState.index.find(edge.sourceId) as GNode;
         const oldTarget = this.modelState.index.find(edge.targetId) as GNode;
         const newSource = this.modelState.index.find(operation.sourceElementId) as GNode;
@@ -142,7 +137,7 @@ export abstract class BaseReconnectEdgeOperationHandler extends BaseOperationHan
      */
     abstract createReconnectEdit(
         node: AstNode,
-        operation: ReconnectEdgeOperationType,
+        operation: ReconnectEdgeOperation,
         edge: GEdge,
         endpoints: ReconnectEndpoints
     ): Promise<ReconnectEdgeResult | undefined>;
@@ -158,7 +153,7 @@ export abstract class BaseReconnectEdgeOperationHandler extends BaseOperationHan
      */
     protected buildEdgeMetadata(
         edge: GEdge,
-        operation: ReconnectEdgeOperationType,
+        operation: ReconnectEdgeOperation,
         newEdgeId: string
     ): { edges: Record<string, Partial<EdgeMetadata> | null> } {
         return {

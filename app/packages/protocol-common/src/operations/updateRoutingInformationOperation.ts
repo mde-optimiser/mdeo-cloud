@@ -37,3 +37,13 @@ export interface EdgeRoutingUpdate {
      */
     targetAnchor?: EdgeAnchor;
 }
+
+/**
+ * Namespace helpers for update-routing-information operations.
+ */
+export namespace UpdateRoutingInformationOperation {
+    /**
+     * Operation kind constant.
+     */
+    export const KIND = "updateRoutingInformation";
+}

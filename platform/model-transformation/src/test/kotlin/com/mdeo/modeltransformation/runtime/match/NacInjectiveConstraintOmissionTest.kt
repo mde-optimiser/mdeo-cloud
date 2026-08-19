@@ -33,25 +33,30 @@ import kotlin.test.assertIs
  * sprint2 : Sprint {}
  * plan    : Plan {}
  * workItem: WorkItem {}
- * forbid sprint1 : Sprint {}
  *
  * sprint2 -- plan                       (matchable)
- * forbid workItem -- sprint1            (NAC: sprint1 -- workItem)
- * forbid sprint2 -- workItem            (forbid orphan link)
- * forbid plan -- sprint1                (NAC: plan -- sprint1)
+ *
+ * forbid {
+ *     sprint1 : Sprint {}
+ *     sprint1 -- workItem
+ *     plan    -- sprint1
+ * }
+ * forbid {
+ *     sprint2 -- workItem
+ * }
  * ```
  *
- * **Improvement 1**: the NAC island for sprint1 has two anchors (workItem and plan)
- * and a single island node (sprint1 : Sprint).  Normally the planner would emit
+ * **Improvement 1**: the NAC block for sprint1 has two anchors (workItem and plan)
+ * and a single condition node (sprint1 : Sprint).  Normally the planner would emit
  * `sprint1 != sprint2` because both are Sprints.  With the optimisation this
  * constraint is **omitted**: if sprint1 = sprint2 the NAC would fire only when
- * the edge sprint2–workItem exists, but that edge is already guarded by the
- * `forbid sprint2 -- workItem` orphan link.  Correctness is preserved.
+ * the edge sprint2–workItem exists, but that edge is already guarded by the second
+ * block.  Correctness is preserved.
  *
  * **Improvement 2**: the step-level greedy algorithm interleaves instances across
  * logical connectivity groups.  It first scans Plan (highest class priority, it is
  * the composition root), then immediately scans WorkItem — even though sprint2 is
- * adjacent to plan — because covering WorkItem unlocks the NAC island (anchors =
+ * adjacent to plan — because covering WorkItem unlocks the NAC block (anchors =
  * {workItem, plan}) at lower cost.  The NAC is then emitted inline before the
  * EdgeWalk(plan → sprint2) is added.  This prunes traversers before the expensive
  * sprint2 fan-out rather than after it.
@@ -123,11 +128,11 @@ class NacInjectiveConstraintOmissionTest {
     /**
      * The full addItemToSprint pattern as described in the class KDoc.
      *
-     * NAC island: sprint1 connected to workItem and plan.
-     * Forbid orphan link: sprint2 -- workItem.
+     * One NAC block holds sprint1 together with its links to workItem and plan; a second
+     * NAC block holds only the link sprint2 -- workItem.
      *
-     * With improvement 1 the planner must **not** emit `sprint1 != sprint2`
-     * because the `forbid sprint2 -- workItem` constraint already covers that case.
+     * The planner must **not** emit `sprint1 != sprint2`, because the second block already
+     * covers that case.
      */
     private fun buildPattern(): TypedMatchStatement = TypedMatchStatement(
         pattern = TypedPattern(
@@ -135,19 +140,22 @@ class NacInjectiveConstraintOmissionTest {
                 matchInstance("sprint2",  "Sprint"),
                 matchInstance("plan",     "Plan"),
                 matchInstance("workItem", "WorkItem"),
-                forbidInstance("sprint1", "Sprint"),
 
                 // sprint2 -- plan  (Plan.sprints --> Sprint.plan)
                 matchLink("plan", "sprints", "sprint2", "plan"),
 
-                // forbid workItem -- sprint1  (Sprint.committedItems --> WorkItem.isPlannedFor)
-                forbidLink("sprint1", "committedItems", "workItem", "isPlannedFor"),
+                forbidBlock(
+                    matchInstance("sprint1", "Sprint"),
+                    // workItem -- sprint1  (Sprint.committedItems --> WorkItem.isPlannedFor)
+                    matchLink("sprint1", "committedItems", "workItem", "isPlannedFor"),
+                    // plan -- sprint1  (Plan.sprints --> Sprint.plan)
+                    matchLink("plan", "sprints", "sprint1", "plan")
+                ),
 
-                // forbid sprint2 -- workItem  (orphan link, both endpoints are main pattern)
-                forbidLink("sprint2", "committedItems", "workItem", "isPlannedFor"),
-
-                // forbid plan -- sprint1  (Plan.sprints --> Sprint.plan)
-                forbidLink("plan", "sprints", "sprint1", "plan")
+                // a block over two main-pattern nodes only
+                forbidBlock(
+                    matchLink("sprint2", "committedItems", "workItem", "isPlannedFor")
+                )
             )
         )
     )
@@ -175,12 +183,12 @@ class NacInjectiveConstraintOmissionTest {
             val sprint2 = graph.addVertex("Sprint")
             plan.addEdge(sprintsToPlan, sprint2)
             val workItem = graph.addVertex("WorkItem")
-            // The forbid orphan link fires: sprint2 already connected to workItem.
+            // The single-link forbid block fires: sprint2 already connected to workItem.
             sprint2.addEdge(committedToPlanned, workItem)
 
             val result = engine.executeStatement(buildPattern(), context)
             assertIs<TransformationExecutionResult.Failure>(result,
-                "Expected FAILURE: sprint2 already connected to workItem (forbid orphan link)")
+                "Expected FAILURE: sprint2 already connected to workItem (single-link forbid block)")
         }
 
         @Test
@@ -326,13 +334,6 @@ class NacInjectiveConstraintOmissionTest {
             )
         )
 
-    private fun forbidInstance(name: String, className: String) =
-        TypedPatternObjectInstanceElement(
-            objectInstance = TypedPatternObjectInstance(
-                modifier = "forbid", name = name, className = className, properties = emptyList()
-            )
-        )
-
     private fun matchLink(
         sourceName: String, sourceProperty: String?,
         targetName: String, targetProperty: String?
@@ -344,14 +345,4 @@ class NacInjectiveConstraintOmissionTest {
         )
     )
 
-    private fun forbidLink(
-        sourceName: String, sourceProperty: String?,
-        targetName: String, targetProperty: String?
-    ) = TypedPatternLinkElement(
-        link = TypedPatternLink(
-            modifier = "forbid",
-            source = TypedPatternLinkEnd(objectName = sourceName, propertyName = sourceProperty),
-            target = TypedPatternLinkEnd(objectName = targetName, propertyName = targetProperty)
-        )
-    )
 }

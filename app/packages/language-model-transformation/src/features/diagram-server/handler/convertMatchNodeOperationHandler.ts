@@ -34,7 +34,7 @@ const { TextEdit } = sharedImport("vscode-languageserver-types");
  */
 @injectable()
 export class ConvertMatchNodeOperationHandler extends BaseOperationHandler implements ContextItemProvider {
-    override readonly operationType = "convertMatchNode";
+    override readonly operationType = ConvertMatchNodeOperation.KIND;
 
     /**
      * Creates a command that converts a match-node statement into the requested form by applying

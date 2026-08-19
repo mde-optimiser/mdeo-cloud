@@ -21,7 +21,7 @@ const { injectable } = sharedImport("inversify");
  */
 @injectable()
 export class ChangeLinkTypeOperationHandler extends BaseOperationHandler implements ContextItemProvider {
-    override readonly operationType = "changePropertyTypeLink";
+    override readonly operationType = ChangePropertyTypeLinkOperation.KIND;
 
     /**
      * Creates a workspace-edit command that updates source and target pattern-link-end property references.

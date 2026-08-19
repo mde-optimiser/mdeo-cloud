@@ -5,13 +5,9 @@ import type { EdgeRouter } from "../edge-routing/edgeRouter.js";
 import { Orientation } from "../edge-routing/edgeRouter.js";
 import { SetEdgeRoutingFeedbackAction } from "./edgeRoutingFeedback.js";
 import type { EdgeEditTool } from "./edgeEditTool.js";
-import type {
-    EdgeLayoutMetadata,
-    EdgeAnchor,
-    AnchorSide,
-    UpdateRoutingInformationOperation
-} from "@mdeo/protocol-common";
+import type { EdgeLayoutMetadata, EdgeAnchor, AnchorSide } from "@mdeo/protocol-common";
 import type { Bounds as BoundsType } from "@eclipse-glsp/protocol";
+import { UpdateRoutingInformationOperation } from "@mdeo/protocol-common";
 
 const { DragAwareMouseListener, getAbsolutePosition, cursorFeedbackAction, isSelected, CursorCSS } =
     sharedImport("@eclipse-glsp/client");
@@ -162,7 +158,7 @@ export class FeedbackEdgeRouteMovingMouseListener extends DragAwareMouseListener
             targetAnchor: newMeta.targetAnchor
         };
         const operation: UpdateRoutingInformationOperation = {
-            kind: "updateRoutingInformation",
+            kind: UpdateRoutingInformationOperation.KIND,
             isOperation: true,
             updates: [routingUpdate]
         };

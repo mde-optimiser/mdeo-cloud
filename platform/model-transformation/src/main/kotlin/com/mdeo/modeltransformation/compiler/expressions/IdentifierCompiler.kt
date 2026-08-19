@@ -21,7 +21,8 @@ import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.`__` as Anonymou
  * assigned by the TypeScript type checker. The scope index represents nesting depth:
  * - Scope 0: Global scope (built-ins)
  * - Scope 1: Top-level model transformation scope
- * - Scope 2+: Nested scopes (if-match, while-match, for-match conditions, etc.)
+ * - Scope 2+: Nested scopes (if-match, while-match, for-match conditions, `forbid` /
+ *             `require` blocks, lambdas, etc.)
  *
  * Variable bindings can be:
  * - [VariableBinding.ValueBinding]: Produces a constant traversal

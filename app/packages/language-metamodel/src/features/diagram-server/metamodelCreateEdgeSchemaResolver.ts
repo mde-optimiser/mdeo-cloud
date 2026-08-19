@@ -10,7 +10,8 @@ import type { InitialCreateEdgeSchemaRequest, TargetCreateEdgeSchemaRequest } fr
 import type { AstNode } from "langium";
 import type { GModelElementSchema } from "@eclipse-glsp/protocol";
 import { Class, type ClassType } from "../../grammar/metamodelTypes.js";
-import { MetamodelElementType, AssociationEndKind } from "@mdeo/protocol-metamodel";
+import { MetamodelElementType, AssociationEndKind, EdgeCreationType } from "@mdeo/protocol-metamodel";
+import type { MetamodelEdgeCreationContext } from "@mdeo/protocol-metamodel";
 import { GAssociationEdge } from "./model/associationEdge.js";
 import { GAssociationPropertyNode } from "./model/associationPropertyNode.js";
 import { GAssociationPropertyLabel } from "./model/associationPropertyLabel.js";
@@ -21,26 +22,6 @@ import { generateDefaultPropertyName } from "./handler/metamodelHandlerUtils.js"
 
 const { injectable, inject } = sharedImport("inversify");
 const { ModelState: ModelStateKey, GModelIndex: GModelIndexKey } = sharedImport("@eclipse-glsp/server");
-
-/**
- * EdgeCreationType values mirrored from editor-metamodel (avoid a cross-package import).
- */
-const EdgeCreationType = {
-    UNIDIRECTIONAL: "unidirectional",
-    BIDIRECTIONAL: "bidirectional",
-    COMPOSITION: "composition",
-    NAVIGABLE_COMPOSITION: "navigable-composition",
-    EXTENDS: "extends"
-} as const;
-
-type EdgeCreationTypeValue = (typeof EdgeCreationType)[keyof typeof EdgeCreationType];
-
-/**
- * Context provided by the client create-edge context provider.
- */
-interface MetamodelEdgeCreationContext {
-    edgeType?: EdgeCreationTypeValue;
-}
 
 /**
  * Resolves create-edge schemas for metamodel diagrams.
@@ -165,7 +146,7 @@ export class MetamodelCreateEdgeSchemaResolver extends CreateEdgeSchemaResolver 
      * @param context The client-supplied context object, expected to contain an optional edgeType field
      * @returns The resolved edge creation type value
      */
-    private extractEdgeType(context: unknown): EdgeCreationTypeValue {
+    private extractEdgeType(context: unknown): EdgeCreationType {
         const ctx = context as MetamodelEdgeCreationContext | undefined;
         return ctx?.edgeType ?? EdgeCreationType.UNIDIRECTIONAL;
     }
@@ -178,7 +159,7 @@ export class MetamodelCreateEdgeSchemaResolver extends CreateEdgeSchemaResolver 
      * @param edgeType The edge creation type to check
      * @returns True if the edge type requires a label on the target AST end, false otherwise
      */
-    private requiresTargetLabel(edgeType: EdgeCreationTypeValue): boolean {
+    private requiresTargetLabel(edgeType: EdgeCreationType): boolean {
         return (
             edgeType === EdgeCreationType.BIDIRECTIONAL ||
             edgeType === EdgeCreationType.COMPOSITION ||
@@ -233,7 +214,7 @@ export class MetamodelCreateEdgeSchemaResolver extends CreateEdgeSchemaResolver 
      */
     private buildInitialSchema(
         sourceElementId: string,
-        edgeType: EdgeCreationTypeValue,
+        edgeType: EdgeCreationType,
         params: Record<string, unknown>,
         precomputedTargetLabel: string | undefined
     ): CreateEdgeSchema {
@@ -321,7 +302,7 @@ export class MetamodelCreateEdgeSchemaResolver extends CreateEdgeSchemaResolver 
     private buildAssociationSchema(
         sourceElementId: string,
         targetElementId: string,
-        edgeType: EdgeCreationTypeValue,
+        edgeType: EdgeCreationType,
         sourceClass: ClassType,
         targetClassName: string
     ): CreateEdgeSchema {
@@ -404,7 +385,7 @@ export class MetamodelCreateEdgeSchemaResolver extends CreateEdgeSchemaResolver 
      * @param edgeType The edge creation type to check
      * @returns True if the edge type requires a label on the source AST end, false otherwise
      */
-    private requiresSourceLabel(edgeType: EdgeCreationTypeValue): boolean {
+    private requiresSourceLabel(edgeType: EdgeCreationType): boolean {
         return (
             edgeType === EdgeCreationType.UNIDIRECTIONAL ||
             edgeType === EdgeCreationType.BIDIRECTIONAL ||
@@ -418,7 +399,7 @@ export class MetamodelCreateEdgeSchemaResolver extends CreateEdgeSchemaResolver 
      * @param edgeType The edge creation type
      * @returns The string operator (e.g., "-->" for unidirectional)
      */
-    private getOperator(edgeType: EdgeCreationTypeValue): string {
+    private getOperator(edgeType: EdgeCreationType): string {
         switch (edgeType) {
             case EdgeCreationType.UNIDIRECTIONAL:
                 return "-->";
@@ -439,7 +420,7 @@ export class MetamodelCreateEdgeSchemaResolver extends CreateEdgeSchemaResolver 
      * @param edgeType The edge creation type
      * @returns An object with sourceKind and targetKind for the association ends
      */
-    private getEndKinds(edgeType: EdgeCreationTypeValue): {
+    private getEndKinds(edgeType: EdgeCreationType): {
         sourceKind: AssociationEndKind;
         targetKind: AssociationEndKind;
     } {

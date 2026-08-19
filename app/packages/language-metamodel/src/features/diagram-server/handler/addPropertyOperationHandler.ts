@@ -6,8 +6,7 @@ import {
     GHorizontalDivider
 } from "@mdeo/language-shared";
 import { Class, type ClassType } from "../../../grammar/metamodelTypes.js";
-import type { AddPropertyOperation } from "@mdeo/protocol-metamodel";
-import { MetamodelElementType } from "@mdeo/protocol-metamodel";
+import { AddPropertyOperation, MetamodelElementType } from "@mdeo/protocol-metamodel";
 import type { Command, GModelElement } from "@eclipse-glsp/server";
 import type { ContextActionRequestContext, ContextItemProvider } from "@mdeo/language-shared";
 import type { ContextItem } from "@mdeo/protocol-common";
@@ -29,7 +28,7 @@ export const NEW_PROPERTY_LABEL_PREFIX = "__new-label-prop-";
  */
 @injectable()
 export class AddPropertyOperationHandler extends BaseOperationHandler implements ContextItemProvider {
-    override readonly operationType = "addProperty";
+    override readonly operationType = AddPropertyOperation.KIND;
 
     /**
      * Creates a workspace-edit command that inserts a new property into a class body.
@@ -116,7 +115,7 @@ export class AddPropertyOperationHandler extends BaseOperationHandler implements
             .id(labelId)
             .text("")
             .isNewLabel(true)
-            .newLabelOperationKind("property-name-edit")
+            .newLabelOperationKind(AddPropertyOperation.NEW_LABEL_KIND)
             .newLabelParentElementId(nodeId)
             .build();
 

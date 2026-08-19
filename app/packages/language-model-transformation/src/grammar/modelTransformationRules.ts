@@ -50,7 +50,8 @@ import {
     expressionTypes,
     type ModelTransformationType,
     BaseTransformationStatement,
-    PatternObjectInstanceReference
+    PatternObjectInstanceReference,
+    PatternApplicationCondition
 } from "./modelTransformationTypes.js";
 
 /**
@@ -102,18 +103,14 @@ export function generateModelTransformationRules(): {
 
     /**
      * Pattern modifier rule.
-     * Matches create, delete, forbid, or require keywords.
+     * Matches the create or delete keyword.
+     *
+     * `forbid` and `require` are not element modifiers; they introduce an application
+     * condition block ({@link PatternApplicationConditionRule}).
      */
     const PatternModifierRule = createRule("PatternModifierRule")
         .returns(PatternModifier)
-        .as(({ set }) => [
-            or(
-                set("modifier", "create"),
-                set("modifier", "delete"),
-                set("modifier", "forbid"),
-                set("modifier", "require")
-            )
-        ]);
+        .as(({ set }) => [or(set("modifier", "create"), set("modifier", "delete"))]);
 
     /**
      * Pattern variable rule.
@@ -237,6 +234,33 @@ export function generateModelTransformationRules(): {
         .as(({ set }) => ["where", set("expression", ExpressionRule)]);
 
     /**
+     * Application condition rule.
+     * Format: forbid|require [name] { elements }
+     *
+     * The block describes a graph of its own, matched independently of the enclosing
+     * pattern and of every other block. Only structural elements are allowed inside it;
+     * `var`, `delete <name>` and nested condition blocks are deliberately not part of the
+     * rule, so that a condition always denotes a plain sub-graph.
+     */
+    const PatternApplicationConditionRule = createRule("PatternApplicationConditionRule")
+        .returns(PatternApplicationCondition)
+        .as(({ set, add }) => [
+            or(set("kind", "forbid"), set("kind", "require")),
+            optional(set("name", ID)),
+            "{",
+            many(
+                or(
+                    add("elements", PatternObjectInstanceReferenceRule),
+                    add("elements", PatternObjectInstanceRule),
+                    add("elements", PatternLinkRule),
+                    add("elements", WhereClauseRule),
+                    NEWLINE
+                )
+            ),
+            "}"
+        ]);
+
+    /**
      * Pattern rule containing pattern elements.
      */
     const PatternRule = createRule("PatternRule")
@@ -252,6 +276,7 @@ export function generateModelTransformationRules(): {
                     add("elements", PatternLinkRule),
                     add("elements", PatternObjectDeleteRule),
                     add("elements", WhereClauseRule),
+                    add("elements", PatternApplicationConditionRule),
                     NEWLINE
                 )
             ),

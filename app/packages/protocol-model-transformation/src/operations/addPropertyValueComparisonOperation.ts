@@ -26,6 +26,12 @@ export namespace AddPropertyValueComparisonOperation {
     export const KIND = "addPropertyValueComparison";
 
     /**
+     * Identifier carried in `newLabelOperationKind` by a new property value or comparison placeholder label,
+     * by which the label view recognises a label it has to commit through this operation.
+     */
+    export const NEW_LABEL_KIND = "property-value-comparison-edit";
+
+    /**
      * Payload for creating an add-property-value-comparison operation.
      */
     export interface Options {

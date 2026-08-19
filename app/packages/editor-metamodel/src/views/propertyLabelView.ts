@@ -19,7 +19,7 @@ export class GPropertyLabelView extends GLabelView {
      * @returns The operation to dispatch
      */
     protected override createNewLabelOperation(model: Readonly<GLabel>, editText: string): Operation {
-        if (model.newLabelOperationKind !== "property-name-edit") {
+        if (model.newLabelOperationKind !== AddPropertyOperation.NEW_LABEL_KIND) {
             return super.createNewLabelOperation(model, editText);
         }
 

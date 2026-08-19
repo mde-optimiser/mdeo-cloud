@@ -1,6 +1,6 @@
 import type { GNode, CreateEdgeResult } from "@mdeo/language-shared";
 import { sharedImport } from "@mdeo/language-shared";
-import type { CreateEdgeOperation } from "@mdeo/protocol-common";
+import { CreateEdgeOperation } from "@mdeo/protocol-common";
 import {
     Association,
     AssociationEnd,
@@ -9,26 +9,26 @@ import {
     type AssociationEndType,
     type ClassType
 } from "../../../grammar/metamodelTypes.js";
-import { MetamodelElementType } from "@mdeo/protocol-metamodel";
+import { MetamodelElementType, EdgeCreationType } from "@mdeo/protocol-metamodel";
 import { MetamodelBaseCreateEdgeOperationHandler } from "./metamodelBaseCreateEdgeOperationHandler.js";
 
 const { injectable } = sharedImport("inversify");
 
 /**
- * Maps EdgeCreationType string values to their corresponding association operators.
+ * Maps each edge type offered by the toolbox to the association operator it writes.
  */
-const EDGE_TYPE_TO_OPERATOR: Record<string, MetamodelAssociationOperators> = {
-    unidirectional: MetamodelAssociationOperators.NAVIGABLE_TO_TARGET,
-    bidirectional: MetamodelAssociationOperators.BIDIRECTIONAL,
-    composition: MetamodelAssociationOperators.COMPOSITION_SOURCE,
-    "navigable-composition": MetamodelAssociationOperators.COMPOSITION_SOURCE_NAVIGABLE_TARGET
+const EDGE_TYPE_TO_OPERATOR: Partial<Record<EdgeCreationType, MetamodelAssociationOperators>> = {
+    [EdgeCreationType.UNIDIRECTIONAL]: MetamodelAssociationOperators.NAVIGABLE_TO_TARGET,
+    [EdgeCreationType.BIDIRECTIONAL]: MetamodelAssociationOperators.BIDIRECTIONAL,
+    [EdgeCreationType.COMPOSITION]: MetamodelAssociationOperators.COMPOSITION_SOURCE,
+    [EdgeCreationType.NAVIGABLE_COMPOSITION]: MetamodelAssociationOperators.COMPOSITION_SOURCE_NAVIGABLE_TARGET
 };
 
 /**
  * Params shape embedded in the create-edge schema for metamodel edges.
  */
 interface MetamodelCreateEdgeParams {
-    edgeType?: string;
+    edgeType?: EdgeCreationType;
     sourceLabel?: string;
     targetLabel?: string;
 }
@@ -39,7 +39,7 @@ interface MetamodelCreateEdgeParams {
  */
 @injectable()
 export class CreateAssociationOperationHandler extends MetamodelBaseCreateEdgeOperationHandler {
-    override readonly operationType = "createEdge";
+    override readonly operationType = CreateEdgeOperation.KIND;
     override label = "Create association edge";
     readonly elementTypeIds = [MetamodelElementType.EDGE_ASSOCIATION];
 

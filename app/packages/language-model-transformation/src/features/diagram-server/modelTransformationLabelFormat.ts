@@ -1,8 +1,3 @@
-/**
- * Shared parsing utilities for model transformation label editing.
- * Used by both the apply-label-edit handler and the label-edit validator.
- */
-
 import type { PatternPropertyOperator } from "../../plugin/typedAst.js";
 
 /**
@@ -155,16 +150,83 @@ export function parseModelTransformationPropertyLabel(
 }
 
 /**
+ * The keyword a where clause label starts with, after its optional stereotype.
+ */
+const WHERE_KEYWORD = "where";
+
+/**
+ * Wraps a stereotype in guillemets, the way a label displays it.
+ *
+ * @param text The stereotype text, without guillemets
+ * @returns The stereotype as it appears in a label
+ */
+export function stereotypeText(text: string): string {
+    return `\u00ab${text}\u00bb`;
+}
+
+/**
+ * Builds the label text of a where clause.
+ *
+ * A clause of an application condition block is rendered with the block's stereotype in
+ * front of it, so that it is visible which condition the constraint belongs to.
+ *
+ * @param expression The clause expression text
+ * @param stereotype The stereotype of the block the clause belongs to, if any
+ * @returns The label text, read back by {@link extractWhereClauseExpression}
+ */
+export function whereClauseLabelText(expression: string, stereotype?: string): string {
+    const prefix = stereotype != undefined ? `${stereotypeText(stereotype)} ` : "";
+    return `${prefix}${WHERE_KEYWORD} ${expression}`;
+}
+
+/**
+ * Reads the modifier a label states, ignoring how it is decorated.
+ *
+ * Unlike the stereotype of a condition block, a modifier is edited by typing, so the text
+ * arrives in whatever shape the user left it in: with or without guillemets, in any case.
+ *
+ * @param text The label text
+ * @returns The bare modifier keyword, lowercased
+ */
+export function parseModifierText(text: string): string {
+    return text
+        .replace(/\u00ab/g, "")
+        .replace(/\u00bb/g, "")
+        .trim()
+        .toLowerCase();
+}
+
+/**
+ * Removes the leading `\u00ab…\u00bb` stereotype from a label, if it carries one.
+ *
+ * A where clause of an application condition block is rendered with the block's stereotype in
+ * front of it, so that it is visible which condition the constraint belongs to. The
+ * stereotype is display-only: which block a clause belongs to is decided by moving it, not by
+ * typing, so it is dropped again when the label is read back.
+ *
+ * @param label The full label text
+ * @returns The label without its stereotype prefix
+ */
+function stripConditionStereotype(label: string): string {
+    if (!label.startsWith("\u00ab")) {
+        return label;
+    }
+    const end = label.indexOf("\u00bb");
+    return end < 0 ? label : label.substring(end + 1).trimStart();
+}
+
+/**
  * Extracts the expression text from a where clause label.
- * Expected format: `where <expression>`
+ * Expected format: `where <expression>`, optionally preceded by a block stereotype.
  *
  * @param label The full label text
  * @returns The expression string, or undefined if the prefix is missing
  */
 export function extractWhereClauseExpression(label: string): string | undefined {
-    const prefix = "where ";
-    if (!label.startsWith(prefix)) {
+    const prefix = `${WHERE_KEYWORD} `;
+    const text = stripConditionStereotype(label);
+    if (!text.startsWith(prefix)) {
         return undefined;
     }
-    return label.substring(prefix.length).trim();
+    return text.substring(prefix.length).trim();
 }

@@ -361,7 +361,7 @@ internal class GraphModificationApplier(
      * the traversal direction based on metamodel multiplicity to minimise fan-out.
      *
      * The decision rule mirrors the composition-aware logic already used by
-     * [IslandTraversalUtils.orderLinksByBFS]:
+     * [ConditionTraversalUtils.orderLinksByBFS]:
      * - Look up the [AssociationData] for this link via the `(sourcePropName, targetPropName)` key.
      * - Compare the **source-end upper bound** (fan-out when starting from `src` via `outE`)
      *   with the **target-end upper bound** (fan-out when starting from `tgt` via `inE`).

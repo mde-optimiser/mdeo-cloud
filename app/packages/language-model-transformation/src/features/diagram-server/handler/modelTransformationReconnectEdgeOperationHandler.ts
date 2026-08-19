@@ -24,6 +24,7 @@ import {
 } from "../../../grammar/modelTransformationTypes.js";
 import { ModelTransformationElementType } from "@mdeo/protocol-model-transformation";
 import { GPatternLinkEdge } from "../model/patternLinkEdge.js";
+import { findContainingCondition, findContainingPattern } from "../modelTransformationPatternUtils.js";
 
 const { injectable, inject } = sharedImport("inversify");
 const { GrammarUtils } = sharedImport("langium");
@@ -215,16 +216,26 @@ export class ModelTransformationReconnectEdgeOperationHandler extends BaseReconn
     }
 
     /**
-     * Checks that the given AST node lives in the same Pattern as the link.
+     * Checks that the given AST node is visible from the link's container.
      *
-     * Cross-pattern reconnection is not supported.
+     * Cross-pattern reconnection is not supported. A link of an application condition block may
+     * additionally reach a node of the enclosing match - that is how a condition is anchored to
+     * the pattern it constrains - while a link of the match may not reach into a block, whose
+     * names belong to the block's own graph.
      *
-     * @param link The PatternLink whose container Pattern is the reference
+     * @param link The PatternLink whose container is the reference
      * @param node The endpoint AST node to check
-     * @returns True if both share the same direct Pattern container
+     * @returns True if the node can be named by the link
      */
     private inSamePattern(link: PatternLinkType, node: AstNode): boolean {
-        return link.$container === node.$container;
+        if (link.$container === node.$container) {
+            return true;
+        }
+        const pattern = findContainingPattern(link, this.reflection);
+        if (pattern == undefined || pattern !== findContainingPattern(node, this.reflection)) {
+            return false;
+        }
+        return findContainingCondition(node, this.reflection) == undefined;
     }
 
     /**

@@ -17,6 +17,8 @@ import com.mdeo.metamodel.data.PropertyData
 import com.mdeo.modeltransformation.ast.TypedAst as TransformationTypedAst
 import com.mdeo.modeltransformation.ast.TransformationOperator
 import com.mdeo.modeltransformation.ast.patterns.TypedPattern
+import com.mdeo.modeltransformation.ast.patterns.TypedPatternApplicationCondition
+import com.mdeo.modeltransformation.ast.patterns.TypedPatternApplicationConditionElement
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternLink
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternLinkElement
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternLinkEnd
@@ -264,11 +266,6 @@ class ScrumModelTransformationCorrectnessTest {
                                     modifier = null, name = "newStakeholder", className = "Stakeholder", properties = emptyList()
                                 )
                             ),
-                            TypedPatternObjectInstanceElement(
-                                objectInstance = TypedPatternObjectInstance(
-                                    modifier = "forbid", name = "newSprint1", className = "Sprint", properties = emptyList()
-                                )
-                            ),
                             TypedPatternLinkElement(
                                 link = TypedPatternLink(
                                     modifier = "create",
@@ -276,11 +273,23 @@ class ScrumModelTransformationCorrectnessTest {
                                     target = TypedPatternLinkEnd(objectName = "workitem", propertyName = "isPlannedFor")
                                 )
                             ),
-                            TypedPatternLinkElement(
-                                link = TypedPatternLink(
-                                    modifier = "forbid",
-                                    source = TypedPatternLinkEnd(objectName = "newSprint1", propertyName = "committedItems"),
-                                    target = TypedPatternLinkEnd(objectName = "workitem", propertyName = "isPlannedFor")
+                            TypedPatternApplicationConditionElement(
+                                condition = TypedPatternApplicationCondition(
+                                    negative = true,
+                                    name = "unassigned",
+                                    elements = listOf(
+                                        TypedPatternObjectInstanceElement(
+                                            objectInstance = TypedPatternObjectInstance(
+                                                name = "newSprint1", className = "Sprint", properties = emptyList()
+                                            )
+                                        ),
+                                        TypedPatternLinkElement(
+                                            link = TypedPatternLink(
+                                                source = TypedPatternLinkEnd(objectName = "newSprint1", propertyName = "committedItems"),
+                                                target = TypedPatternLinkEnd(objectName = "workitem", propertyName = "isPlannedFor")
+                                            )
+                                        )
+                                    )
                                 )
                             ),
                             TypedPatternLinkElement(
@@ -298,8 +307,8 @@ class ScrumModelTransformationCorrectnessTest {
 
         // ── addItemToSprint ───────────────────────────────────────────────────
         // Match any Sprint and any unassigned WorkItem, CREATE the committedItems link.
-        // NAC 1 (forbid link sprint1→workItem): prevents assigning already-assigned item.
-        // NAC 2 (forbid sprint2→workItem): no OTHER sprint may already have the item.
+        // NAC 1 (block "notInThisSprint"): prevents assigning an already-assigned item.
+        // NAC 2 (block "notInAnyOtherSprint"): no OTHER sprint may already have the item.
         // Variant = (sprint, workItem) — 5 sprints × 5 unassigned items = 25 combinations.
         val addItemToSprintAst = TransformationTypedAst(
             types = types,
@@ -318,11 +327,6 @@ class ScrumModelTransformationCorrectnessTest {
                                     modifier = null, name = "workItem", className = "WorkItem", properties = emptyList()
                                 )
                             ),
-                            TypedPatternObjectInstanceElement(
-                                objectInstance = TypedPatternObjectInstance(
-                                    modifier = "forbid", name = "sprint2", className = "Sprint", properties = emptyList()
-                                )
-                            ),
                             TypedPatternLinkElement(
                                 link = TypedPatternLink(
                                     modifier = "create",
@@ -330,18 +334,37 @@ class ScrumModelTransformationCorrectnessTest {
                                     target = TypedPatternLinkEnd(objectName = "workItem", propertyName = "isPlannedFor")
                                 )
                             ),
-                            TypedPatternLinkElement(
-                                link = TypedPatternLink(
-                                    modifier = "forbid",
-                                    source = TypedPatternLinkEnd(objectName = "sprint1", propertyName = "committedItems"),
-                                    target = TypedPatternLinkEnd(objectName = "workItem", propertyName = "isPlannedFor")
+                            TypedPatternApplicationConditionElement(
+                                condition = TypedPatternApplicationCondition(
+                                    negative = true,
+                                    name = "notInThisSprint",
+                                    elements = listOf(
+                                        TypedPatternLinkElement(
+                                            link = TypedPatternLink(
+                                                source = TypedPatternLinkEnd(objectName = "sprint1", propertyName = "committedItems"),
+                                                target = TypedPatternLinkEnd(objectName = "workItem", propertyName = "isPlannedFor")
+                                            )
+                                        )
+                                    )
                                 )
                             ),
-                            TypedPatternLinkElement(
-                                link = TypedPatternLink(
-                                    modifier = "forbid",
-                                    source = TypedPatternLinkEnd(objectName = "sprint2", propertyName = "committedItems"),
-                                    target = TypedPatternLinkEnd(objectName = "workItem", propertyName = "isPlannedFor")
+                            TypedPatternApplicationConditionElement(
+                                condition = TypedPatternApplicationCondition(
+                                    negative = true,
+                                    name = "notInAnyOtherSprint",
+                                    elements = listOf(
+                                        TypedPatternObjectInstanceElement(
+                                            objectInstance = TypedPatternObjectInstance(
+                                                name = "sprint2", className = "Sprint", properties = emptyList()
+                                            )
+                                        ),
+                                        TypedPatternLinkElement(
+                                            link = TypedPatternLink(
+                                                source = TypedPatternLinkEnd(objectName = "sprint2", propertyName = "committedItems"),
+                                                target = TypedPatternLinkEnd(objectName = "workItem", propertyName = "isPlannedFor")
+                                            )
+                                        )
+                                    )
                                 )
                             )
                         )
@@ -365,16 +388,23 @@ class ScrumModelTransformationCorrectnessTest {
                                     modifier = "delete", name = "newSprint", className = "Sprint", properties = emptyList()
                                 )
                             ),
-                            TypedPatternObjectInstanceElement(
-                                objectInstance = TypedPatternObjectInstance(
-                                    modifier = "forbid", name = "newWorkItem", className = "WorkItem", properties = emptyList()
-                                )
-                            ),
-                            TypedPatternLinkElement(
-                                link = TypedPatternLink(
-                                    modifier = "forbid",
-                                    source = TypedPatternLinkEnd(objectName = "newSprint", propertyName = "committedItems"),
-                                    target = TypedPatternLinkEnd(objectName = "newWorkItem", propertyName = "isPlannedFor")
+                            TypedPatternApplicationConditionElement(
+                                condition = TypedPatternApplicationCondition(
+                                    negative = true,
+                                    name = "empty",
+                                    elements = listOf(
+                                        TypedPatternObjectInstanceElement(
+                                            objectInstance = TypedPatternObjectInstance(
+                                                name = "newWorkItem", className = "WorkItem", properties = emptyList()
+                                            )
+                                        ),
+                                        TypedPatternLinkElement(
+                                            link = TypedPatternLink(
+                                                source = TypedPatternLinkEnd(objectName = "newSprint", propertyName = "committedItems"),
+                                                target = TypedPatternLinkEnd(objectName = "newWorkItem", propertyName = "isPlannedFor")
+                                            )
+                                        )
+                                    )
                                 )
                             )
                         )

@@ -107,7 +107,7 @@ export interface TypedPatternPropertyAssignment {
  */
 export interface TypedPatternObjectInstance {
     /**
-     * Optional modifier (create, delete, forbid, or require).
+     * Optional modifier (create or delete).
      */
     modifier?: string;
 
@@ -151,7 +151,7 @@ export interface TypedPatternLinkEnd {
  */
 export interface TypedPatternLink {
     /**
-     * Optional modifier (create, delete, forbid, or require).
+     * Optional modifier (create or delete).
      */
     modifier?: string;
 
@@ -242,6 +242,43 @@ export interface TypedPatternWhereClauseElement extends TypedPatternElement {
 }
 
 /**
+ * A negative (`forbid`) or positive (`require`) application condition.
+ *
+ * The condition holds a graph of its own. Its elements are matched together and
+ * independently of every other condition: a negative condition rejects the match as soon
+ * as its whole graph can be found, a positive one demands that its whole graph is found.
+ */
+export interface TypedPatternApplicationCondition {
+    /**
+     * Whether this is a negative application condition (`forbid`) rather than a positive
+     * one (`require`).
+     */
+    negative: boolean;
+    /**
+     * Optional name identifying the condition graph in diagnostics and in the graphical
+     * syntax.
+     */
+    name?: string;
+    /**
+     * The elements forming the condition graph. Object instances and links describe the
+     * graph itself; where clauses constrain it and may read both the block's own nodes and
+     * everything the enclosing match binds.
+     */
+    elements: (TypedPatternObjectInstanceElement | TypedPatternLinkElement | TypedPatternWhereClauseElement)[];
+}
+
+/**
+ * Pattern application condition element.
+ */
+export interface TypedPatternApplicationConditionElement extends TypedPatternElement {
+    kind: "applicationCondition";
+    /**
+     * The application condition.
+     */
+    condition: TypedPatternApplicationCondition;
+}
+
+/**
  * Pattern containing pattern elements.
  */
 export interface TypedPattern {
@@ -254,6 +291,7 @@ export interface TypedPattern {
         | TypedPatternObjectInstanceElement
         | TypedPatternLinkElement
         | TypedPatternWhereClauseElement
+        | TypedPatternApplicationConditionElement
     )[];
 }
 

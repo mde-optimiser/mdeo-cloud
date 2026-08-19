@@ -17,11 +17,11 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 
 /**
- * Performance regression test for multi-anchor island constraints.
+ * Performance regression test for multi-anchor condition block constraints.
  *
- * When a forbid island has **two** anchors — one reachable via a to-many association
+ * When a forbid condition block has **two** anchors — one reachable via a to-many association
  * and one via a to-one association — the planner should pick the to-one anchor so that
- * the island traversal scans the fewest nodes.
+ * the condition block traversal scans the fewest nodes.
  *
  * ## Scenario (Scrum-inspired)
  *
@@ -41,7 +41,7 @@ import kotlin.test.assertIs
  * ```
  *
  * Anchors = {workItem, plan}.  The optimised anchor is `workItem` (isPlannedFor[0..1] →
- * at most 1 hop into the island) rather than `plan` (sprints[0..*] → O(N) hops).
+ * at most 1 hop into the condition block) rather than `plan` (sprints[0..*] → O(N) hops).
  *
  * With N=500 sprints in the graph the test verifies:
  * - **Correctness**: the match succeeds when no forbidden sprint exists, and fails
@@ -136,12 +136,14 @@ class IslandAnchorSelectionPerformanceTest {
      * ```
      * match workItem : WorkItem {}
      * match plan     : Plan {}
-     * forbid sprint1 : Sprint {}
-     * forbid sprint1 -- workItem   (sprint1.committedItems -- workItem.isPlannedFor)
-     * forbid plan    -- sprint1    (plan.sprints -- sprint1.plan)
+     * forbid {
+     *     sprint1 : Sprint {}
+     *     sprint1 -- workItem      (sprint1.committedItems -- workItem.isPlannedFor)
+     *     plan    -- sprint1       (plan.sprints -- sprint1.plan)
+     * }
      * ```
      *
-     * The island has two anchors: {workItem, plan}.  With the multiplicity-aware
+     * The condition block has two anchors: {workItem, plan}.  With the multiplicity-aware
      * anchor selector the planner picks `workItem` (isPlannedFor[0..1]), avoiding
      * a full scan of all sprints connected to `plan`.
      */
@@ -150,11 +152,13 @@ class IslandAnchorSelectionPerformanceTest {
             elements = listOf(
                 matchInstance("workItem", "WorkItem"),
                 matchInstance("plan", "Plan"),
-                forbidInstance("sprint1", "Sprint"),
-                // forbid sprint1 -- workItem  (sprint1.committedItems -> workItem.isPlannedFor)
-                forbidLink("sprint1", "committedItems", "workItem", "isPlannedFor"),
-                // forbid plan -- sprint1  (plan.sprints -> sprint1.plan)
-                forbidLink("plan", "sprints", "sprint1", "plan")
+                forbidBlock(
+                    matchInstance("sprint1", "Sprint"),
+                    // sprint1 -- workItem  (sprint1.committedItems -> workItem.isPlannedFor)
+                    matchLink("sprint1", "committedItems", "workItem", "isPlannedFor"),
+                    // plan -- sprint1  (plan.sprints -> sprint1.plan)
+                    matchLink("plan", "sprints", "sprint1", "plan")
+                )
             )
         )
     )
@@ -272,21 +276,12 @@ class IslandAnchorSelectionPerformanceTest {
             )
         )
 
-    private fun forbidInstance(name: String, className: String) =
-        TypedPatternObjectInstanceElement(
-            objectInstance = TypedPatternObjectInstance(
-                modifier = "forbid", name = name, className = className, properties = emptyList()
-            )
-        )
-
-    private fun forbidLink(
-        sourceName: String,
-        sourceProperty: String?,
-        targetName: String,
-        targetProperty: String?
+    private fun matchLink(
+        sourceName: String, sourceProperty: String?,
+        targetName: String, targetProperty: String?
     ) = TypedPatternLinkElement(
         link = TypedPatternLink(
-            modifier = "forbid",
+            modifier = null,
             source = TypedPatternLinkEnd(objectName = sourceName, propertyName = sourceProperty),
             target = TypedPatternLinkEnd(objectName = targetName, propertyName = targetProperty)
         )

@@ -2,7 +2,7 @@ import type { VNode } from "snabbdom";
 import { sharedImport, Toolbox } from "@mdeo/editor-shared";
 import type { Args } from "@eclipse-glsp/sprotty";
 import { generateNodeCreationModeExtensionView } from "./nodeCreationModeExtensionView.js";
-import { NodeCreationMode } from "./nodeCreationMode.js";
+import { NodeCreationMode } from "@mdeo/protocol-model-transformation";
 
 const { injectable } = sharedImport("inversify");
 

@@ -152,16 +152,6 @@ class InjectiveMatchTest {
             )
         )
 
-    private fun forbidInstance(name: String, className: String): TypedPatternObjectInstanceElement =
-        TypedPatternObjectInstanceElement(
-            objectInstance = TypedPatternObjectInstance(
-                modifier = "forbid",
-                name = name,
-                className = className,
-                properties = emptyList()
-            )
-        )
-
     // ========================================================================
     // 1. Basic injective semantics – two nodes, same type
     // ========================================================================
@@ -504,21 +494,21 @@ class InjectiveMatchTest {
         fun `forbid does not share injective constraint with matchable`() {
             val engine = createEngine(listOf("r1" to "Room", "r2" to "Room"))
 
-            // Match a:Room and forbid b:Room (disconnected forbid island).
-            // The forbid island should detect that a Room exists independently,
+            // Match a:Room and forbid { b:Room } (a condition detached from the match).
+            // The block should detect that a Room exists independently,
             // causing the match to FAIL (because a Room IS forbidden and one exists).
             val statement = TypedMatchStatement(
                 pattern = TypedPattern(
                     elements = listOf(
                         matchInstance("a", "Room"),
-                        forbidInstance("b", "Room")
+                        forbidBlock(matchInstance("b", "Room"))
                     )
                 )
             )
 
             val result = engine.executeStatement(statement, context)
-            // With 2 rooms present and a disconnected forbid "b:Room",
-            // the forbid island finds a Room vertex, so the match fails.
+            // With 2 rooms present and a detached `forbid { b : Room {} }`,
+            // the block finds a Room vertex, so the match fails.
             assertIs<TransformationExecutionResult.Failure>(result)
         }
 
@@ -529,7 +519,7 @@ class InjectiveMatchTest {
                 pattern = TypedPattern(
                     elements = listOf(
                         matchInstance("h", "House"),
-                        forbidInstance("fr", "Room")
+                        forbidBlock(matchInstance("fr", "Room"))
                     )
                 )
             )

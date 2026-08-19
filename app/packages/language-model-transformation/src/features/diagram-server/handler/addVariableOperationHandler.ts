@@ -6,8 +6,11 @@ import {
     sharedImport
 } from "@mdeo/language-shared";
 import type { Command, GModelElement } from "@eclipse-glsp/server";
-import type { AddVariableOperation } from "@mdeo/protocol-model-transformation";
-import { ModelTransformationElementType } from "@mdeo/protocol-model-transformation";
+import {
+    AddVariableOperation,
+    ModelTransformationElementType,
+    ModelTransformationIcon
+} from "@mdeo/protocol-model-transformation";
 import type { ContextActionRequestContext, ContextItemProvider } from "@mdeo/language-shared";
 import type { ContextItem } from "@mdeo/protocol-common";
 import { InsertNewLabelAction } from "@mdeo/protocol-common";
@@ -40,7 +43,7 @@ export const NEW_VARIABLE_REASSIGNMENT_LABEL_PREFIX = "__new-label-variable-reas
  */
 @injectable()
 export class AddVariableOperationHandler extends BaseOperationHandler implements ContextItemProvider {
-    override readonly operationType = "addVariable";
+    override readonly operationType = AddVariableOperation.KIND;
 
     /**
      * Creates a workspace-edit command that inserts a new variable into the match pattern.
@@ -99,7 +102,7 @@ export class AddVariableOperationHandler extends BaseOperationHandler implements
             {
                 id: `add-variable-${element.id}`,
                 label: "Add Variable",
-                icon: "variable-plus",
+                icon: ModelTransformationIcon.VARIABLE_PLUS,
                 sortString: "c",
                 action: this.buildInsertVariableAction(element, `${NEW_VARIABLE_LABEL_PREFIX}${element.id}`)
             },
@@ -136,7 +139,7 @@ export class AddVariableOperationHandler extends BaseOperationHandler implements
             .id(labelId)
             .text("")
             .isNewLabel(true)
-            .newLabelOperationKind("add-variable")
+            .newLabelOperationKind(AddVariableOperation.NEW_LABEL_KIND)
             .newLabelParentElementId(nodeId)
             .build();
 

@@ -4,45 +4,50 @@ import com.mdeo.metamodel.data.MetamodelData
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternLinkElement
 
 /**
- * Pure graph-algorithm utilities for walking island/constraint subgraphs.
+ * Pure graph-algorithm utilities for walking the graph of an application condition.
  *
  * These functions depend only on the pattern AST, not on any engine or execution
  * context, making them easy to test and reuse across the match pipeline.
  */
-internal object IslandTraversalUtils {
+internal object ConditionTraversalUtils {
 
     /**
-     * Finds the anchor node names for an island — main-pattern matched nodes that are
-     * connected to island instances via island links but are not themselves island instances.
+     * Finds the anchor node names of a condition — main-pattern matched nodes that a
+     * condition link connects to but that are not themselves condition-exclusive nodes.
+     *
+     * @param links The links of the condition graph (or of one of its components).
+     * @param conditionInstanceNames The names of the condition-exclusive nodes.
+     * @param matchableNames The names of the main-pattern instances.
+     * @return The anchor names referenced by [links].
      */
     fun findAnchorNames(
         links: List<TypedPatternLinkElement>,
-        islandInstanceNames: Set<String>,
+        conditionInstanceNames: Set<String>,
         matchableNames: Set<String>
     ): Set<String> {
         val anchors = mutableSetOf<String>()
         for (link in links) {
             val source = link.link.source.objectName
             val target = link.link.target.objectName
-            if (source !in islandInstanceNames && source in matchableNames) { anchors.add(source) }
-            if (target !in islandInstanceNames && target in matchableNames) { anchors.add(target) }
+            if (source !in conditionInstanceNames && source in matchableNames) { anchors.add(source) }
+            if (target !in conditionInstanceNames && target in matchableNames) { anchors.add(target) }
         }
         return anchors
     }
 
     /**
-     * Selects the best anchor from [anchors] to start the island traversal chain,
-     * preferring anchors whose first edge into the island has a low multiplicity upper
+     * Selects the best anchor from [anchors] to start the condition traversal chain,
+     * preferring anchors whose first edge into the condition has a low multiplicity upper
      * bound (i.e. the fewest nodes are expected to be reached in the first step).
      *
      * For each candidate anchor the score is the minimum upper bound of the
      * multiplicity at the anchor's end for any direct link from that anchor to a
-     * non-anchor island node.  An unbounded multiplicity (`upper == -1`) is treated as
+     * non-anchor condition node.  An unbounded multiplicity (`upper == -1`) is treated as
      * [Int.MAX_VALUE].  When no matching association can be found in [metamodelData],
      * the anchor scores as [Int.MAX_VALUE] so that well-typed anchors are preferred.
      *
-     * @param anchors Candidate anchor names (all matched, non-island nodes connected to the island).
-     * @param links All links belonging to the island (including anchor-to-island links).
+     * @param anchors Candidate anchor names (all matched, non-condition nodes connected to the condition).
+     * @param links All links belonging to the condition (including anchor-to-condition links).
      * @param metamodelData Metamodel data for looking up association multiplicities.
      * @return The best-scoring anchor name, or `null` when [anchors] is empty.
      */
@@ -60,7 +65,7 @@ internal object IslandTraversalUtils {
         }
 
         fun scoreAnchor(anchorName: String): Int {
-            // Only consider links that cross from the anchor into the island.
+            // Only consider links that cross from the anchor into the condition.
             val directLinks = links.filter { link ->
                 val src = link.link.source.objectName
                 val tgt = link.link.target.objectName
@@ -85,7 +90,7 @@ internal object IslandTraversalUtils {
     }
 
     /**
-     * Orders island links into a BFS traversal sequence starting from [startAnchor].
+     * Orders condition links into a BFS traversal sequence starting from [startAnchor].
      *
      * Returns a list of `(link, isReversed)` pairs; when `isReversed` is true, the link
      * is traversed target→source (`.in(edgeLabel)` instead of `.out(edgeLabel)`).

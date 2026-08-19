@@ -11,6 +11,8 @@ import com.mdeo.modeltransformation.compiler.ExpressionCompilerRegistry
 import com.mdeo.modeltransformation.graph.tinker.TinkerModelGraph
 import com.mdeo.modeltransformation.runtime.*
 import com.mdeo.modeltransformation.runtime.statements.MatchStatementExecutor
+import com.mdeo.modeltransformation.runtime.match.ApplicationConditionTest.Companion.matchInstance
+import com.mdeo.modeltransformation.runtime.match.ApplicationConditionTest.Companion.matchLink
 import org.apache.tinkerpop.gremlin.tinkergraph.structure.TinkerGraph
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
@@ -21,22 +23,20 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 /**
- * Tests for the island-based forbid and require evaluation model.
+ * Tests for the evaluation of application condition blocks.
  *
- * Forbid and require constraints that reference nodes not part of the main match
- * pattern are grouped into "islands" — connected components of constraint nodes
- * and links. Each island is evaluated independently:
+ * Every `forbid` / `require` block carries a graph of its own and is evaluated as a whole:
  *
- * - **Forbid islands** generate `where(not(...))` clauses: the match succeeds
- *   only when the entire island subpattern does NOT exist.
- * - **Require islands** generate existential checks: the match succeeds only
- *   when the entire island subpattern DOES exist. Require islands are pure
- *   filters and do not multiply the result set.
+ * - **`forbid` blocks** generate `not(...)` clauses: the match succeeds only when the
+ *   entire block graph does NOT exist.
+ * - **`require` blocks** generate existential checks: the match succeeds only when the
+ *   entire block graph DOES exist. They are pure filters and do not multiply the result
+ *   set.
  *
- * Islands may be connected to matched nodes (via links whose source or target
- * is a matched node) or completely disconnected (no links to any matched node).
+ * A block may be attached to matched nodes (via links whose source or target is a matched
+ * node) or completely detached from the match (no links to any matched node).
  */
-class IslandConstraintTest {
+class ApplicationConditionTest {
 
     private lateinit var graph: TinkerGraph
     private lateinit var engine: TransformationEngine
@@ -62,11 +62,11 @@ class IslandConstraintTest {
     }
 
     // ========================================================================
-    // 1. Forbid Island Tests
+    // 1. Forbid Block Tests
     // ========================================================================
 
     @Nested
-    inner class ForbidIslandTests {
+    inner class ForbidBlockTests {
 
         @Test
         fun `1a - disconnected forbid node succeeds when forbidden class absent`() {
@@ -76,7 +76,9 @@ class IslandConstraintTest {
                 pattern = TypedPattern(
                     elements = listOf(
                         matchInstance("house", "House"),
-                        forbidInstance("room", "Room")
+                        forbidBlock(
+                            matchInstance("room", "Room")
+                        )
                     )
                 )
             )
@@ -94,7 +96,9 @@ class IslandConstraintTest {
                 pattern = TypedPattern(
                     elements = listOf(
                         matchInstance("house", "House"),
-                        forbidInstance("room", "Room")
+                        forbidBlock(
+                            matchInstance("room", "Room")
+                        )
                     )
                 )
             )
@@ -104,15 +108,17 @@ class IslandConstraintTest {
         }
 
         @Test
-        fun `1b - connected forbid island succeeds when no forbidden target exists`() {
+        fun `1b - connected forbid block succeeds when no forbidden target exists`() {
             graph.addVertex("House")
 
             val statement = TypedMatchStatement(
                 pattern = TypedPattern(
                     elements = listOf(
                         matchInstance("house", "House"),
-                        forbidInstance("room", "Room"),
-                        forbidLink("house", "rooms", "room", null)
+                        forbidBlock(
+                            matchInstance("room", "Room"),
+                            matchLink("house", "rooms", "room", null)
+                        )
                     )
                 )
             )
@@ -122,7 +128,7 @@ class IslandConstraintTest {
         }
 
         @Test
-        fun `1b - connected forbid island fails when forbidden target exists`() {
+        fun `1b - connected forbid block fails when forbidden target exists`() {
             val house = graph.addVertex("House")
             val room = graph.addVertex("Room")
             house.addEdge(EdgeLabelUtils.computeEdgeLabel("rooms", null), room)
@@ -131,8 +137,10 @@ class IslandConstraintTest {
                 pattern = TypedPattern(
                     elements = listOf(
                         matchInstance("house", "House"),
-                        forbidInstance("room", "Room"),
-                        forbidLink("house", "rooms", "room", null)
+                        forbidBlock(
+                            matchInstance("room", "Room"),
+                            matchLink("house", "rooms", "room", null)
+                        )
                     )
                 )
             )
@@ -149,10 +157,12 @@ class IslandConstraintTest {
                 pattern = TypedPattern(
                     elements = listOf(
                         matchInstance("house", "House"),
-                        forbidInstance("room", "Room"),
-                        forbidInstance("garden", "Garden"),
-                        forbidLink("house", "rooms", "room", "house"),
-                        forbidLink("room", "gardens", "garden", "room")
+                        forbidBlock(
+                            matchInstance("room", "Room"),
+                            matchInstance("garden", "Garden"),
+                            matchLink("house", "rooms", "room", "house"),
+                            matchLink("room", "gardens", "garden", "room")
+                        )
                     )
                 )
             )
@@ -171,10 +181,12 @@ class IslandConstraintTest {
                 pattern = TypedPattern(
                     elements = listOf(
                         matchInstance("house", "House"),
-                        forbidInstance("room", "Room"),
-                        forbidInstance("garden", "Garden"),
-                        forbidLink("house", "rooms", "room", "house"),
-                        forbidLink("room", "gardens", "garden", "room")
+                        forbidBlock(
+                            matchInstance("room", "Room"),
+                            matchInstance("garden", "Garden"),
+                            matchLink("house", "rooms", "room", "house"),
+                            matchLink("room", "gardens", "garden", "room")
+                        )
                     )
                 )
             )
@@ -195,10 +207,12 @@ class IslandConstraintTest {
                 pattern = TypedPattern(
                     elements = listOf(
                         matchInstance("house", "House"),
-                        forbidInstance("room", "Room"),
-                        forbidInstance("garden", "Garden"),
-                        forbidLink("house", "rooms", "room", "house"),
-                        forbidLink("room", "gardens", "garden", "room")
+                        forbidBlock(
+                            matchInstance("room", "Room"),
+                            matchInstance("garden", "Garden"),
+                            matchLink("house", "rooms", "room", "house"),
+                            matchLink("room", "gardens", "garden", "room")
+                        )
                     )
                 )
             )
@@ -208,16 +222,20 @@ class IslandConstraintTest {
         }
 
         @Test
-        fun `1d - multiple separate forbid islands both absent succeeds`() {
+        fun `1d - multiple separate forbid blocks both absent succeeds`() {
             graph.addVertex("House")
 
             val statement = TypedMatchStatement(
                 pattern = TypedPattern(
                     elements = listOf(
                         matchInstance("house", "House"),
-                        forbidInstance("room", "Room"),
-                        forbidLink("house", "rooms", "room", null),
-                        forbidInstance("garage", "Garage")
+                        forbidBlock(
+                            matchInstance("room", "Room"),
+                            matchLink("house", "rooms", "room", null)
+                        ),
+                        forbidBlock(
+                            matchInstance("garage", "Garage")
+                        )
                     )
                 )
             )
@@ -227,7 +245,7 @@ class IslandConstraintTest {
         }
 
         @Test
-        fun `1d - multiple forbid islands fails when connected island matches`() {
+        fun `1d - multiple forbid blocks fails when connected block matches`() {
             val house = graph.addVertex("House")
             val room = graph.addVertex("Room")
             house.addEdge(EdgeLabelUtils.computeEdgeLabel("rooms", null), room)
@@ -236,9 +254,13 @@ class IslandConstraintTest {
                 pattern = TypedPattern(
                     elements = listOf(
                         matchInstance("house", "House"),
-                        forbidInstance("room", "Room"),
-                        forbidLink("house", "rooms", "room", null),
-                        forbidInstance("garage", "Garage")
+                        forbidBlock(
+                            matchInstance("room", "Room"),
+                            matchLink("house", "rooms", "room", null)
+                        ),
+                        forbidBlock(
+                            matchInstance("garage", "Garage")
+                        )
                     )
                 )
             )
@@ -248,7 +270,7 @@ class IslandConstraintTest {
         }
 
         @Test
-        fun `1d - multiple forbid islands fails when disconnected island matches`() {
+        fun `1d - multiple forbid blocks fails when disconnected block matches`() {
             graph.addVertex("House")
             graph.addVertex("Garage")
 
@@ -256,9 +278,13 @@ class IslandConstraintTest {
                 pattern = TypedPattern(
                     elements = listOf(
                         matchInstance("house", "House"),
-                        forbidInstance("room", "Room"),
-                        forbidLink("house", "rooms", "room", null),
-                        forbidInstance("garage", "Garage")
+                        forbidBlock(
+                            matchInstance("room", "Room"),
+                            matchLink("house", "rooms", "room", null)
+                        ),
+                        forbidBlock(
+                            matchInstance("garage", "Garage")
+                        )
                     )
                 )
             )
@@ -277,7 +303,9 @@ class IslandConstraintTest {
                     elements = listOf(
                         matchInstance("house", "House"),
                         matchInstance("room", "Room"),
-                        forbidLink("house", "rooms", "room", "house")
+                        forbidBlock(
+                            matchLink("house", "rooms", "room", "house")
+                        )
                     )
                 )
             )
@@ -297,7 +325,9 @@ class IslandConstraintTest {
                     elements = listOf(
                         matchInstance("house", "House"),
                         matchInstance("room", "Room"),
-                        forbidLink("house", "rooms", "room", "house")
+                        forbidBlock(
+                            matchLink("house", "rooms", "room", "house")
+                        )
                     )
                 )
             )
@@ -308,9 +338,9 @@ class IslandConstraintTest {
     }
 
     // ========================================================================
-    // 1f. Branching Forbid Island Tests
+    // 1f. Branching Forbid Block Tests
     //
-    // Reproduces the bug in buildIslandChainTraversal where a branching (tree-shaped)
+    // Reproduces the bug in buildBlockChainTraversal where a branching (tree-shaped)
     // forbid pattern requires BFS backtracking via .select() to a forbid node that was
     // never labeled with .as() — because the label was only applied when
     // matchableNames.contains(toNode).
@@ -327,7 +357,7 @@ class IslandConstraintTest {
     // ========================================================================
 
     @Nested
-    inner class ForbidBranchingIslandTests {
+    inner class ForbidBranchingBlockTests {
 
         /**
          * Full forbid branch present: the match on A should be blocked because
@@ -337,7 +367,7 @@ class IslandConstraintTest {
          * .as() label on the intermediate forbid node C.
          */
         @Test
-        fun `1f - branching forbid island fails when full branch exists`() {
+        fun `1f - branching forbid block fails when full branch exists`() {
             val a = graph.addVertex("NodeA")
             val c = graph.addVertex("NodeC")
             val d = graph.addVertex("NodeD")
@@ -350,12 +380,14 @@ class IslandConstraintTest {
                 pattern = TypedPattern(
                     elements = listOf(
                         matchInstance("a", "NodeA"),
-                        forbidInstance("c", "NodeC"),
-                        forbidInstance("d", "NodeD"),
-                        forbidInstance("e", "NodeE"),
-                        forbidLink("a", "children", "c", "parent"),
-                        forbidLink("c", "left", "d", "owner"),
-                        forbidLink("c", "right", "e", "owner")
+                        forbidBlock(
+                            matchInstance("c", "NodeC"),
+                            matchInstance("d", "NodeD"),
+                            matchInstance("e", "NodeE"),
+                            matchLink("a", "children", "c", "parent"),
+                            matchLink("c", "left", "d", "owner"),
+                            matchLink("c", "right", "e", "owner")
+                        )
                     )
                 )
             )
@@ -372,7 +404,7 @@ class IslandConstraintTest {
          * Before the fix this test also throws a Gremlin exception.
          */
         @Test
-        fun `1f - branching forbid island succeeds when second branch is absent`() {
+        fun `1f - branching forbid block succeeds when second branch is absent`() {
             val a = graph.addVertex("NodeA")
             val c = graph.addVertex("NodeC")
             val d = graph.addVertex("NodeD")
@@ -384,12 +416,14 @@ class IslandConstraintTest {
                 pattern = TypedPattern(
                     elements = listOf(
                         matchInstance("a", "NodeA"),
-                        forbidInstance("c", "NodeC"),
-                        forbidInstance("d", "NodeD"),
-                        forbidInstance("e", "NodeE"),
-                        forbidLink("a", "children", "c", "parent"),
-                        forbidLink("c", "left", "d", "owner"),
-                        forbidLink("c", "right", "e", "owner")
+                        forbidBlock(
+                            matchInstance("c", "NodeC"),
+                            matchInstance("d", "NodeD"),
+                            matchInstance("e", "NodeE"),
+                            matchLink("a", "children", "c", "parent"),
+                            matchLink("c", "left", "d", "owner"),
+                            matchLink("c", "right", "e", "owner")
+                        )
                     )
                 )
             )
@@ -404,7 +438,7 @@ class IslandConstraintTest {
          * Before the fix this test is expected to also throw.
          */
         @Test
-        fun `1f - branching forbid island succeeds when no forbidden nodes exist`() {
+        fun `1f - branching forbid block succeeds when no forbidden nodes exist`() {
             graph.addVertex("NodeA")
             // No NodeC, NodeD, or NodeE in the graph
 
@@ -412,12 +446,14 @@ class IslandConstraintTest {
                 pattern = TypedPattern(
                     elements = listOf(
                         matchInstance("a", "NodeA"),
-                        forbidInstance("c", "NodeC"),
-                        forbidInstance("d", "NodeD"),
-                        forbidInstance("e", "NodeE"),
-                        forbidLink("a", "children", "c", "parent"),
-                        forbidLink("c", "left", "d", "owner"),
-                        forbidLink("c", "right", "e", "owner")
+                        forbidBlock(
+                            matchInstance("c", "NodeC"),
+                            matchInstance("d", "NodeD"),
+                            matchInstance("e", "NodeE"),
+                            matchLink("a", "children", "c", "parent"),
+                            matchLink("c", "left", "d", "owner"),
+                            matchLink("c", "right", "e", "owner")
+                        )
                     )
                 )
             )
@@ -428,14 +464,14 @@ class IslandConstraintTest {
     }
 
     // ========================================================================
-    // 2. Require Island Tests
+    // 2. Require Block Tests
     // ========================================================================
 
     @Nested
-    inner class RequireIslandTests {
+    inner class RequireBlockTests {
 
         @Test
-        fun `2a - connected require island succeeds when required target exists`() {
+        fun `2a - connected require block succeeds when required target exists`() {
             val house = graph.addVertex("House")
             val room = graph.addVertex("Room")
             house.addEdge(EdgeLabelUtils.computeEdgeLabel("rooms", "house"), room)
@@ -444,8 +480,10 @@ class IslandConstraintTest {
                 pattern = TypedPattern(
                     elements = listOf(
                         matchInstance("house", "House"),
-                        requireInstance("room", "Room"),
-                        requireLink("house", "rooms", "room", "house")
+                        requireBlock(
+                            matchInstance("room", "Room"),
+                            matchLink("house", "rooms", "room", "house")
+                        )
                     )
                 )
             )
@@ -455,15 +493,17 @@ class IslandConstraintTest {
         }
 
         @Test
-        fun `2a - connected require island fails when required target absent`() {
+        fun `2a - connected require block fails when required target absent`() {
             graph.addVertex("House")
 
             val statement = TypedMatchStatement(
                 pattern = TypedPattern(
                     elements = listOf(
                         matchInstance("house", "House"),
-                        requireInstance("room", "Room"),
-                        requireLink("house", "rooms", "room", "house")
+                        requireBlock(
+                            matchInstance("room", "Room"),
+                            matchLink("house", "rooms", "room", "house")
+                        )
                     )
                 )
             )
@@ -481,7 +521,9 @@ class IslandConstraintTest {
                 pattern = TypedPattern(
                     elements = listOf(
                         matchInstance("house", "House"),
-                        requireInstance("room", "Room")
+                        requireBlock(
+                            matchInstance("room", "Room")
+                        )
                     )
                 )
             )
@@ -498,7 +540,9 @@ class IslandConstraintTest {
                 pattern = TypedPattern(
                     elements = listOf(
                         matchInstance("house", "House"),
-                        requireInstance("room", "Room")
+                        requireBlock(
+                            matchInstance("room", "Room")
+                        )
                     )
                 )
             )
@@ -519,10 +563,12 @@ class IslandConstraintTest {
                 pattern = TypedPattern(
                     elements = listOf(
                         matchInstance("house", "House"),
-                        requireInstance("room", "Room"),
-                        requireInstance("window", "Window"),
-                        requireLink("house", "rooms", "room", "house"),
-                        requireLink("room", "windows", "window", "room")
+                        requireBlock(
+                            matchInstance("room", "Room"),
+                            matchInstance("window", "Window"),
+                            matchLink("house", "rooms", "room", "house"),
+                            matchLink("room", "windows", "window", "room")
+                        )
                     )
                 )
             )
@@ -541,10 +587,12 @@ class IslandConstraintTest {
                 pattern = TypedPattern(
                     elements = listOf(
                         matchInstance("house", "House"),
-                        requireInstance("room", "Room"),
-                        requireInstance("window", "Window"),
-                        requireLink("house", "rooms", "room", "house"),
-                        requireLink("room", "windows", "window", "room")
+                        requireBlock(
+                            matchInstance("room", "Room"),
+                            matchInstance("window", "Window"),
+                            matchLink("house", "rooms", "room", "house"),
+                            matchLink("room", "windows", "window", "room")
+                        )
                     )
                 )
             )
@@ -566,8 +614,10 @@ class IslandConstraintTest {
             val pattern = TypedPattern(
                 elements = listOf(
                     matchInstance("house", "House"),
-                    requireInstance("room", "Room"),
-                    requireLink("house", "rooms", "room", "house")
+                    requireBlock(
+                        matchInstance("room", "Room"),
+                        matchLink("house", "rooms", "room", "house")
+                    )
                 )
             )
 
@@ -594,9 +644,13 @@ class IslandConstraintTest {
                 pattern = TypedPattern(
                     elements = listOf(
                         matchInstance("house", "House"),
-                        requireInstance("room", "Room"),
-                        requireLink("house", "rooms", "room", "house"),
-                        forbidInstance("garage", "Garage")
+                        forbidBlock(
+                            matchInstance("garage", "Garage")
+                        ),
+                        requireBlock(
+                            matchInstance("room", "Room"),
+                            matchLink("house", "rooms", "room", "house")
+                        )
                     )
                 )
             )
@@ -616,9 +670,13 @@ class IslandConstraintTest {
                 pattern = TypedPattern(
                     elements = listOf(
                         matchInstance("house", "House"),
-                        requireInstance("room", "Room"),
-                        requireLink("house", "rooms", "room", "house"),
-                        forbidInstance("garage", "Garage")
+                        forbidBlock(
+                            matchInstance("garage", "Garage")
+                        ),
+                        requireBlock(
+                            matchInstance("room", "Room"),
+                            matchLink("house", "rooms", "room", "house")
+                        )
                     )
                 )
             )
@@ -635,9 +693,13 @@ class IslandConstraintTest {
                 pattern = TypedPattern(
                     elements = listOf(
                         matchInstance("house", "House"),
-                        requireInstance("room", "Room"),
-                        requireLink("house", "rooms", "room", "house"),
-                        forbidInstance("garage", "Garage")
+                        forbidBlock(
+                            matchInstance("garage", "Garage")
+                        ),
+                        requireBlock(
+                            matchInstance("room", "Room"),
+                            matchLink("house", "rooms", "room", "house")
+                        )
                     )
                 )
             )
@@ -647,7 +709,7 @@ class IslandConstraintTest {
         }
 
         @Test
-        fun `mixed forbid and require islands with match links`() {
+        fun `mixed forbid and require blocks with match links`() {
             val house = graph.addVertex("House")
             val room = graph.addVertex("Room")
             house.addEdge(EdgeLabelUtils.computeEdgeLabel("rooms", "house"), room)
@@ -658,9 +720,13 @@ class IslandConstraintTest {
                         matchInstance("house", "House"),
                         matchInstance("room", "Room"),
                         matchLink("house", "rooms", "room", "house"),
-                        forbidInstance("pool", "Pool"),
-                        forbidLink("house", "pools", "pool", null),
-                        requireInstance("garden", "Garden")
+                        forbidBlock(
+                            matchInstance("pool", "Pool"),
+                            matchLink("house", "pools", "pool", null)
+                        ),
+                        requireBlock(
+                            matchInstance("garden", "Garden")
+                        )
                     )
                 )
             )
@@ -670,7 +736,7 @@ class IslandConstraintTest {
         }
 
         @Test
-        fun `mixed forbid and require islands with all satisfied`() {
+        fun `mixed forbid and require blocks with all satisfied`() {
             val house = graph.addVertex("House")
             val room = graph.addVertex("Room")
             house.addEdge(EdgeLabelUtils.computeEdgeLabel("rooms", "house"), room)
@@ -682,9 +748,13 @@ class IslandConstraintTest {
                         matchInstance("house", "House"),
                         matchInstance("room", "Room"),
                         matchLink("house", "rooms", "room", "house"),
-                        forbidInstance("pool", "Pool"),
-                        forbidLink("house", "pools", "pool", null),
-                        requireInstance("garden", "Garden")
+                        forbidBlock(
+                            matchInstance("pool", "Pool"),
+                            matchLink("house", "pools", "pool", null)
+                        ),
+                        requireBlock(
+                            matchInstance("garden", "Garden")
+                        )
                     )
                 )
             )
@@ -695,9 +765,9 @@ class IslandConstraintTest {
     }
 
     // ========================================================================
-    // 1g. Forbid Island with Property Condition Tests
+    // 1g. Forbid Block with Property Condition Tests
     //
-    // Reproduces the bug where a forbid island connected to a matched node ignores
+    // Reproduces the bug where a forbid block connected to a matched node ignores
     // the property conditions on the forbid instance.
     //
     // Scenario (mirrors the user-reported bug):
@@ -712,7 +782,7 @@ class IslandConstraintTest {
     // The forbid condition can NEVER match because no Node has value=="thisValueNeverOccurs".
     // Therefore executeMatchAll should return 3 results (one per node).
     //
-    // BUG: buildIslandChainTraversal builds the chain
+    // BUG: buildBlockChainTraversal builds the chain
     //   __.as(step_node).out("to_from").hasLabel("Node")
     // and wraps it in not(...). It never adds .has("value", "thisValueNeverOccurs").
     // This causes:
@@ -722,10 +792,10 @@ class IslandConstraintTest {
     // ========================================================================
 
     @Nested
-    inner class ForbidIslandWithPropertyConditionTests {
+    inner class ForbidBlockWithPropertyConditionTests {
 
         /**
-         * 1g-FAILS: property condition on forbid island is currently ignored.
+         * 1g-FAILS: property condition on forbid block is currently ignored.
          *
          * The forbid instance has `value == "thisValueNeverOccurs"`.  No node in the
          * graph has that value, so the forbid should NEVER trigger.  All three Node
@@ -753,8 +823,10 @@ class IslandConstraintTest {
             val pattern = TypedPattern(
                 elements = listOf(
                     matchInstance("node", "Node"),
-                    forbidInstanceWithStringProperty("node2", "Node", "value", "thisValueNeverOccurs"),
-                    forbidLink("node", "to", "node2", "from")
+                    forbidBlock(
+                        instanceWithStringProperty("node2", "Node", "value", "thisValueNeverOccurs"),
+                        matchLink("node", "to", "node2", "from")
+                    )
                 )
             )
 
@@ -764,7 +836,7 @@ class IslandConstraintTest {
             // All three nodes must match because the forbid condition never applies
             assertEquals(3, results.size,
                 "Expected 3 matches (forbid condition never matches any node), but got ${results.size}. " +
-                "This indicates the forbid island is not applying its property conditions.")
+                "This indicates the forbid block is not applying its property conditions.")
         }
 
         /**
@@ -772,7 +844,7 @@ class IslandConstraintTest {
          * excludes the matched node.
          *
          * nodeA→nodeB edge exists and nodeB has value="forbidden". For nodeA the forbid
-         * island (node2:Node{value=="forbidden"} linked from node.to) does match, so nodeA
+         * block (node2:Node{value=="forbidden"} linked from node.to) does match, so nodeA
          * should be excluded. nodeB and nodeC have no such outgoing edge, so they are included.
          * Expected: 2 matches (nodeB, nodeC).
          */
@@ -790,8 +862,10 @@ class IslandConstraintTest {
             val pattern = TypedPattern(
                 elements = listOf(
                     matchInstance("node", "Node"),
-                    forbidInstanceWithStringProperty("node2", "Node", "value", "forbidden"),
-                    forbidLink("node", "to", "node2", "from")
+                    forbidBlock(
+                        instanceWithStringProperty("node2", "Node", "value", "forbidden"),
+                        matchLink("node", "to", "node2", "from")
+                    )
                 )
             )
 
@@ -845,8 +919,10 @@ class IslandConstraintTest {
             val pattern = TypedPattern(
                 elements = listOf(
                     matchInstance("node", "Node"),
-                    forbidInstanceWithStringConcatExpression("node2", "Node", "value", "thisValue", "NeverOccurs"),
-                    forbidLink("node", "to", "node2", "from")
+                    forbidBlock(
+                        instanceWithStringConcatExpression("node2", "Node", "value", "thisValue", "NeverOccurs"),
+                        matchLink("node", "to", "node2", "from")
+                    )
                 )
             )
 
@@ -854,7 +930,7 @@ class IslandConstraintTest {
             val results = matchExecutor.executeMatchAll(pattern, context, localEngine)
 
             // All three nodes must match: the forbid target value ("thisValueNeverOccurs")
-            // never exists, so the forbid island never triggers.
+            // never exists, so the forbid block never triggers.
             assertEquals(3, results.size,
                 "Expected 3 matches because the forbid non-static expression never matches any node, " +
                 "but got ${results.size}. This indicates the TraversalResult branch is still broken.")
@@ -882,29 +958,15 @@ class IslandConstraintTest {
         }
 
         /**
-         * Creates a forbid object instance element.
-         */
-        fun forbidInstance(name: String, className: String): TypedPatternObjectInstanceElement {
-            return TypedPatternObjectInstanceElement(
-                objectInstance = TypedPatternObjectInstance(
-                    modifier = "forbid",
-                    name = name,
-                    className = className,
-                    properties = emptyList()
-                )
-            )
-        }
-
-        /**
-         * Creates a forbid object instance element with a single String equality condition.
+         * Creates an object instance element with a single String equality condition.
          *
          * Produces an instance equivalent to:
-         *   `forbid <name> : <className> { <propertyName> == "<propertyValue>" }`
+         *   `<name> : <className> { <propertyName> == "<propertyValue>" }`
          *
-         * Used to reproduce bugs where the island chain traversal ignores property
-         * conditions on forbid instances.
+         * Used to reproduce bugs where the condition chain traversal ignores property
+         * conditions on condition instances.
          */
-        fun forbidInstanceWithStringProperty(
+        fun instanceWithStringProperty(
             name: String,
             className: String,
             propertyName: String,
@@ -912,7 +974,7 @@ class IslandConstraintTest {
         ): TypedPatternObjectInstanceElement {
             return TypedPatternObjectInstanceElement(
                 objectInstance = TypedPatternObjectInstance(
-                    modifier = "forbid",
+                    modifier = null,
                     name = name,
                     className = className,
                     properties = listOf(
@@ -927,17 +989,17 @@ class IslandConstraintTest {
         }
 
         /**
-         * Creates a forbid object instance element with a string-concatenation expression
+         * Creates an object instance element with a string-concatenation expression
          * as the equality condition.
          *
          * Produces an instance equivalent to:
-         *   `forbid <name> : <className> { <propertyName> == <left> + <right> }`
+         *   `<name> : <className> { <propertyName> == <left> + <right> }`
          *
          * The expression is a non-static `TypedBinaryExpression` (operator "+"), so it
          * compiles to a `CompilationResult.TraversalResult` — exercising the code path
          * that was previously silently skipped.
          */
-        fun forbidInstanceWithStringConcatExpression(
+        fun instanceWithStringConcatExpression(
             name: String,
             className: String,
             propertyName: String,
@@ -946,7 +1008,7 @@ class IslandConstraintTest {
         ): TypedPatternObjectInstanceElement {
             return TypedPatternObjectInstanceElement(
                 objectInstance = TypedPatternObjectInstance(
-                    modifier = "forbid",
+                    modifier = null,
                     name = name,
                     className = className,
                     properties = listOf(
@@ -961,20 +1023,6 @@ class IslandConstraintTest {
                             )
                         )
                     )
-                )
-            )
-        }
-
-        /**
-         * Creates a require object instance element.
-         */
-        fun requireInstance(name: String, className: String): TypedPatternObjectInstanceElement {
-            return TypedPatternObjectInstanceElement(
-                objectInstance = TypedPatternObjectInstance(
-                    modifier = "require",
-                    name = name,
-                    className = className,
-                    properties = emptyList()
                 )
             )
         }
@@ -997,63 +1045,28 @@ class IslandConstraintTest {
             )
         }
 
-        /**
-         * Creates a forbid link element.
-         */
-        fun forbidLink(
-            sourceName: String,
-            sourceProperty: String?,
-            targetName: String,
-            targetProperty: String?
-        ): TypedPatternLinkElement {
-            return TypedPatternLinkElement(
-                link = TypedPatternLink(
-                    modifier = "forbid",
-                    source = TypedPatternLinkEnd(objectName = sourceName, propertyName = sourceProperty),
-                    target = TypedPatternLinkEnd(objectName = targetName, propertyName = targetProperty)
-                )
-            )
-        }
-
-        /**
-         * Creates a require link element.
-         */
-        fun requireLink(
-            sourceName: String,
-            sourceProperty: String?,
-            targetName: String,
-            targetProperty: String?
-        ): TypedPatternLinkElement {
-            return TypedPatternLinkElement(
-                link = TypedPatternLink(
-                    modifier = "require",
-                    source = TypedPatternLinkEnd(objectName = sourceName, propertyName = sourceProperty),
-                    target = TypedPatternLinkEnd(objectName = targetName, propertyName = targetProperty)
-                )
-            )
-        }
     }
 }
 
 // ========================================================================
-// 5. Island Injective Match Tests
+// 5. Block Injective Match Tests
 //
-// Forbid/require islands must enforce injective matching:
+// Forbid/require blocks must enforce injective matching:
 //
-// - Each island node must bind to a vertex DISTINCT from every main-pattern
+// - Each block node must bind to a vertex DISTINCT from every main-pattern
 //   (matchable, no modifier) node that has the same class.
-// - Each island node must also be distinct from earlier island nodes within the
-//   SAME island that share the same class (within-island injectivity).
-// - Nodes in OTHER islands are NOT considered.
+// - Each block node must also be distinct from earlier block nodes within the
+//   SAME block that share the same class (within-block injectivity).
+// - Nodes in OTHER blocks are NOT considered.
 //
 // These tests verify the new semantics introduced to fix a core bug where the
-// island evaluation could accidentally reuse an already-matched vertex.
+// block evaluation could accidentally reuse an already-matched vertex.
 // ========================================================================
 
 /**
- * Tests for injective matching within forbid/require islands.
+ * Tests for injective matching within forbid/require blocks.
  */
-class IslandInjectiveMatchTest {
+class ConditionInjectiveMatchTest {
 
     private lateinit var graph: TinkerGraph
     private lateinit var engine: TransformationEngine
@@ -1077,11 +1090,11 @@ class IslandInjectiveMatchTest {
     }
 
     // ========================================================================
-    // 5a. Self-loop exclusion: island node must be distinct from matched anchor
+    // 5a. Self-loop exclusion: block node must be distinct from matched anchor
     //
     // When only one vertex of a given type exists and it is the matched anchor,
-    // a forbid island of the same type connected to the anchor via a self-loop
-    // must NOT trigger, because the only candidate for the island node IS the
+    // a forbid block of the same type connected to the anchor via a self-loop
+    // must NOT trigger, because the only candidate for the block node IS the
     // anchor itself — and injective matching forbids c == a.
     // ========================================================================
 
@@ -1098,23 +1111,25 @@ class IslandInjectiveMatchTest {
          * valid c exists → forbid is NOT triggered → SUCCESS.
          */
         @Test
-        fun `5a - self-loop does not trigger forbid island when island node must differ from anchor`() {
+        fun `5a - self-loop does not trigger forbid block when block node must differ from anchor`() {
             val node = graph.addVertex("Node")
             node.addEdge(EdgeLabelUtils.computeEdgeLabel("ref", "backRef"), node) // self-loop
 
             val statement = TypedMatchStatement(
                 pattern = TypedPattern(
                     elements = listOf(
-                        IslandConstraintTest.matchInstance("a", "Node"),
-                        IslandConstraintTest.forbidInstance("c", "Node"),
-                        IslandConstraintTest.forbidLink("c", "ref", "a", "backRef")
+                        matchInstance("a", "Node"),
+                        forbidBlock(
+                            matchInstance("c", "Node"),
+                            matchLink("c", "ref", "a", "backRef")
+                        )
                     )
                 )
             )
 
             val result = engine.executeStatement(statement, context)
             assertIs<TransformationExecutionResult.Success>(result,
-                "Forbid island should NOT fire when the only candidate for the island node is the matched anchor itself")
+                "Forbid block should NOT fire when the only candidate for the block node is the matched anchor itself")
         }
 
         /**
@@ -1128,16 +1143,18 @@ class IslandInjectiveMatchTest {
          * Uses executeMatchAll to confirm n1 is never matched as `a`.
          */
         @Test
-        fun `5a - forbid island fires when a distinct same-type node is connected`() {
+        fun `5a - forbid block fires when a distinct same-type node is connected`() {
             val n1 = graph.addVertex("Node")
             val n2 = graph.addVertex("Node")
             n2.addEdge(EdgeLabelUtils.computeEdgeLabel("ref", "backRef"), n1)
 
             val pattern = TypedPattern(
                 elements = listOf(
-                    IslandConstraintTest.matchInstance("a", "Node"),
-                    IslandConstraintTest.forbidInstance("c", "Node"),
-                    IslandConstraintTest.forbidLink("c", "ref", "a", "backRef")
+                    matchInstance("a", "Node"),
+                    forbidBlock(
+                        matchInstance("c", "Node"),
+                        matchLink("c", "ref", "a", "backRef")
+                    )
                 )
             )
 
@@ -1154,17 +1171,17 @@ class IslandInjectiveMatchTest {
     }
 
     // ========================================================================
-    // 5b. Island node excluded from all main-pattern nodes of the same type
+    // 5b. Block node excluded from all main-pattern nodes of the same type
     //
-    // When there are multiple matchable nodes of the same type, the island node
+    // When there are multiple matchable nodes of the same type, the block node
     // must be distinct from ALL of them — not just the anchor.
     // ========================================================================
 
     @Nested
-    inner class IslandExcludedFromAllMatchedNodes {
+    inner class BlockExcludedFromAllMatchedNodes {
 
         /**
-         * Two matched Node vertices (a1, a2) and forbid island c:Node connected to a1.
+         * Two matched Node vertices (a1, a2) and forbid block c:Node connected to a1.
          * The graph contains exactly a1 and a2 — a2 links to a1 via "ref".
          *
          * Pattern: match a1:Node, a2:Node; forbid c:Node -- "ref" --> a1
@@ -1173,10 +1190,10 @@ class IslandInjectiveMatchTest {
          * The only Node that links to a1 is a2, but a2 is excluded (c != a2).
          * Therefore no valid c exists → forbid NOT triggered → SUCCESS.
          *
-         * Without island injective: c = a2 (which IS linked to a1), forbid fires → FAIL.
+         * Without block injective: c = a2 (which IS linked to a1), forbid fires → FAIL.
          */
         @Test
-        fun `5b - forbid island does not fire when only already-matched nodes are connected`() {
+        fun `5b - forbid block does not fire when only already-matched nodes are connected`() {
             val n1 = graph.addVertex("Node")
             val n2 = graph.addVertex("Node")
             n2.addEdge(EdgeLabelUtils.computeEdgeLabel("ref", "backRef"), n1) // n2 -> n1
@@ -1184,17 +1201,19 @@ class IslandInjectiveMatchTest {
             val statement = TypedMatchStatement(
                 pattern = TypedPattern(
                     elements = listOf(
-                        IslandConstraintTest.matchInstance("a1", "Node"),
-                        IslandConstraintTest.matchInstance("a2", "Node"),
-                        IslandConstraintTest.forbidInstance("c", "Node"),
-                        IslandConstraintTest.forbidLink("c", "ref", "a1", "backRef")
+                        matchInstance("a1", "Node"),
+                        matchInstance("a2", "Node"),
+                        forbidBlock(
+                            matchInstance("c", "Node"),
+                            matchLink("c", "ref", "a1", "backRef")
+                        )
                     )
                 )
             )
 
             val result = engine.executeStatement(statement, context)
             assertIs<TransformationExecutionResult.Success>(result,
-                "Forbid island should NOT fire when the only connected node of the right type is already matched")
+                "Forbid block should NOT fire when the only connected node of the right type is already matched")
         }
 
         /**
@@ -1209,7 +1228,7 @@ class IslandInjectiveMatchTest {
          * The specific combination (a1=n1, a2=n2) must be absent from the results.
          */
         @Test
-        fun `5b - forbid island fires when an unmatched same-type node is connected`() {
+        fun `5b - forbid block fires when an unmatched same-type node is connected`() {
             val n1 = graph.addVertex("Node")
             val n2 = graph.addVertex("Node")
             val n3 = graph.addVertex("Node")
@@ -1217,10 +1236,12 @@ class IslandInjectiveMatchTest {
 
             val pattern = TypedPattern(
                 elements = listOf(
-                    IslandConstraintTest.matchInstance("a1", "Node"),
-                    IslandConstraintTest.matchInstance("a2", "Node"),
-                    IslandConstraintTest.forbidInstance("c", "Node"),
-                    IslandConstraintTest.forbidLink("c", "ref", "a1", "backRef")
+                    matchInstance("a1", "Node"),
+                    matchInstance("a2", "Node"),
+                    forbidBlock(
+                        matchInstance("c", "Node"),
+                        matchLink("c", "ref", "a1", "backRef")
+                    )
                 )
             )
 
@@ -1240,29 +1261,29 @@ class IslandInjectiveMatchTest {
     }
 
     // ========================================================================
-    // 5c. Within-island injective matching
+    // 5c. Within-block injective matching
     //
-    // Two island nodes of the same type within the same island must bind to
+    // Two block nodes of the same type within the same block must bind to
     // distinct vertices.
     // ========================================================================
 
     @Nested
-    inner class WithinIslandInjective {
+    inner class WithinBlockInjective {
 
         /**
          * Pattern: match x:Container; forbid c1:Item -- "link1" --> c2:Item -- "link2" --> x
          *
-         * c1 and c2 are in the SAME island (connected via link1). With within-island
+         * c1 and c2 are in the SAME block (connected via link1). With within-block
          * injective, c2 must be distinct from c1.
          *
          * Graph: one Container, one Item. The Item has a self-loop for link1 (c1=item, c2=item)
          * and links to the Container via link2.
          *
-         * Without within-island injective: c1=item, c2=item → forbid fires → FAIL.
-         * With within-island injective: c2 must != c1; only one Item, so no valid c2 → NOT triggered → SUCCESS.
+         * Without within-block injective: c1=item, c2=item → forbid fires → FAIL.
+         * With within-block injective: c2 must != c1; only one Item, so no valid c2 → NOT triggered → SUCCESS.
          */
         @Test
-        fun `5c - within-island injective prevents two island nodes binding to the same vertex`() {
+        fun `5c - within-block injective prevents two block nodes binding to the same vertex`() {
             val container = graph.addVertex("Container")
             val item = graph.addVertex("Item")
             // Self-loop so c1=item can link to c2=item (same vertex), then c2→container
@@ -1272,18 +1293,20 @@ class IslandInjectiveMatchTest {
             val statement = TypedMatchStatement(
                 pattern = TypedPattern(
                     elements = listOf(
-                        IslandConstraintTest.matchInstance("x", "Container"),
-                        IslandConstraintTest.forbidInstance("c1", "Item"),
-                        IslandConstraintTest.forbidInstance("c2", "Item"),
-                        IslandConstraintTest.forbidLink("c1", "link1", "c2", "src"),
-                        IslandConstraintTest.forbidLink("c2", "link2", "x", "owner")
+                        matchInstance("x", "Container"),
+                        forbidBlock(
+                            matchInstance("c1", "Item"),
+                            matchInstance("c2", "Item"),
+                            matchLink("c1", "link1", "c2", "src"),
+                            matchLink("c2", "link2", "x", "owner")
+                        )
                     )
                 )
             )
 
             val result = engine.executeStatement(statement, context)
             assertIs<TransformationExecutionResult.Success>(result,
-                "Forbid island should NOT fire when the two island nodes would have to bind to the same vertex (c2 must != c1)")
+                "Forbid block should NOT fire when the two block nodes would have to bind to the same vertex (c2 must != c1)")
         }
 
         /**
@@ -1291,10 +1314,10 @@ class IslandInjectiveMatchTest {
          *
          * Graph: one Container, two Items. item1 links to item2 (via link1), item2 links to container (via link2).
          *
-         * c1=item1, c2=item2 (distinct) → within-island injective satisfied → forbid fires → FAIL.
+         * c1=item1, c2=item2 (distinct) → within-block injective satisfied → forbid fires → FAIL.
          */
         @Test
-        fun `5c - within-island forbid fires when two distinct same-type nodes exist`() {
+        fun `5c - within-block forbid fires when two distinct same-type nodes exist`() {
             val container = graph.addVertex("Container")
             val item1 = graph.addVertex("Item")
             val item2 = graph.addVertex("Item")
@@ -1304,27 +1327,29 @@ class IslandInjectiveMatchTest {
             val statement = TypedMatchStatement(
                 pattern = TypedPattern(
                     elements = listOf(
-                        IslandConstraintTest.matchInstance("x", "Container"),
-                        IslandConstraintTest.forbidInstance("c1", "Item"),
-                        IslandConstraintTest.forbidInstance("c2", "Item"),
-                        IslandConstraintTest.forbidLink("c1", "link1", "c2", "src"),
-                        IslandConstraintTest.forbidLink("c2", "link2", "x", "owner")
+                        matchInstance("x", "Container"),
+                        forbidBlock(
+                            matchInstance("c1", "Item"),
+                            matchInstance("c2", "Item"),
+                            matchLink("c1", "link1", "c2", "src"),
+                            matchLink("c2", "link2", "x", "owner")
+                        )
                     )
                 )
             )
 
             val result = engine.executeStatement(statement, context)
             assertIs<TransformationExecutionResult.Failure>(result,
-                "Forbid island should fire when two distinct same-type nodes satisfy the island pattern")
+                "Forbid block should fire when two distinct same-type nodes satisfy the block pattern")
         }
     }
 
     // ========================================================================
-    // 5d. Require island injective matching
+    // 5d. Require block injective matching
     // ========================================================================
 
     @Nested
-    inner class RequireIslandInjective {
+    inner class RequireBlockInjective {
 
         /**
          * Pattern: match a:Node; require c:Node -- "ref" --> a
@@ -1335,23 +1360,25 @@ class IslandInjectiveMatchTest {
          * With injective: c must != a → no valid c → require NOT satisfied → FAIL.
          */
         @Test
-        fun `5d - require island with self-loop fails when island node must differ from matched node`() {
+        fun `5d - require block with self-loop fails when block node must differ from matched node`() {
             val node = graph.addVertex("Node")
             node.addEdge(EdgeLabelUtils.computeEdgeLabel("ref", "backRef"), node) // self-loop
 
             val statement = TypedMatchStatement(
                 pattern = TypedPattern(
                     elements = listOf(
-                        IslandConstraintTest.matchInstance("a", "Node"),
-                        IslandConstraintTest.requireInstance("c", "Node"),
-                        IslandConstraintTest.requireLink("c", "ref", "a", "backRef")
+                        matchInstance("a", "Node"),
+                        requireBlock(
+                            matchInstance("c", "Node"),
+                            matchLink("c", "ref", "a", "backRef")
+                        )
                     )
                 )
             )
 
             val result = engine.executeStatement(statement, context)
             assertIs<TransformationExecutionResult.Failure>(result,
-                "Require island should FAIL when the only candidate is the matched anchor (injective: c must != a)")
+                "Require block should FAIL when the only candidate is the matched anchor (injective: c must != a)")
         }
 
         /**
@@ -1362,7 +1389,7 @@ class IslandInjectiveMatchTest {
          * c = n2 (distinct from a = n1) → require satisfied → SUCCESS.
          */
         @Test
-        fun `5d - require island succeeds when a distinct same-type node is connected`() {
+        fun `5d - require block succeeds when a distinct same-type node is connected`() {
             val n1 = graph.addVertex("Node")
             val n2 = graph.addVertex("Node")
             n2.addEdge(EdgeLabelUtils.computeEdgeLabel("ref", "backRef"), n1)
@@ -1370,16 +1397,18 @@ class IslandInjectiveMatchTest {
             val statement = TypedMatchStatement(
                 pattern = TypedPattern(
                     elements = listOf(
-                        IslandConstraintTest.matchInstance("a", "Node"),
-                        IslandConstraintTest.requireInstance("c", "Node"),
-                        IslandConstraintTest.requireLink("c", "ref", "a", "backRef")
+                        matchInstance("a", "Node"),
+                        requireBlock(
+                            matchInstance("c", "Node"),
+                            matchLink("c", "ref", "a", "backRef")
+                        )
                     )
                 )
             )
 
             val result = engine.executeStatement(statement, context)
             assertIs<TransformationExecutionResult.Success>(result,
-                "Require island should succeed when a distinct same-type node is connected to the anchor")
+                "Require block should succeed when a distinct same-type node is connected to the anchor")
         }
     }
 }

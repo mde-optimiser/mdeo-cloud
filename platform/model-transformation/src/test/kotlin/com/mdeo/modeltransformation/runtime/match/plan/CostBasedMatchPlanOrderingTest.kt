@@ -219,8 +219,6 @@ class CostBasedMatchPlanOrderingTest {
             ),
             createInstances = emptyList(), deleteInstances = emptyList(),
             createLinks = emptyList(), deleteLinks = emptyList(),
-            forbidInstances = emptyList(), forbidLinks = emptyList(),
-            requireInstances = emptyList(), requireLinks = emptyList(),
             variables = emptyList(), whereClauses = emptyList()
         )
 
@@ -285,8 +283,6 @@ class CostBasedMatchPlanOrderingTest {
                 ),
                 createInstances = emptyList(), deleteInstances = emptyList(),
                 createLinks = emptyList(), deleteLinks = emptyList(),
-                forbidInstances = emptyList(), forbidLinks = emptyList(),
-                requireInstances = emptyList(), requireLinks = emptyList(),
                 variables = emptyList(), whereClauses = emptyList()
             )
             val statistics = statisticsOf(
@@ -313,8 +309,6 @@ class CostBasedMatchPlanOrderingTest {
                 matchableLinks = listOf(makeLink(null, "hospital", "shifts", "shift", "hospital")),
                 createInstances = emptyList(), deleteInstances = emptyList(),
                 createLinks = emptyList(), deleteLinks = emptyList(),
-                forbidInstances = emptyList(), forbidLinks = emptyList(),
-                requireInstances = emptyList(), requireLinks = emptyList(),
                 variables = emptyList(), whereClauses = emptyList()
             )
             val statistics = statisticsOf(vertices = mapOf("Hospital" to 1000, "Shift" to 0))
@@ -338,8 +332,6 @@ class CostBasedMatchPlanOrderingTest {
                 matchableLinks = listOf(makeLink(null, "hospital", "shifts", "shift", "hospital")),
                 createInstances = emptyList(), deleteInstances = emptyList(),
                 createLinks = emptyList(), deleteLinks = emptyList(),
-                forbidInstances = emptyList(), forbidLinks = emptyList(),
-                requireInstances = emptyList(), requireLinks = emptyList(),
                 variables = emptyList(), whereClauses = emptyList()
             )
             val statistics = statisticsOf(
@@ -389,8 +381,6 @@ class CostBasedMatchPlanOrderingTest {
             matchableLinks = listOf(makeLink(null, "hospital", "shifts", "shift", "hospital")),
             createInstances = emptyList(), deleteInstances = emptyList(),
             createLinks = emptyList(), deleteLinks = emptyList(),
-            forbidInstances = emptyList(), forbidLinks = emptyList(),
-            requireInstances = emptyList(), requireLinks = emptyList(),
             variables = emptyList(), whereClauses = emptyList()
         )
 
@@ -429,8 +419,6 @@ class CostBasedMatchPlanOrderingTest {
                 ),
                 createInstances = emptyList(), deleteInstances = emptyList(),
                 createLinks = emptyList(), deleteLinks = emptyList(),
-                forbidInstances = emptyList(), forbidLinks = emptyList(),
-                requireInstances = emptyList(), requireLinks = emptyList(),
                 variables = emptyList(), whereClauses = emptyList()
             )
             val steps = buildPlan(

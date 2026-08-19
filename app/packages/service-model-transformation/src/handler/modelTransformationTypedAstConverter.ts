@@ -34,6 +34,9 @@ import {
     type TypedPatternObjectInstanceElement,
     type TypedPatternLinkElement,
     type TypedPatternWhereClauseElement,
+    type TypedPatternApplicationConditionElement,
+    type TypedPatternApplicationCondition,
+    type PatternApplicationConditionType,
     type PatternVariableType,
     type TypedPatternVariable,
     type PatternVariableReassignmentType,
@@ -64,6 +67,7 @@ import {
     type PatternObjectInstanceDeleteType,
     type PatternObjectInstanceReferenceType,
     PatternObjectInstanceReference,
+    PatternApplicationCondition,
     type PatternPropertyOperator
 } from "@mdeo/language-model-transformation";
 import { AssociationEnd, type AssociationEndType } from "@mdeo/language-metamodel";
@@ -299,6 +303,7 @@ export class ModelTransformationTypedAstConverter extends TypedAstConverter {
             | TypedPatternObjectInstanceElement
             | TypedPatternLinkElement
             | TypedPatternWhereClauseElement
+            | TypedPatternApplicationConditionElement
         )[] = [];
 
         for (const element of pattern.elements) {
@@ -337,12 +342,67 @@ export class ModelTransformationTypedAstConverter extends TypedAstConverter {
                     kind: "objectInstance",
                     objectInstance: this.convertPatternObjectInstanceReference(element)
                 });
+            } else if (this.reflection.isInstance(element, PatternApplicationCondition)) {
+                elements.push({
+                    kind: "applicationCondition",
+                    condition: this.convertApplicationCondition(element)
+                });
             } else {
                 throw new Error(`Unknown pattern element type: ${element.$type}`);
             }
         }
 
         return { elements };
+    }
+
+    /**
+     * Converts an application condition block into its own condition graph.
+     *
+     * Object instances declared inside the block keep their class, while references to
+     * instances of the enclosing pattern are emitted without a class name — exactly as for
+     * references in a main pattern — so the execution engine can tell condition-local nodes
+     * from the anchors that bind the condition to the match. Where clauses are emitted as
+     * they are: they belong to the condition, not to the enclosing match.
+     *
+     * @param condition The PatternApplicationCondition AST node
+     * @returns The TypedPatternApplicationCondition representation
+     */
+    private convertApplicationCondition(condition: PatternApplicationConditionType): TypedPatternApplicationCondition {
+        const elements: (
+            TypedPatternObjectInstanceElement | TypedPatternLinkElement | TypedPatternWhereClauseElement
+        )[] = [];
+
+        for (const element of condition.elements ?? []) {
+            if (this.reflection.isInstance(element, PatternObjectInstance)) {
+                elements.push({
+                    kind: "objectInstance",
+                    objectInstance: this.convertPatternObjectInstance(element)
+                });
+            } else if (this.reflection.isInstance(element, PatternLink)) {
+                elements.push({
+                    kind: "link",
+                    link: this.convertPatternLink(element)
+                });
+            } else if (this.reflection.isInstance(element, PatternObjectInstanceReference)) {
+                elements.push({
+                    kind: "objectInstance",
+                    objectInstance: this.convertPatternObjectInstanceReference(element)
+                });
+            } else if (this.reflection.isInstance(element, WhereClause)) {
+                elements.push({
+                    kind: "whereClause",
+                    whereClause: this.convertWhereClause(element)
+                });
+            } else {
+                throw new Error(`Unsupported application condition element type: ${element.$type}`);
+            }
+        }
+
+        return {
+            negative: (condition.kind ?? "forbid") === "forbid",
+            name: condition.name,
+            elements
+        };
     }
 
     /**

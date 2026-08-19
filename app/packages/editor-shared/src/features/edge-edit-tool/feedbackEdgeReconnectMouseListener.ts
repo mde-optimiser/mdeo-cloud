@@ -8,11 +8,12 @@ import {
 } from "./reconnectFeedback.js";
 import { SetEdgeEditHighlightAction } from "../create-edge-tool/createEdgeFeedback.js";
 import type { EdgeEditTool } from "./edgeEditTool.js";
-import type { EdgeAnchor, ReconnectEdgeOperation, UpdateRoutingInformationOperation } from "@mdeo/protocol-common";
+import type { EdgeAnchor } from "@mdeo/protocol-common";
 import { GNode } from "../../model/node.js";
 import { GEdge, type ReconnectEnd } from "../../model/edge.js";
 import { isConnectable } from "../edge-routing/connectable.js";
 import { getRelativePosition } from "../../base/getRelativePosition.js";
+import { ReconnectEdgeOperation, UpdateRoutingInformationOperation } from "@mdeo/protocol-common";
 
 const { DragAwareMouseListener, findParentByFeature, isSelected, cursorFeedbackAction } =
     sharedImport("@eclipse-glsp/client");
@@ -196,7 +197,7 @@ export class FeedbackEdgeReconnectMouseListener extends DragAwareMouseListener {
             const route = this.tool.edgeRouter.computeRoute(edge);
 
             const operation: ReconnectEdgeOperation = {
-                kind: "reconnectEdge",
+                kind: ReconnectEdgeOperation.KIND,
                 isOperation: true,
                 edgeElementId: edge.id,
                 sourceElementId: this.reconnectEnd === "source" ? this.currentTarget.id : edge.sourceId,
@@ -223,7 +224,7 @@ export class FeedbackEdgeReconnectMouseListener extends DragAwareMouseListener {
                 targetAnchor: route.meta.targetAnchor
             };
             const operation: UpdateRoutingInformationOperation = {
-                kind: "updateRoutingInformation",
+                kind: UpdateRoutingInformationOperation.KIND,
                 isOperation: true,
                 updates: [update]
             };

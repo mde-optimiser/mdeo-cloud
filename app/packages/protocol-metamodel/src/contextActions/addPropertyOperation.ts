@@ -34,6 +34,12 @@ export namespace AddPropertyOperation {
     export const KIND = "addProperty";
 
     /**
+     * Identifier carried in `newLabelOperationKind` by a new property placeholder label,
+     * by which the label view recognises a label it has to commit through this operation.
+     */
+    export const NEW_LABEL_KIND = "property-name-edit";
+
+    /**
      * Parameters used to create an add-property operation.
      */
     export interface Options {
