@@ -91,6 +91,33 @@ class BackendApiService(val baseUrl: String) {
     }
 
     /**
+     * Fetches the typed AST of a file together with those of every file it imports, in one request.
+     *
+     * @param projectId UUID of the project
+     * @param filePath Path to the file
+     * @param jwtToken JWT token to pass through to the backend
+     * @return Typed ASTs by file path, or null when the closure is unavailable
+     */
+    suspend fun getTypedAstClosure(projectId: String, filePath: String, jwtToken: String): Map<String, TypedAst>? {
+        return try {
+            val response = client.get("$baseUrl/projects/$projectId/file-data/typed-ast-closure") {
+                parameter("path", filePath)
+                contentType(ContentType.Application.Json)
+                header(HttpHeaders.Authorization, "Bearer $jwtToken")
+            }
+            if (response.status == HttpStatusCode.OK) {
+                response.body<TypedAstClosureFileDataResponse>().data?.files
+            } else {
+                logger.warn("Failed to fetch typed AST closure: ${response.status}")
+                null
+            }
+        } catch (e: Exception) {
+            logger.warn("Error fetching typed AST closure, falling back to fetching files one by one", e)
+            null
+        }
+    }
+
+    /**
      * Fetches the typed AST of all plugin-contributed script functions.
      *
      * The contribution AST lives at the project root, so it is requested by language
@@ -232,6 +259,26 @@ class BackendApiService(val baseUrl: String) {
         logger.info("Backend API client closed")
     }
 }
+
+/**
+ * Response of the typed AST closure file data request.
+ *
+ * @property data The closure, or null when a file has no typed AST
+ */
+@Serializable
+data class TypedAstClosureFileDataResponse(
+    val data: TypedAstClosure?
+)
+
+/**
+ * A file's typed AST together with those of every file it imports.
+ *
+ * @property files Typed ASTs by file path
+ */
+@Serializable
+data class TypedAstClosure(
+    val files: Map<String, TypedAst>
+)
 
 /**
  * Response for the typed-ast file data request.

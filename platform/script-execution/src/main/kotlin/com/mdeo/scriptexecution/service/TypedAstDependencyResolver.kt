@@ -36,6 +36,12 @@ class TypedAstDependencyResolver(
         filePath: String,
         jwtToken: String
     ): Map<String, TypedAst>? {
+        // One request for the file and everything it imports; older script services do not offer it.
+        backendApiService.getTypedAstClosure(projectId, filePath, jwtToken)?.let { closure ->
+            logger.info("Resolved ${closure.size} file(s) including dependencies for $filePath in one request")
+            return closure
+        }
+
         val resolvedAsts = mutableMapOf<String, TypedAst>()
         val visited = mutableSetOf<String>()
         val pending = mutableSetOf(filePath)

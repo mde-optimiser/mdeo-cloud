@@ -1,4 +1,5 @@
 import { FileCode } from "lucide";
+import { TYPED_AST_CLOSURE_HANDLER_KEY, typedAstClosureHandler } from "./handler/typedAstClosureHandler.js";
 import {
     defaultLanguageConfiguration,
     defaultMonarchTokenProvider,
@@ -109,7 +110,8 @@ const scriptLanguageConfig: LanguageServiceConfig<ScriptServices> = {
     languagePluginProvider: scriptPluginProvider,
     fileDataHandlers: {
         [AST_HANDLER_KEY]: astHandler,
-        [TYPED_AST_HANDLER_KEY]: typedAstHandler
+        [TYPED_AST_HANDLER_KEY]: typedAstHandler,
+        [TYPED_AST_CLOSURE_HANDLER_KEY]: typedAstClosureHandler
     },
     executionHandlers: [scriptExecutionHandler]
 };

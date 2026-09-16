@@ -80,6 +80,12 @@ the payloads.
 The dependency lists are what let the backend invalidate correctly. Anything a handler reads through
 `context.serverApi` is tracked automatically and merged into whatever the handler returns.
 
+File data read through `context.serverApi.getFileData` is cached for the rest of the request, and
+reads started together — a `Promise.all` over several files — reach the backend as one
+`POST /api/projects/{projectId}/file-data-batch` request with `{"requests": [{"path", "key"}]}`. The
+backend computes the entries concurrently and answers `{"results": [...]}` in request order, each
+either `{"data", "version"}` or `{"error"}`, so one failing entry does not fail the others.
+
 Responses: `404` for an unknown language or an unregistered data key, `403` for a missing scope.
 
 ## `POST /request/:languageId/:key`

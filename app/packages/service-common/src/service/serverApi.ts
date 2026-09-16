@@ -112,6 +112,26 @@ export interface ServerApi {
 }
 
 /**
+ * Most file data entries one batch request asks for; the backend refuses larger batches.
+ */
+const MAX_FILE_DATA_BATCH_SIZE = 256;
+
+/**
+ * One file data request waiting to be sent.
+ */
+interface PendingFileData {
+    path: string;
+    key: string;
+    resolve(data: FileData): void;
+    reject(error: unknown): void;
+}
+
+/**
+ * One answer of a batch file data request.
+ */
+type FileDataBatchResult = { data: unknown; version: number } | { error: { code: string; message: string } };
+
+/**
  * Implementation of the ServerApi that communicates with the backend via HTTP.
  * The JWT token is set per-request to ensure proper authorization.
  */
@@ -150,6 +170,16 @@ export class HttpServerApi implements ServerApi {
      * Tracked data dependencies during current computation
      */
     private trackedDataDependencies: DataDependency[] = [];
+
+    /**
+     * File data requests made since the last flush, sent together
+     */
+    private pendingFileData: PendingFileData[] = [];
+
+    /**
+     * File data requests on their way, so asking twice for the same data sends one request
+     */
+    private readonly fileDataInFlight = new Map<string, Promise<FileData>>();
 
     /**
      * Cache of fetched file data by key
@@ -251,13 +281,80 @@ export class HttpServerApi implements ServerApi {
     }
 
     async getFileData(path: string, key: string): Promise<FileData> {
-        if (!this.fileDataCache.has(key)) {
-            this.fileDataCache.set(key, new Map());
+        const cached = this.fileDataCache.get(key)?.get(path);
+        if (cached != undefined) {
+            return cached;
         }
-        const keyCache = this.fileDataCache.get(key)!;
-        if (keyCache.has(path)) {
-            return keyCache.get(path)!;
+        const id = `${key}\u0000${path}`;
+        const inFlight = this.fileDataInFlight.get(id);
+        if (inFlight != undefined) {
+            return inFlight;
         }
+
+        // Requests made in the same tick, as a Promise.all over several files makes them, travel
+        // to the backend as one batch.
+        const request = new Promise<FileData>((resolve, reject) => {
+            this.pendingFileData.push({ path, key, resolve, reject });
+            if (this.pendingFileData.length === 1) {
+                queueMicrotask(() => void this.flushFileData());
+            }
+        });
+        this.fileDataInFlight.set(id, request);
+        try {
+            return await request;
+        } finally {
+            this.fileDataInFlight.delete(id);
+        }
+    }
+
+    /**
+     * Sends every file data request made since the last flush: alone when there is one, as batches
+     * otherwise.
+     */
+    private async flushFileData(): Promise<void> {
+        const pending = this.pendingFileData;
+        this.pendingFileData = [];
+        if (pending.length === 1) {
+            await this.settle(pending[0], () => this.fetchFileData(pending[0].path, pending[0].key));
+            return;
+        }
+        for (let start = 0; start < pending.length; start += MAX_FILE_DATA_BATCH_SIZE) {
+            const chunk = pending.slice(start, start + MAX_FILE_DATA_BATCH_SIZE);
+            let results: FileDataBatchResult[] | undefined;
+            try {
+                results = await this.fetchFileDataBatch(chunk);
+            } catch (error) {
+                chunk.forEach((entry) => entry.reject(error));
+                continue;
+            }
+            if (results == undefined) {
+                // A backend without the batch endpoint gets the requests one by one.
+                await Promise.all(
+                    chunk.map((entry) => this.settle(entry, () => this.fetchFileData(entry.path, entry.key)))
+                );
+                continue;
+            }
+            chunk.forEach((entry, index) => {
+                const result = results![index];
+                if (result == undefined || "error" in result) {
+                    const reason = result == undefined ? "no answer" : `${result.error.code}: ${result.error.message}`;
+                    entry.reject(new Error(`Failed to get file data ${entry.path}:${entry.key}: ${reason}`));
+                } else {
+                    entry.resolve(this.remember(entry.path, entry.key, result));
+                }
+            });
+        }
+    }
+
+    private async settle(entry: PendingFileData, load: () => Promise<FileData>): Promise<void> {
+        try {
+            entry.resolve(await load());
+        } catch (error) {
+            entry.reject(error);
+        }
+    }
+
+    private async fetchFileData(path: string, key: string): Promise<FileData> {
         const encodedPath = encodeURIComponent(path);
         const encodedKey = encodeURIComponent(key);
         const response = await fetch(`${this.projectBackendUrl}/file-data/${encodedKey}?path=${encodedPath}`, {
@@ -270,19 +367,40 @@ export class HttpServerApi implements ServerApi {
             throw new Error(`Failed to get file data ${path}:${key}: ${await describeFailedResponse(response)}`);
         }
 
-        const result = await response.json();
-        const fileData: FileData = {
-            data: result.data,
-            version: result.version
-        };
-        keyCache.set(path, fileData);
+        return this.remember(path, key, await response.json());
+    }
 
-        this.trackedDataDependencies.push({
-            path,
-            key,
-            version: result.version
+    /**
+     * Asks for several file data entries in one request.
+     *
+     * @returns The answers in request order, or undefined when the backend has no batch endpoint
+     */
+    private async fetchFileDataBatch(entries: PendingFileData[]): Promise<FileDataBatchResult[] | undefined> {
+        const response = await fetch(`${this.projectBackendUrl}/file-data-batch`, {
+            method: "POST",
+            headers: this.getAuthHeaders(),
+            signal: this.signal,
+            body: JSON.stringify({ requests: entries.map(({ path, key }) => ({ path, key })) })
         });
+        if (response.status === 404 || response.status === 405) {
+            return undefined;
+        }
+        if (!response.ok) {
+            throw new Error(`Failed to get file data: ${await describeFailedResponse(response)}`);
+        }
+        return ((await response.json()) as { results: FileDataBatchResult[] }).results;
+    }
 
+    /**
+     * Caches a file data answer for the rest of the request and records it as a dependency.
+     */
+    private remember(path: string, key: string, result: { data: unknown; version: number }): FileData {
+        const fileData: FileData = { data: result.data, version: result.version };
+        if (!this.fileDataCache.has(key)) {
+            this.fileDataCache.set(key, new Map());
+        }
+        this.fileDataCache.get(key)!.set(path, fileData);
+        this.trackedDataDependencies.push({ path, key, version: result.version });
         return fileData;
     }
 
