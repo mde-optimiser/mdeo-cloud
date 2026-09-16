@@ -21,9 +21,11 @@ interface ExternalCallDispatcher {
      * @param arguments The call's arguments, boxed, in declaration order
      * @param model The model the script runs on, or null when it runs on none. Instances passed as
      *        arguments belong to it, and an operation that reads the model reads this one.
+     * @param classLoader The loader of the calling program, which loads the classes contributions
+     *        define, so records and handles the service returns can be created
      * @return The result, boxed, or null for a signature that returns nothing
      */
-    fun call(callId: String, arguments: Array<Any?>, model: Model?): Any?
+    fun call(callId: String, arguments: Array<Any?>, model: Model?, classLoader: ClassLoader): Any?
 
     companion object {
         /**
@@ -35,7 +37,7 @@ interface ExternalCallDispatcher {
          * says what is missing rather than with a null pointer somewhere downstream.
          */
         val UNSUPPORTED: ExternalCallDispatcher = object : ExternalCallDispatcher {
-            override fun call(callId: String, arguments: Array<Any?>, model: Model?): Any? {
+            override fun call(callId: String, arguments: Array<Any?>, model: Model?, classLoader: ClassLoader): Any? {
                 throw UnsupportedOperationException(
                     "External function '$callId' cannot be called here: this execution has no " +
                             "connection to the plugin that implements it"

@@ -6,14 +6,23 @@ import {
     type ParserRule
 } from "@mdeo/language-common";
 import type {
+    ResolvedContributedClass,
     ContributedFunctionSignature,
     ResolvedContributedExpression,
     ResolvedScriptContributionPlugins,
     ScriptContributionPlugin,
     ResolvedContributedFunction
 } from "./scriptContributionPlugin.js";
-import { ExternalImplementation } from "./scriptContributionPlugin.js";
-import { FunctionSignature, LambdaType, type ReturnType } from "@mdeo/language-expression";
+import { ContributedClass, ExternalImplementation } from "./scriptContributionPlugin.js";
+import {
+    ClassTypeRef,
+    FunctionSignature,
+    GenericTypeRef,
+    LambdaType,
+    type ClassType,
+    type Property,
+    type ReturnType
+} from "@mdeo/language-expression";
 
 /**
  * Protocol an external implementation is answered over.
@@ -80,8 +89,134 @@ export function resolvePlugins(
     return {
         functions: resolveFunctions(plugins),
         expressions: expressions,
-        rules: extensionRules
+        rules: extensionRules,
+        classes: resolveClasses(plugins)
     };
+}
+
+/**
+ * Collection types a record field may hold: readonly ones only, because a record is immutable.
+ */
+const READONLY_COLLECTION_TYPES = new Set([
+    "ReadonlyCollection",
+    "ReadonlyOrderedCollection",
+    "ReadonlyList",
+    "ReadonlySet",
+    "ReadonlyOrderedSet",
+    "ReadonlyBag",
+    "ReadonlyMap"
+]);
+
+/**
+ * Scalar types a record field may hold.
+ */
+const SCALAR_TYPES = new Set(["int", "long", "float", "double", "boolean", "string"]);
+
+/**
+ * Resolves the classes every contribution defines into class types, after checking them.
+ *
+ * @param plugins The contribution plugins
+ * @returns The resolved classes
+ * @throws Error if a record field has a type a record cannot hold, or a signature refers to a
+ *         contributed class its contribution does not define
+ */
+function resolveClasses(plugins: ScriptContributionPlugin[]): ResolvedContributedClass[] {
+    const resolved: ResolvedContributedClass[] = [];
+    for (const plugin of plugins) {
+        const classes = plugin.classes ?? {};
+        const typePackage = ContributedClass.packageOf(plugin.id);
+        for (const [name, declaration] of Object.entries(classes)) {
+            const properties: Record<string, Property> = {};
+            if (declaration.kind === "record") {
+                for (const field of declaration.fields) {
+                    if (!isRecordFieldType(field.type, plugin)) {
+                        throw new Error(
+                            `Field '${field.name}' of record '${name}' in contribution '${plugin.id}' has a type a ` +
+                                `record cannot hold. Use scalars, strings, model instances, enum values, records of ` +
+                                `the same contribution, or readonly collections of those.`
+                        );
+                    }
+                    properties[field.name] = { name: field.name, isProperty: true, readonly: true, type: field.type };
+                }
+            }
+            const classType: ClassType = {
+                name,
+                package: typePackage,
+                properties,
+                methods: {},
+                superTypes: [{ package: "builtin", type: "Any" }]
+            };
+            resolved.push({ contributionId: plugin.id, name, declaration, classType });
+        }
+        validateClassReferences(plugin);
+    }
+    return resolved;
+}
+
+/**
+ * Reports whether a record field may have a type.
+ *
+ * @param type The field type
+ * @param plugin The contribution defining the record
+ * @returns True when a record can hold values of the type
+ */
+function isRecordFieldType(type: ReturnType, plugin: ScriptContributionPlugin): boolean {
+    if (!ClassTypeRef.is(type)) {
+        return false;
+    }
+    if (type.package === "builtin") {
+        if (SCALAR_TYPES.has(type.type)) {
+            return true;
+        }
+        if (!READONLY_COLLECTION_TYPES.has(type.type)) {
+            return false;
+        }
+        return Object.values(type.typeArgs ?? {}).every((arg) => isRecordFieldType(arg, plugin));
+    }
+    if (type.package.startsWith(`${ContributedClass.PACKAGE_PREFIX}/`)) {
+        return type.package === ContributedClass.packageOf(plugin.id) && plugin.classes?.[type.type]?.kind === "record";
+    }
+    return type.package.startsWith("class/") || type.package.startsWith("enum/");
+}
+
+/**
+ * Checks that every contributed class a contribution's signatures and records name is one the
+ * contribution defines itself.
+ *
+ * @param plugin The contribution
+ * @throws Error naming the first reference that does not resolve
+ */
+function validateClassReferences(plugin: ScriptContributionPlugin): void {
+    const check = (type: ReturnType, where: string): void => {
+        if (GenericTypeRef.is(type) || !ClassTypeRef.is(type)) {
+            if (LambdaType.is(type)) {
+                check(type.returnType, where);
+                type.parameters.forEach((parameter) => check(parameter.type, where));
+            }
+            return;
+        }
+        if (
+            type.package.startsWith(`${ContributedClass.PACKAGE_PREFIX}/`) &&
+            (type.package !== ContributedClass.packageOf(plugin.id) || plugin.classes?.[type.type] == undefined)
+        ) {
+            throw new Error(
+                `${where} in contribution '${plugin.id}' refers to class '${type.type}' of '${type.package}', ` +
+                    `which the contribution does not define.`
+            );
+        }
+        Object.values(type.typeArgs ?? {}).forEach((arg) => check(arg, where));
+    };
+    for (const [functionName, contributedFunction] of Object.entries(plugin.functions)) {
+        for (const signature of Object.values(contributedFunction.signatures)) {
+            signature.signature.parameters.forEach((parameter) => check(parameter.type, `Function '${functionName}'`));
+            check(signature.signature.returnType, `Function '${functionName}'`);
+        }
+    }
+    for (const [name, declaration] of Object.entries(plugin.classes ?? {})) {
+        if (declaration.kind === "record") {
+            declaration.fields.forEach((field) => check(field.type, `Record '${name}'`));
+        }
+    }
 }
 
 /**

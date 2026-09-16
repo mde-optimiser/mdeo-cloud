@@ -158,6 +158,33 @@ val routing = scriptContribution("routing") {
 What travels on the session is specified in
 [The `script-functions` protocol](/develop/script-functions-protocol).
 
+#### Records and opaque classes
+
+External functions can take and return classes their contribution defines, declared in the
+payload's `classes`:
+
+```json
+"classes": {
+  "Point": { "kind": "record", "fields": [
+    { "name": "x", "type": { "package": "builtin", "type": "double", "isNullable": false } },
+    { "name": "label", "type": { "package": "builtin", "type": "string", "isNullable": false } }
+  ] },
+  "Index": { "kind": "opaque" }
+}
+```
+
+Signatures and fields refer to them as `{ "package": "contrib/<contribution id>", "type": "Point" }`.
+
+| Kind | Scripts can | Scripts cannot |
+| --- | --- | --- |
+| `record` | Read fields as readonly properties, compare by content with `==`, pass it to the contribution's functions | Create one, assign a field |
+| `opaque` | Hold it and pass it back to the contribution's functions | Access any member |
+
+A record field holds a scalar, a string, a model instance or enum value, a record of the same
+contribution, or a readonly collection of those. Anything else — a mutable collection, an opaque
+class, a class of another contribution — is rejected when the contribution is resolved, and so is a
+signature that names a contributed class its contribution does not define.
+
 #### Copy-restore
 
 Arguments are **copied** to the service, and changes are **restored** on return — but only the
@@ -186,8 +213,8 @@ Collections the service creates and returns become the collection type the signa
 
 #### What cannot cross
 
-Version 1 of the protocol carries scalars, strings, instances of the script's model, and collections
-of them. A call passed a model instance gets the model, readonly, whether or not the function
+Version 1 of the protocol carries scalars, strings, instances of the script's model, the
+contribution's records and opaque handles, and collections of them. A call passed a model instance gets the model, readonly, whether or not the function
 declares `model: "readonly"`. Refused outright:
 
 | Refused | When |

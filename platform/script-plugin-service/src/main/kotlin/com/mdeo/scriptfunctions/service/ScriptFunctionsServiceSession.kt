@@ -33,6 +33,10 @@ class ScriptFunctionsServiceSession(
     private val ids = IdentityHashMap<Any, Long>()
     private var nextNewId = -1L
 
+    private val handles = HashMap<Long, OpaqueValue>()
+    private val handleIds = IdentityHashMap<Any, Long>()
+    private var nextHandleId = 1L
+
     private var model: ScriptModel? = null
     private var modelId: Long? = null
 
@@ -51,6 +55,7 @@ class ScriptFunctionsServiceSession(
     suspend fun handle(message: ClientMessage): ServiceMessage? = when (message) {
         is ClientMessage.Release -> {
             message.ids.forEach(::forget)
+            message.handles.forEach { id -> handles.remove(id)?.let { handleIds.remove(it.state) } }
             null
         }
         is ClientMessage.Call -> call(message)
@@ -70,6 +75,8 @@ class ScriptFunctionsServiceSession(
     fun clear() {
         objects.clear()
         ids.clear()
+        handles.clear()
+        handleIds.clear()
         model = null
         modelId = null
     }
@@ -188,13 +195,25 @@ class ScriptFunctionsServiceSession(
             ?: throw IllegalArgumentException("Collection ${value.id} is referenced but was not sent")
         is WireValue.InstanceValue -> model?.instances?.get(value.name)
             ?: throw IllegalArgumentException("Instance '${value.name}' is not part of the model")
+        is WireValue.RecordValue -> RecordValue(value.className, value.fields.mapValues { decode(it.value) })
+        is WireValue.HandleValue -> handles[value.id]?.state
+            ?: throw IllegalArgumentException(
+                "The ${value.className} handle ${value.id} is no longer held; handles do not outlive the model they were created on"
+            )
     }
 
     /**
      * Encodes one value, adopting a collection the service created under a fresh negative id.
      * The id is taken before the content is encoded, so a new collection may contain itself.
      */
-    private fun encode(value: Any?, created: MutableList<HeapObject>): WireValue = when (value) {
+    private fun encode(value: Any?, created: MutableList<HeapObject>): WireValue {
+        // State an operation was handed as a handle goes back as that handle, whatever it is.
+        val handleId = value?.let { handleIds[it] }
+        if (handleId != null) return WireValue.HandleValue(handles.getValue(handleId).className, handleId)
+        return encodeValue(value, created)
+    }
+
+    private fun encodeValue(value: Any?, created: MutableList<HeapObject>): WireValue = when (value) {
         null, Unit -> WireValue.Null
         is Boolean -> WireValue.Bool(value)
         is Int -> WireValue.IntValue(value)
@@ -202,6 +221,8 @@ class ScriptFunctionsServiceSession(
         is Float -> WireValue.FloatValue(value)
         is Double -> WireValue.DoubleValue(value)
         is String -> WireValue.StringValue(value)
+        is RecordValue -> WireValue.RecordValue(value.recordName, value.fields.mapValues { encode(it.value, created) })
+        is OpaqueValue -> WireValue.HandleValue(value.className, handleIdFor(value))
         is ScriptModelInstance -> if (value.model === model) {
             WireValue.InstanceValue(value.name)
         } else {
@@ -212,6 +233,16 @@ class ScriptFunctionsServiceSession(
             "returned a ${value::class.qualifiedName}, which cannot be sent to a script"
         )
     }
+
+    /**
+     * The id of a handle, the same one every time the same state is returned.
+     */
+    private fun handleIdFor(value: OpaqueValue): Long =
+        handleIds.getOrPut(value.state) {
+            val id = nextHandleId++
+            handles[id] = value
+            id
+        }
 
     private fun adopt(value: Any, created: MutableList<HeapObject>): WireValue {
         val id = nextNewId--

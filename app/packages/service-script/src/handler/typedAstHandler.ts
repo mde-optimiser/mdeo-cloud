@@ -32,6 +32,33 @@ interface TypedRootAst {
      * All the functions contributed by plugins
      */
     functions: TypedPluginFunction[];
+
+    /**
+     * All the classes contributed by plugins
+     */
+    classes: TypedPluginClass[];
+}
+
+/**
+ * A record or opaque class a contribution defines.
+ */
+interface TypedPluginClass {
+    /**
+     * Id of the contribution that defines it; its type package is `contrib/<contribution>`.
+     */
+    contribution: string;
+    /**
+     * The class name.
+     */
+    name: string;
+    /**
+     * `record` or `opaque`.
+     */
+    kind: "record" | "opaque";
+    /**
+     * The fields of a record, in order, with indices into the types array. Empty for an opaque class.
+     */
+    fields: TypedParameter[];
 }
 
 /**
@@ -166,8 +193,22 @@ function createTypedRootAst(resolvedPlugins: ResolvedScriptContributionPlugins):
         });
     }
 
+    const classes: TypedPluginClass[] = resolvedPlugins.classes.map((contributed) => ({
+        contribution: contributed.contributionId,
+        name: contributed.name,
+        kind: contributed.declaration.kind,
+        fields:
+            contributed.declaration.kind === "record"
+                ? contributed.declaration.fields.map((field) => ({
+                      name: field.name,
+                      type: merger.addTypeToGlobal(field.type)
+                  }))
+                : []
+    }));
+
     return {
         types: merger.getGlobalTypes(),
-        functions
+        functions,
+        classes
     };
 }

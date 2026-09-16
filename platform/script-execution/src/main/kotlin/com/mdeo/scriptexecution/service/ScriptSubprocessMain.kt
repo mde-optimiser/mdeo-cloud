@@ -94,11 +94,11 @@ class ScriptSubprocessMain : SubprocessMain() {
      * for each session's address and token.
      */
     private fun createDispatcher(
-        specs: Map<String, com.mdeo.script.compiler.ExternalCallSpec>,
+        program: com.mdeo.script.compiler.CompiledProgram,
         access: SessionAccess
     ): Pair<SessionDispatcher, SessionResolver> {
         val resolver = SessionResolver(access.backendApiUrl)
-        val dispatcher = SessionDispatcher(specs) { contribution, session ->
+        val dispatcher = SessionDispatcher(program.externalCalls, program.contributedClasses) { contribution, session ->
             resolver.resolve(
                 access.projectId,
                 PluginTarget.of(PluginTargetKind.CONTRIBUTION, contribution),
@@ -131,7 +131,7 @@ class ScriptSubprocessMain : SubprocessMain() {
 
             val dispatcher = cmd.sessionAccess
                 ?.takeIf { compiledProgram.externalCalls.isNotEmpty() }
-                ?.let { access -> createDispatcher(compiledProgram.externalCalls, access) }
+                ?.let { access -> createDispatcher(compiledProgram, access) }
 
             val context = if (dispatcher != null) {
                 SimpleScriptContext(printStream, model, dispatcher.first)

@@ -47,7 +47,7 @@ class ExternalCallCompilerTest {
     private class RecordingDispatcher(private val answer: Any?) : ExternalCallDispatcher {
         val calls = mutableListOf<Pair<String, List<Any?>>>()
 
-        override fun call(callId: String, arguments: Array<Any?>, model: Model?): Any? {
+        override fun call(callId: String, arguments: Array<Any?>, model: Model?, classLoader: ClassLoader): Any? {
             calls += callId to arguments.toList()
             return answer
         }

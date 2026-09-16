@@ -1,0 +1,324 @@
+{
+ "types": [
+  {
+   "kind": "void"
+  },
+  {
+   "package": "builtin",
+   "type": "string",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "double",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "boolean",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "Any",
+   "isNullable": true
+  },
+  {
+   "package": "contrib/geo",
+   "type": "Point",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "int",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "ReadonlyList",
+   "isNullable": false,
+   "typeArgs": {
+    "T": {
+     "package": "contrib/geo",
+     "type": "Point",
+     "isNullable": false,
+     "typeArgs": {}
+    }
+   }
+  },
+  {
+   "package": "contrib/geo",
+   "type": "Index",
+   "isNullable": false,
+   "typeArgs": {}
+  }
+ ],
+ "imports": [],
+ "functions": [
+  {
+   "name": "total",
+   "parameters": [],
+   "returnType": 2,
+   "body": {
+    "body": [
+     {
+      "kind": "variableDeclaration",
+      "name": "p",
+      "type": 5,
+      "initialValue": {
+       "kind": "functionCall",
+       "evalType": 5,
+       "name": "nearest",
+       "arguments": [],
+       "overload": ""
+      }
+     },
+     {
+      "kind": "return",
+      "value": {
+       "kind": "memberAccess",
+       "evalType": 2,
+       "expression": {
+        "kind": "identifier",
+        "evalType": 5,
+        "name": "p",
+        "scope": 3
+       },
+       "member": "x",
+       "isNullChaining": false
+      }
+     }
+    ]
+   }
+  },
+  {
+   "name": "label",
+   "parameters": [],
+   "returnType": 1,
+   "body": {
+    "body": [
+     {
+      "kind": "return",
+      "value": {
+       "kind": "memberAccess",
+       "evalType": 1,
+       "expression": {
+        "kind": "functionCall",
+        "evalType": 5,
+        "name": "nearest",
+        "arguments": [],
+        "overload": ""
+       },
+       "member": "label",
+       "isNullChaining": false
+      }
+     }
+    ]
+   }
+  },
+  {
+   "name": "same",
+   "parameters": [],
+   "returnType": 3,
+   "body": {
+    "body": [
+     {
+      "kind": "return",
+      "value": {
+       "kind": "binary",
+       "evalType": 3,
+       "operator": "==",
+       "left": {
+        "kind": "functionCall",
+        "evalType": 5,
+        "name": "nearest",
+        "arguments": [],
+        "overload": ""
+       },
+       "right": {
+        "kind": "functionCall",
+        "evalType": 5,
+        "name": "nearest",
+        "arguments": [],
+        "overload": ""
+       }
+      }
+     }
+    ]
+   }
+  },
+  {
+   "name": "sumAll",
+   "parameters": [
+    {
+     "name": "n",
+     "type": 6
+    }
+   ],
+   "returnType": 2,
+   "body": {
+    "body": [
+     {
+      "kind": "variableDeclaration",
+      "name": "total",
+      "type": 2,
+      "initialValue": {
+       "kind": "doubleLiteral",
+       "evalType": 2,
+       "value": "0.0"
+      }
+     },
+     {
+      "kind": "for",
+      "variableName": "p",
+      "variableType": 5,
+      "iterable": {
+       "kind": "functionCall",
+       "evalType": 7,
+       "name": "points",
+       "arguments": [
+        {
+         "value": {
+          "kind": "identifier",
+          "evalType": 6,
+          "name": "n",
+          "scope": 2
+         },
+         "parameterType": 6
+        }
+       ],
+       "overload": ""
+      },
+      "body": [
+       {
+        "kind": "assignment",
+        "left": {
+         "kind": "identifier",
+         "evalType": 2,
+         "name": "total",
+         "scope": 3
+        },
+        "right": {
+         "kind": "binary",
+         "evalType": 2,
+         "operator": "+",
+         "left": {
+          "kind": "identifier",
+          "evalType": 2,
+          "name": "total",
+          "scope": 3
+         },
+         "right": {
+          "kind": "memberAccess",
+          "evalType": 2,
+          "expression": {
+           "kind": "identifier",
+           "evalType": 5,
+           "name": "p",
+           "scope": 4
+          },
+          "member": "x",
+          "isNullChaining": false
+         }
+        }
+       }
+      ]
+     },
+     {
+      "kind": "return",
+      "value": {
+       "kind": "identifier",
+       "evalType": 2,
+       "name": "total",
+       "scope": 3
+      }
+     }
+    ]
+   }
+  },
+  {
+   "name": "lookup",
+   "parameters": [],
+   "returnType": 6,
+   "body": {
+    "body": [
+     {
+      "kind": "variableDeclaration",
+      "name": "idx",
+      "type": 8,
+      "initialValue": {
+       "kind": "functionCall",
+       "evalType": 8,
+       "name": "buildIndex",
+       "arguments": [],
+       "overload": ""
+      }
+     },
+     {
+      "kind": "return",
+      "value": {
+       "kind": "binary",
+       "evalType": 6,
+       "operator": "+",
+       "left": {
+        "kind": "functionCall",
+        "evalType": 6,
+        "name": "query",
+        "arguments": [
+         {
+          "value": {
+           "kind": "identifier",
+           "evalType": 8,
+           "name": "idx",
+           "scope": 3
+          },
+          "parameterType": 8
+         },
+         {
+          "value": {
+           "kind": "intLiteral",
+           "evalType": 6,
+           "value": "3"
+          },
+          "parameterType": 6
+         }
+        ],
+        "overload": ""
+       },
+       "right": {
+        "kind": "functionCall",
+        "evalType": 6,
+        "name": "query",
+        "arguments": [
+         {
+          "value": {
+           "kind": "identifier",
+           "evalType": 8,
+           "name": "idx",
+           "scope": 3
+          },
+          "parameterType": 8
+         },
+         {
+          "value": {
+           "kind": "intLiteral",
+           "evalType": 6,
+           "value": "4"
+          },
+          "parameterType": 6
+         }
+        ],
+        "overload": ""
+       }
+      }
+     }
+    ]
+   }
+  }
+ ]
+}

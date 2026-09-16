@@ -1,6 +1,7 @@
 package com.mdeo.scriptfunctions.service
 
 import com.mdeo.expression.ast.types.BuiltinTypes
+import com.mdeo.expression.ast.types.ClassTypeRef
 import com.mdeo.expression.ast.types.GenericTypeRef
 import com.mdeo.expression.ast.types.genericClassType
 import com.mdeo.expression.ast.types.lambdaType
@@ -101,6 +102,67 @@ class ScriptContributionTest {
         val implementation = contribution.payload()["functions"]!!.jsonObject["f"]!!.jsonObject["signatures"]!!
             .jsonObject[""]!!.jsonObject["implementation"]!!
         assertEquals(Json.parseToJsonElement("""{"kind":"external","operation":"f","model":"readonly"}"""), implementation)
+    }
+
+    @Test
+    fun `records and opaque classes are declared in the payload`() {
+        lateinit var point: RecordType
+        lateinit var index: OpaqueType
+        val contribution = scriptContribution("geo") {
+            point = record("Point") {
+                field("x", BuiltinTypes.DOUBLE)
+                field("tags", genericClassType("builtin", "ReadonlyList", typeArgs = mapOf("T" to BuiltinTypes.STRING)))
+            }
+            index = opaque("Index")
+            function("nearest") {
+                parameter("index", index.type)
+                returns(point.type)
+                implementation { null }
+            }
+        }
+
+        assertEquals(ClassTypeRef("contrib/geo", "Point", false), point.type)
+        val classes = contribution.payload()["classes"]!!
+        assertEquals(
+            Json.parseToJsonElement(
+                """
+                {
+                  "Point": { "kind": "record", "fields": [
+                    { "name": "x", "type": { "package": "builtin", "type": "double", "isNullable": false } },
+                    { "name": "tags", "type": { "package": "builtin", "type": "ReadonlyList", "isNullable": false,
+                                                "typeArgs": { "T": { "package": "builtin", "type": "string", "isNullable": false } } } }
+                  ] },
+                  "Index": { "kind": "opaque" }
+                }
+                """
+            ),
+            classes
+        )
+        assertEquals(RecordValue("Point", mapOf("x" to 1.0, "tags" to listOf("a"))), point.of("x" to 1.0, "tags" to listOf("a")))
+        assertFailsWith<IllegalArgumentException> { point.of("x" to 1.0) }
+    }
+
+    @Test
+    fun `records hold only immutable values and signatures only known classes`() {
+        assertFailsWith<IllegalArgumentException> {
+            scriptContribution("geo") {
+                record("Bad") { field("items", genericClassType("builtin", "List", typeArgs = mapOf("T" to BuiltinTypes.INT))) }
+            }
+        }.also { assertTrue(it.message!!.contains("cannot hold")) }
+        assertFailsWith<IllegalArgumentException> {
+            scriptContribution("geo") {
+                val index = opaque("Index")
+                record("Bad") { field("index", index.type) }
+            }
+        }
+        assertFailsWith<IllegalArgumentException> {
+            scriptContribution("geo") {
+                function("f") {
+                    returns(ClassTypeRef("contrib/geo", "Missing", false))
+                    implementation { null }
+                }
+            }
+        }.also { assertTrue(it.message!!.contains("does not define")) }
     }
 
     @Test

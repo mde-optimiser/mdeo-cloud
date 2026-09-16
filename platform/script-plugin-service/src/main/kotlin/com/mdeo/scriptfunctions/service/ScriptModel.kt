@@ -63,7 +63,7 @@ class ScriptModel internal constructor(wire: WireModel) {
         is WireValue.FloatValue -> value.value
         is WireValue.DoubleValue -> value.value
         is WireValue.StringValue -> value.value
-        is WireValue.Ref, is WireValue.InstanceValue -> null
+        is WireValue.Ref, is WireValue.InstanceValue, is WireValue.RecordValue, is WireValue.HandleValue -> null
     }
 }
 

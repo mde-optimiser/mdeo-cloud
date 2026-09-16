@@ -64,7 +64,7 @@ class ScriptFunctionsClientTest {
         val bag = BagImpl(listOf("x", "y"))
         val untouched = ListImpl(listOf(7, 8))
 
-        dispatcher.call("shuffle", arrayOf(list, set, bag, untouched), null)
+        dispatcher.call("shuffle", arrayOf(list, set, bag, untouched), null, javaClass.classLoader)
 
         assertEquals(listOf(3, 2, 1, 99), list.deltaSnapshot())
         assertEquals(setOf("a", "b", "c"), set.deltaSnapshot().toSet())
@@ -93,7 +93,7 @@ class ScriptFunctionsClientTest {
         val dispatcher = client(loopback, spec("alias", any, listType, listType))
 
         val list = ListImpl(listOf(1, 2, 3))
-        dispatcher.call("alias", arrayOf(list, list), null)
+        dispatcher.call("alias", arrayOf(list, list), null, javaClass.classLoader)
 
         assertTrue(sameOnService)
         assertEquals(listOf(1, 2, 3, 4), list.deltaSnapshot())
@@ -121,7 +121,7 @@ class ScriptFunctionsClientTest {
         list.add("head")
         list.add(list)
 
-        val returned = dispatcher.call("cycle", arrayOf(list), null)
+        val returned = dispatcher.call("cycle", arrayOf(list), null, javaClass.classLoader)
 
         assertTrue(cycleOnService)
         assertSame(list, returned, "returning an argument returns the very same collection")
@@ -135,10 +135,10 @@ class ScriptFunctionsClientTest {
         val dispatcher = client(loopback, spec("read", int, collection("ReadonlyList", "T" to int)))
 
         val list = ListImpl(listOf(1, 2, 3))
-        assertEquals(3, dispatcher.call("read", arrayOf(list), null))
-        assertEquals(3, dispatcher.call("read", arrayOf(list), null))
+        assertEquals(3, dispatcher.call("read", arrayOf(list), null, javaClass.classLoader))
+        assertEquals(3, dispatcher.call("read", arrayOf(list), null, javaClass.classLoader))
         list.add(4)
-        assertEquals(4, dispatcher.call("read", arrayOf(list), null))
+        assertEquals(4, dispatcher.call("read", arrayOf(list), null, javaClass.classLoader))
 
         val calls = loopback.received.filterIsInstance<ClientMessage.Call>()
         assertTrue(calls[0].objects.single().elements != null)
@@ -167,7 +167,7 @@ class ScriptFunctionsClientTest {
         val writable = ListImpl<Int>()
         val readonly = ListImpl<Int>()
 
-        val error = assertFailsWith<ExternalCallException> { dispatcher.call("sneaky", arrayOf(writable, readonly), null) }
+        val error = assertFailsWith<ExternalCallException> { dispatcher.call("sneaky", arrayOf(writable, readonly), null, javaClass.classLoader) }
         assertTrue(error.message!!.contains("readonly"))
         assertEquals(0, writable.size(), "the legitimate change is not applied either")
         assertEquals(0, readonly.size())
@@ -179,7 +179,7 @@ class ScriptFunctionsClientTest {
         val dispatcher = client(loopback, spec("boom", any, collection("List", "T" to int)))
 
         val list = ListImpl(listOf(1))
-        val error = assertFailsWith<ExternalCallException> { dispatcher.call("boom", arrayOf(list), null) }
+        val error = assertFailsWith<ExternalCallException> { dispatcher.call("boom", arrayOf(list), null, javaClass.classLoader) }
         assertTrue(error.message!!.contains("no capacity"))
         assertEquals(listOf(1), list.deltaSnapshot())
     }
@@ -209,7 +209,7 @@ class ScriptFunctionsClientTest {
         val map = MapImpl<String, Int>().apply { put("kept", 1); put("gone", 2) }
         val ordered = OrderedSetImpl(listOf("a", "b"))
 
-        val returned = dispatcher.call("index", arrayOf(map, ordered), null) as ListImpl<*>
+        val returned = dispatcher.call("index", arrayOf(map, ordered), null, javaClass.classLoader) as ListImpl<*>
 
         assertEquals(listOf("kept" to 1, "new" to 3), map.deltaEntries())
         assertEquals(listOf("a", "b", "z"), ordered.deltaSnapshot())
@@ -222,7 +222,7 @@ class ScriptFunctionsClientTest {
         val loopback = Loopback.ofArguments(emptyMap())
         val dispatcher = client(loopback, spec("op", any, any))
 
-        assertFailsWith<ExternalCallException> { dispatcher.call("op", arrayOf(Any()), null) }
+        assertFailsWith<ExternalCallException> { dispatcher.call("op", arrayOf(Any()), null, javaClass.classLoader) }
         assertTrue(loopback.received.isEmpty())
     }
 }

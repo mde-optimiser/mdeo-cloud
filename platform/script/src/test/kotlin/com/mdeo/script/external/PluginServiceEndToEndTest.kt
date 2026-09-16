@@ -90,21 +90,21 @@ class PluginServiceEndToEndTest {
     fun `a call changes the argument and returns a double`() {
         dispatcher("run-token").use { dispatcher ->
             val values = ListImpl(listOf(1.0, 3.0))
-            val total = dispatcher.call("normalize", arrayOf(values), null)
+            val total = dispatcher.call("normalize", arrayOf(values), null, javaClass.classLoader)
 
             assertEquals(4.0, total)
             assertEquals(listOf(0.25, 0.75), values.deltaSnapshot())
 
             // A second call on the same session reuses what the service holds.
             values.add(0.0)
-            assertEquals(1.0, dispatcher.call("normalize", arrayOf(values), null))
+            assertEquals(1.0, dispatcher.call("normalize", arrayOf(values), null, javaClass.classLoader))
         }
     }
 
     @Test
     fun `a failing operation reaches the script as an error`() {
         dispatcher("run-token").use { dispatcher ->
-            val error = assertFailsWith<ExternalCallException> { dispatcher.call("fail", arrayOf(), null) }
+            val error = assertFailsWith<ExternalCallException> { dispatcher.call("fail", arrayOf(), null, javaClass.classLoader) }
             assertTrue(error.message!!.contains("service says no"))
         }
     }
@@ -112,7 +112,7 @@ class PluginServiceEndToEndTest {
     @Test
     fun `a refused token fails the call`() {
         dispatcher("forged").use { dispatcher ->
-            assertFailsWith<ExternalCallException> { dispatcher.call("normalize", arrayOf(ListImpl(listOf(1.0))), null) }
+            assertFailsWith<ExternalCallException> { dispatcher.call("normalize", arrayOf(ListImpl(listOf(1.0))), null, javaClass.classLoader) }
         }
     }
 }

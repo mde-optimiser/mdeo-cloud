@@ -106,7 +106,7 @@ class ScriptFunctionsModelTest {
         }))
         val client = ScriptFunctionsClient(loopback, mapOf("inspect" to spec("inspect", any, true)))
 
-        client.call("inspect", arrayOf(), model())
+        client.call("inspect", arrayOf(), model(), javaClass.classLoader)
 
         assertEquals("[a, b] Modern [a, b] main", seen)
     }
@@ -117,11 +117,11 @@ class ScriptFunctionsModelTest {
         val client = ScriptFunctionsClient(loopback, mapOf("total" to spec("total", int, true)))
 
         // An optimizer builds a new Model object for every guidance function on one solution.
-        assertEquals(8, client.call("total", arrayOf(), model()))
-        assertEquals(8, client.call("total", arrayOf(), model()))
+        assertEquals(8, client.call("total", arrayOf(), model(), javaClass.classLoader))
+        assertEquals(8, client.call("total", arrayOf(), model(), javaClass.classLoader))
         val same = model()
-        assertEquals(8, client.call("total", arrayOf(), same))
-        assertEquals(8, client.call("total", arrayOf(), same))
+        assertEquals(8, client.call("total", arrayOf(), same, javaClass.classLoader))
+        assertEquals(8, client.call("total", arrayOf(), same, javaClass.classLoader))
 
         assertEquals(1, loopback.received.count { it is ClientMessage.ModelPut })
     }
@@ -142,16 +142,16 @@ class ScriptFunctionsModelTest {
             mapOf("remember" to spec("remember", int, true, ClassTypeRef("builtin", "ReadonlyList", false, mapOf("T" to int))))
         )
 
-        assertEquals(8, client.call("remember", arrayOf(), model(rooms = 3)))
-        assertEquals(8, client.call("remember", arrayOf(), model(rooms = 3)))
-        assertEquals(10, client.call("remember", arrayOf(), model(rooms = 5)))
+        assertEquals(8, client.call("remember", arrayOf(), model(rooms = 3), javaClass.classLoader))
+        assertEquals(8, client.call("remember", arrayOf(), model(rooms = 3), javaClass.classLoader))
+        assertEquals(10, client.call("remember", arrayOf(), model(rooms = 5), javaClass.classLoader))
 
         assertEquals(listOf<Any?>(null, 8, null), cachedOnEntry.toList(), "the cache lives exactly as long as its model")
         assertEquals(2, loopback.received.count { it is ClientMessage.ModelPut })
 
         // Collections the service held are dropped with the model too, so they are sent in full again.
-        withList.call("remember", arrayOf(list), model(rooms = 5))
-        withList.call("remember", arrayOf(list), model(rooms = 7))
+        withList.call("remember", arrayOf(list), model(rooms = 5), javaClass.classLoader)
+        withList.call("remember", arrayOf(list), model(rooms = 7), javaClass.classLoader)
         val calls = loopback.received.filterIsInstance<ClientMessage.Call>().takeLast(2)
         assertTrue(calls.all { it.objects.single().elements != null })
     }
@@ -168,7 +168,7 @@ class ScriptFunctionsModelTest {
         val a = model.instancesByName.getValue("a")
         val b = model.instancesByName.getValue("b")
 
-        assertSame(b, client.call("bigger", arrayOf(a, b), model))
+        assertSame(b, client.call("bigger", arrayOf(a, b), model, javaClass.classLoader))
         assertEquals(1, loopback.received.count { it is ClientMessage.ModelPut }, "instances need the model")
     }
 
@@ -193,7 +193,7 @@ class ScriptFunctionsModelTest {
         val client = ScriptFunctionsClient(loopback, mapOf("fill" to spec("fill", any, true, listOfAny)))
         val list = ListImpl<Any?>()
 
-        val error = assertFailsWith<ExternalCallException> { client.call("fill", arrayOf(list), model()) }
+        val error = assertFailsWith<ExternalCallException> { client.call("fill", arrayOf(list), model(), javaClass.classLoader) }
         assertTrue(error.message!!.contains("ghost"))
         assertEquals(0, list.size())
     }
@@ -204,9 +204,9 @@ class ScriptFunctionsModelTest {
         val client = ScriptFunctionsClient(loopback, mapOf("total" to spec("total", int, true)))
         val model = model()
 
-        assertEquals(8, client.call("total", arrayOf(), model))
+        assertEquals(8, client.call("total", arrayOf(), model, javaClass.classLoader))
         loopback.service.clear() // as after a reconnect
-        assertEquals(8, client.call("total", arrayOf(), model))
+        assertEquals(8, client.call("total", arrayOf(), model, javaClass.classLoader))
 
         assertEquals(2, loopback.received.count { it is ClientMessage.ModelPut })
         assertTrue(loopback.answered.any { it is ServiceMessage.Failure && it.code == ServiceMessage.Failure.UNKNOWN_MODEL })
@@ -217,7 +217,7 @@ class ScriptFunctionsModelTest {
         val loopback = Loopback(mapOf("total" to totalRooms))
         val client = ScriptFunctionsClient(loopback, mapOf("total" to spec("total", int, true)))
 
-        assertFailsWith<ExternalCallException> { client.call("total", arrayOf(), null) }
+        assertFailsWith<ExternalCallException> { client.call("total", arrayOf(), null, javaClass.classLoader) }
         assertTrue(loopback.received.isEmpty())
         assertNull(loopback.service.currentModel)
     }

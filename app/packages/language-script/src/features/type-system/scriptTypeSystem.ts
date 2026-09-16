@@ -76,7 +76,9 @@ export class ScriptTypeSystem extends ExpressionTypeSystem<ScriptTypirSpecifics>
                     BagType,
                     ReadonlyBagType,
                     OrderedSetType,
-                    ReadonlyOrderedSetType
+                    ReadonlyOrderedSetType,
+                    // Records and opaque classes contributions exchange values with scripts in
+                    ...plugins.classes.map((contributedClass) => contributedClass.classType)
                 ],
                 lambdaSuperTypes: [{ package: "builtin", type: AnyType.name }],
                 createListType: (elementType) => typeRef("builtin", "List").withTypeArgs({ T: elementType }).build()

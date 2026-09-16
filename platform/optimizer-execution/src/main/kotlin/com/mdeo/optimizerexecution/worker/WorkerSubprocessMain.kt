@@ -549,6 +549,7 @@ class WorkerSubprocessMain : SubprocessMain() {
      */
     private fun createExternalCalls(
         specs: Map<String, com.mdeo.script.compiler.ExternalCallSpec>,
+        classes: Map<String, com.mdeo.script.compiler.ContributedClassSpec>,
         request: WorkerSubprocessRequest.Setup
     ): ExternalCallDispatcher {
         closeExternalSessions()
@@ -559,7 +560,7 @@ class WorkerSubprocessMain : SubprocessMain() {
             return ExternalCallDispatcher.UNSUPPORTED
         }
         val resolver = SessionResolver(backendApiUrl)
-        val dispatcher = SessionDispatcher(specs) { contribution, session ->
+        val dispatcher = SessionDispatcher(specs, classes) { contribution, session ->
             resolver.resolve(projectId, PluginTarget.of(PluginTargetKind.CONTRIBUTION, contribution), session, runToken)
         }
         sessionResolver = resolver
@@ -601,7 +602,7 @@ class WorkerSubprocessMain : SubprocessMain() {
         )
         val metamodel = compiledProgram.metamodel ?: Metamodel.compile(request.metamodelData)
         val clazz = ExecutionEnvironment(compiledProgram).scriptProgramClass
-        val externalCalls = createExternalCalls(compiledProgram.externalCalls, request)
+        val externalCalls = createExternalCalls(compiledProgram.externalCalls, compiledProgram.contributedClasses, request)
 
         val objectives = request.goalConfig.objectives.map { obj ->
             val jvmName = compiledProgram.functionLookup[obj.path]?.get(obj.functionName)

@@ -20,8 +20,45 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class TypedPluginAst(
     val types: List<@Serializable(with = ReturnTypeSerializer::class) ReturnType>,
-    val functions: List<TypedPluginFunction>
+    val functions: List<TypedPluginFunction>,
+    val classes: List<TypedPluginClass> = emptyList()
 )
+
+/**
+ * A record or opaque class a contribution defines for its functions to exchange with scripts.
+ *
+ * Scripts refer to it as the type `contrib/<contribution>` / [name].
+ *
+ * @param contribution Id of the contribution that defines it.
+ * @param name The class name.
+ * @param kind [KIND_RECORD] or [KIND_OPAQUE].
+ * @param fields The fields of a record, in declaration order, with indices into
+ *               [TypedPluginAst.types]; empty for an opaque class.
+ */
+@Serializable
+data class TypedPluginClass(
+    val contribution: String,
+    val name: String,
+    val kind: String,
+    val fields: List<TypedParameter> = emptyList()
+) {
+    companion object {
+        /**
+         * A deeply immutable value with named fields.
+         */
+        const val KIND_RECORD = "record"
+
+        /**
+         * A handle to state that stays on the contribution's service.
+         */
+        const val KIND_OPAQUE = "opaque"
+
+        /**
+         * The package every contributed class lives in, followed by `/<contribution>`.
+         */
+        const val PACKAGE_PREFIX = "contrib"
+    }
+}
 
 /**
  * A single contributed function with all of its overloads.

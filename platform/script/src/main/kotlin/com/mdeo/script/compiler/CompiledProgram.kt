@@ -19,12 +19,15 @@ import com.mdeo.metamodel.Metamodel
  * @param externalCalls  One entry per contributed signature whose implementation lives outside
  *                       the platform, keyed by the call id the generated stub passes to the
  *                       dispatcher. A program with no such signature has none.
+ * @param contributedClasses The records and opaque classes contributions define, keyed by
+ *                       [ContributedClassSpec.typeId]. Their classes are part of [allBytecodes].
  */
 data class CompiledProgram(
     val allBytecodes: Map<String, ByteArray>,
     val functionLookup: Map<String, Map<String, String>> = emptyMap(),
     val metamodel: Metamodel? = null,
-    val externalCalls: Map<String, ExternalCallSpec> = emptyMap()
+    val externalCalls: Map<String, ExternalCallSpec> = emptyMap(),
+    val contributedClasses: Map<String, ContributedClassSpec> = emptyMap()
 ) {
     companion object {
         /**

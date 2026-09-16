@@ -1,4 +1,4 @@
-import type { FunctionSignature, FunctionType, ReturnType } from "@mdeo/language-expression";
+import type { ClassType, FunctionSignature, FunctionType, ReturnType, ValueType } from "@mdeo/language-expression";
 import type { ServerContributionPlugin } from "@mdeo/plugin";
 import type { TypedCallableBody } from "./typedAst.js";
 import type { Interface, ParserRule, SerializedGrammar } from "@mdeo/language-common";
@@ -33,6 +33,12 @@ export interface ScriptContributionPlugin extends ServerContributionPlugin {
      * registered in the global scope as functions.
      */
     expressions: Record<string, ContributedExpression>;
+    /**
+     * Classes the contribution's functions take and return, by name.
+     *
+     * Signatures refer to one as `{ package: "contrib/<contribution id>", type: "<name>" }`.
+     */
+    classes?: Record<string, ContributedClass>;
 }
 
 export namespace ScriptContributionPlugin {
@@ -49,6 +55,71 @@ export namespace ScriptContributionPlugin {
      */
     export function is(value: ServerContributionPlugin): value is ScriptContributionPlugin {
         return "type" in value && value.type === TYPE;
+    }
+}
+
+/**
+ * A class a contribution defines for its functions to exchange values with scripts.
+ */
+export type ContributedClass = ContributedRecord | ContributedOpaqueClass;
+
+/**
+ * A deeply immutable value with named fields, sent whole between the script and the service.
+ *
+ * Scripts read its fields as readonly properties and compare records by their content. They
+ * cannot create records; only the contribution's functions return them.
+ */
+export interface ContributedRecord {
+    /**
+     * Marks the class as a record.
+     */
+    kind: "record";
+    /**
+     * The fields, in order. A field holds a scalar, a string, a model instance or enum value, a
+     * record of the same contribution, or a readonly collection of those.
+     */
+    fields: ContributedRecordField[];
+}
+
+/**
+ * One field of a {@link ContributedRecord}.
+ */
+export interface ContributedRecordField {
+    /**
+     * The field name, as scripts read it.
+     */
+    name: string;
+    /**
+     * The field type.
+     */
+    type: ValueType;
+}
+
+/**
+ * A handle to state that stays on the contribution's service, such as an index built once and
+ * queried by later calls. Scripts can only pass it back to the contribution's functions.
+ */
+export interface ContributedOpaqueClass {
+    /**
+     * Marks the class as opaque.
+     */
+    kind: "opaque";
+}
+
+export namespace ContributedClass {
+    /**
+     * The package of every contributed class, followed by `/<contribution id>`.
+     */
+    export const PACKAGE_PREFIX = "contrib";
+
+    /**
+     * Returns the package a contribution's classes are referred to by.
+     *
+     * @param contributionId The contribution id
+     * @returns The package
+     */
+    export function packageOf(contributionId: string): string {
+        return `${PACKAGE_PREFIX}/${contributionId}`;
     }
 }
 
@@ -168,6 +239,32 @@ export interface ResolvedScriptContributionPlugins {
      * The rules for all the extensions, should be combined to one expression rule
      */
     rules: ParserRule<any>[];
+    /**
+     * The classes contributed by all the plugins
+     */
+    classes: ResolvedContributedClass[];
+}
+
+/**
+ * Resolved variant of a contributed class
+ */
+export interface ResolvedContributedClass {
+    /**
+     * Id of the contribution that defines the class.
+     */
+    contributionId: string;
+    /**
+     * The class name.
+     */
+    name: string;
+    /**
+     * The declaration.
+     */
+    declaration: ContributedClass;
+    /**
+     * The class type registered with the type system.
+     */
+    classType: ClassType;
 }
 
 /**

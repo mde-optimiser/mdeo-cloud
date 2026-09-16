@@ -45,13 +45,17 @@ const val DEFAULT_SCRIPT_FUNCTIONS_SESSION = "functions"
  * @property description Shown in the plugin details view
  * @property sessionName The name of the `script-functions` session
  * @property functions The contributed functions, by name
+ * @property records The records the contribution defines, by name
+ * @property opaqueClasses The opaque classes the contribution defines, by name
  */
 class ScriptContribution internal constructor(
     override val id: String,
     override val description: String,
     val sessionName: String,
     private val sessionDescription: String?,
-    val functions: Map<String, List<ScriptFunctionDeclaration>>
+    val functions: Map<String, List<ScriptFunctionDeclaration>>,
+    val records: Map<String, RecordType> = emptyMap(),
+    val opaqueClasses: Map<String, OpaqueType> = emptyMap()
 ) : Contribution {
 
     override val languageId: String = SCRIPT_LANGUAGE_ID
@@ -84,6 +88,30 @@ class ScriptContribution internal constructor(
             }
         }
         putJsonObject("expressions") {}
+        if (records.isNotEmpty() || opaqueClasses.isNotEmpty()) {
+            putJsonObject("classes") {
+                for (record in records.values) {
+                    putJsonObject(record.name) {
+                        put("kind", "record")
+                        putJsonArray("fields") {
+                            for ((fieldName, fieldType) in record.fields) {
+                                add(buildJsonObject {
+                                    put("name", fieldName)
+                                    put("type", typeJson.encodeToJsonElement(ValueTypeSerializer, fieldType))
+                                })
+                            }
+                        }
+                    }
+                }
+                for (opaque in opaqueClasses.values) {
+                    putJsonObject(opaque.name) { put("kind", "opaque") }
+                }
+            }
+        }
+    }
+
+    private companion object {
+        val typeJson = Json { explicitNulls = false }
     }
 }
 
@@ -183,6 +211,71 @@ class ScriptContributionBuilder internal constructor(private val id: String) {
     var sessionDescription: String? = null
 
     private val functions = LinkedHashMap<String, MutableList<ScriptFunctionDeclaration>>()
+    private val records = LinkedHashMap<String, RecordType>()
+    private val opaqueClasses = LinkedHashMap<String, OpaqueType>()
+
+    /**
+     * The package this contribution's classes are referred to by.
+     */
+    private val classPackage = "$CONTRIBUTED_CLASS_PACKAGE/$id"
+
+    /**
+     * Declares a record: a deeply immutable value with named fields, sent whole.
+     *
+     * A field holds a scalar, a string, a model instance or enum value, a record of this
+     * contribution declared before it, or a readonly collection of those.
+     *
+     * ```kotlin
+     * val point = record("Point") {
+     *     field("x", BuiltinTypes.DOUBLE)
+     *     field("label", BuiltinTypes.STRING)
+     * }
+     * ```
+     *
+     * @param name The record's name
+     * @param init Declares the fields, in order
+     * @return The record, whose [RecordType.type] signatures use
+     */
+    fun record(name: String, init: RecordBuilder.() -> Unit): RecordType {
+        requireNewClassName(name)
+        val fields = RecordBuilder().apply(init).fields.toList()
+        for ((fieldName, fieldType) in fields) {
+            require(isRecordFieldType(fieldType)) {
+                "Field '$fieldName' of record '$name' has a type a record cannot hold. Use scalars, strings, " +
+                        "model instances, enum values, records of the same contribution, or readonly collections of those."
+            }
+        }
+        return RecordType(name, ClassTypeRef(classPackage, name, false), fields).also { records[name] = it }
+    }
+
+    /**
+     * Declares an opaque class: a handle scripts hold to state that stays on this service.
+     *
+     * @param name The class's name
+     * @return The class, whose [OpaqueType.type] signatures use
+     */
+    fun opaque(name: String): OpaqueType {
+        requireNewClassName(name)
+        return OpaqueType(name, ClassTypeRef(classPackage, name, false)).also { opaqueClasses[name] = it }
+    }
+
+    private fun requireNewClassName(name: String) {
+        require(name !in records && name !in opaqueClasses) { "Contribution '$id' declares class '$name' twice" }
+    }
+
+    private fun isRecordFieldType(type: ValueType): Boolean {
+        if (type !is ClassTypeRef) return false
+        return when {
+            type.`package` == "builtin" -> when (type.type) {
+                in SCALAR_TYPES -> true
+                in READONLY_COLLECTION_TYPES -> type.typeArgs.orEmpty().values.all(::isRecordFieldType)
+                else -> false
+            }
+            type.`package` == classPackage -> type.type in records
+            type.`package`.startsWith("$CONTRIBUTED_CLASS_PACKAGE/") -> false
+            else -> type.`package`.startsWith("class/") || type.`package`.startsWith("enum/")
+        }
+    }
 
     /**
      * Declares one signature of a function. Declare the same name again with another [overload]
@@ -203,11 +296,51 @@ class ScriptContributionBuilder internal constructor(private val id: String) {
 
     internal fun build(): ScriptContribution {
         val all = functions.values.flatten()
+        for (declaration in all) {
+            val types = declaration.parameters.map { it.second } + declaration.returnType
+            types.forEach { checkClassReference(it, "Function '${declaration.name}'") }
+        }
         val duplicate = all.groupBy { it.operation }.entries.firstOrNull { it.value.size > 1 }
         require(duplicate == null) {
             "Operation '${duplicate!!.key}' of contribution '$id' implements more than one signature"
         }
-        return ScriptContribution(id, description, sessionName, sessionDescription, functions)
+        return ScriptContribution(id, description, sessionName, sessionDescription, functions, records, opaqueClasses)
+    }
+
+    private fun checkClassReference(type: com.mdeo.expression.ast.types.ReturnType, where: String) {
+        if (type !is ClassTypeRef) return
+        if (type.`package`.startsWith("$CONTRIBUTED_CLASS_PACKAGE/")) {
+            require(type.`package` == classPackage && (type.type in records || type.type in opaqueClasses)) {
+                "$where of contribution '$id' refers to class '${type.type}' of '${type.`package`}', which the contribution does not define"
+            }
+        }
+        type.typeArgs.orEmpty().values.forEach { checkClassReference(it, where) }
+    }
+
+    private companion object {
+        val SCALAR_TYPES = setOf("int", "long", "float", "double", "boolean", "string")
+        val READONLY_COLLECTION_TYPES = setOf(
+            "ReadonlyCollection", "ReadonlyOrderedCollection", "ReadonlyList", "ReadonlySet",
+            "ReadonlyOrderedSet", "ReadonlyBag", "ReadonlyMap"
+        )
+    }
+}
+
+/**
+ * Collects the fields of a record.
+ */
+class RecordBuilder internal constructor() {
+    internal val fields = LinkedHashMap<String, ValueType>()
+
+    /**
+     * Declares the next field.
+     *
+     * @param name The field name, as scripts read it
+     * @param type Its type
+     */
+    fun field(name: String, type: ValueType) {
+        require(name !in fields) { "Field '$name' is declared twice" }
+        fields[name] = type
     }
 }
 

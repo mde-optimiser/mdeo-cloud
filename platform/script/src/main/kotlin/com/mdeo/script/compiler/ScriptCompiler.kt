@@ -146,12 +146,20 @@ class ScriptCompiler {
         val allBytecodes = mutableMapOf<String, ByteArray>()
         var metamodel: Metamodel? = null
 
-        val typeRegistries = if (metamodelData != null && metamodelData.path.isNotBlank()) {
+        val baseRegistries = if (metamodelData != null && metamodelData.path.isNotBlank()) {
             metamodel = Metamodel.compile(metamodelData)
             createTypeRegistries(metamodel, metamodelData.path)
         } else {
             TypeRegistries(TypeRegistry.GLOBAL, GlobalPropertyRegistry())
         }
+
+        // Records and opaque classes contributions define, chained to the metamodel's types.
+        val contributedClasses = ContributedClassCompiler.specs(input.pluginAst)
+        val typeRegistries = TypeRegistries(
+            ContributedClassCompiler.register(baseRegistries.typeRegistry, contributedClasses.values),
+            baseRegistries.fileScopePropertyRegistry
+        )
+        allBytecodes += ContributedClassCompiler.generate(contributedClasses.values)
 
         var counter = 0
         val mutableLookup = mutableMapOf<String, MutableMap<String, String>>()
@@ -197,7 +205,7 @@ class ScriptCompiler {
         }
 
         val immutableLookup = functionLookup.mapValues { (_, v) -> v.toMap() }
-        return CompiledProgram(allBytecodes, immutableLookup, metamodel, externalCalls.toMap())
+        return CompiledProgram(allBytecodes, immutableLookup, metamodel, externalCalls.toMap(), contributedClasses)
     }
 
     /**
@@ -515,6 +523,7 @@ class ScriptCompiler {
             localIndex += ASMUtil.getSlotsForType(parameterType)
         }
 
+        // this.__ctx.getModel(), and the loader of the program, which also loads contributed classes
         // this.__ctx.getModel()
         mv.visitVarInsn(Opcodes.ALOAD, 0)
         mv.visitFieldInsn(
@@ -530,12 +539,15 @@ class ScriptCompiler {
             "()Lcom/mdeo/metamodel/Model;",
             true
         )
+        mv.visitVarInsn(Opcodes.ALOAD, 0)
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/Object", "getClass", "()Ljava/lang/Class;", false)
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/Class", "getClassLoader", "()Ljava/lang/ClassLoader;", false)
 
         mv.visitMethodInsn(
             Opcodes.INVOKEINTERFACE,
             EXTERNAL_DISPATCHER_INTERNAL_NAME,
             "call",
-            "(Ljava/lang/String;[Ljava/lang/Object;Lcom/mdeo/metamodel/Model;)Ljava/lang/Object;",
+            "(Ljava/lang/String;[Ljava/lang/Object;Lcom/mdeo/metamodel/Model;Ljava/lang/ClassLoader;)Ljava/lang/Object;",
             true
         )
 

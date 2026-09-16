@@ -1,5 +1,6 @@
 package com.mdeo.script.external
 
+import com.mdeo.script.compiler.ContributedClassSpec
 import com.mdeo.metamodel.Model
 import com.mdeo.scriptfunctions.protocol.ScriptFunctionsProtocol
 import com.mdeo.common.transport.SessionClient
@@ -22,11 +23,13 @@ import java.util.concurrent.LinkedBlockingQueue
  * client sends that call again in full. Nothing has to be re-established by hand.
  *
  * @param specs The external calls of the compiled program, keyed by call id
+ * @param classes The records and opaque classes contributions define, keyed by type id
  * @param resolve Resolves one contribution's session to something that can be dialled, with a
  *        fresh token each time it is asked
  */
 class SessionDispatcher(
     private val specs: Map<String, ExternalCallSpec>,
+    private val classes: Map<String, ContributedClassSpec> = emptyMap(),
     private val resolve: suspend (contribution: String, session: String) -> SessionConnection
 ) : ExternalCallDispatcher, AutoCloseable {
 
@@ -34,14 +37,14 @@ class SessionDispatcher(
 
     private val connections = ConcurrentHashMap<String, Connection>()
 
-    override fun call(callId: String, arguments: Array<Any?>, model: Model?): Any? {
+    override fun call(callId: String, arguments: Array<Any?>, model: Model?, classLoader: ClassLoader): Any? {
         val spec = specs[callId] ?: throw ExternalCallException("No external call '$callId' was compiled")
         val session = spec.session ?: throw ExternalCallException(
             "External function '${spec.functionName}' cannot be called: contribution " +
                     "'${spec.contribution}' declares no '${ScriptFunctionsProtocol.NAME}' session"
         )
         val connection = connections.computeIfAbsent(spec.contribution) { open(it, session) }
-        return connection.client.call(callId, arguments, model)
+        return connection.client.call(callId, arguments, model, classLoader)
     }
 
     private fun open(contribution: String, sessionName: String): Connection {
@@ -76,7 +79,8 @@ class SessionDispatcher(
             override fun receive(): ByteArray = inbox.take().getOrThrow()
         }
         val ownSpecs = specs.filterValues { it.contribution == contribution }
-        return Connection(session, ScriptFunctionsClient(transport, ownSpecs))
+        val ownClasses = classes.filterValues { it.contribution == contribution }
+        return Connection(session, ScriptFunctionsClient(transport, ownSpecs, ownClasses))
     }
 
     /**

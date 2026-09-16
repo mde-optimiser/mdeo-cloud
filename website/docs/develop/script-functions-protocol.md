@@ -58,6 +58,12 @@ A `WireValue` is one of:
 | `string` | `value` | A text string |
 | `ref` | `id` | A collection on the heap, by id |
 | `instance` | `name` | An instance of the call's model, by name. Only valid in a call that names a model, and in its answer |
+| `record` | `className`, `fields` | A record the contribution defines, sent whole: `fields` maps every field name to its `WireValue` |
+| `handle` | `className`, `id` | A handle to state the service keeps, of an opaque class the contribution defines |
+
+Records are immutable values. Their fields hold scalars, strings, instances, other records, and
+readonly collections (as `ref`s into the heap). Handles are ids the service chooses; the same state
+must go out under the same id every time.
 
 The type name says what the script sees. A service must send back the number type it received,
 because `2` and `2.0` are different values to a script.
@@ -119,8 +125,8 @@ collection first and fills them afterwards.
 Uploads the model the following calls work on. There is no answer.
 
 A service holds **one model per session**. Receiving a model replaces the previous one and ends
-everything that belonged to it: the service forgets every collection it holds — they may contain
-the old model's instances — and whatever it derived from the old model. The client clears its record
+everything that belonged to it: the service forgets every collection and every handle it holds —
+they may contain or depend on the old model — and whatever it derived from the old model. The client clears its record
 of what the service holds at the same time, so the next call sends every collection in full.
 
 The client uploads a model the first time a call needs it, and again only when the model the script
@@ -152,6 +158,7 @@ collection that contains instances can be changed like any other.
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `ids` | integer[] | Collections the client no longer holds |
+| `handles` | integer[] | Handles the script no longer holds; default `[]` |
 
 The service may forget them. There is no answer.
 
@@ -212,7 +219,9 @@ script sees an error with nothing changed:
 - a created collection with a non-negative id, or with an id already in use;
 - a `ref` to a collection that is neither in this call, nor created in this result, nor held from
   an earlier call;
-- an `instance` that is not part of the call's model.
+- an `instance` that is not part of the call's model;
+- a `record` the contribution does not define, or whose fields are not exactly the declared ones;
+- a `handle` of a class the contribution does not define as opaque.
 
 A service should also refuse, with a `failure`, any call whose operation changed a readonly
 collection. The client would reject that result anyway, but a failure makes clear whose mistake it

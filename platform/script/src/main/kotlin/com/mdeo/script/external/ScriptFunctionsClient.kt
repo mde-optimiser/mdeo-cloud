@@ -1,5 +1,9 @@
 package com.mdeo.script.external
 
+import com.mdeo.script.runtime.ScriptRecord
+import com.mdeo.script.runtime.ScriptOpaque
+import com.mdeo.script.compiler.ContributedClassSpec
+import com.mdeo.script.ast.TypedPluginClass
 import java.util.WeakHashMap
 import com.mdeo.script.ast.ExternalImplementation
 import com.mdeo.metamodel.ModelInstance
@@ -48,13 +52,19 @@ class ExternalCallException(message: String) : RuntimeException(message)
  *
  * @param transport The pipe to the service
  * @param specs The external calls of the compiled program, keyed by call id
+ * @param classes The records and opaque classes of the contribution this client calls, keyed by
+ *        [ContributedClassSpec.typeId]
  */
 class ScriptFunctionsClient(
     private val transport: ScriptFunctionsTransport,
-    private val specs: Map<String, ExternalCallSpec>
+    private val specs: Map<String, ExternalCallSpec>,
+    classes: Map<String, ContributedClassSpec> = emptyMap()
 ) : ExternalCallDispatcher {
 
     private val registry = IdentityRegistry()
+    private val handles = HandleRegistry()
+    private val classesByType = classes
+    private val classesByName = classes.values.associateBy { it.name }
 
     /**
      * For each id, the version at which the service is known to hold the collection. A collection
@@ -78,13 +88,14 @@ class ScriptFunctionsClient(
     private var heldModelId = 0L
     private var nextModelId = 1L
 
-    override fun call(callId: String, arguments: Array<Any?>, model: Model?): Any? = synchronized(lock) {
+    override fun call(callId: String, arguments: Array<Any?>, model: Model?, classLoader: ClassLoader): Any? = synchronized(lock) {
         val spec = specs[callId] ?: throw ExternalCallException("No external call '$callId' was compiled")
 
         val released = registry.drainReleased()
-        if (released.isNotEmpty()) {
+        val releasedHandles = handles.drainReleased()
+        if (released.isNotEmpty() || releasedHandles.isNotEmpty()) {
             released.forEach { serviceVersions.remove(it) }
-            transport.send(ScriptFunctionsProtocol.encodeClient(ClientMessage.Release(released)))
+            transport.send(ScriptFunctionsProtocol.encodeClient(ClientMessage.Release(released, releasedHandles)))
         }
 
         var resentInFull = false
@@ -132,7 +143,7 @@ class ScriptFunctionsClient(
                     throw ExternalCallException("External function '${spec.functionName}' failed: ${answer.message}")
                 }
                 is ServiceMessage.Result -> {
-                    val applier = ResultApplier(encoder, spec)
+                    val applier = ResultApplier(encoder, spec, classLoader)
                     try {
                         applier.validate(answer)
                     } catch (e: ExternalCallException) {
@@ -200,6 +211,26 @@ class ScriptFunctionsClient(
             is Float -> WireValue.FloatValue(value)
             is Double -> WireValue.DoubleValue(value)
             is String -> WireValue.StringValue(value)
+            is ScriptRecord -> {
+                val recordClass = classesByType[value.recordType]
+                    ?: throw ExternalCallException(
+                        "External function '$functionName' was passed a ${value.recordType}, which its contribution does not define"
+                    )
+                val values = value.fields()
+                WireValue.RecordValue(
+                    recordClass.name,
+                    recordClass.fieldNames.withIndex().associate { (index, fieldName) ->
+                        fieldName to encode(values[index], recordClass.fieldTypes[index], functionName)
+                    }
+                )
+            }
+            is ScriptOpaque -> {
+                val opaqueClass = classesByType[value.opaqueType]
+                    ?: throw ExternalCallException(
+                        "External function '$functionName' was passed a ${value.opaqueType}, which its contribution does not define"
+                    )
+                WireValue.HandleValue(opaqueClass.name, value.handle)
+            }
             is ModelInstance -> {
                 val name = model?.nameOf(value) ?: throw ExternalCallException(
                     "External function '$functionName' was passed a model instance that is not part " +
@@ -269,7 +300,8 @@ class ScriptFunctionsClient(
      */
     private inner class ResultApplier(
         private val encoder: HeapEncoder,
-        private val spec: ExternalCallSpec
+        private val spec: ExternalCallSpec,
+        private val classLoader: ClassLoader
     ) {
         private val created = HashMap<Long, Any>()
 
@@ -333,6 +365,19 @@ class ScriptFunctionsClient(
         }
 
         private fun checkValue(value: WireValue, newIds: Set<Long>) {
+            if (value is WireValue.RecordValue) {
+                val recordClass = classesByName[value.className]
+                if (recordClass?.kind != TypedPluginClass.KIND_RECORD) {
+                    reject("returned a record '${value.className}', which the contribution does not define")
+                }
+                if (value.fields.keys != recordClass.fieldNames.toSet()) {
+                    reject("returned a record '${value.className}' with fields ${value.fields.keys}, not ${recordClass.fieldNames}")
+                }
+                value.fields.values.forEach { checkValue(it, newIds) }
+            }
+            if (value is WireValue.HandleValue && classesByName[value.className]?.kind != TypedPluginClass.KIND_OPAQUE) {
+                reject("returned a handle of '${value.className}', which the contribution does not define as opaque")
+            }
             if (value is WireValue.InstanceValue && encoder.model?.instancesByName?.containsKey(value.name) != true) {
                 reject("referred to instance '${value.name}', which is not part of the model the script runs on")
             }
@@ -411,6 +456,21 @@ class ScriptFunctionsClient(
                 is WireValue.StringValue -> value.value
                 is WireValue.Ref -> created[value.id] ?: encoder.sent[value.id] ?: registry.objectOf(value.id)
                 is WireValue.InstanceValue -> encoder.model?.instancesByName?.get(value.name)
+                is WireValue.RecordValue -> {
+                    val recordClass = classesByName.getValue(value.className)
+                    val values = arrayOfNulls<Any?>(recordClass.fieldNames.size)
+                    recordClass.fieldNames.forEachIndexed { index, fieldName ->
+                        values[index] = decode(value.fields.getValue(fieldName), recordClass.fieldTypes[index])
+                    }
+                    classLoader.loadClass(recordClass.jvmClassName.replace('/', '.'))
+                        .getConstructor(Array<Any?>::class.java)
+                        .newInstance(values)
+                }
+                is WireValue.HandleValue -> handles.handleFor(value.id) {
+                    classLoader.loadClass(classesByName.getValue(value.className).jvmClassName.replace('/', '.'))
+                        .getConstructor(Long::class.javaPrimitiveType)
+                        .newInstance(value.id)
+                }
             }
             return coerceNumber(decoded, expected)
         }

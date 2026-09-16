@@ -157,6 +157,8 @@ Arguments arrive as plain Kotlin values:
 | `Set`, `OrderedSet` | `MutableSet`, iterating in insertion order |
 | `Map` | `MutableMap`, iterating in insertion order |
 | A metamodel class | `ScriptModelInstance`, readonly |
+| A record of the contribution | `RecordValue` |
+| An opaque class of the contribution | The state behind the handle |
 
 Return any of these, or `null` for a void function. A returned collection can be a new one or one
 of the arguments — returning an argument returns that very collection to the script — and it
@@ -179,6 +181,48 @@ Calls on one session are answered one at a time, in the order they arrive, and o
 which project and execution the call belongs to.
 
 Each connection starts with nothing: collections are never shared between two executions.
+
+## Records and opaque classes
+
+A contribution can define its own classes for its functions to exchange with scripts:
+
+```kotlin
+val geo = scriptContribution("geo") {
+    val point = record("Point") {
+        field("x", BuiltinTypes.DOUBLE)
+        field("label", BuiltinTypes.STRING)
+    }
+    val index = opaque("Index")
+
+    function("buildIndex") {
+        returns(index.type)
+        implementation { index.wrap(SpatialIndex(loadPoints())) }
+    }
+    function("nearest") {
+        parameter("index", index.type)
+        returns(point.type)
+        implementation { call ->
+            val found = call.argument<SpatialIndex>(0).nearest()
+            point.of("x" to found.x, "label" to found.name)
+        }
+    }
+}
+```
+
+A **record** is a deeply immutable value with named fields. Scripts read its fields as readonly
+properties, compare records by content, and pass them back; they cannot create or change one. A
+field holds a scalar, a string, a model instance or enum value, a record of the same contribution
+declared before it, or a readonly collection of those. Operations receive and return records as
+`RecordValue`; create one with `point.of(…)`, which checks that every field is given.
+
+An **opaque class** is a handle to state that stays on the service, like an index that is expensive
+to build. Return `index.wrap(state)`; when a script passes the handle back, the operation receives
+`state` itself, and returning the same state again gives the script the same handle. The service
+drops the state once the script no longer holds the handle, and also when the script moves on to a
+different model: a handle never outlives the model it was created on.
+
+Use `point.type` and `index.type` in signatures. Referring to a class the contribution does not
+define is rejected when the contribution is declared.
 
 ## Reading the model
 

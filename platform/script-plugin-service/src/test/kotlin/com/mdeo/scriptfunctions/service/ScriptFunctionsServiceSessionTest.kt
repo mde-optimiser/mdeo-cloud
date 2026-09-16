@@ -192,4 +192,52 @@ class ScriptFunctionsServiceSessionTest {
         val answer = service.handle(ClientMessage.Call(2, "keep", emptyList(), emptyList(), modelId = 2))
         assertTrue(assertIs<ServiceMessage.Failure>(answer).message.contains("model the call does not work on"))
     }
+
+    @Test
+    fun `records arrive as values and go back whole`() = runBlocking {
+        val service = session("move" to ScriptFunctionOperation { call ->
+            val point = call.argument<RecordValue>(0)
+            RecordValue("Point", mapOf("x" to (point["x"] as Double) + 1, "label" to point["label"]))
+        })
+        val answer = service.handle(
+            ClientMessage.Call(
+                1, "move", emptyList(),
+                listOf(WireValue.RecordValue("Point", mapOf("x" to WireValue.DoubleValue(1.5), "label" to WireValue.StringValue("a"))))
+            )
+        )
+        assertEquals(
+            WireValue.RecordValue("Point", mapOf("x" to WireValue.DoubleValue(2.5), "label" to WireValue.StringValue("a"))),
+            assertIs<ServiceMessage.Result>(answer).value
+        )
+    }
+
+    @Test
+    fun `a handle stands for the same state until it is released`() = runBlocking {
+        val state = StringBuilder("index")
+        val service = session(
+            "build" to ScriptFunctionOperation { OpaqueValue("Index", state) },
+            "use" to ScriptFunctionOperation { call -> assertTrue(call.arguments[0] === state); call.arguments[0] }
+        )
+        val built = assertIs<ServiceMessage.Result>(service.handle(ClientMessage.Call(1, "build", emptyList(), emptyList()))).value
+        val handle = assertIs<WireValue.HandleValue>(built)
+
+        val used = service.handle(ClientMessage.Call(2, "use", emptyList(), listOf(handle)))
+        assertEquals(handle, assertIs<ServiceMessage.Result>(used).value, "returning the state returns the same handle")
+
+        service.handle(ClientMessage.Release(emptyList(), handles = listOf(handle.id)))
+        val released = service.handle(ClientMessage.Call(3, "use", emptyList(), listOf(handle)))
+        assertTrue(assertIs<ServiceMessage.Failure>(released).message.contains("no longer held"))
+    }
+
+    @Test
+    fun `a new model drops every handle`() = runBlocking {
+        val service = session("build" to ScriptFunctionOperation { OpaqueValue("Index", Any()) }, "use" to ScriptFunctionOperation { null })
+        service.handle(ClientMessage.ModelPut(1, street))
+        val handle = assertIs<WireValue.HandleValue>(
+            assertIs<ServiceMessage.Result>(service.handle(ClientMessage.Call(1, "build", emptyList(), emptyList(), modelId = 1))).value
+        )
+        service.handle(ClientMessage.ModelPut(2, street))
+        val answer = service.handle(ClientMessage.Call(2, "use", emptyList(), listOf(handle), modelId = 2))
+        assertIs<ServiceMessage.Failure>(answer)
+    }
 }

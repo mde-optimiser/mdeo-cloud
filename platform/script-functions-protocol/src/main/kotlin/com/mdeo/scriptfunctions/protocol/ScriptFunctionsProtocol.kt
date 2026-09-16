@@ -116,13 +116,14 @@ sealed class ClientMessage {
     data class ModelPut(val modelId: Long, val model: WireModel) : ClientMessage()
 
     /**
-     * Tells the service it may forget collections the execution no longer holds.
+     * Tells the service it may forget collections and handles the execution no longer holds.
      *
-     * @param ids The ids to forget.
+     * @param ids The collection ids to forget.
+     * @param handles The handle ids to forget.
      */
     @Serializable
     @SerialName("release")
-    data class Release(val ids: List<Long>) : ClientMessage()
+    data class Release(val ids: List<Long>, val handles: List<Long> = emptyList()) : ClientMessage()
 }
 
 /**
@@ -233,6 +234,24 @@ sealed class WireValue {
      * one, and no delta can address one.
      */
     @Serializable @SerialName("instance") data class InstanceValue(val name: String) : WireValue()
+
+    /**
+     * A record the contribution defines, sent whole. Records are immutable and compared by content.
+     *
+     * @param className The record's name, as the contribution declares it.
+     * @param fields Every field of the record, by name.
+     */
+    @Serializable @SerialName("record")
+    data class RecordValue(val className: String, val fields: Map<String, WireValue>) : WireValue()
+
+    /**
+     * A handle to state the service keeps, of an opaque class the contribution defines.
+     *
+     * @param className The opaque class's name, as the contribution declares it.
+     * @param id The id the service keeps the state under.
+     */
+    @Serializable @SerialName("handle")
+    data class HandleValue(val className: String, val id: Long) : WireValue()
 }
 
 /**
