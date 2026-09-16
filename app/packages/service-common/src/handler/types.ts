@@ -67,6 +67,12 @@ export interface FileDataContext<T = object> {
      * Useful for handlers that need to inspect or forward plugin configurations.
      */
     contributionPlugins: ServerContributionPlugin[];
+
+    /**
+     * Aborts when the caller's deadline passes or the caller goes away. Nobody waits for the result
+     * after that, so pass it to anything long-running. Calls through {@link serverApi} use it already.
+     */
+    signal: AbortSignal;
 }
 
 /**
@@ -103,6 +109,12 @@ export interface RequestContext<T = object> {
      * The contribution plugins active for this request.
      */
     contributionPlugins: ServerContributionPlugin[];
+
+    /**
+     * Aborts when the caller's deadline passes or the caller goes away. Nobody waits for the result
+     * after that, so pass it to anything long-running. Calls through {@link serverApi} use it already.
+     */
+    signal: AbortSignal;
 }
 
 /**

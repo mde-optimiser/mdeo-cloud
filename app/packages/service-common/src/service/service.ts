@@ -2,6 +2,7 @@ import Fastify, { type FastifyInstance, type FastifyRequest, type FastifyReply }
 import cors from "@fastify/cors";
 import compress from "@fastify/compress";
 import { COMPRESSION_THRESHOLD_BYTES } from "../util/compression.js";
+import { createRequestLimits } from "../util/requestLimits.js";
 import fastifyStatic from "@fastify/static";
 import { resolve } from "path";
 import type { ServiceConfig, FileDataComputeRequest, FileDataComputeResponse, LanguageServiceConfig } from "./types.js";
@@ -173,7 +174,9 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
             }
 
             const serverContributionPlugins = (contributionPlugins ?? []) as unknown as ServerContributionPlugin[];
+            const limits = createRequestLimits(request, reply);
             const instance = await languageHandler.pool.acquire(serverContributionPlugins, jwt, project);
+            instance.services.shared.ServerApi.setRequestLimits(limits.signal, limits.deadline);
 
             let fileInfo: FileInfo | undefined = undefined;
             if (source != undefined) {
@@ -191,7 +194,8 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
                     instance,
                     services: instance.services,
                     serverApi: instance.services.shared.ServerApi,
-                    contributionPlugins: serverContributionPlugins
+                    contributionPlugins: serverContributionPlugins,
+                    signal: limits.signal
                 });
 
                 const response: FileDataComputeResponse = {
@@ -200,7 +204,13 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
                 };
 
                 return reply.send(response);
+            } catch (error) {
+                if (limits.timedOut) {
+                    return reply.status(504).send({ error: `Computing ${key} took longer than the caller could wait` });
+                }
+                throw error;
             } finally {
+                limits.dispose();
                 languageHandler.pool.release(instance);
             }
         }
@@ -240,7 +250,9 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
                 }
 
                 const serverContributionPlugins = (contributionPlugins ?? []) as unknown as ServerContributionPlugin[];
+                const limits = createRequestLimits(request, reply);
                 const instance = await languageHandler.pool.acquire(serverContributionPlugins, jwt, project);
+                instance.services.shared.ServerApi.setRequestLimits(limits.signal, limits.deadline);
 
                 try {
                     const result = await handler({
@@ -249,11 +261,20 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
                         instance,
                         services: instance.services,
                         serverApi: instance.services.shared.ServerApi,
-                        contributionPlugins: serverContributionPlugins
+                        contributionPlugins: serverContributionPlugins,
+                        signal: limits.signal
                     });
 
                     return reply.send({ data: result ?? null });
+                } catch (error) {
+                    if (limits.timedOut) {
+                        return reply
+                            .status(504)
+                            .send({ error: `Request ${key} took longer than the caller could wait` });
+                    }
+                    throw error;
                 } finally {
+                    limits.dispose();
                     languageHandler.pool.release(instance);
                 }
             }

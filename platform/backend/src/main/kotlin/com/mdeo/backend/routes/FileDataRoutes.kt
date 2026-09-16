@@ -1,6 +1,7 @@
 package com.mdeo.backend.routes
 
 import com.mdeo.backend.plugins.*
+import com.mdeo.backend.service.CallerDeadline
 import com.mdeo.backend.service.FileDataService
 import com.mdeo.backend.service.JwtService
 import com.mdeo.backend.service.ProjectPermission
@@ -91,7 +92,8 @@ fun Route.fileDataRoutes(
             
             val callerComputationId = jwtPrincipal?.payload?.getClaim(JwtService.CLAIM_COMPUTATION_ID)?.asString()
                 ?.let { runCatching { UUID.fromString(it) }.getOrNull() }
-            val result = fileDataService.getFileData(projectId, path, language, key, callerComputationId)
+            val deadline = CallerDeadline.fromHeader(call.request.headers[CallerDeadline.HEADER])
+            val result = fileDataService.getFileData(projectId, path, language, key, callerComputationId, deadline)
             call.respondApiResult(result)
         }
     }

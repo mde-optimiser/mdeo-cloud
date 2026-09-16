@@ -1,6 +1,7 @@
 package com.mdeo.backend.routes
 
 import com.mdeo.backend.plugins.*
+import com.mdeo.backend.service.CallerDeadline
 import com.mdeo.backend.service.JwtService
 import com.mdeo.backend.service.LanguagePluginRequestService
 import com.mdeo.backend.service.ProjectPermission
@@ -84,7 +85,8 @@ fun Route.languagePluginRequestRoutes(
                 languageId,
                 key,
                 body,
-                callerJwt
+                callerJwt,
+                CallerDeadline.fromHeader(call.request.headers[CallerDeadline.HEADER])
             )
 
             call.respondApiResult(result)

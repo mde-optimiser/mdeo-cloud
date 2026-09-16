@@ -55,7 +55,8 @@ class LanguagePluginRequestService(services: InjectedServices) : BaseService(), 
         languageId: String,
         key: String,
         body: JsonElement,
-        callerJwt: String? = null
+        callerJwt: String? = null,
+        deadline: CallerDeadline? = null
     ): ApiResult<LanguagePluginResponse> {
         val pluginInfo = pluginService.findPluginByLanguage(projectId, languageId)
             ?: return languagePluginRequestFailure(
@@ -82,10 +83,23 @@ class LanguagePluginRequestService(services: InjectedServices) : BaseService(), 
                 projectId,
                 body,
                 token,
-                contributionPlugins
+                contributionPlugins,
+                deadline
             )
 
             success(LanguagePluginResponse(data = responseData))
+        } catch (e: DeadlineExceededException) {
+            languagePluginRequestFailure(ErrorCodes.DEADLINE_EXCEEDED, e.message ?: "Deadline exceeded")
+        } catch (e: java.net.http.HttpTimeoutException) {
+            if (deadline == null) {
+                logger.error("Language plugin request $languageId:$key timed out", e)
+                languagePluginRequestFailure(ErrorCodes.FILE_DATA_COMPUTATION_FAILED, "Failed to execute request: ${e.message}")
+            } else {
+                languagePluginRequestFailure(
+                    ErrorCodes.DEADLINE_EXCEEDED,
+                    "The plugin did not answer $languageId:$key before the caller's deadline"
+                )
+            }
         } catch (e: Exception) {
             logger.error("Failed to execute language plugin request for $languageId:$key", e)
             languagePluginRequestFailure(
@@ -105,6 +119,7 @@ class LanguagePluginRequestService(services: InjectedServices) : BaseService(), 
      * @param body JSON body forwarded to the plugin.
      * @param token JWT token included as a Bearer token in the Authorization header.
      * @param contributionPlugins list of contribution plugin metadata to include in the payload.
+     * @param deadline the caller's deadline, which shortens the wait and is forwarded to the plugin.
      * @return the deserialized plugin response JSON element.
      * @throws RuntimeException when the plugin returns a non-200 status or when decoding fails.
      */
@@ -115,9 +130,14 @@ class LanguagePluginRequestService(services: InjectedServices) : BaseService(), 
         project: UUID,
         body: JsonElement,
         token: String,
-        contributionPlugins: List<JsonObject>
+        contributionPlugins: List<JsonObject>,
+        deadline: CallerDeadline?
     ): JsonElement {
         return withContext(Dispatchers.IO) {
+            val timeout = CallerDeadline.effective(deadline, Duration.ofSeconds(config.timeouts.pluginRequestSeconds))
+            if (timeout.isZero) {
+                throw DeadlineExceededException("The caller's deadline passed before $languageId:$key was sent to the plugin")
+            }
             val requestBody = json.encodeToString(
                 LanguagePluginRequest.serializer(),
                 LanguagePluginRequest(
@@ -133,8 +153,9 @@ class LanguagePluginRequestService(services: InjectedServices) : BaseService(), 
                 .uri(requestUrl)
                 .header("Content-Type", "application/json")
                 .header("Authorization", "Bearer $token")
+                .header(CallerDeadline.HEADER, CallerDeadline.headerValue(timeout))
                 .POST(HttpRequest.BodyPublishers.ofString(requestBody))
-                .timeout(Duration.ofSeconds(config.timeouts.pluginRequestSeconds))
+                .timeout(timeout)
 
             val request = requestBuilder.build()
 

@@ -16,6 +16,7 @@ export * from "./service/util.js";
 export * from "./util/config.js";
 export * from "./util/hasErrors.js";
 export * from "./util/pluginContext.js";
+export * from "./util/requestLimits.js";
 export * from "./ws/executionServiceProxy.js";
 export * from "./ws/executionWsClient.js";
 export * from "./ws/executionWsServer.js";

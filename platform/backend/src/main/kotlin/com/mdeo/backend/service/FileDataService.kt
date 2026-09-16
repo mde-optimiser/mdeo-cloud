@@ -10,6 +10,7 @@ import com.mdeo.common.model.*
 import com.mdeo.common.model.FileType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonElement
@@ -67,6 +68,7 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
      * @param key The data key (e.g., "ast")
      * @param callerComputationId The file data computation the request comes from, when a plugin
      *        asks for this data while computing other data
+     * @param deadline How long the caller is still willing to wait, if it said so
      * @return ApiResult containing the computed data with version or an error
      */
     suspend fun getFileData(
@@ -74,7 +76,8 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
         path: String?,
         languageId: String?,
         key: String,
-        callerComputationId: UUID? = null
+        callerComputationId: UUID? = null,
+        deadline: CallerDeadline? = null
     ): ApiResult<FileDataResponse> {
         val normalizedPath = when {
             path != null -> normalizePath(path)
@@ -88,11 +91,19 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
         cachedFileData(projectId, normalizedPath, key)?.let { return success(it) }
 
         // Requests for the same data while it is being computed wait for that computation.
-        return flights.run(FileDataTarget(projectId, normalizedPath, key), callerComputationId) { computationId ->
-            // Another computation may have finished between the check above and taking the flight.
-            cachedFileData(projectId, normalizedPath, key)?.let { success(it) }
-                ?: computeFileData(projectId, normalizedPath, languageId, key, computationId)
+        val shared = suspend {
+            flights.run(FileDataTarget(projectId, normalizedPath, key), callerComputationId) { computationId ->
+                // Another computation may have finished between the check above and taking the flight.
+                cachedFileData(projectId, normalizedPath, key)?.let { success(it) }
+                    ?: computeFileData(projectId, normalizedPath, languageId, key, computationId, deadline)
+            }
         }
+        if (deadline == null) return shared()
+        return withTimeoutOrNull(deadline.remaining().toMillis()) { shared() }
+            ?: fileDataFailure(
+                ErrorCodes.DEADLINE_EXCEEDED,
+                "$normalizedPath:$key was not ready before the caller's deadline"
+            )
     }
 
     /**
@@ -127,6 +138,7 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
      * @param languageId The language ID, when the data is addressed by language
      * @param key The data key
      * @param computationId The id the computation is recorded and its token issued under
+     * @param deadline The caller's deadline, which shortens the wait on the plugin
      * @return The computed data, or an error
      */
     private suspend fun computeFileData(
@@ -134,7 +146,8 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
         normalizedPath: String,
         languageId: String?,
         key: String,
-        computationId: UUID
+        computationId: UUID,
+        deadline: CallerDeadline?
     ): ApiResult<FileDataResponse> {
 
         val fileRow = transaction {
@@ -201,7 +214,7 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
             val token = jwtService.generateFileDataComputationToken(projectId, computationId)
 
             val call =
-                computeFromPlugin(pluginUrl, languagePlugin.id, key, projectId, fileSource, token, contributionPlugins)
+                computeFromPlugin(pluginUrl, languagePlugin.id, key, projectId, fileSource, token, contributionPlugins, deadline)
             logged.finish(call.requestBytes, call.responseBytes)
             val computedData = call.response
 
@@ -227,6 +240,19 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
                     data = computedData.data,
                     version = fileSource?.version ?: -1
                 )
+            )
+        } catch (e: DeadlineExceededException) {
+            logged.fail()
+            return fileDataFailure(ErrorCodes.DEADLINE_EXCEEDED, e.message ?: "Deadline exceeded")
+        } catch (e: java.net.http.HttpTimeoutException) {
+            logged.fail()
+            if (deadline == null) {
+                logger.error("Failed to compute file data for $normalizedPath:$key", e)
+                return fileDataFailure(ErrorCodes.FILE_DATA_COMPUTATION_FAILED, "Failed to compute file data: ${e.message}")
+            }
+            return fileDataFailure(
+                ErrorCodes.DEADLINE_EXCEEDED,
+                "The plugin did not compute $normalizedPath:$key before the caller's deadline"
             )
         } catch (e: Exception) {
             logged.fail()
@@ -452,6 +478,7 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
      * @param fileSource Source data with version, content, and path (null for directories)
      * @param token JWT token for authentication
      * @param contributionPlugins List of contribution plugins to send to the plugin
+     * @param deadline The caller's deadline, which shortens the wait and is forwarded to the plugin
      * @return Computed data response from the plugin, with the sizes of both messages
      */
     private suspend fun computeFromPlugin(
@@ -461,9 +488,14 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
         project: UUID,
         fileSource: FileSource?,
         token: String,
-        contributionPlugins: List<JsonObject>
+        contributionPlugins: List<JsonObject>,
+        deadline: CallerDeadline?
     ): PluginComputation {
         return withContext(Dispatchers.IO) {
+            val timeout = CallerDeadline.effective(deadline, Duration.ofSeconds(fileDataConfig.computationTimeoutSeconds))
+            if (timeout.isZero) {
+                throw DeadlineExceededException("The caller's deadline passed before $key was sent to the plugin")
+            }
             val requestBody = json.encodeToString(
                 FileDataComputeRequest(
                     project = project.toString(),
@@ -479,8 +511,9 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
                 .uri(dataUrl)
                 .header("Content-Type", "application/json")
                 .header("Authorization", "Bearer $token")
+                .header(CallerDeadline.HEADER, CallerDeadline.headerValue(timeout))
                 .POST(HttpRequest.BodyPublishers.ofByteArray(requestBytes))
-                .timeout(Duration.ofSeconds(fileDataConfig.computationTimeoutSeconds))
+                .timeout(timeout)
                 .build()
 
             val response = httpClient.send(request, CompressedResponses.ofByteArray())

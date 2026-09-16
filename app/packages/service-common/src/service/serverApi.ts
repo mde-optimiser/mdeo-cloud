@@ -1,4 +1,5 @@
 import type { ServerContributionPlugin } from "@mdeo/plugin";
+import { TIMEOUT_HEADER } from "../util/requestLimits.js";
 import type { DirectoryEntry } from "./types.js";
 import type { FileDependency, DataDependency, FileDataResult } from "../handler/types.js";
 
@@ -131,6 +132,16 @@ export class HttpServerApi implements ServerApi {
     private project: string | undefined = undefined;
 
     /**
+     * Aborts every call when the request this API serves is abandoned
+     */
+    private signal: AbortSignal | undefined = undefined;
+
+    /**
+     * When the request this API serves stops being waited for, in epoch milliseconds
+     */
+    private deadline: number | undefined = undefined;
+
+    /**
      * Tracked file dependencies during current computation
      */
     private trackedFileDependencies: FileDependency[] = [];
@@ -173,6 +184,18 @@ export class HttpServerApi implements ServerApi {
     }
 
     /**
+     * Ties every following call to the limits of the request being handled: calls are aborted with
+     * it, and pass the time it has left on to the backend.
+     *
+     * @param signal Aborts when the request is abandoned
+     * @param deadline When the caller stops waiting, in epoch milliseconds, if it said
+     */
+    setRequestLimits(signal: AbortSignal | undefined, deadline: number | undefined): void {
+        this.signal = signal;
+        this.deadline = deadline;
+    }
+
+    /**
      * Clears the JWT token and project context after request handling.
      * Further, it resets tracked requests.
      * Should be called after the request is complete to prevent token leakage and stale context.
@@ -180,6 +203,8 @@ export class HttpServerApi implements ServerApi {
     reset(): void {
         this.jwt = undefined;
         this.project = undefined;
+        this.signal = undefined;
+        this.deadline = undefined;
         this.trackedFileDependencies = [];
         this.trackedDataDependencies = [];
         this.fileDataCache.clear();
@@ -189,17 +214,22 @@ export class HttpServerApi implements ServerApi {
         if (!this.jwt) {
             throw new Error("JWT not set. Call setJwt() before making API requests.");
         }
-        return {
+        const headers: Record<string, string> = {
             Authorization: `Bearer ${this.jwt}`,
             "Content-Type": "application/json"
         };
+        if (this.deadline != undefined) {
+            headers[TIMEOUT_HEADER] = String(Math.max(1, this.deadline - Date.now()));
+        }
+        return headers;
     }
 
     async readFile(path: string): Promise<{ content: string; version: number }> {
         const encodedPath = encodeURIComponent(path);
         const response = await fetch(`${this.projectBackendUrl}/files/${encodedPath}`, {
             method: "GET",
-            headers: this.getAuthHeaders()
+            headers: this.getAuthHeaders(),
+            signal: this.signal
         });
 
         if (!response.ok) {
@@ -232,7 +262,8 @@ export class HttpServerApi implements ServerApi {
         const encodedKey = encodeURIComponent(key);
         const response = await fetch(`${this.projectBackendUrl}/file-data/${encodedKey}?path=${encodedPath}`, {
             method: "GET",
-            headers: this.getAuthHeaders()
+            headers: this.getAuthHeaders(),
+            signal: this.signal
         });
 
         if (!response.ok) {
@@ -259,7 +290,8 @@ export class HttpServerApi implements ServerApi {
         const encodedPath = encodeURIComponent(path);
         const response = await fetch(`${this.projectBackendUrl}/files/dirs/${encodedPath}`, {
             method: "GET",
-            headers: this.getAuthHeaders()
+            headers: this.getAuthHeaders(),
+            signal: this.signal
         });
 
         if (!response.ok) {
@@ -291,6 +323,7 @@ export class HttpServerApi implements ServerApi {
         const response = await fetch(`${this.projectBackendUrl}/request/${encodedLanguageId}/${encodedKey}`, {
             method: "POST",
             headers: this.getAuthHeaders(),
+            signal: this.signal,
             body: JSON.stringify(body)
         });
 
@@ -318,7 +351,8 @@ export class HttpServerApi implements ServerApi {
         const path = `sessions/lang/${encodeURIComponent(languageId)}/${encodeURIComponent(sessionName)}`;
         const response = await fetch(`${this.projectBackendUrl}/${path}/contribution-plugins`, {
             method: "GET",
-            headers: this.getAuthHeaders()
+            headers: this.getAuthHeaders(),
+            signal: this.signal
         });
 
         if (!response.ok) {
@@ -335,6 +369,7 @@ export class HttpServerApi implements ServerApi {
         const response = await fetch(`${this.backendUrl}/executions/${encodedExecutionId}/metadata`, {
             method: "PATCH",
             headers: this.getAuthHeaders(),
+            signal: this.signal,
             body: JSON.stringify({ metadata })
         });
 

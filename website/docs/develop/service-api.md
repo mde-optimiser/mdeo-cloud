@@ -7,6 +7,13 @@ for debugging, and for anyone implementing a plugin service in another stack.
 All endpoints except `GET /` and the static assets require a JWT issued by the backend, presented as
 `Authorization: Bearer <token>`, and are checked against a scope.
 
+A caller can say how long it is willing to wait by sending `X-Mdeo-Timeout-Ms` with the
+milliseconds it has left. The backend sends it with every file data computation and plugin request,
+never more than its own configured maximum. A handler sees the limit as `context.signal`, which
+aborts when the time is up or the caller disconnects; every `serverApi` call made while handling the
+request is aborted with it and passes the remaining time on to the backend. A handler that fails
+after its deadline passed is answered with `504`.
+
 Responses larger than 1 KiB are **compressed** with gzip or deflate when the caller sends
 `Accept-Encoding`, and a request body sent with `Content-Encoding: gzip` or `deflate` is accepted.
 The backend, the execution services and the workbench proxy compress the same way, and WebSocket
