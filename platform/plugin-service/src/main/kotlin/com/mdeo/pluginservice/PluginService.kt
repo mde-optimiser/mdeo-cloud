@@ -1,5 +1,6 @@
 package com.mdeo.pluginservice
 
+import com.mdeo.common.transport.installDeflate
 import com.mdeo.pluginservice.session.JwksSessionTokenVerifier
 import com.mdeo.pluginservice.session.SessionTokenVerifier
 import com.mdeo.pluginservice.session.sessionEndpoint
@@ -66,6 +67,7 @@ fun Application.installSessionWebSockets() {
         timeout = SESSION_PONG_TIMEOUT_SECONDS.seconds
         maxFrameSize = SESSION_MAX_FRAME_BYTES
         masking = false
+        extensions { installDeflate() }
     }
 }
 

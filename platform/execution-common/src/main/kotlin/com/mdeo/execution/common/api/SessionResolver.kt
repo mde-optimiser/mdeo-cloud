@@ -1,5 +1,6 @@
 package com.mdeo.execution.common.api
 
+import com.mdeo.common.transport.acceptCompressedResponses
 import com.mdeo.common.model.PluginTarget
 import com.mdeo.common.transport.SessionConnection
 import io.ktor.client.*
@@ -71,6 +72,7 @@ class SessionResolver(
             requestTimeoutMillis = BACKEND_REQUEST_TIMEOUT_MS
             socketTimeoutMillis = BACKEND_REQUEST_TIMEOUT_MS
         }
+        acceptCompressedResponses()
     }
 
     private val cache = ConcurrentHashMap<String, SessionConnection>()

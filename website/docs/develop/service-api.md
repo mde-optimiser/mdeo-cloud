@@ -7,6 +7,12 @@ for debugging, and for anyone implementing a plugin service in another stack.
 All endpoints except `GET /` and the static assets require a JWT issued by the backend, presented as
 `Authorization: Bearer <token>`, and are checked against a scope.
 
+Responses larger than 1 KiB are **compressed** with gzip or deflate when the caller sends
+`Accept-Encoding`, and a request body sent with `Content-Encoding: gzip` or `deflate` is accepted.
+The backend, the execution services and the workbench proxy compress the same way, and WebSocket
+connections negotiate `permessage-deflate`. A service implemented in another stack should do the
+same: the platform's payloads are JSON that shrinks by an order of magnitude.
+
 ## `GET /`
 
 Returns the [plugin manifest](/develop/manifest). This is the only endpoint the backend needs to

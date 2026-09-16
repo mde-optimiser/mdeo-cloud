@@ -1,5 +1,6 @@
 package com.mdeo.optimizerexecution.worker
 
+import com.mdeo.common.transport.installDeflate
 import com.mdeo.execution.common.subprocess.SubprocessMain
 import com.mdeo.expression.ast.expressions.TypedExpression
 import com.mdeo.expression.ast.statements.TypedStatement
@@ -168,7 +169,7 @@ class WorkerSubprocessMain : SubprocessMain() {
         /**
          * Ktor HTTP client used to open the WebSocket connection to the orchestrator. 
          */
-        private val client = HttpClient(CIO) { install(WebSockets) }
+        private val client = HttpClient(CIO) { install(WebSockets) { extensions { installDeflate() } } }
 
         /**
          * Reference to the active WebSocket session, set once the connection is established.
@@ -348,7 +349,7 @@ class WorkerSubprocessMain : SubprocessMain() {
         @Volatile
         private var failed = false
 
-        private val peerClient = HttpClient(CIO) { install(WebSockets) }
+        private val peerClient = HttpClient(CIO) { install(WebSockets) { extensions { installDeflate() } } }
 
         val job: Job = peerScope.launch {
             try {

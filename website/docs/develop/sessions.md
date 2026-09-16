@@ -204,6 +204,10 @@ This is not optional. The reverse proxy in front of a plugin service drops conne
 been idle for an hour, and a session doing long stretches of local work would otherwise be
 collected mid-conversation.
 
+Messages larger than 1 KiB are compressed with `permessage-deflate` when both sides offer it, which
+every platform client and server does. It is negotiated per connection, so a peer without it still
+works.
+
 ## Sessions and the Langium pool
 
 A `lang:` session **takes its Langium instance out of the pool** for the lifetime of the

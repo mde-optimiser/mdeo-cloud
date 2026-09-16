@@ -6,12 +6,18 @@ import com.mdeo.pluginservice.session.SessionPeer
 import com.mdeo.pluginservice.session.SessionTokenClaims
 import com.mdeo.pluginservice.session.SessionTokenVerifier
 import com.mdeo.pluginservice.session.negotiateVersion
+import com.mdeo.common.transport.installDeflate
+import io.ktor.client.*
+import io.ktor.client.engine.cio.*
 import io.ktor.client.plugins.websocket.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
+import io.ktor.server.engine.*
+import io.ktor.server.netty.*
 import io.ktor.server.testing.*
 import io.ktor.websocket.*
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
@@ -21,6 +27,7 @@ import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class PluginServiceTest {
 
@@ -104,6 +111,29 @@ class PluginServiceTest {
             close(CloseReason(CloseReason.Codes.NORMAL, "done"))
         }
         assertEquals(listOf<Byte>(1, 42), answer!!.toList())
+    }
+
+    @Test
+    fun `messages are deflated when the caller offers it`() {
+        // Ktor's test engine does not negotiate WebSocket extensions, so this needs a real server.
+        val server = embeddedServer(Netty, port = 0, host = "127.0.0.1") { pluginService(definition, verifier) }.start()
+        val client = HttpClient(CIO) { install(WebSockets) { extensions { installDeflate() } } }
+        try {
+            val port = runBlocking { server.engine.resolvedConnectors().first().port }
+            val large = ByteArray(64_000) { (it % 7).toByte() }
+            runBlocking {
+                client.webSocket("ws://127.0.0.1:$port/ws/sessions/contrib/echoes/echo", request = {
+                    header(HttpHeaders.Authorization, "Bearer good")
+                }) {
+                    assertTrue(extensions.any { it is WebSocketDeflateExtension }, "permessage-deflate was not negotiated")
+                    send(Frame.Binary(true, large))
+                    assertEquals(large.toList(), (incoming.receive() as Frame.Binary).readBytes().drop(1))
+                }
+            }
+        } finally {
+            client.close()
+            server.stop(100, 1000)
+        }
     }
 
     @Test

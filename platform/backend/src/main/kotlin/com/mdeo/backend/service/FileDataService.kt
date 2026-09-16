@@ -1,5 +1,6 @@
 package com.mdeo.backend.service
 
+import com.mdeo.common.transport.CompressedResponses
 import com.mdeo.backend.database.DataDependenciesTable
 import com.mdeo.backend.database.FileDependenciesTable
 import com.mdeo.backend.database.FileDataComputationsTable
@@ -436,7 +437,7 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
             val requestBytes = requestBody.toByteArray(Charsets.UTF_8)
             val dataUrl = URI.create(pluginUrl).resolve("data/$languageId/$key")
 
-            val request = HttpRequest.newBuilder()
+            val request = CompressedResponses.accept(HttpRequest.newBuilder())
                 .uri(dataUrl)
                 .header("Content-Type", "application/json")
                 .header("Authorization", "Bearer $token")
@@ -444,7 +445,7 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
                 .timeout(Duration.ofSeconds(fileDataConfig.computationTimeoutSeconds))
                 .build()
 
-            val response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray())
+            val response = httpClient.send(request, CompressedResponses.ofByteArray())
             val responseText = String(response.body(), Charsets.UTF_8)
 
             if (response.statusCode() != 200) {

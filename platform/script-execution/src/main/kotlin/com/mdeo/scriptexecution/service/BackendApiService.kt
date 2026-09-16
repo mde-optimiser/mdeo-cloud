@@ -1,5 +1,6 @@
 package com.mdeo.scriptexecution.service
 
+import com.mdeo.common.transport.acceptCompressedResponses
 import com.mdeo.metamodel.data.MetamodelData
 import com.mdeo.metamodel.data.ModelData
 import com.mdeo.script.ast.TypedAst
@@ -55,6 +56,7 @@ class BackendApiService(val baseUrl: String) {
             requestTimeoutMillis = BACKEND_REQUEST_TIMEOUT_MS
             socketTimeoutMillis = BACKEND_REQUEST_TIMEOUT_MS
         }
+        acceptCompressedResponses()
     }
 
     /**

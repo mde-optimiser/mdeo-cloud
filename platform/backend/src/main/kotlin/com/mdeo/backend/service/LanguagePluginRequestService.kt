@@ -1,5 +1,6 @@
 package com.mdeo.backend.service
 
+import com.mdeo.common.transport.CompressedResponses
 import com.mdeo.common.model.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -128,7 +129,7 @@ class LanguagePluginRequestService(services: InjectedServices) : BaseService(), 
 
             val requestUrl = URI.create(pluginUrl).resolve("request/$languageId/$key")
 
-            val requestBuilder = HttpRequest.newBuilder()
+            val requestBuilder = CompressedResponses.accept(HttpRequest.newBuilder())
                 .uri(requestUrl)
                 .header("Content-Type", "application/json")
                 .header("Authorization", "Bearer $token")
@@ -137,7 +138,7 @@ class LanguagePluginRequestService(services: InjectedServices) : BaseService(), 
 
             val request = requestBuilder.build()
 
-            val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+            val response = httpClient.send(request, CompressedResponses.ofString())
 
             if (response.statusCode() != 200) {
                 throw RuntimeException("Plugin returned status ${response.statusCode()}: ${response.body()}")

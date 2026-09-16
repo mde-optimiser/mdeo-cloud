@@ -1,5 +1,7 @@
 package com.mdeo.backend
 
+import com.mdeo.common.transport.installDeflate
+import com.mdeo.common.transport.installHttpCompression
 import com.mdeo.backend.config.AppConfig
 import com.mdeo.backend.config.configureCors
 import com.mdeo.backend.config.configureSerialization
@@ -90,6 +92,7 @@ fun Application.module(appConfig: AppConfig) {
     }
     
     configureSerialization()
+    installHttpCompression()
     configureCors(appConfig.cors)
     configureStatusPages()
     configureAuthentication(
@@ -102,6 +105,7 @@ fun Application.module(appConfig: AppConfig) {
     install(WebSockets) {
         pingPeriodMillis = 30_000
         timeoutMillis = 60_000
+        extensions { installDeflate() }
     }
     
     routing {

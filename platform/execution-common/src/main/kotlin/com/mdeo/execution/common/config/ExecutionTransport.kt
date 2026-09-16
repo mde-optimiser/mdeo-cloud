@@ -1,5 +1,6 @@
 package com.mdeo.execution.common.config
 
+import com.mdeo.common.transport.installDeflate
 import com.mdeo.execution.common.auth.WsTokenVerifier
 import io.ktor.server.application.*
 import io.ktor.server.websocket.*
@@ -35,6 +36,7 @@ fun Application.configureExecutionTransport(backendUrl: String, issuer: String) 
             maxFrameSize = MAX_FRAME_SIZE_BYTES
             pingPeriod = 30.seconds
             timeout = 60.seconds
+            extensions { installDeflate() }
         }
     }
     attributes.put(ExecutionWsVerifierKey, WsTokenVerifier(backendUrl, issuer))

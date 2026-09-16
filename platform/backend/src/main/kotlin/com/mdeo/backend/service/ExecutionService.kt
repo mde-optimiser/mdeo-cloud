@@ -1,5 +1,6 @@
 package com.mdeo.backend.service
 
+import com.mdeo.common.transport.CompressedResponses
 import com.mdeo.common.model.ExecutionState
 import com.mdeo.backend.database.ExecutionsTable
 import com.mdeo.backend.database.FilesTable
@@ -935,7 +936,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
             )
 
             val uri = URI.create(pluginUrl).resolve("$languageId/executions")
-            val request = HttpRequest.newBuilder()
+            val request = CompressedResponses.accept(HttpRequest.newBuilder())
                 .uri(uri)
                 .header("Content-Type", "application/json")
                 .header("Authorization", "Bearer $token")
@@ -946,7 +947,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
                 .timeout(Duration.ofSeconds(config.fileData.computationTimeoutSeconds))
                 .build()
 
-            val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+            val response = httpClient.send(request, CompressedResponses.ofString())
 
             if (response.statusCode() != 200 && response.statusCode() != 201) {
                 throw RuntimeException("Plugin returned status ${response.statusCode()}: ${response.body()}")
@@ -996,7 +997,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
             )
             val uri = URI.create(pluginUrl).resolve("$languageId/executions/$executionId/files")
 
-            val request = HttpRequest.newBuilder()
+            val request = CompressedResponses.accept(HttpRequest.newBuilder())
                 .uri(uri)
                 .header("Authorization", "Bearer $token")
                 .GET()
@@ -1004,7 +1005,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
                 .applyExecutionMetadataHeader(metadata)
                 .build()
 
-            val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+            val response = httpClient.send(request, CompressedResponses.ofString())
 
             if (response.statusCode() != 200) {
                 throw RuntimeException("Plugin returned status ${response.statusCode()}: ${response.body()}")
@@ -1054,7 +1055,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
             )
             val uri = URI.create(pluginUrl).resolve("$languageId/executions/$executionId/summary")
 
-            val request = HttpRequest.newBuilder()
+            val request = CompressedResponses.accept(HttpRequest.newBuilder())
                 .uri(uri)
                 .header("Authorization", "Bearer $token")
                 .GET()
@@ -1062,7 +1063,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
                 .applyExecutionMetadataHeader(metadata)
                 .build()
 
-            val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+            val response = httpClient.send(request, CompressedResponses.ofString())
 
             if (response.statusCode() != 200) {
                 throw RuntimeException("Plugin returned status ${response.statusCode()}: ${response.body()}")
@@ -1116,7 +1117,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
             val normalizedPath = normalizePath(path)
             val uri = URI.create(pluginUrl).resolve("$languageId/executions/$executionId/files/$normalizedPath")
 
-            val request = HttpRequest.newBuilder()
+            val request = CompressedResponses.accept(HttpRequest.newBuilder())
                 .uri(uri)
                 .header("Authorization", "Bearer $token")
                 .GET()
@@ -1124,7 +1125,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
                 .applyExecutionMetadataHeader(metadata)
                 .build()
 
-            val response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray())
+            val response = httpClient.send(request, CompressedResponses.ofByteArray())
 
             if (response.statusCode() != 200) {
                 throw RuntimeException("Plugin returned status ${response.statusCode()}")
@@ -1177,7 +1178,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
             )
             val uri = URI.create(pluginUrl).resolve("$languageId/executions/$executionId/cancel")
 
-            val request = HttpRequest.newBuilder()
+            val request = CompressedResponses.accept(HttpRequest.newBuilder())
                 .uri(uri)
                 .header("Authorization", "Bearer $token")
                 .POST(HttpRequest.BodyPublishers.noBody())
@@ -1185,7 +1186,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
                 .applyExecutionMetadataHeader(metadata)
                 .build()
 
-            val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+            val response = httpClient.send(request, CompressedResponses.ofString())
 
             if (response.statusCode() != 200 && response.statusCode() != 204) {
                 throw RuntimeException("Plugin returned status ${response.statusCode()}: ${response.body()}")
@@ -1244,7 +1245,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
             )
             val uri = URI.create(pluginUrl).resolve("$languageId/executions/$executionId")
 
-            val request = HttpRequest.newBuilder()
+            val request = CompressedResponses.accept(HttpRequest.newBuilder())
                 .uri(uri)
                 .header("Authorization", "Bearer $token")
                 .DELETE()
@@ -1252,7 +1253,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
                 .applyExecutionMetadataHeader(metadata)
                 .build()
 
-            val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+            val response = httpClient.send(request, CompressedResponses.ofString())
 
             if (response.statusCode() == 404) {
                 logger.warn("Plugin returned 404 when deleting execution $executionId; assuming already deleted")

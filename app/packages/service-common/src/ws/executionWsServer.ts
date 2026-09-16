@@ -1,4 +1,5 @@
 import type { Server } from "node:http";
+import { COMPRESSION_THRESHOLD_BYTES } from "../util/compression.js";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { JwtAuthMiddleware } from "../auth/jwtAuth.js";
 import { registerUpgradeRoute } from "./upgradeRouter.js";
@@ -81,7 +82,11 @@ export interface ExecutionWsServerDeps {
  * @returns The attached WebSocket server, for shutdown
  */
 export function attachExecutionWebSocketServer(server: Server, deps: ExecutionWsServerDeps): WebSocketServer {
-    const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_PAYLOAD_BYTES });
+    const wss = new WebSocketServer({
+        noServer: true,
+        maxPayload: MAX_PAYLOAD_BYTES,
+        perMessageDeflate: { threshold: COMPRESSION_THRESHOLD_BYTES }
+    });
 
     registerUpgradeRoute(
         server,

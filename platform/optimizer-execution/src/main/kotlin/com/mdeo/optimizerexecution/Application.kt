@@ -1,5 +1,7 @@
 package com.mdeo.optimizerexecution
 
+import com.mdeo.common.transport.installDeflate
+import com.mdeo.common.transport.installHttpCompression
 import com.mdeo.execution.common.auth.configureJwtAuth
 import com.mdeo.execution.common.config.configureExecutionTransport
 import com.mdeo.execution.common.config.configureSerialization
@@ -66,8 +68,10 @@ fun Application.module(appConfig: AppConfig) {
     install(WebSockets) {
         pingPeriodMillis = 30_000L
         timeoutMillis = 15_000L
+        extensions { installDeflate() }
     }
     configureSerialization()
+    installHttpCompression()
     configureStatusPages()
     configureJwtAuth(appConfig.backendApiUrl, appConfig.jwtIssuer)
     configureExecutionTransport(appConfig.backendApiUrl, appConfig.jwtIssuer)

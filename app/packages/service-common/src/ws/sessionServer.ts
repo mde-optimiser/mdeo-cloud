@@ -1,4 +1,5 @@
 import type { IncomingMessage, Server } from "node:http";
+import { COMPRESSION_THRESHOLD_BYTES } from "../util/compression.js";
 import { WebSocketServer, type WebSocket } from "ws";
 import { parsePluginTarget, type PluginTarget, type SessionType } from "@mdeo/plugin";
 import type { JwtAuthMiddleware, JwtClaims } from "../auth/jwtAuth.js";
@@ -232,7 +233,11 @@ export interface SessionServerDeps {
  * @returns The attached WebSocket server, for shutdown
  */
 export function attachSessionServer(server: Server, deps: SessionServerDeps): WebSocketServer {
-    const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_PAYLOAD_BYTES });
+    const wss = new WebSocketServer({
+        noServer: true,
+        maxPayload: MAX_PAYLOAD_BYTES,
+        perMessageDeflate: { threshold: COMPRESSION_THRESHOLD_BYTES }
+    });
 
     const log: UpgradeLog = deps.log;
 

@@ -1,5 +1,6 @@
 package com.mdeo.execution.common.api
 
+import com.mdeo.common.transport.acceptCompressedResponses
 import com.mdeo.common.model.ExecutionState
 import io.ktor.client.*
 import io.ktor.client.call.*
@@ -84,6 +85,7 @@ open class BackendApiClient(
                 requestTimeoutMillis = BACKEND_REQUEST_TIMEOUT_MS
                 socketTimeoutMillis = BACKEND_REQUEST_TIMEOUT_MS
             }
+            acceptCompressedResponses()
         }
     }
 

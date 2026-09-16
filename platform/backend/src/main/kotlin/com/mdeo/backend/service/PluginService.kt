@@ -1,5 +1,6 @@
 package com.mdeo.backend.service
 
+import com.mdeo.common.transport.CompressedResponses
 import com.mdeo.backend.database.ContributionPluginsTable
 import com.mdeo.backend.database.ContributionTargetsTable
 import com.mdeo.backend.database.PluginSessionsTable
@@ -323,13 +324,13 @@ class PluginService(services: InjectedServices) : BaseService(), InjectedService
     private suspend fun fetchPluginManifest(url: String): PluginManifest {
         return withContext(Dispatchers.IO) {
             val resolvedUrl = resolvePluginUrl(url, useInternal = true)
-            val request = HttpRequest.newBuilder()
+            val request = CompressedResponses.accept(HttpRequest.newBuilder())
                 .uri(URI.create(resolvedUrl))
                 .GET()
                 .timeout(Duration.ofSeconds(30))
                 .build()
 
-            val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+            val response = httpClient.send(request, CompressedResponses.ofString())
 
             if (response.statusCode() != 200) {
                 throw RuntimeException("Plugin returned status ${response.statusCode()}")

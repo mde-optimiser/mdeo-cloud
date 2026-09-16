@@ -1,5 +1,7 @@
 import Fastify, { type FastifyInstance, type FastifyRequest, type FastifyReply } from "fastify";
 import cors from "@fastify/cors";
+import compress from "@fastify/compress";
+import { COMPRESSION_THRESHOLD_BYTES } from "../util/compression.js";
 import fastifyStatic from "@fastify/static";
 import { resolve } from "path";
 import type { ServiceConfig, FileDataComputeRequest, FileDataComputeResponse, LanguageServiceConfig } from "./types.js";
@@ -88,6 +90,14 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
 
     await fastify.register(cors, {
         origin: true
+    });
+
+    // ASTs, typed ASTs and model data are JSON that shrinks by an order of magnitude, and the
+    // backend and the browser both accept compressed answers.
+    await fastify.register(compress, {
+        global: true,
+        threshold: COMPRESSION_THRESHOLD_BYTES,
+        encodings: ["gzip", "deflate"]
     });
 
     if (config.serveStatic !== false) {

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { COMPRESSION_THRESHOLD_BYTES } from "../util/compression.js";
 import { WebSocket } from "ws";
 import {
     ExecutionWsErrorCodes,
@@ -102,7 +103,10 @@ class PooledConnection {
         }
 
         this.opening = new Promise<WebSocket>((resolve, reject) => {
-            const socket = new WebSocket(this.url, { maxPayload: MAX_PAYLOAD_BYTES });
+            const socket = new WebSocket(this.url, {
+                maxPayload: MAX_PAYLOAD_BYTES,
+                perMessageDeflate: { threshold: COMPRESSION_THRESHOLD_BYTES }
+            });
             const timer = setTimeout(() => {
                 log.warn(`timed out connecting to ${this.url} after ${CONNECT_TIMEOUT_MS}ms`);
                 socket.terminate();

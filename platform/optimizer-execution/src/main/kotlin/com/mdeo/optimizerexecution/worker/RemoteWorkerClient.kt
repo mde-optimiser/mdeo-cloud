@@ -1,5 +1,7 @@
 package com.mdeo.optimizerexecution.worker
 
+import com.mdeo.common.transport.acceptCompressedResponses
+import com.mdeo.common.transport.installDeflate
 import com.mdeo.optimizer.worker.*
 import com.mdeo.optimizerexecution.service.OrchestratorRegistry
 import io.ktor.client.*
@@ -64,7 +66,9 @@ class RemoteWorkerClient(
             // disconnected stays open on this side indefinitely. Pinging turns that into a
             // closed session, which drains the requests waiting on it.
             pingIntervalMillis = HEARTBEAT_INTERVAL_MS
+            extensions { installDeflate() }
         }
+        acceptCompressedResponses()
     }
 
     private val logger = LoggerFactory.getLogger(RemoteWorkerClient::class.java)
