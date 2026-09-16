@@ -35,6 +35,7 @@ import kotlin.uuid.toKotlinUuid
 class FileDataService(services: InjectedServices) : BaseService(), InjectedServices by services {
     private val logger = LoggerFactory.getLogger(FileDataService::class.java)
     private val json = Json { ignoreUnknownKeys = true }
+    private val computationLog = FileDataComputationLog()
 
     /**
      * File data configuration settings 
@@ -152,12 +153,15 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
         // Recorded before the plugin is called so the token below is backed by a computation that is
         // already visible to token verification, and removed again as soon as the call is done.
         val computationId = beginComputation(projectId, normalizedPath, key)
+        val logged = computationLog.start(projectId, normalizedPath, key)
 
         try {
             val token = jwtService.generateFileDataComputationToken(projectId, computationId)
 
-            val computedData =
+            val call =
                 computeFromPlugin(pluginUrl, languagePlugin.id, key, projectId, fileSource, token, contributionPlugins)
+            logged.finish(call.requestBytes, call.responseBytes)
+            val computedData = call.response
 
             storeFileData(projectId, normalizedPath, key, computedData, fileSource?.version)
 
@@ -183,6 +187,7 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
                 )
             )
         } catch (e: Exception) {
+            logged.fail()
             logger.error("Failed to compute file data for $normalizedPath:$key", e)
             return fileDataFailure(
                 ErrorCodes.FILE_DATA_COMPUTATION_FAILED,
@@ -408,7 +413,7 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
      * @param fileSource Source data with version, content, and path (null for directories)
      * @param token JWT token for authentication
      * @param contributionPlugins List of contribution plugins to send to the plugin
-     * @return Computed data response from the plugin
+     * @return Computed data response from the plugin, with the sizes of both messages
      */
     private suspend fun computeFromPlugin(
         pluginUrl: String,
@@ -418,7 +423,7 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
         fileSource: FileSource?,
         token: String,
         contributionPlugins: List<JsonObject>
-    ): FileDataComputeResponse {
+    ): PluginComputation {
         return withContext(Dispatchers.IO) {
             val requestBody = json.encodeToString(
                 FileDataComputeRequest(
@@ -428,25 +433,40 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
                 )
             )
 
+            val requestBytes = requestBody.toByteArray(Charsets.UTF_8)
             val dataUrl = URI.create(pluginUrl).resolve("data/$languageId/$key")
 
             val request = HttpRequest.newBuilder()
                 .uri(dataUrl)
                 .header("Content-Type", "application/json")
                 .header("Authorization", "Bearer $token")
-                .POST(HttpRequest.BodyPublishers.ofString(requestBody))
+                .POST(HttpRequest.BodyPublishers.ofByteArray(requestBytes))
                 .timeout(Duration.ofSeconds(fileDataConfig.computationTimeoutSeconds))
                 .build()
 
-            val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+            val response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray())
+            val responseText = String(response.body(), Charsets.UTF_8)
 
             if (response.statusCode() != 200) {
-                throw RuntimeException("Plugin returned status ${response.statusCode()}: ${response.body()}")
+                throw RuntimeException("Plugin returned status ${response.statusCode()}: $responseText")
             }
 
-            json.decodeFromString<FileDataComputeResponse>(response.body())
+            PluginComputation(
+                response = json.decodeFromString<FileDataComputeResponse>(responseText),
+                requestBytes = requestBytes.size,
+                responseBytes = response.body().size
+            )
         }
     }
+
+    /**
+     * What a plugin computed, and how large the exchange was in bytes.
+     */
+    private class PluginComputation(
+        val response: FileDataComputeResponse,
+        val requestBytes: Int,
+        val responseBytes: Int
+    )
 
     /**
      * Stores computed file data in the database with dependencies.
