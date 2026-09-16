@@ -1,5 +1,6 @@
 package com.mdeo.backend.routes
 
+import com.mdeo.common.transport.respondError
 import com.mdeo.backend.plugins.*
 import com.mdeo.backend.service.JwtService
 import com.mdeo.backend.service.PluginService
@@ -65,7 +66,7 @@ fun Route.sessionRoutes(
         post {
             val jwtPrincipal = call.getJwtPrincipal()
             if (jwtPrincipal == null) {
-                call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "Execution token required"))
+                call.respondError(HttpStatusCode.Unauthorized, "Execution token required")
                 return@post
             }
 
@@ -73,17 +74,17 @@ fun Route.sessionRoutes(
                 try { UUID.fromString(it) } catch (e: Exception) { null }
             }
             if (projectId == null) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid project ID"))
+                call.respondError(HttpStatusCode.BadRequest, "Invalid project ID")
                 return@post
             }
 
             if (jwtPrincipal.projectId != projectId.toString()) {
-                call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Token not valid for this project"))
+                call.respondError(HttpStatusCode.Forbidden, "Token not valid for this project")
                 return@post
             }
 
             if (JwtService.SCOPE_EXECUTION_READ !in jwtPrincipal.scopes) {
-                call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Token missing required scope"))
+                call.respondError(HttpStatusCode.Forbidden, "Token missing required scope")
                 return@post
             }
 
@@ -91,10 +92,7 @@ fun Route.sessionRoutes(
                 try { UUID.fromString(it) } catch (e: Exception) { null }
             }
             if (executionId == null) {
-                call.respond(
-                    HttpStatusCode.Forbidden,
-                    mapOf("error" to "Token is not bound to an execution, so it cannot open a session")
-                )
+                call.respondError(HttpStatusCode.Forbidden, "Token is not bound to an execution, so it cannot open a session")
                 return@post
             }
 
@@ -104,23 +102,15 @@ fun Route.sessionRoutes(
 
             val target = PluginTarget.parseOrNull("$kind:$targetId")
             if (target == null) {
-                call.respond(
-                    HttpStatusCode.BadRequest,
-                    mapOf("error" to "Not a plugin target: '$kind:$targetId'")
-                )
+                call.respondError(HttpStatusCode.BadRequest, "Not a plugin target: '$kind:$targetId'")
                 return@post
             }
 
             val resolved = pluginService.findSession(projectId, target, sessionName)
             if (resolved == null) {
-                call.respond(
-                    HttpStatusCode.NotFound,
-                    mapOf(
-                        "error" to "No session '$sessionName' declared by $target in this project. " +
+                call.respondError(HttpStatusCode.NotFound, "No session '$sessionName' declared by $target in this project. " +
                                 "Check that the plugin providing $target is enabled and that it " +
-                                "declares a session named '$sessionName'."
-                    )
-                )
+                                "declares a session named '$sessionName'.")
                 return@post
             }
 
@@ -160,7 +150,7 @@ fun Route.sessionRoutes(
         get {
             val jwtPrincipal = call.getJwtPrincipal()
             if (jwtPrincipal == null) {
-                call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "Session token required"))
+                call.respondError(HttpStatusCode.Unauthorized, "Session token required")
                 return@get
             }
 
@@ -168,17 +158,17 @@ fun Route.sessionRoutes(
                 try { UUID.fromString(it) } catch (e: Exception) { null }
             }
             if (projectId == null) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid project ID"))
+                call.respondError(HttpStatusCode.BadRequest, "Invalid project ID")
                 return@get
             }
 
             if (jwtPrincipal.projectId != projectId.toString()) {
-                call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Token not valid for this project"))
+                call.respondError(HttpStatusCode.Forbidden, "Token not valid for this project")
                 return@get
             }
 
             if (JwtService.SCOPE_SESSION_CONNECT !in jwtPrincipal.scopes) {
-                call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Token missing required scope"))
+                call.respondError(HttpStatusCode.Forbidden, "Token missing required scope")
                 return@get
             }
 
@@ -188,17 +178,14 @@ fun Route.sessionRoutes(
 
             val target = PluginTarget.parseOrNull("$kind:$targetId")
             if (target == null || target.kind != PluginTargetKind.LANGUAGE) {
-                call.respond(
-                    HttpStatusCode.BadRequest,
-                    mapOf("error" to "Only language targets load contribution plugins, not '$kind:$targetId'")
-                )
+                call.respondError(HttpStatusCode.BadRequest, "Only language targets load contribution plugins, not '$kind:$targetId'")
                 return@get
             }
 
             val claimedTarget = jwtPrincipal.payload.getClaim(JwtService.CLAIM_TARGET)?.asString()
             val claimedSession = jwtPrincipal.payload.getClaim(JwtService.CLAIM_SESSION)?.asString()
             if (claimedTarget != target.toString() || claimedSession != sessionName) {
-                call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Token was issued for a different session"))
+                call.respondError(HttpStatusCode.Forbidden, "Token was issued for a different session")
                 return@get
             }
 

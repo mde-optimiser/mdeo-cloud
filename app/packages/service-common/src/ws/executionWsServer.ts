@@ -1,3 +1,4 @@
+import { ErrorCodes } from "@mdeo/plugin";
 import type { Server } from "node:http";
 import { COMPRESSION_THRESHOLD_BYTES } from "../util/compression.js";
 import { WebSocketServer, type WebSocket } from "ws";
@@ -7,7 +8,6 @@ import type { ExecutionHandler, ExecutionRequestContext } from "../execution/typ
 import type { LangiumInstance } from "../langium/langiumInstance.js";
 import {
     EXECUTION_WS_PATH,
-    ExecutionWsErrorCodes,
     ExecutionWsFileType,
     ExecutionWsRequestError,
     type ExecutionFilesWsRequest,
@@ -150,8 +150,7 @@ async function handleFrame(socket: WebSocket, raw: string, deps: ExecutionWsServ
             send(socket, {
                 messageType: "exec/error",
                 requestId: request.requestId,
-                code: error.code,
-                message: error.message
+                error: { code: error.code, message: error.message }
             });
             return;
         }
@@ -162,8 +161,10 @@ async function handleFrame(socket: WebSocket, raw: string, deps: ExecutionWsServ
         send(socket, {
             messageType: "exec/error",
             requestId: request.requestId,
-            code: ExecutionWsErrorCodes.Internal,
-            message: error instanceof Error ? error.message : "Internal error"
+            error: {
+                code: ErrorCodes.Internal,
+                message: error instanceof Error ? error.message : "Internal error"
+            }
         });
     }
 }
@@ -178,17 +179,17 @@ async function handleRequest(
 
     const languageId = context.languageId;
     if (!languageId) {
-        throw new ExecutionWsRequestError(ExecutionWsErrorCodes.BadRequest, "Request is missing a language id");
+        throw new ExecutionWsRequestError(ErrorCodes.BadRequest, "Request is missing a language id");
     }
 
     const binding = deps.resolveLanguage(languageId);
     if (!binding) {
-        throw new ExecutionWsRequestError(ExecutionWsErrorCodes.NotFound, `Unknown language: ${languageId}`);
+        throw new ExecutionWsRequestError(ErrorCodes.NotFound, `Unknown language: ${languageId}`);
     }
 
     const project = context.projectId ?? undefined;
     if (!project) {
-        throw new ExecutionWsRequestError(ExecutionWsErrorCodes.BadRequest, "Request is missing a project id");
+        throw new ExecutionWsRequestError(ErrorCodes.BadRequest, "Request is missing a project id");
     }
 
     const instance = await binding.acquire(jwt, project);
@@ -305,7 +306,7 @@ async function authorize(request: ExecutionWsRequest, deps: ExecutionWsServerDep
         claims = await deps.jwtAuth.verifyToken(token);
     } catch (error) {
         throw new ExecutionWsRequestError(
-            ExecutionWsErrorCodes.Forbidden,
+            ErrorCodes.Forbidden,
             `Missing or invalid token: ${error instanceof Error ? error.message : String(error)}`
         );
     }
@@ -318,16 +319,16 @@ async function authorize(request: ExecutionWsRequest, deps: ExecutionWsServerDep
               : "plugin:execution:read";
 
     if (!claims.scope?.includes(requiredScope)) {
-        throw new ExecutionWsRequestError(ExecutionWsErrorCodes.Forbidden, `Token missing ${requiredScope} scope`);
+        throw new ExecutionWsRequestError(ErrorCodes.Forbidden, `Token missing ${requiredScope} scope`);
     }
 
     // The token is issued for one execution; a connection shared by several of them must not
     // let a token for one address the results of another.
     if (claims.executionId && claims.executionId !== context.executionId) {
-        throw new ExecutionWsRequestError(ExecutionWsErrorCodes.Forbidden, "Token is not valid for this execution");
+        throw new ExecutionWsRequestError(ErrorCodes.Forbidden, "Token is not valid for this execution");
     }
     if (claims.projectId && context.projectId && claims.projectId !== context.projectId) {
-        throw new ExecutionWsRequestError(ExecutionWsErrorCodes.Forbidden, "Token is not valid for this project");
+        throw new ExecutionWsRequestError(ErrorCodes.Forbidden, "Token is not valid for this project");
     }
 
     return token!;

@@ -1,5 +1,6 @@
 package com.mdeo.common.transport
 
+import com.mdeo.common.model.ErrorCodes
 import io.ktor.client.*
 import io.ktor.client.engine.cio.*
 import io.ktor.client.plugins.websocket.*
@@ -144,7 +145,7 @@ class ExecutionWsClient(
                 throw retry
             } catch (retry: Exception) {
                 throw ExecutionWsException(
-                    ExecutionWsErrorCodes.UNAVAILABLE,
+                    ErrorCodes.UNAVAILABLE,
                     "Execution WebSocket request to $url failed: ${retry.message}",
                     retry
                 )
@@ -250,15 +251,15 @@ class ExecutionWsClient(
                         touch()
                         dispatch(ExecutionWsProtocol.decode(frame.readText()))
                     }
-                    drain(ExecutionWsException(ExecutionWsErrorCodes.UNAVAILABLE, "Connection to $url closed"))
+                    drain(ExecutionWsException(ErrorCodes.UNAVAILABLE, "Connection to $url closed"))
                 } catch (e: CancellationException) {
-                    drain(ExecutionWsException(ExecutionWsErrorCodes.UNAVAILABLE, "Connection to $url cancelled"))
+                    drain(ExecutionWsException(ErrorCodes.UNAVAILABLE, "Connection to $url cancelled"))
                     throw e
                 } catch (e: Exception) {
                     logger.warn("Execution WS read loop for {} ended: {}", url, e.toString())
                     drain(
                         ExecutionWsException(
-                            ExecutionWsErrorCodes.UNAVAILABLE,
+                            ErrorCodes.UNAVAILABLE,
                             "Connection to $url failed: ${e.message}",
                             e
                         )
@@ -277,7 +278,7 @@ class ExecutionWsClient(
             when (message) {
                 is ExecutionWsResponse -> pending.remove(message.requestId)?.result?.complete(message)
                 is ExecutionWsError -> pending.remove(message.requestId)?.result?.completeExceptionally(
-                    ExecutionWsException(message.code, message.message)
+                    ExecutionWsException(message.error.code, message.error.message)
                 )
                 else -> pending[message.requestId]?.onStream?.invoke(message)
             }
@@ -291,7 +292,7 @@ class ExecutionWsClient(
 
         fun close() {
             readLoop?.cancel()
-            drain(ExecutionWsException(ExecutionWsErrorCodes.UNAVAILABLE, "Connection to $url closed"))
+            drain(ExecutionWsException(ErrorCodes.UNAVAILABLE, "Connection to $url closed"))
             // Cancelled rather than closed politely: a close handshake would have to be
             // launched on this client's scope, which shutdown cancels out from under it,
             // leaving the socket open exactly when it most needs to go away.
@@ -308,7 +309,7 @@ class ExecutionWsClient(
  * Failure of an execution WebSocket request, carrying the protocol error code so that the
  * originating failure keeps its meaning as it is relayed back up the chain of hops.
  *
- * @property code One of [ExecutionWsErrorCodes]
+ * @property code One of [ErrorCodes]
  */
 class ExecutionWsException(
     val code: String,

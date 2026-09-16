@@ -1,5 +1,6 @@
 package com.mdeo.backend.routes
 
+import com.mdeo.common.transport.respondError
 import com.mdeo.backend.plugins.*
 import com.mdeo.backend.service.CallerDeadline
 import com.mdeo.backend.service.FileDataService
@@ -69,7 +70,7 @@ fun Route.fileDataRoutes(
 
             val key = call.parameters["key"]
             if (key.isNullOrBlank()) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Missing data key"))
+                call.respondError(HttpStatusCode.BadRequest, "Missing data key")
                 return@get
             }
 
@@ -77,12 +78,12 @@ fun Route.fileDataRoutes(
             val language = call.request.queryParameters["language"]
 
             if (path.isNullOrBlank() && language.isNullOrBlank()) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Either path or language parameter is required"))
+                call.respondError(HttpStatusCode.BadRequest, "Either path or language parameter is required")
                 return@get
             }
 
             if (!path.isNullOrBlank() && !language.isNullOrBlank()) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "path and language parameters are mutually exclusive"))
+                call.respondError(HttpStatusCode.BadRequest, "path and language parameters are mutually exclusive")
                 return@get
             }
 
@@ -114,14 +115,11 @@ fun Route.fileDataRoutes(
             val request = try {
                 call.receive<FileDataBatchRequest>()
             } catch (e: Exception) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid batch request"))
+                call.respondError(HttpStatusCode.BadRequest, "Invalid batch request")
                 return@post
             }
             if (request.requests.size > MAX_FILE_DATA_BATCH_SIZE) {
-                call.respond(
-                    HttpStatusCode.BadRequest,
-                    mapOf("error" to "A batch may ask for at most $MAX_FILE_DATA_BATCH_SIZE entries")
-                )
+                call.respondError(HttpStatusCode.BadRequest, "A batch may ask for at most $MAX_FILE_DATA_BATCH_SIZE entries")
                 return@post
             }
 
@@ -164,31 +162,31 @@ private suspend fun ApplicationCall.authorizeFileDataRead(projectService: Projec
         try { UUID.fromString(it) } catch (e: Exception) { null }
     }
     if (projectId == null) {
-        respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid project ID"))
+        respondError(HttpStatusCode.BadRequest, "Invalid project ID")
         return null
     }
 
     if (session != null) {
         val userId = try { UUID.fromString(session.userId) } catch (e: Exception) {
-            respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid user ID"))
+            respondError(HttpStatusCode.BadRequest, "Invalid user ID")
             return null
         }
 
         if (!projectService.hasProjectPermission(projectId, userId, isAdmin(), ProjectPermission.READ)) {
-            respond(HttpStatusCode.Forbidden, mapOf("error" to "Access denied"))
+            respondError(HttpStatusCode.Forbidden, "Access denied")
             return null
         }
     } else if (jwtPrincipal != null) {
         if (jwtPrincipal.projectId != projectId.toString()) {
-            respond(HttpStatusCode.Forbidden, mapOf("error" to "Token not valid for this project"))
+            respondError(HttpStatusCode.Forbidden, "Token not valid for this project")
             return null
         }
         if (JwtService.SCOPE_FILE_DATA_READ !in jwtPrincipal.scopes) {
-            respond(HttpStatusCode.Forbidden, mapOf("error" to "Token missing required scope"))
+            respondError(HttpStatusCode.Forbidden, "Token missing required scope")
             return null
         }
     } else {
-        respond(HttpStatusCode.Unauthorized, mapOf("error" to "Authentication required"))
+        respondError(HttpStatusCode.Unauthorized, "Authentication required")
         return null
     }
     return projectId

@@ -4,11 +4,18 @@
 export type ApiResult<T, E = ApiError> = { success: true; value: T } | { success: false; error: E };
 
 /**
- * Common error codes that can occur across all API operations.
+ * Common error codes that can occur across all API operations, the general part of
+ * `ErrorCodes` in `@mdeo/plugin`.
  */
 export enum CommonErrorCode {
     Unavailable = "Unavailable",
-    Unknown = "Unknown"
+    Unknown = "Unknown",
+    BadRequest = "BadRequest",
+    Unauthenticated = "Unauthenticated",
+    Forbidden = "Forbidden",
+    NotFound = "NotFound",
+    Conflict = "Conflict",
+    Internal = "Internal"
 }
 
 /**
@@ -62,8 +69,9 @@ export enum FileDataErrorCode {
  */
 export enum ExecutionErrorCode {
     ExecutionNotFound = "ExecutionNotFound",
-    ExecutionNotCompleted = "ExecutionNotCompleted",
-    ExecutionAlreadyTerminal = "ExecutionAlreadyTerminal"
+    ExecutionAlreadyCompleted = "ExecutionAlreadyCompleted",
+    ExecutionInvalidState = "ExecutionInvalidState",
+    ExecutionPluginError = "ExecutionPluginError"
 }
 
 /**

@@ -283,6 +283,7 @@ function apiErrorToVSCodeError(error: FileSystemError | ProjectError | Execution
         case FileSystemErrorCode.FileNotFound:
         case ProjectErrorCode.ProjectNotFound:
         case ExecutionErrorCode.ExecutionNotFound:
+        case CommonErrorCode.NotFound:
             errorCode = FileSystemProviderErrorCode.FileNotFound;
             break;
         case FileSystemErrorCode.FileExists:
@@ -298,8 +299,8 @@ function apiErrorToVSCodeError(error: FileSystemError | ProjectError | Execution
             errorCode = FileSystemProviderErrorCode.Unavailable;
             break;
         case FileSystemErrorCode.DirectoryNotEmpty:
-        case ExecutionErrorCode.ExecutionNotCompleted:
-        case ExecutionErrorCode.ExecutionAlreadyTerminal:
+        case ExecutionErrorCode.ExecutionAlreadyCompleted:
+        case ExecutionErrorCode.ExecutionInvalidState:
         case CommonErrorCode.Unknown:
         default:
             errorCode = FileSystemProviderErrorCode.Unknown;

@@ -1,5 +1,6 @@
 package com.mdeo.backend.routes
 
+import com.mdeo.common.transport.respondError
 import com.mdeo.backend.plugins.*
 import com.mdeo.backend.service.UserService
 import com.mdeo.backend.service.JwtService
@@ -31,7 +32,7 @@ fun Route.authRoutes(userService: UserService, jwtService: JwtService) {
             
             val user = userService.verifyPassword(request.username, request.password)
             if (user == null) {
-                call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "Invalid credentials"))
+                call.respondError(HttpStatusCode.Unauthorized, "Invalid credentials")
                 return@post
             }
             
@@ -57,13 +58,13 @@ fun Route.authRoutes(userService: UserService, jwtService: JwtService) {
             val request = call.receive<RegisterRequest>()
 
             if (request.username.isBlank() || request.password.isBlank()) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Username and password are required"))
+                call.respondError(HttpStatusCode.BadRequest, "Username and password are required")
                 return@post
             }
 
             val user = userService.createUser(request.username, request.password)
             if (user == null) {
-                call.respond(HttpStatusCode.Conflict, mapOf("error" to "Username already exists"))
+                call.respondError(HttpStatusCode.Conflict, "Username already exists")
                 return@post
             }
 
@@ -100,20 +101,20 @@ fun Route.authRoutes(userService: UserService, jwtService: JwtService) {
         get("/me") {
             val session = call.sessions.get<UserSession>()
             if (session == null) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Not authenticated"))
+                call.respondError(HttpStatusCode.BadRequest, "Not authenticated")
                 return@get
             }
 
             val userId = try {
                 java.util.UUID.fromString(session.userId)
             } catch (_: IllegalArgumentException) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid user ID"))
+                call.respondError(HttpStatusCode.BadRequest, "Invalid user ID")
                 return@get
             }
 
             val user = userService.findById(userId)
             if (user == null) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "User not found"))
+                call.respondError(HttpStatusCode.BadRequest, "User not found")
                 return@get
             }
 

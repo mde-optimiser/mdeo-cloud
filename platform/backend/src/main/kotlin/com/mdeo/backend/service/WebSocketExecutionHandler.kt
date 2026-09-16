@@ -58,13 +58,13 @@ class WebSocketExecutionHandler(
                 "Execution WS request {} rejected: unparseable project '{}' or execution '{}'",
                 label, context.projectId, context.executionId
             )
-            sendError(request.requestId, ExecutionWsErrorCodes.BAD_REQUEST, "Invalid project or execution ID")
+            sendError(request.requestId, ErrorCodes.BAD_REQUEST, "Invalid project or execution ID")
             return
         }
 
         if (!hasReadPermission(projectId)) {
             logger.warn("Execution WS request {} denied: no read permission on project {}", label, projectId)
-            sendError(request.requestId, ExecutionWsErrorCodes.FORBIDDEN, "Access denied to project $projectId")
+            sendError(request.requestId, ErrorCodes.FORBIDDEN, "Access denied to project $projectId")
             return
         }
 
@@ -72,7 +72,7 @@ class WebSocketExecutionHandler(
             dispatch(request, projectId, executionId)
         } catch (e: Exception) {
             logger.error("Execution WS request $label failed", e)
-            sendError(request.requestId, ExecutionWsErrorCodes.INTERNAL, e.message ?: "Internal error")
+            sendError(request.requestId, ErrorCodes.INTERNAL, e.message ?: "Internal error")
         }
     }
 
@@ -115,7 +115,7 @@ class WebSocketExecutionHandler(
 
             else -> sendError(
                 request.requestId,
-                ExecutionWsErrorCodes.BAD_REQUEST,
+                ErrorCodes.BAD_REQUEST,
                 "Unsupported request: ${request::class.simpleName}"
             )
         }
@@ -153,7 +153,7 @@ class WebSocketExecutionHandler(
     }
 
     private suspend fun sendError(requestId: String, code: String, message: String) {
-        webSocketService.sendMessage(connectionId, ExecutionWsError(requestId, code, message))
+        webSocketService.sendMessage(connectionId, ExecutionWsError(requestId, ApiError(code, message)))
     }
 
     private fun parseUuid(value: String?): UUID? {
@@ -185,8 +185,8 @@ private fun <T> ApiResult<T>.orThrow(): T = when (this) {
 private class ApiResultException(error: ApiError) : RuntimeException(error.message) {
     val code: String = when (error.code) {
         ErrorCodes.EXECUTION_NOT_FOUND, ErrorCodes.FILE_NOT_FOUND, ErrorCodes.PLUGIN_NOT_FOUND ->
-            ExecutionWsErrorCodes.NOT_FOUND
-        else -> ExecutionWsErrorCodes.INTERNAL
+            ErrorCodes.NOT_FOUND
+        else -> ErrorCodes.INTERNAL
     }
 }
 

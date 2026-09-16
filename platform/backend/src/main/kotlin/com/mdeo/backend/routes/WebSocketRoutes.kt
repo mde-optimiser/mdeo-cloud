@@ -3,6 +3,8 @@ package com.mdeo.backend.routes
 import com.mdeo.backend.plugins.getUserSession
 import com.mdeo.backend.plugins.isAdmin
 import com.mdeo.backend.service.*
+import com.mdeo.common.model.ApiError
+import com.mdeo.common.model.ErrorCodes
 import com.mdeo.common.transport.ExecutionWsProtocol
 import io.ktor.server.routing.*
 import io.ktor.server.websocket.*
@@ -233,7 +235,7 @@ private class WebSocketMessageHandler(
             logger.warn("User $userId denied access to project $projectId in init/request")
             webSocketService.sendMessage(
                 connectionId,
-                FileErrorMessage(message.requestId, "Forbidden", "Access denied to project $projectId")
+                FileErrorMessage(message.requestId, ApiError(ErrorCodes.FORBIDDEN, "Access denied to project $projectId"))
             )
             return
         }
@@ -248,7 +250,7 @@ private class WebSocketMessageHandler(
             logger.warn("Project $projectId not found in init/request")
             webSocketService.sendMessage(
                 connectionId,
-                FileErrorMessage(message.requestId, "NotFound", "Project $projectId not found")
+                FileErrorMessage(message.requestId, ApiError(ErrorCodes.NOT_FOUND, "Project $projectId not found"))
             )
             return
         }

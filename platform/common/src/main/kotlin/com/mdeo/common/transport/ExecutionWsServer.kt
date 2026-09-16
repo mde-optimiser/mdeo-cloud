@@ -1,5 +1,7 @@
 package com.mdeo.common.transport
 
+import com.mdeo.common.model.ApiError
+import com.mdeo.common.model.ErrorCodes
 import io.ktor.websocket.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
@@ -60,7 +62,7 @@ object ExecutionWsServer {
                         logger.error("Execution WS request ${request.requestId} failed", e)
                         responder.fail(
                             request.requestId,
-                            ExecutionWsErrorCodes.INTERNAL,
+                            ErrorCodes.INTERNAL,
                             e.message ?: "Internal error"
                         )
                     }
@@ -132,11 +134,11 @@ class ExecutionWsResponder(private val session: WebSocketSession) {
      * Sends an error response.
      *
      * @param requestId The request that failed
-     * @param code One of [ExecutionWsErrorCodes]
+     * @param code One of [ErrorCodes]
      * @param message Human-readable description
      */
     suspend fun fail(requestId: String, code: String, message: String) {
-        send(ExecutionWsError(requestId, code, message))
+        send(ExecutionWsError(requestId, ApiError(code, message)))
     }
 
     private suspend fun send(message: ExecutionWsMessage) {

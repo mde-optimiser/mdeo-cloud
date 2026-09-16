@@ -1,5 +1,6 @@
 package com.mdeo.backend.routes
 
+import com.mdeo.common.transport.respondError
 import com.mdeo.backend.plugins.*
 import com.mdeo.backend.service.PluginService
 import com.mdeo.backend.service.ProjectPermission
@@ -40,7 +41,7 @@ fun Route.pluginRoutes(
          */
         post {
             if (!call.isAdmin()) {
-                call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Admin access required"))
+                call.respondError(HttpStatusCode.Forbidden, "Admin access required")
                 return@post
             }
             
@@ -58,7 +59,7 @@ fun Route.pluginRoutes(
          */
         delete("/{pluginId}") {
             if (!call.isAdmin()) {
-                call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Admin access required"))
+                call.respondError(HttpStatusCode.Forbidden, "Admin access required")
                 return@delete
             }
             
@@ -66,7 +67,7 @@ fun Route.pluginRoutes(
                 try { UUID.fromString(it) } catch (e: Exception) { null }
             }
             if (pluginId == null) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid plugin ID"))
+                call.respondError(HttpStatusCode.BadRequest, "Invalid plugin ID")
                 return@delete
             }
             
@@ -82,7 +83,7 @@ fun Route.pluginRoutes(
          */
         post("/{pluginId}/refresh") {
             if (!call.isAdmin()) {
-                call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Admin access required"))
+                call.respondError(HttpStatusCode.Forbidden, "Admin access required")
                 return@post
             }
             
@@ -90,7 +91,7 @@ fun Route.pluginRoutes(
                 try { UUID.fromString(it) } catch (e: Exception) { null }
             }
             if (pluginId == null) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid plugin ID"))
+                call.respondError(HttpStatusCode.BadRequest, "Invalid plugin ID")
                 return@post
             }
             
@@ -106,7 +107,7 @@ fun Route.pluginRoutes(
          */
         post("/refresh") {
             if (!call.isAdmin()) {
-                call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Admin access required"))
+                call.respondError(HttpStatusCode.Forbidden, "Admin access required")
                 return@post
             }
 
@@ -125,7 +126,7 @@ fun Route.pluginRoutes(
                 try { UUID.fromString(it) } catch (e: Exception) { null }
             }
             if (pluginId == null) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid plugin ID"))
+                call.respondError(HttpStatusCode.BadRequest, "Invalid plugin ID")
                 return@get
             }
             
@@ -142,7 +143,7 @@ fun Route.pluginRoutes(
          */
         patch("/{pluginId}/default") {
             if (!call.isAdmin()) {
-                call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Admin access required"))
+                call.respondError(HttpStatusCode.Forbidden, "Admin access required")
                 return@patch
             }
             
@@ -150,7 +151,7 @@ fun Route.pluginRoutes(
                 try { UUID.fromString(it) } catch (e: Exception) { null }
             }
             if (pluginId == null) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid plugin ID"))
+                call.respondError(HttpStatusCode.BadRequest, "Invalid plugin ID")
                 return@patch
             }
             
@@ -170,7 +171,7 @@ fun Route.pluginRoutes(
         get {
             val session = call.getUserSession()
             if (session == null) {
-                call.respond(HttpStatusCode.Unauthorized)
+                call.respondError(HttpStatusCode.Unauthorized, "Not authenticated")
                 return@get
             }
             
@@ -178,17 +179,17 @@ fun Route.pluginRoutes(
                 try { UUID.fromString(it) } catch (e: Exception) { null }
             }
             if (projectId == null) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid project ID"))
+                call.respondError(HttpStatusCode.BadRequest, "Invalid project ID")
                 return@get
             }
             
             val userId = try { UUID.fromString(session.userId) } catch (e: Exception) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid user ID"))
+                call.respondError(HttpStatusCode.BadRequest, "Invalid user ID")
                 return@get
             }
             
             if (!projectService.hasProjectPermission(projectId, userId, call.isAdmin(), ProjectPermission.READ)) {
-                call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Access denied"))
+                call.respondError(HttpStatusCode.Forbidden, "Access denied")
                 return@get
             }
             
@@ -206,7 +207,7 @@ fun Route.pluginRoutes(
         post {
             val session = call.getUserSession()
             if (session == null) {
-                call.respond(HttpStatusCode.Unauthorized)
+                call.respondError(HttpStatusCode.Unauthorized, "Not authenticated")
                 return@post
             }
             
@@ -214,23 +215,23 @@ fun Route.pluginRoutes(
                 try { UUID.fromString(it) } catch (e: Exception) { null }
             }
             if (projectId == null) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid project ID"))
+                call.respondError(HttpStatusCode.BadRequest, "Invalid project ID")
                 return@post
             }
             
             val userId = try { UUID.fromString(session.userId) } catch (e: Exception) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid user ID"))
+                call.respondError(HttpStatusCode.BadRequest, "Invalid user ID")
                 return@post
             }
             
             if (!projectService.hasProjectPermission(projectId, userId, call.isAdmin(), ProjectPermission.ADMIN)) {
-                call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Access denied"))
+                call.respondError(HttpStatusCode.Forbidden, "Access denied")
                 return@post
             }
             
             val request = call.receive<AddPluginToProjectRequest>()
             val pluginId = try { UUID.fromString(request.pluginId) } catch (e: Exception) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid plugin ID"))
+                call.respondError(HttpStatusCode.BadRequest, "Invalid plugin ID")
                 return@post
             }
             
@@ -249,7 +250,7 @@ fun Route.pluginRoutes(
         delete("/{pluginId}") {
             val session = call.getUserSession()
             if (session == null) {
-                call.respond(HttpStatusCode.Unauthorized)
+                call.respondError(HttpStatusCode.Unauthorized, "Not authenticated")
                 return@delete
             }
             
@@ -257,7 +258,7 @@ fun Route.pluginRoutes(
                 try { UUID.fromString(it) } catch (e: Exception) { null }
             }
             if (projectId == null) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid project ID"))
+                call.respondError(HttpStatusCode.BadRequest, "Invalid project ID")
                 return@delete
             }
             
@@ -265,17 +266,17 @@ fun Route.pluginRoutes(
                 try { UUID.fromString(it) } catch (e: Exception) { null }
             }
             if (pluginId == null) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid plugin ID"))
+                call.respondError(HttpStatusCode.BadRequest, "Invalid plugin ID")
                 return@delete
             }
             
             val userId = try { UUID.fromString(session.userId) } catch (e: Exception) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid user ID"))
+                call.respondError(HttpStatusCode.BadRequest, "Invalid user ID")
                 return@delete
             }
             
             if (!projectService.hasProjectPermission(projectId, userId, call.isAdmin(), ProjectPermission.ADMIN)) {
-                call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Access denied"))
+                call.respondError(HttpStatusCode.Forbidden, "Access denied")
                 return@delete
             }
             

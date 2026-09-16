@@ -1,5 +1,6 @@
 package com.mdeo.backend.plugins
 
+import com.mdeo.common.transport.respondError
 import com.mdeo.common.model.ApiResult
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.*
@@ -15,10 +16,7 @@ import io.ktor.server.response.*
 suspend inline fun <reified T> ApplicationCall.respondApiResult(result: ApiResult<T>) {
     when (result) {
         is ApiResult.Success -> respondNullable(result.value)
-        is ApiResult.Failure -> respond(
-            HttpStatusCode.BadRequest,
-            mapOf("error" to result.error)
-        )
+        is ApiResult.Failure -> respondError(HttpStatusCode.BadRequest, result.error)
     }
 }
 
@@ -33,9 +31,6 @@ suspend inline fun <reified T> ApplicationCall.respondApiResult(result: ApiResul
 suspend inline fun <reified T : Any> ApplicationCall.respondApiResult(result: ApiResult<T>) {
     when (result) {
         is ApiResult.Success -> respond(result.value)
-        is ApiResult.Failure -> respond(
-            HttpStatusCode.BadRequest,
-            mapOf("error" to result.error)
-        )
+        is ApiResult.Failure -> respondError(HttpStatusCode.BadRequest, result.error)
     }
 }

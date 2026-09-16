@@ -1,5 +1,6 @@
 package com.mdeo.backend.routes
 
+import com.mdeo.common.transport.respondError
 import com.mdeo.backend.plugins.*
 import com.mdeo.backend.service.FileService
 import com.mdeo.backend.service.JwtService
@@ -213,7 +214,7 @@ fun Route.fileRoutes(fileService: FileService, projectService: ProjectService) {
             val overwrite = call.request.queryParameters["overwrite"]?.toBoolean() ?: false
             
             if (from == null || to == null) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Missing 'from' or 'to' parameter"))
+                call.respondError(HttpStatusCode.BadRequest, "Missing 'from' or 'to' parameter")
                 return@post
             }
             
@@ -238,35 +239,35 @@ private suspend fun ApplicationCall.validateProjectAccessWithJwt(projectService:
         try { UUID.fromString(it) } catch (e: Exception) { null }
     }
     if (projectId == null) {
-        respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid project ID"))
+        respondError(HttpStatusCode.BadRequest, "Invalid project ID")
         return null
     }
     
     if (session != null) {
         val userId = try { UUID.fromString(session.userId) } catch (e: Exception) {
-            respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid user ID"))
+            respondError(HttpStatusCode.BadRequest, "Invalid user ID")
             return null
         }
         
         if (!projectService.hasProjectPermission(projectId, userId, isAdmin(), ProjectPermission.READ)) {
-            respond(HttpStatusCode.Forbidden, mapOf("error" to "Access denied"))
+            respondError(HttpStatusCode.Forbidden, "Access denied")
             return null
         }
         
         return projectId
     } else if (jwtPrincipal != null) {
         if (jwtPrincipal.projectId != projectId.toString()) {
-            respond(HttpStatusCode.Forbidden, mapOf("error" to "Token not valid for this project"))
+            respondError(HttpStatusCode.Forbidden, "Token not valid for this project")
             return null
         }
         if (JwtService.SCOPE_FILES_READ !in jwtPrincipal.scopes) {
-            respond(HttpStatusCode.Forbidden, mapOf("error" to "Token missing required scope"))
+            respondError(HttpStatusCode.Forbidden, "Token missing required scope")
             return null
         }
         return projectId
     }
     
-    respond(HttpStatusCode.Unauthorized, mapOf("error" to "Authentication required"))
+    respondError(HttpStatusCode.Unauthorized, "Authentication required")
     return null
 }
 
@@ -283,7 +284,7 @@ private suspend fun ApplicationCall.validateProjectAccessSessionOnly(
 ): UUID? {
     val session = getUserSession()
     if (session == null) {
-        respond(HttpStatusCode.Unauthorized)
+        respondError(HttpStatusCode.Unauthorized, "Not authenticated")
         return null
     }
     
@@ -291,17 +292,17 @@ private suspend fun ApplicationCall.validateProjectAccessSessionOnly(
         try { UUID.fromString(it) } catch (e: Exception) { null }
     }
     if (projectId == null) {
-        respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid project ID"))
+        respondError(HttpStatusCode.BadRequest, "Invalid project ID")
         return null
     }
     
     val userId = try { UUID.fromString(session.userId) } catch (e: Exception) {
-        respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid user ID"))
+        respondError(HttpStatusCode.BadRequest, "Invalid user ID")
         return null
     }
     
     if (!projectService.hasProjectPermission(projectId, userId, isAdmin(), requiredPermission)) {
-        respond(HttpStatusCode.Forbidden, mapOf("error" to "Access denied"))
+        respondError(HttpStatusCode.Forbidden, "Access denied")
         return null
     }
     

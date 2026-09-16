@@ -1,8 +1,8 @@
+import { ErrorCodes } from "@mdeo/plugin";
 import { randomUUID } from "node:crypto";
 import { COMPRESSION_THRESHOLD_BYTES } from "../util/compression.js";
 import { WebSocket } from "ws";
 import {
-    ExecutionWsErrorCodes,
     ExecutionWsRequestError,
     toExecutionWsUrl,
     type ExecutionWsMessage,
@@ -132,9 +132,7 @@ class PooledConnection {
                 if (this.pending.size > 0) {
                     log.warn(`connection to ${this.url} closed with ${this.pending.size} request(s) in flight`);
                 }
-                this.drain(
-                    new ExecutionWsRequestError(ExecutionWsErrorCodes.Unavailable, `Connection to ${this.url} closed`)
-                );
+                this.drain(new ExecutionWsRequestError(ErrorCodes.Unavailable, `Connection to ${this.url} closed`));
             });
         }).finally(() => {
             this.opening = undefined;
@@ -167,7 +165,7 @@ class PooledConnection {
      * Closes the socket and fails everything still waiting on it.
      */
     close(): void {
-        this.drain(new ExecutionWsRequestError(ExecutionWsErrorCodes.Unavailable, `Connection to ${this.url} closed`));
+        this.drain(new ExecutionWsRequestError(ErrorCodes.Unavailable, `Connection to ${this.url} closed`));
         this.socket?.close();
         this.socket = undefined;
     }
@@ -191,7 +189,7 @@ class PooledConnection {
             this.settle(message.requestId, () => pending.resolve(message));
         } else if (message.messageType === "exec/error") {
             this.settle(message.requestId, () =>
-                pending.reject(new ExecutionWsRequestError(message.code, message.message))
+                pending.reject(new ExecutionWsRequestError(message.error.code, message.error.message))
             );
         } else {
             pending.onStream?.(message);
@@ -271,7 +269,7 @@ export class ExecutionWsClient {
         try {
             return await this.sendOnce(url, build, onStream);
         } catch (error) {
-            if (error instanceof ExecutionWsRequestError && error.code !== ExecutionWsErrorCodes.Unavailable) {
+            if (error instanceof ExecutionWsRequestError && error.code !== ErrorCodes.Unavailable) {
                 throw error;
             }
             this.connections.get(url)?.close();
@@ -283,7 +281,7 @@ export class ExecutionWsClient {
                     throw retryError;
                 }
                 throw new ExecutionWsRequestError(
-                    ExecutionWsErrorCodes.Unavailable,
+                    ErrorCodes.Unavailable,
                     `Execution WebSocket request to ${url} failed: ${String(retryError)}`
                 );
             }
@@ -319,7 +317,7 @@ export class ExecutionWsClient {
                 log.warn(`request ${requestId} to ${url} timed out after ${this.requestTimeoutMs}ms`);
                 reject(
                     new ExecutionWsRequestError(
-                        ExecutionWsErrorCodes.Unavailable,
+                        ErrorCodes.Unavailable,
                         `Execution WebSocket request ${requestId} to ${url} timed out`
                     )
                 );
@@ -333,7 +331,7 @@ export class ExecutionWsClient {
                 log.warn(`failed to send request ${requestId} to ${url}: ${String(error)}`);
                 reject(
                     new ExecutionWsRequestError(
-                        ExecutionWsErrorCodes.Unavailable,
+                        ErrorCodes.Unavailable,
                         `Failed to send execution WebSocket request to ${url}: ${String(error)}`
                     )
                 );

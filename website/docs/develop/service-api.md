@@ -20,6 +20,29 @@ The backend, the execution services and the workbench proxy compress the same wa
 connections negotiate `permessage-deflate`. A service implemented in another stack should do the
 same: the platform's payloads are JSON that shrinks by an order of magnitude.
 
+## Errors
+
+Every service of the platform reports a failure the same way. Over HTTP, an error status comes with
+
+```json
+{ "error": { "code": "NotFound", "message": "Unknown language: sql" } }
+```
+
+and an error message on a WebSocket carries the same object in its `error` field, as in
+`{"messageType": "exec/error", "requestId": "…", "error": {"code": …, "message": …}}`. The code is
+one of `ErrorCodes` (`@mdeo/plugin`, and `com.mdeo.common.model.ErrorCodes` in Kotlin). The general
+codes follow the status: `BadRequest` (400), `Unauthenticated` (401), `Forbidden` (403), `NotFound`
+(404), `Conflict` (409), `Internal` (500), `Unavailable` (502, 503) and `DeadlineExceeded` (504).
+An area can use a more specific code, such as `FileNotFound` or `ExecutionNotFound`. The message is
+for people and may change; branch on the code.
+
+`errorResponse(status, message, code?)` from `@mdeo/plugin` builds the body in TypeScript, and
+`call.respondError(status, message, code?)` from the Kotlin `common` module answers with it. A
+service built on `@mdeo/service-common` or the Kotlin plugin service module answers unknown routes,
+unreadable bodies and uncaught handler errors in this shape too. [Sessions](/develop/sessions) are
+the exception: what travels on them is a protocol the plugin defines, and they are refused with
+WebSocket close codes.
+
 ## `GET /`
 
 Returns the [plugin manifest](/develop/manifest). This is the only endpoint the backend needs to
@@ -84,7 +107,7 @@ File data read through `context.serverApi.getFileData` is cached for the rest of
 reads started together — a `Promise.all` over several files — reach the backend as one
 `POST /api/projects/{projectId}/file-data-batch` request with `{"requests": [{"path", "key"}]}`. The
 backend computes the entries concurrently and answers `{"results": [...]}` in request order, each
-either `{"data", "version"}` or `{"error"}`, so one failing entry does not fail the others.
+either `{"data", "version"}` or `{"error": {"code", "message"}}`, so one failing entry does not fail the others.
 
 Responses: `404` for an unknown language or an unregistered data key, `403` for a missing scope.
 

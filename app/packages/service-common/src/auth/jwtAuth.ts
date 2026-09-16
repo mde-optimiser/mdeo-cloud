@@ -1,3 +1,4 @@
+import { errorResponse } from "@mdeo/plugin";
 import type { FastifyRequest, FastifyReply } from "fastify";
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 
@@ -64,13 +65,13 @@ export class JwtAuthMiddleware {
             const authHeader = request.headers.authorization;
 
             if (!authHeader) {
-                return reply.status(401).send({ error: "Missing Authorization header" });
+                return reply.status(401).send(errorResponse(401, "Missing Authorization header"));
             }
 
             if (!authHeader.startsWith("Bearer ")) {
                 return reply
                     .status(401)
-                    .send({ error: "Invalid Authorization header format. Expected 'Bearer <token>'" });
+                    .send(errorResponse(401, "Invalid Authorization header format. Expected 'Bearer <token>'"));
             }
 
             const token = authHeader.substring(7);
@@ -87,7 +88,7 @@ export class JwtAuthMiddleware {
             } else {
                 request.log.warn(`JWT verification failed with unknown error`);
             }
-            return reply.status(401).send({ error: "Authentication failed" });
+            return reply.status(401).send(errorResponse(401, "Authentication failed"));
         }
     }
 

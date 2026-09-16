@@ -1,5 +1,6 @@
 package com.mdeo.backend.service
 
+import com.mdeo.common.model.ApiError
 import com.mdeo.common.model.Execution
 import com.mdeo.common.model.FileEntry
 import com.mdeo.common.model.Project
@@ -348,14 +349,12 @@ data class FileResponseMessage(
  * Error response for a file system request.
  *
  * @property requestId The ID of the request that caused the error
- * @property code The error code (e.g. "FileNotFound")
- * @property message Human-readable error description
+ * @property error What went wrong, in the platform's error shape
  */
 @Serializable
 data class FileErrorMessage(
     val requestId: String,
-    val code: String,
-    val message: String
+    val error: ApiError
 ) : WebSocketMessage {
     @SerialName("messageType")
     override val type: String = "file/error"

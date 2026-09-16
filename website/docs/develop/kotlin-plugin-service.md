@@ -289,6 +289,9 @@ embeddedServer(Netty, port = config.port, host = config.host) {
 }.start(wait = true)
 ```
 
+A route that throws is answered with `500` in the platform's [error shape](/develop/service-api#errors).
+Report an expected failure yourself with `call.respondError(HttpStatusCode.NotFound, "No such thing")`.
+
 ## Deployment
 
 A Kotlin plugin service is deployed like any other plugin: run it where the backend and the

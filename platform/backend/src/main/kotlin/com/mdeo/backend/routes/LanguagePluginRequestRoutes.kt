@@ -1,5 +1,6 @@
 package com.mdeo.backend.routes
 
+import com.mdeo.common.transport.respondError
 import com.mdeo.backend.plugins.*
 import com.mdeo.backend.service.CallerDeadline
 import com.mdeo.backend.service.JwtService
@@ -27,7 +28,7 @@ fun Route.languagePluginRequestRoutes(
                 try { UUID.fromString(it) } catch (e: Exception) { null }
             }
             if (projectId == null) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid project ID"))
+                call.respondError(HttpStatusCode.BadRequest, "Invalid project ID")
                 return@post
             }
 
@@ -35,21 +36,21 @@ fun Route.languagePluginRequestRoutes(
 
             if (session != null) {
                 val userId = try { UUID.fromString(session.userId) } catch (e: Exception) {
-                    call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid user ID"))
+                    call.respondError(HttpStatusCode.BadRequest, "Invalid user ID")
                     return@post
                 }
 
                 if (!projectService.hasProjectPermission(projectId, userId, call.isAdmin(), ProjectPermission.READ)) {
-                    call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Access denied"))
+                    call.respondError(HttpStatusCode.Forbidden, "Access denied")
                     return@post
                 }
             } else if (jwtPrincipal != null) {
                 if (jwtPrincipal.projectId != projectId.toString()) {
-                    call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Token not valid for this project"))
+                    call.respondError(HttpStatusCode.Forbidden, "Token not valid for this project")
                     return@post
                 }
                 if (JwtService.SCOPE_FILE_DATA_READ !in jwtPrincipal.scopes) {
-                    call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Token missing required scope"))
+                    call.respondError(HttpStatusCode.Forbidden, "Token missing required scope")
                     return@post
                 }
                 val authHeader = call.request.headers[HttpHeaders.Authorization]
@@ -57,26 +58,26 @@ fun Route.languagePluginRequestRoutes(
                     callerJwt = authHeader.substring(7)
                 }
             } else {
-                call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "Authentication required"))
+                call.respondError(HttpStatusCode.Unauthorized, "Authentication required")
                 return@post
             }
 
             val languageId = call.parameters["languageId"]
             if (languageId.isNullOrBlank()) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Missing language ID"))
+                call.respondError(HttpStatusCode.BadRequest, "Missing language ID")
                 return@post
             }
 
             val key = call.parameters["key"]
             if (key.isNullOrBlank()) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Missing request key"))
+                call.respondError(HttpStatusCode.BadRequest, "Missing request key")
                 return@post
             }
 
             val body = try {
                 call.receive<JsonElement>()
             } catch (e: Exception) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid JSON body"))
+                call.respondError(HttpStatusCode.BadRequest, "Invalid JSON body")
                 return@post
             }
 

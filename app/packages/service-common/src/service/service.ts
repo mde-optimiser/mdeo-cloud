@@ -13,7 +13,7 @@ import { resolve } from "path";
 import { createHash } from "node:crypto";
 import type { ServiceConfig, FileDataComputeRequest, FileDataComputeResponse, LanguageServiceConfig } from "./types.js";
 import { LangiumInstancePool } from "../langium/langiumPool.js";
-import { formatPluginTarget, PluginTargetKind, type SessionType } from "@mdeo/plugin";
+import { errorResponse, formatPluginTarget, PluginTargetKind, type SessionType } from "@mdeo/plugin";
 import { URI } from "vscode-uri";
 import { buildManifest } from "./util.js";
 import type { FileInfo } from "../handler/types.js";
@@ -107,6 +107,19 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
         encodings: ["gzip", "deflate"]
     });
 
+    // Failures fastify raises itself (unknown routes, unreadable bodies, uncaught handler errors)
+    // answer in the same error shape as the handlers below.
+    fastify.setNotFoundHandler((request, reply) => {
+        return reply.status(404).send(errorResponse(404, `Route ${request.method} ${request.url} not found`));
+    });
+    fastify.setErrorHandler((error: { statusCode?: number; message?: string }, request, reply) => {
+        const status = error.statusCode != undefined && error.statusCode >= 400 ? error.statusCode : 500;
+        if (status >= 500) {
+            request.log.error(error);
+        }
+        return reply.status(status).send(errorResponse(status, error.message ?? "Internal error"));
+    });
+
     if (config.serveStatic !== false) {
         const staticPath = config.staticPath ?? resolve(process.cwd(), "static");
         const version = config.version?.trim();
@@ -175,19 +188,21 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
             const { project, source, contributionPlugins, contributionHash } = request.body;
 
             if (!JwtAuthMiddleware.hasScope(request, "file-data:read")) {
-                return reply.status(403).send({ error: "Insufficient permissions: file-data:read scope required" });
+                return reply
+                    .status(403)
+                    .send(errorResponse(403, "Insufficient permissions: file-data:read scope required"));
             }
 
             const languageHandler = languageHandlers.get(languageId);
             if (!languageHandler) {
-                return reply.status(404).send({ error: `Unknown language: ${languageId}` });
+                return reply.status(404).send(errorResponse(404, `Unknown language: ${languageId}`));
             }
 
             const jwt = extractJwtFromRequest(request);
 
             const handler = languageHandler.config.fileDataHandlers[key];
             if (handler == undefined) {
-                return reply.status(404).send({ error: `No handler registered for key: ${key}` });
+                return reply.status(404).send(errorResponse(404, `No handler registered for key: ${key}`));
             }
 
             const serverContributionPlugins = contributions.resolve(contributionPlugins, contributionHash);
@@ -231,7 +246,9 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
                 return reply.send(response);
             } catch (error) {
                 if (limits.timedOut) {
-                    return reply.status(504).send({ error: `Computing ${key} took longer than the caller could wait` });
+                    return reply
+                        .status(504)
+                        .send(errorResponse(504, `Computing ${key} took longer than the caller could wait`));
                 }
                 throw error;
             } finally {
@@ -259,19 +276,21 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
                 const { project, body, contributionPlugins, contributionHash } = request.body;
 
                 if (!JwtAuthMiddleware.hasScope(request, "file-data:read")) {
-                    return reply.status(403).send({ error: "Insufficient permissions: file-data:read scope required" });
+                    return reply
+                        .status(403)
+                        .send(errorResponse(403, "Insufficient permissions: file-data:read scope required"));
                 }
 
                 const languageHandler = languageHandlers.get(languageId);
                 if (!languageHandler) {
-                    return reply.status(404).send({ error: `Unknown language: ${languageId}` });
+                    return reply.status(404).send(errorResponse(404, `Unknown language: ${languageId}`));
                 }
 
                 const jwt = extractJwtFromRequest(request);
 
                 const handler = languageHandler.config.requestHandlers?.[key];
                 if (handler == undefined) {
-                    return reply.status(404).send({ error: `No request handler registered for key: ${key}` });
+                    return reply.status(404).send(errorResponse(404, `No request handler registered for key: ${key}`));
                 }
 
                 const serverContributionPlugins = contributions.resolve(contributionPlugins, contributionHash);
@@ -303,7 +322,7 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
                     if (limits.timedOut) {
                         return reply
                             .status(504)
-                            .send({ error: `Request ${key} took longer than the caller could wait` });
+                            .send(errorResponse(504, `Request ${key} took longer than the caller could wait`));
                     }
                     throw error;
                 } finally {
@@ -357,12 +376,12 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
                 if (!JwtAuthMiddleware.hasScope(request, "execution:write")) {
                     return reply
                         .status(403)
-                        .send({ error: "Insufficient permissions: execution:write scope required" });
+                        .send(errorResponse(403, "Insufficient permissions: execution:write scope required"));
                 }
 
                 const languageHandler = languageHandlers.get(languageId);
                 if (!languageHandler) {
-                    return reply.status(404).send({ error: `Unknown language: ${languageId}` });
+                    return reply.status(404).send(errorResponse(404, `Unknown language: ${languageId}`));
                 }
 
                 const jwt = extractJwtFromRequest(request);
@@ -371,7 +390,9 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
                     !languageHandler.config.executionHandlers ||
                     languageHandler.config.executionHandlers.length === 0
                 ) {
-                    return reply.status(503).send({ error: "Execution service not available for this language" });
+                    return reply
+                        .status(503)
+                        .send(errorResponse(503, "Execution service not available for this language"));
                 }
 
                 const serverContributionPlugins = contributions.resolve(contributionPlugins, contributionHash);
@@ -412,18 +433,18 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
                     }
 
                     if (!selectedHandler) {
-                        return reply.status(400).send({
-                            error: "No handler available for this execution request"
-                        });
+                        return reply
+                            .status(400)
+                            .send(errorResponse(400, "No handler available for this execution request"));
                     }
 
                     const result = await selectedHandler.execute(executionContext);
                     return reply.send(result);
                 } catch (error) {
                     fastify.log.error(error);
-                    return reply.status(500).send({
-                        error: error instanceof Error ? error.message : "Execution failed"
-                    });
+                    return reply
+                        .status(500)
+                        .send(errorResponse(500, error instanceof Error ? error.message : "Execution failed"));
                 } finally {
                     languageHandler.pool.release(instance);
                 }
@@ -447,12 +468,12 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
                 if (!JwtAuthMiddleware.hasScope(request, "plugin:execution:read")) {
                     return reply
                         .status(403)
-                        .send({ error: "Insufficient permissions: plugin:execution:read scope required" });
+                        .send(errorResponse(403, "Insufficient permissions: plugin:execution:read scope required"));
                 }
 
                 const languageHandler = languageHandlers.get(languageId);
                 if (!languageHandler) {
-                    return reply.status(404).send({ error: `Unknown language: ${languageId}` });
+                    return reply.status(404).send(errorResponse(404, `Unknown language: ${languageId}`));
                 }
 
                 const jwt = extractJwtFromRequest(request);
@@ -460,7 +481,7 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
                 const project = claims?.projectId;
 
                 if (!project) {
-                    return reply.status(401).send({ error: "JWT does not contain projectId claim" });
+                    return reply.status(401).send(errorResponse(401, "JWT does not contain projectId claim"));
                 }
 
                 const metadata = extractExecutionMetadataFromRequest(request);
@@ -469,7 +490,9 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
                     !languageHandler.config.executionHandlers ||
                     languageHandler.config.executionHandlers.length === 0
                 ) {
-                    return reply.status(503).send({ error: "Execution service not available for this language" });
+                    return reply
+                        .status(503)
+                        .send(errorResponse(503, "Execution service not available for this language"));
                 }
 
                 const handler = languageHandler.config.executionHandlers[0];
@@ -489,9 +512,9 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
                     return reply.send({ summary });
                 } catch (error) {
                     fastify.log.error(error);
-                    return reply.status(500).send({
-                        error: error instanceof Error ? error.message : "Failed to get summary"
-                    });
+                    return reply
+                        .status(500)
+                        .send(errorResponse(500, error instanceof Error ? error.message : "Failed to get summary"));
                 } finally {
                     languageHandler.pool.release(instance);
                 }
@@ -515,12 +538,12 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
                 if (!JwtAuthMiddleware.hasScope(request, "plugin:execution:read")) {
                     return reply
                         .status(403)
-                        .send({ error: "Insufficient permissions: plugin:execution:read scope required" });
+                        .send(errorResponse(403, "Insufficient permissions: plugin:execution:read scope required"));
                 }
 
                 const languageHandler = languageHandlers.get(languageId);
                 if (!languageHandler) {
-                    return reply.status(404).send({ error: `Unknown language: ${languageId}` });
+                    return reply.status(404).send(errorResponse(404, `Unknown language: ${languageId}`));
                 }
 
                 const jwt = extractJwtFromRequest(request);
@@ -528,7 +551,7 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
                 const project = claims?.projectId;
 
                 if (!project) {
-                    return reply.status(401).send({ error: "JWT does not contain projectId claim" });
+                    return reply.status(401).send(errorResponse(401, "JWT does not contain projectId claim"));
                 }
 
                 const metadata = extractExecutionMetadataFromRequest(request);
@@ -537,7 +560,9 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
                     !languageHandler.config.executionHandlers ||
                     languageHandler.config.executionHandlers.length === 0
                 ) {
-                    return reply.status(503).send({ error: "Execution service not available for this language" });
+                    return reply
+                        .status(503)
+                        .send(errorResponse(503, "Execution service not available for this language"));
                 }
 
                 const handler = languageHandler.config.executionHandlers[0];
@@ -557,9 +582,9 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
                     return reply.send({ files });
                 } catch (error) {
                     fastify.log.error(error);
-                    return reply.status(500).send({
-                        error: error instanceof Error ? error.message : "Failed to get file tree"
-                    });
+                    return reply
+                        .status(500)
+                        .send(errorResponse(500, error instanceof Error ? error.message : "Failed to get file tree"));
                 } finally {
                     languageHandler.pool.release(instance);
                 }
@@ -584,12 +609,12 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
                 if (!JwtAuthMiddleware.hasScope(request, "plugin:execution:read")) {
                     return reply
                         .status(403)
-                        .send({ error: "Insufficient permissions: plugin:execution:read scope required" });
+                        .send(errorResponse(403, "Insufficient permissions: plugin:execution:read scope required"));
                 }
 
                 const languageHandler = languageHandlers.get(languageId);
                 if (!languageHandler) {
-                    return reply.status(404).send({ error: `Unknown language: ${languageId}` });
+                    return reply.status(404).send(errorResponse(404, `Unknown language: ${languageId}`));
                 }
 
                 const jwt = extractJwtFromRequest(request);
@@ -597,7 +622,7 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
                 const project = claims?.projectId;
 
                 if (!project) {
-                    return reply.status(401).send({ error: "JWT does not contain projectId claim" });
+                    return reply.status(401).send(errorResponse(401, "JWT does not contain projectId claim"));
                 }
 
                 const metadata = extractExecutionMetadataFromRequest(request);
@@ -606,7 +631,9 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
                     !languageHandler.config.executionHandlers ||
                     languageHandler.config.executionHandlers.length === 0
                 ) {
-                    return reply.status(503).send({ error: "Execution service not available for this language" });
+                    return reply
+                        .status(503)
+                        .send(errorResponse(503, "Execution service not available for this language"));
                 }
 
                 const handler = languageHandler.config.executionHandlers[0];
@@ -626,9 +653,9 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
                     return reply.type("application/octet-stream").send(fileContent);
                 } catch (error) {
                     fastify.log.error(error);
-                    return reply.status(500).send({
-                        error: error instanceof Error ? error.message : "Failed to get file"
-                    });
+                    return reply
+                        .status(500)
+                        .send(errorResponse(500, error instanceof Error ? error.message : "Failed to get file"));
                 } finally {
                     languageHandler.pool.release(instance);
                 }
@@ -652,12 +679,12 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
                 if (!JwtAuthMiddleware.hasScope(request, "plugin:execution:cancel")) {
                     return reply
                         .status(403)
-                        .send({ error: "Insufficient permissions: plugin:execution:cancel scope required" });
+                        .send(errorResponse(403, "Insufficient permissions: plugin:execution:cancel scope required"));
                 }
 
                 const languageHandler = languageHandlers.get(languageId);
                 if (!languageHandler) {
-                    return reply.status(404).send({ error: `Unknown language: ${languageId}` });
+                    return reply.status(404).send(errorResponse(404, `Unknown language: ${languageId}`));
                 }
 
                 const jwt = extractJwtFromRequest(request);
@@ -665,7 +692,7 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
                 const project = claims?.projectId;
 
                 if (!project) {
-                    return reply.status(401).send({ error: "JWT does not contain projectId claim" });
+                    return reply.status(401).send(errorResponse(401, "JWT does not contain projectId claim"));
                 }
 
                 const metadata = extractExecutionMetadataFromRequest(request);
@@ -674,7 +701,9 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
                     !languageHandler.config.executionHandlers ||
                     languageHandler.config.executionHandlers.length === 0
                 ) {
-                    return reply.status(503).send({ error: "Execution service not available for this language" });
+                    return reply
+                        .status(503)
+                        .send(errorResponse(503, "Execution service not available for this language"));
                 }
 
                 const handler = languageHandler.config.executionHandlers[0];
@@ -694,9 +723,11 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
                     return reply.status(204).send();
                 } catch (error) {
                     fastify.log.error(error);
-                    return reply.status(500).send({
-                        error: error instanceof Error ? error.message : "Failed to cancel execution"
-                    });
+                    return reply
+                        .status(500)
+                        .send(
+                            errorResponse(500, error instanceof Error ? error.message : "Failed to cancel execution")
+                        );
                 } finally {
                     languageHandler.pool.release(instance);
                 }
@@ -720,12 +751,12 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
                 if (!JwtAuthMiddleware.hasScope(request, "plugin:execution:delete")) {
                     return reply
                         .status(403)
-                        .send({ error: "Insufficient permissions: plugin:execution:write scope required" });
+                        .send(errorResponse(403, "Insufficient permissions: plugin:execution:write scope required"));
                 }
 
                 const languageHandler = languageHandlers.get(languageId);
                 if (!languageHandler) {
-                    return reply.status(404).send({ error: `Unknown language: ${languageId}` });
+                    return reply.status(404).send(errorResponse(404, `Unknown language: ${languageId}`));
                 }
 
                 const jwt = extractJwtFromRequest(request);
@@ -733,7 +764,7 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
                 const project = claims?.projectId;
 
                 if (!project) {
-                    return reply.status(401).send({ error: "JWT does not contain projectId claim" });
+                    return reply.status(401).send(errorResponse(401, "JWT does not contain projectId claim"));
                 }
 
                 const metadata = extractExecutionMetadataFromRequest(request);
@@ -742,7 +773,9 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
                     !languageHandler.config.executionHandlers ||
                     languageHandler.config.executionHandlers.length === 0
                 ) {
-                    return reply.status(503).send({ error: "Execution service not available for this language" });
+                    return reply
+                        .status(503)
+                        .send(errorResponse(503, "Execution service not available for this language"));
                 }
 
                 const handler = languageHandler.config.executionHandlers[0];
@@ -762,9 +795,11 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
                     return reply.status(204).send();
                 } catch (error) {
                     fastify.log.error(error);
-                    return reply.status(500).send({
-                        error: error instanceof Error ? error.message : "Failed to delete execution"
-                    });
+                    return reply
+                        .status(500)
+                        .send(
+                            errorResponse(500, error instanceof Error ? error.message : "Failed to delete execution")
+                        );
                 } finally {
                     languageHandler.pool.release(instance);
                 }
@@ -849,7 +884,12 @@ function refuseUnknownContributions(reply: FastifyReply): FastifyReply {
     return reply
         .status(409)
         .header(CONTRIBUTIONS_UNKNOWN_HEADER, "1")
-        .send({ error: "The contribution plugins of this request are not known to this service; send them again" });
+        .send(
+            errorResponse(
+                409,
+                "The contribution plugins of this request are not known to this service; send them again"
+            )
+        );
 }
 
 /**

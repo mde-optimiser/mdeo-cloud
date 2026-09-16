@@ -1,6 +1,7 @@
 package com.mdeo.pluginservice
 
 import com.mdeo.common.transport.installDeflate
+import com.mdeo.common.transport.respondError
 import com.mdeo.pluginservice.session.JwksSessionTokenVerifier
 import com.mdeo.pluginservice.session.SessionTokenVerifier
 import com.mdeo.pluginservice.session.sessionEndpoint
@@ -8,9 +9,11 @@ import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.engine.*
 import io.ktor.server.netty.*
+import io.ktor.server.plugins.statuspages.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.websocket.*
+import org.slf4j.LoggerFactory
 import java.security.MessageDigest
 import kotlin.time.Duration.Companion.seconds
 
@@ -36,6 +39,8 @@ const val SESSION_MAX_FRAME_BYTES = 512L * 1024 * 1024
  */
 const val MANIFEST_FINGERPRINT_HEADER = "X-Mdeo-Manifest-Fingerprint"
 
+private val logger = LoggerFactory.getLogger("com.mdeo.pluginservice.PluginService")
+
 /**
  * Installs everything a plugin service serves: the manifest at `GET /` and the session endpoint.
  *
@@ -54,6 +59,16 @@ fun Application.pluginService(
         .joinToString("") { "%02x".format(it) }
 
     installSessionWebSockets()
+
+    // A route that fails answers in the platform's error shape, like every other service.
+    if (pluginOrNull(StatusPages) == null) {
+        install(StatusPages) {
+            exception<Throwable> { call, cause ->
+                logger.error("Unhandled exception", cause)
+                call.respondError(HttpStatusCode.InternalServerError, cause.message ?: "Internal server error")
+            }
+        }
+    }
 
     // Sent with every answer, so the backend notices a redeployed plugin and fetches its manifest again.
     intercept(ApplicationCallPipeline.Plugins) {

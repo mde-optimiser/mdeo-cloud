@@ -1,3 +1,5 @@
+import type { ApiError } from "@mdeo/plugin";
+
 /**
  * Message protocol for execution result access over WebSocket.
  *
@@ -135,13 +137,9 @@ export interface ExecutionWsResponse extends ExecutionWsMessageBase {
 export interface ExecutionWsError extends ExecutionWsMessageBase {
     messageType: "exec/error";
     /**
-     * Machine-readable error code, one of {@link ExecutionWsErrorCodes}.
+     * What went wrong, in the platform's error shape.
      */
-    code: string;
-    /**
-     * Human-readable description.
-     */
-    message: string;
+    error: ApiError;
 }
 
 /**
@@ -228,33 +226,6 @@ export interface ExecutionFilePayload {
 }
 
 /**
- * Error codes shared by all hops, so a failure raised at the execution service keeps its
- * meaning by the time it reaches the browser.
- */
-export const ExecutionWsErrorCodes = {
-    /**
-     * The request was malformed or addressed something that does not exist.
-     */
-    BadRequest: "BadRequest",
-    /**
-     * The token or session does not authorize this request.
-     */
-    Forbidden: "Forbidden",
-    /**
-     * The execution, file, or plugin could not be found.
-     */
-    NotFound: "NotFound",
-    /**
-     * A downstream hop could not be reached.
-     */
-    Unavailable: "Unavailable",
-    /**
-     * Anything else.
-     */
-    Internal: "Internal"
-} as const;
-
-/**
  * Failure of an execution WebSocket request, carrying the protocol error code so that the
  * originating failure keeps its meaning as it is relayed back up the chain of hops.
  */
@@ -262,7 +233,7 @@ export class ExecutionWsRequestError extends Error {
     /**
      * Creates a new error.
      *
-     * @param code One of {@link ExecutionWsErrorCodes}
+     * @param code One of {@link ErrorCodes}
      * @param message Human-readable description
      */
     constructor(

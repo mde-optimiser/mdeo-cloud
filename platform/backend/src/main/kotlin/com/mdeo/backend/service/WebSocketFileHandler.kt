@@ -40,12 +40,12 @@ class WebSocketFileHandler(
     suspend fun handleSubscribeFiles(message: SubscribeFilesMessage) {
         val projectId = parseProjectId(message.projectId)
         if (projectId == null) {
-            sendError(message.requestId, "BadRequest", "Invalid project ID: ${message.projectId}")
+            sendError(message.requestId, ErrorCodes.BAD_REQUEST, "Invalid project ID: ${message.projectId}")
             return
         }
 
         val userUuid = parseUserId() ?: run {
-            sendError(message.requestId, "BadRequest", "Invalid user ID")
+            sendError(message.requestId, ErrorCodes.BAD_REQUEST, "Invalid user ID")
             return
         }
 
@@ -53,7 +53,7 @@ class WebSocketFileHandler(
         val hasWrite = projectService.hasProjectPermission(projectId, userUuid, isGlobalAdmin, ProjectPermission.WRITE)
 
         if (!hasRead) {
-            sendError(message.requestId, "Forbidden", "Access denied to project $projectId")
+            sendError(message.requestId, ErrorCodes.FORBIDDEN, "Access denied to project $projectId")
             return
         }
 
@@ -148,7 +148,7 @@ class WebSocketFileHandler(
         val content = try {
             java.util.Base64.getDecoder().decode(message.content)
         } catch (e: Exception) {
-            sendError(message.requestId, "BadRequest", "Invalid Base64 content")
+            sendError(message.requestId, ErrorCodes.BAD_REQUEST, "Invalid Base64 content")
             return
         }
 
@@ -282,13 +282,13 @@ class WebSocketFileHandler(
     private suspend fun parseAndCheckRead(projectIdStr: String, requestId: String): UUID? {
         val projectId = parseProjectId(projectIdStr)
         if (projectId == null) {
-            sendError(requestId, "BadRequest", "Invalid project ID: $projectIdStr")
+            sendError(requestId, ErrorCodes.BAD_REQUEST, "Invalid project ID: $projectIdStr")
             return null
         }
         if (!webSocketService.hasCachedReadPermission(connectionId, projectId)) {
             // Cache miss or expired — reload from the database before failing
             if (!reloadAndCachePermissions(projectId)) {
-                sendError(requestId, "Forbidden", "Access denied to project $projectId")
+                sendError(requestId, ErrorCodes.FORBIDDEN, "Access denied to project $projectId")
                 return null
             }
         }
@@ -307,14 +307,14 @@ class WebSocketFileHandler(
     private suspend fun parseAndCheckWrite(projectIdStr: String, requestId: String): UUID? {
         val projectId = parseProjectId(projectIdStr)
         if (projectId == null) {
-            sendError(requestId, "BadRequest", "Invalid project ID: $projectIdStr")
+            sendError(requestId, ErrorCodes.BAD_REQUEST, "Invalid project ID: $projectIdStr")
             return null
         }
         if (!webSocketService.hasCachedWritePermission(connectionId, projectId)) {
             // Cache miss or expired — reload from the database before failing
             val reloaded = reloadAndCachePermissions(projectId)
             if (!reloaded || !webSocketService.hasCachedWritePermission(connectionId, projectId)) {
-                sendError(requestId, "Forbidden", "Access denied to project $projectId")
+                sendError(requestId, ErrorCodes.FORBIDDEN, "Access denied to project $projectId")
                 return null
             }
         }
@@ -383,7 +383,7 @@ class WebSocketFileHandler(
      * @param message The error description
      */
     private suspend fun sendError(requestId: String, code: String, message: String) {
-        webSocketService.sendMessage(connectionId, FileErrorMessage(requestId, code, message))
+        webSocketService.sendMessage(connectionId, FileErrorMessage(requestId, ApiError(code, message)))
     }
 
     /**

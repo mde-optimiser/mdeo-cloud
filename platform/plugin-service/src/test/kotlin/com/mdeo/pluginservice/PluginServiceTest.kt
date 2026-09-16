@@ -15,6 +15,7 @@ import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.server.engine.*
 import io.ktor.server.netty.*
+import io.ktor.server.routing.*
 import io.ktor.server.testing.*
 import io.ktor.websocket.*
 import kotlinx.coroutines.runBlocking
@@ -104,6 +105,19 @@ class PluginServiceTest {
         val session = payload["sessions"]!!.jsonObject["echo"]!!.jsonObject
         assertEquals("echo", session["protocol"]!!.jsonPrimitive.content)
         assertEquals(listOf("2", "1"), session["versions"]!!.jsonArray.map { it.jsonPrimitive.content })
+    }
+
+    @Test
+    fun `a failing route answers in the platform's error shape`() = testApplication {
+        application {
+            pluginService(definition, verifier)
+            routing { get("/fails") { error("broken on purpose") } }
+        }
+        val response = client.get("/fails")
+        assertEquals(HttpStatusCode.InternalServerError, response.status)
+        val error = Json.parseToJsonElement(response.bodyAsText()).jsonObject["error"]!!.jsonObject
+        assertEquals("Internal", error["code"]!!.jsonPrimitive.content)
+        assertEquals("broken on purpose", error["message"]!!.jsonPrimitive.content)
     }
 
     @Test

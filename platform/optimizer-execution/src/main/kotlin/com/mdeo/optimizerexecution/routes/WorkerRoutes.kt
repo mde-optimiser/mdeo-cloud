@@ -1,5 +1,6 @@
 package com.mdeo.optimizerexecution.routes
 
+import com.mdeo.common.transport.respondError
 import com.mdeo.optimizer.worker.*
 import com.mdeo.optimizerexecution.service.OrchestratorRegistry
 import com.mdeo.optimizerexecution.worker.WorkerService
@@ -81,7 +82,7 @@ private fun Route.allocateRoute(workerService: WorkerService) {
             call.respond(HttpStatusCode.Created, response)
         } catch (e: Exception) {
             logger.error("Allocation failed for execution {}", request.executionId, e)
-            call.respond(HttpStatusCode.InternalServerError, mapOf("error" to (e.message ?: "Allocation failed")))
+            call.respondError(HttpStatusCode.InternalServerError, e.message ?: "Allocation failed")
         }
     }
 }
@@ -97,17 +98,17 @@ private fun Route.allocateRoute(workerService: WorkerService) {
 @OptIn(ExperimentalSerializationApi::class)
 private fun Route.getSolutionDataRoute(workerService: WorkerService) {
     get("/solutions/{solutionId}") {
-        val executionId = call.parameters["id"] ?: return@get call.respond(HttpStatusCode.BadRequest)
-        val solutionId = call.parameters["solutionId"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+        val executionId = call.parameters["id"] ?: return@get call.respondError(HttpStatusCode.BadRequest, "Missing path parameter")
+        val solutionId = call.parameters["solutionId"] ?: return@get call.respondError(HttpStatusCode.BadRequest, "Missing path parameter")
         try {
             val modelData = workerService.getSolutionData(executionId, solutionId)
             val bytes = cbor.encodeToByteArray(modelData)
             call.respondBytes(bytes, ContentType.Application.Cbor)
         } catch (e: IllegalArgumentException) {
-            call.respond(HttpStatusCode.NotFound, mapOf("error" to (e.message ?: "Not found")))
+            call.respondError(HttpStatusCode.NotFound, e.message ?: "Not found")
         } catch (e: Exception) {
             logger.error("Failed to get solution {} for execution {}", solutionId, executionId, e)
-            call.respond(HttpStatusCode.InternalServerError, mapOf("error" to (e.message ?: "Failed")))
+            call.respondError(HttpStatusCode.InternalServerError, e.message ?: "Failed")
         }
     }
 }
@@ -119,15 +120,15 @@ private fun Route.getSolutionDataRoute(workerService: WorkerService) {
  */
 private fun Route.cleanupRoute(workerService: WorkerService) {
     delete {
-        val executionId = call.parameters["id"] ?: return@delete call.respond(HttpStatusCode.BadRequest)
+        val executionId = call.parameters["id"] ?: return@delete call.respondError(HttpStatusCode.BadRequest, "Missing path parameter")
         try {
             workerService.cleanup(executionId)
             call.respond(HttpStatusCode.OK)
         } catch (e: IllegalArgumentException) {
-            call.respond(HttpStatusCode.NotFound, mapOf("error" to (e.message ?: "Not found")))
+            call.respondError(HttpStatusCode.NotFound, e.message ?: "Not found")
         } catch (e: Exception) {
             logger.error("Failed to cleanup execution {}", executionId, e)
-            call.respond(HttpStatusCode.InternalServerError, mapOf("error" to (e.message ?: "Failed")))
+            call.respondError(HttpStatusCode.InternalServerError, e.message ?: "Failed")
         }
     }
 }

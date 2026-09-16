@@ -11,6 +11,7 @@ dependencies {
     api(libs.ktor.server.core)
     api(libs.ktor.server.netty)
     api(libs.ktor.server.websockets)
+    implementation(libs.ktor.server.status.pages)
     api(libs.kotlinx.serialization.json)
     api(libs.kotlinx.coroutines.core)
 

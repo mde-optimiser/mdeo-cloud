@@ -1226,7 +1226,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
                 }
             )
         } catch (e: ExecutionWsException) {
-            if (e.code == ExecutionWsErrorCodes.NOT_FOUND) {
+            if (e.code == ErrorCodes.NOT_FOUND) {
                 logger.warn("Plugin reports execution $executionId as unknown when deleting; assuming already deleted")
                 return
             }
@@ -1307,7 +1307,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
                 onStream
             )
         } catch (e: ExecutionWsException) {
-            if (e.code != ExecutionWsErrorCodes.UNAVAILABLE) {
+            if (e.code != ErrorCodes.UNAVAILABLE) {
                 // The plugin answered, and said no. That is a real result, not a reason to ask
                 // again over HTTP — the code travels with the exception so callers that treat
                 // some failures as expected can still recognise them.
