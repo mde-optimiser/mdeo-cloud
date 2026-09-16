@@ -1,5 +1,6 @@
 package com.mdeo.script.compiler.expressions
 
+import com.mdeo.script.compiler.registry.function.PluginFunctionSignatureDefinition
 import com.mdeo.expression.ast.expressions.TypedExpression
 import com.mdeo.expression.ast.expressions.TypedFunctionCallExpression
 import com.mdeo.script.compiler.CompilationContext
@@ -60,7 +61,8 @@ class FunctionCallCompiler : AbstractCallCompiler() {
         val signature = funcDef.getOverload(functionCall.overload)
             ?: error("Overload '${functionCall.overload}' not found for function '${functionCall.name}'")
         
-        if (signature is InstanceFunctionSignatureDefinition) {
+        // Contributed functions are instance methods of the script program too, like the file's own.
+        if (signature is InstanceFunctionSignatureDefinition || signature is PluginFunctionSignatureDefinition) {
             emitInstanceReceiver(mv)
         }
 
