@@ -3,6 +3,7 @@ package com.mdeo.script.external
 import com.mdeo.scriptfunctions.protocol.ClientMessage
 import com.mdeo.scriptfunctions.protocol.ScriptFunctionsProtocol
 import com.mdeo.scriptfunctions.protocol.ServiceMessage
+import com.mdeo.scriptfunctions.service.ScriptFunctionCall
 import com.mdeo.scriptfunctions.service.ScriptFunctionOperation
 import com.mdeo.scriptfunctions.service.ScriptFunctionsServiceSession
 import kotlinx.coroutines.runBlocking
@@ -18,11 +19,22 @@ import java.util.ArrayDeque
  * @param claimEverythingMutable Whether to tell the service every collection was sent as mutable,
  *        so that it lets an operation change a readonly argument. Tests use this to check that the
  *        client rejects such a result on its own.
+ * @param rewriteAnswer Changes each answer before it is sent, to test what the client does with a
+ *        service that breaks the contract
  */
 class Loopback(
-    operations: Map<String, (List<Any?>) -> Any?>,
-    private val claimEverythingMutable: Boolean = false
+    operations: Map<String, (ScriptFunctionCall) -> Any?>,
+    private val claimEverythingMutable: Boolean = false,
+    private val rewriteAnswer: (ServiceMessage) -> ServiceMessage = { it }
 ) : ScriptFunctionsTransport {
+
+    companion object {
+        /**
+         * A loopback whose operations only look at their arguments.
+         */
+        fun ofArguments(operations: Map<String, (List<Any?>) -> Any?>, claimEverythingMutable: Boolean = false) =
+            Loopback(operations.mapValues { (_, op) -> { call: ScriptFunctionCall -> op(call.arguments) } }, claimEverythingMutable)
+    }
 
     /**
      * Every message the client sent, decoded, for tests to inspect.
@@ -34,8 +46,11 @@ class Loopback(
      */
     val answered = mutableListOf<ServiceMessage>()
 
-    private val service = ScriptFunctionsServiceSession(
-        operations.mapValues { (_, operation) -> ScriptFunctionOperation { call -> operation(call.arguments) } }
+    /**
+     * The service itself, for tests to inspect or to make it lose its state.
+     */
+    val service = ScriptFunctionsServiceSession(
+        operations.mapValues { (_, operation) -> ScriptFunctionOperation { call -> operation(call) } }
     )
     private val outbox = ArrayDeque<ByteArray>()
 
@@ -47,7 +62,7 @@ class Loopback(
         } else {
             decoded
         }
-        val answer = runBlocking { service.handle(handed) } ?: return
+        val answer = runBlocking { service.handle(handed) }?.let(rewriteAnswer) ?: return
         answered += answer
         outbox.add(ScriptFunctionsProtocol.encodeService(answer))
     }

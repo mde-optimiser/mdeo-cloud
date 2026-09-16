@@ -1,5 +1,6 @@
 package com.mdeo.script.compiler
 
+import com.mdeo.metamodel.Model
 import com.mdeo.expression.ast.expressions.TypedExtensionCallArgument
 import com.mdeo.expression.ast.expressions.TypedExtensionCallExpression
 import com.mdeo.expression.ast.expressions.TypedExpression
@@ -46,7 +47,7 @@ class ExternalCallCompilerTest {
     private class RecordingDispatcher(private val answer: Any?) : ExternalCallDispatcher {
         val calls = mutableListOf<Pair<String, List<Any?>>>()
 
-        override fun call(callId: String, arguments: Array<Any?>): Any? {
+        override fun call(callId: String, arguments: Array<Any?>, model: Model?): Any? {
             calls += callId to arguments.toList()
             return answer
         }

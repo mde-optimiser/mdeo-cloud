@@ -116,11 +116,14 @@ calls address, as `contrib:<id>`, and must be unique within a project.
 | `returns(type)` | The return type; `void` unless declared |
 | `generics("T", …)` | Generic type parameters, referenced with `GenericTypeRef("T")` |
 | `isVarArgs` | Whether the last parameter takes any number of arguments |
+| `readsModel` | Whether calls are sent the model the script runs on, as `call.model` |
 | `operation` | The operation name on the wire; the function name, or `name/overload` for a named overload |
 | `implementation { call -> … }` | What answers a call |
 
 Types are the references from `com.mdeo.expression.ast.types`: `BuiltinTypes` for scalars,
-`genericClassType("builtin", "List", typeArgs = …)` for collections.
+`genericClassType("builtin", "List", typeArgs = …)` for collections, and
+`classType("class<metamodel path>", "House")` for a class of a metamodel — for a metamodel at
+`/houses.mm`, the package is `class/houses.mm`.
 
 From that one declaration the service builds both halves: the external implementations in the
 [contribution payload](/develop/script-contributions#implementations-outside-the-platform), and the
@@ -153,6 +156,7 @@ Arguments arrive as plain Kotlin values:
 | `List`, `Bag` | `MutableList` |
 | `Set`, `OrderedSet` | `MutableSet`, iterating in insertion order |
 | `Map` | `MutableMap`, iterating in insertion order |
+| A metamodel class | `ScriptModelInstance`, readonly |
 
 Return any of these, or `null` for a void function. A returned collection can be a new one or one
 of the arguments — returning an argument returns that very collection to the script — and it
@@ -175,6 +179,44 @@ Calls on one session are answered one at a time, in the order they arrive, and o
 which project and execution the call belongs to.
 
 Each connection starts with nothing: collections are never shared between two executions.
+
+## Reading the model
+
+A function that sets `readsModel`, or is passed model instances, gets the model the script runs on
+as `call.model`, readonly:
+
+```kotlin
+function("totalRooms") {
+    readsModel = true
+    returns(BuiltinTypes.INT)
+    implementation { call ->
+        val model = call.model!!
+        model.instancesOf("Building").sumOf { it.attribute("rooms") as Int }
+    }
+}
+```
+
+| On `ScriptModel` | Meaning |
+| --- | --- |
+| `instances` | Every instance, by name |
+| `instancesOf(className)` | The instances of a class, including its subclasses |
+| `cache` | Scratch space for what you derive from this model |
+
+| On `ScriptModelInstance` | Meaning |
+| --- | --- |
+| `name`, `className` | Identify the instance |
+| `attribute(name)`, `attributes(name)` | A single-valued attribute, or all values of a multi-valued one. Enum values are the entry's name |
+| `reference(name)`, `references(name)` | The instances an association end refers to |
+
+An instance passed as an argument is the same object as the one in `call.model.instances`, and an
+operation can return an instance of the call's model to the script.
+
+**A model lives exactly as long as the script works on it.** The model is uploaded once and reused
+for every call on the same model: an optimizer evaluating several guidance functions on one solution
+sends that solution's model once. When the script moves on to another model, the service drops the
+previous one together with its `cache` and every collection it held. Use `cache` for anything worth
+computing once per model, like an index or a distance matrix; nothing in it is ever seen while
+working on a different model.
 
 ## Configuration
 

@@ -87,11 +87,12 @@ export interface ExternalImplementation {
     /**
      * Whether the operation needs the model, and in what form.
      *
-     * `none` — the default — sends no model at all. `versioned` is planned and not yet supported: it
-     * will send the model the call works on, uploaded once per round and never diffed against
-     * another model. Either way the model is readonly.
+     * `none` — the default — sends no model. `readonly` sends the model the script runs on, so
+     * the operation can read it: uploaded once and reused until the script works on a different
+     * model. A call that is passed model instances gets the model either way. The model is always
+     * readonly.
      */
-    model?: "none" | "versioned";
+    model?: "none" | "readonly";
 }
 
 export namespace ExternalImplementation {

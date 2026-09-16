@@ -79,7 +79,7 @@ data class TypedPluginFunctionSignature(
  * @param operation Names the operation within the plugin's own protocol. The platform passes it
  *        through and ascribes it no meaning.
  * @param model Whether the operation needs the model, and in what form. `none` sends none;
- *        `versioned` (planned) will send the model the call works on, readonly, once per round.
+ *        `readonly` sends the model the call works on, readonly, once per model.
  * @param contribution Id of the contribution that shipped the function, the `contrib:<id>`
  *        target the call is answered on.
  * @param session Name of that contribution's `script-functions` session.
@@ -104,8 +104,8 @@ data class ExternalImplementation(
         const val MODEL_NONE = "none"
 
         /**
-         * [model] value for an operation that reads the execution's model.
+         * [model] value for an operation that reads the model the script runs on.
          */
-        const val MODEL_VERSIONED = "versioned"
+        const val MODEL_READONLY = "readonly"
     }
 }

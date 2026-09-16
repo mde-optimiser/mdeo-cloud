@@ -515,11 +515,27 @@ class ScriptCompiler {
             localIndex += ASMUtil.getSlotsForType(parameterType)
         }
 
+        // this.__ctx.getModel()
+        mv.visitVarInsn(Opcodes.ALOAD, 0)
+        mv.visitFieldInsn(
+            Opcodes.GETFIELD,
+            CompiledProgram.SCRIPT_PROGRAM_INTERNAL_NAME,
+            CONTEXT_FIELD_NAME,
+            CONTEXT_DESCRIPTOR
+        )
+        mv.visitMethodInsn(
+            Opcodes.INVOKEINTERFACE,
+            CONTEXT_INTERNAL_NAME,
+            "getModel",
+            "()Lcom/mdeo/metamodel/Model;",
+            true
+        )
+
         mv.visitMethodInsn(
             Opcodes.INVOKEINTERFACE,
             EXTERNAL_DISPATCHER_INTERNAL_NAME,
             "call",
-            "(Ljava/lang/String;[Ljava/lang/Object;)Ljava/lang/Object;",
+            "(Ljava/lang/String;[Ljava/lang/Object;Lcom/mdeo/metamodel/Model;)Ljava/lang/Object;",
             true
         )
 

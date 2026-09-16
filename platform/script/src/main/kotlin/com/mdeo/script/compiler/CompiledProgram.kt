@@ -53,7 +53,7 @@ data class CompiledProgram(
  * @param operation     The operation name within the plugin's own protocol.
  * @param model         Whether the operation reads the model, and in what form. One of
  *                      [com.mdeo.script.ast.ExternalImplementation.MODEL_NONE] and
- *                      [com.mdeo.script.ast.ExternalImplementation.MODEL_VERSIONED].
+ *                      [com.mdeo.script.ast.ExternalImplementation.MODEL_READONLY].
  * @param parameterTypes Declared parameter types, in declaration order.
  * @param returnType    Declared return type.
  * @param contribution  Id of the contribution whose service answers the call.

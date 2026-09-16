@@ -91,6 +91,19 @@ class ScriptContributionTest {
     }
 
     @Test
+    fun `a function that reads the model says so in its implementation`() {
+        val contribution = scriptContribution("x") {
+            function("f") {
+                readsModel = true
+                implementation { null }
+            }
+        }
+        val implementation = contribution.payload()["functions"]!!.jsonObject["f"]!!.jsonObject["signatures"]!!
+            .jsonObject[""]!!.jsonObject["implementation"]!!
+        assertEquals(Json.parseToJsonElement("""{"kind":"external","operation":"f","model":"readonly"}"""), implementation)
+    }
+
+    @Test
     fun `every function is registered with the session`() {
         assertEquals(setOf("shortestTour", "distance/pair", "first"), routing.operations.keys)
         val session = routing.sessions.getValue(DEFAULT_SCRIPT_FUNCTIONS_SESSION)

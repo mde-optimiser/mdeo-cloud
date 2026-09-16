@@ -1,4 +1,5 @@
 package com.mdeo.script.runtime
+import com.mdeo.metamodel.Model
 
 /**
  * Answers the calls a script makes to functions implemented outside the platform.
@@ -18,9 +19,11 @@ interface ExternalCallDispatcher {
      *        [com.mdeo.script.compiler.ExternalCallSpec.callId] of exactly one compiled stub,
      *        which is where the operation name, the parameter types and the return type live.
      * @param arguments The call's arguments, boxed, in declaration order
+     * @param model The model the script runs on, or null when it runs on none. Instances passed as
+     *        arguments belong to it, and an operation that reads the model reads this one.
      * @return The result, boxed, or null for a signature that returns nothing
      */
-    fun call(callId: String, arguments: Array<Any?>): Any?
+    fun call(callId: String, arguments: Array<Any?>, model: Model?): Any?
 
     companion object {
         /**
@@ -32,7 +35,7 @@ interface ExternalCallDispatcher {
          * says what is missing rather than with a null pointer somewhere downstream.
          */
         val UNSUPPORTED: ExternalCallDispatcher = object : ExternalCallDispatcher {
-            override fun call(callId: String, arguments: Array<Any?>): Any? {
+            override fun call(callId: String, arguments: Array<Any?>, model: Model?): Any? {
                 throw UnsupportedOperationException(
                     "External function '$callId' cannot be called here: this execution has no " +
                             "connection to the plugin that implements it"

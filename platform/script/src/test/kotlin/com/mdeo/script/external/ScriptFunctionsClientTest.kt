@@ -40,7 +40,7 @@ class ScriptFunctionsClientTest {
     @Suppress("UNCHECKED_CAST")
     @Test
     fun `a list, a set and a bag come back changed, and only they come back`() {
-        val loopback = Loopback(
+        val loopback = Loopback.ofArguments(
             mapOf(
                 "shuffle" to { args ->
                     val list = args[0] as MutableList<Any?>
@@ -64,7 +64,7 @@ class ScriptFunctionsClientTest {
         val bag = BagImpl(listOf("x", "y"))
         val untouched = ListImpl(listOf(7, 8))
 
-        dispatcher.call("shuffle", arrayOf(list, set, bag, untouched))
+        dispatcher.call("shuffle", arrayOf(list, set, bag, untouched), null)
 
         assertEquals(listOf(3, 2, 1, 99), list.deltaSnapshot())
         assertEquals(setOf("a", "b", "c"), set.deltaSnapshot().toSet())
@@ -80,7 +80,7 @@ class ScriptFunctionsClientTest {
     @Test
     fun `the same list passed twice is one list on the other side`() {
         var sameOnService = false
-        val loopback = Loopback(
+        val loopback = Loopback.ofArguments(
             mapOf(
                 "alias" to { args ->
                     sameOnService = args[0] === args[1]
@@ -93,7 +93,7 @@ class ScriptFunctionsClientTest {
         val dispatcher = client(loopback, spec("alias", any, listType, listType))
 
         val list = ListImpl(listOf(1, 2, 3))
-        dispatcher.call("alias", arrayOf(list, list))
+        dispatcher.call("alias", arrayOf(list, list), null)
 
         assertTrue(sameOnService)
         assertEquals(listOf(1, 2, 3, 4), list.deltaSnapshot())
@@ -105,7 +105,7 @@ class ScriptFunctionsClientTest {
     @Test
     fun `a list that contains itself survives the trip`() {
         var cycleOnService = false
-        val loopback = Loopback(
+        val loopback = Loopback.ofArguments(
             mapOf(
                 "cycle" to { args ->
                     val outer = args[0] as MutableList<Any?>
@@ -121,7 +121,7 @@ class ScriptFunctionsClientTest {
         list.add("head")
         list.add(list)
 
-        val returned = dispatcher.call("cycle", arrayOf(list))
+        val returned = dispatcher.call("cycle", arrayOf(list), null)
 
         assertTrue(cycleOnService)
         assertSame(list, returned, "returning an argument returns the very same collection")
@@ -131,14 +131,14 @@ class ScriptFunctionsClientTest {
 
     @Test
     fun `an unchanged collection is sent again as just its id`() {
-        val loopback = Loopback(mapOf("read" to { args -> (args[0] as List<*>).size }))
+        val loopback = Loopback.ofArguments(mapOf("read" to { args -> (args[0] as List<*>).size }))
         val dispatcher = client(loopback, spec("read", int, collection("ReadonlyList", "T" to int)))
 
         val list = ListImpl(listOf(1, 2, 3))
-        assertEquals(3, dispatcher.call("read", arrayOf(list)))
-        assertEquals(3, dispatcher.call("read", arrayOf(list)))
+        assertEquals(3, dispatcher.call("read", arrayOf(list), null))
+        assertEquals(3, dispatcher.call("read", arrayOf(list), null))
         list.add(4)
-        assertEquals(4, dispatcher.call("read", arrayOf(list)))
+        assertEquals(4, dispatcher.call("read", arrayOf(list), null))
 
         val calls = loopback.received.filterIsInstance<ClientMessage.Call>()
         assertTrue(calls[0].objects.single().elements != null)
@@ -149,7 +149,7 @@ class ScriptFunctionsClientTest {
     @Suppress("UNCHECKED_CAST")
     @Test
     fun `changing a readonly argument rejects the whole result and applies nothing`() {
-        val loopback = Loopback(
+        val loopback = Loopback.ofArguments(
             mapOf(
                 "sneaky" to { args ->
                     (args[0] as MutableList<Any?>).add(1)
@@ -167,7 +167,7 @@ class ScriptFunctionsClientTest {
         val writable = ListImpl<Int>()
         val readonly = ListImpl<Int>()
 
-        val error = assertFailsWith<ExternalCallException> { dispatcher.call("sneaky", arrayOf(writable, readonly)) }
+        val error = assertFailsWith<ExternalCallException> { dispatcher.call("sneaky", arrayOf(writable, readonly), null) }
         assertTrue(error.message!!.contains("readonly"))
         assertEquals(0, writable.size(), "the legitimate change is not applied either")
         assertEquals(0, readonly.size())
@@ -175,11 +175,11 @@ class ScriptFunctionsClientTest {
 
     @Test
     fun `an operation failure reaches the script and changes nothing`() {
-        val loopback = Loopback(mapOf("boom" to { _ -> error("no capacity") }))
+        val loopback = Loopback.ofArguments(mapOf("boom" to { _ -> error("no capacity") }))
         val dispatcher = client(loopback, spec("boom", any, collection("List", "T" to int)))
 
         val list = ListImpl(listOf(1))
-        val error = assertFailsWith<ExternalCallException> { dispatcher.call("boom", arrayOf(list)) }
+        val error = assertFailsWith<ExternalCallException> { dispatcher.call("boom", arrayOf(list), null) }
         assertTrue(error.message!!.contains("no capacity"))
         assertEquals(listOf(1), list.deltaSnapshot())
     }
@@ -187,7 +187,7 @@ class ScriptFunctionsClientTest {
     @Suppress("UNCHECKED_CAST")
     @Test
     fun `maps, ordered sets and new collections round trip`() {
-        val loopback = Loopback(
+        val loopback = Loopback.ofArguments(
             mapOf(
                 "index" to { args ->
                     val map = args[0] as MutableMap<Any?, Any?>
@@ -209,7 +209,7 @@ class ScriptFunctionsClientTest {
         val map = MapImpl<String, Int>().apply { put("kept", 1); put("gone", 2) }
         val ordered = OrderedSetImpl(listOf("a", "b"))
 
-        val returned = dispatcher.call("index", arrayOf(map, ordered)) as ListImpl<*>
+        val returned = dispatcher.call("index", arrayOf(map, ordered), null) as ListImpl<*>
 
         assertEquals(listOf("kept" to 1, "new" to 3), map.deltaEntries())
         assertEquals(listOf("a", "b", "z"), ordered.deltaSnapshot())
@@ -219,10 +219,10 @@ class ScriptFunctionsClientTest {
 
     @Test
     fun `a value the protocol cannot carry is refused before anything is sent`() {
-        val loopback = Loopback(emptyMap())
+        val loopback = Loopback.ofArguments(emptyMap())
         val dispatcher = client(loopback, spec("op", any, any))
 
-        assertFailsWith<ExternalCallException> { dispatcher.call("op", arrayOf(Any())) }
+        assertFailsWith<ExternalCallException> { dispatcher.call("op", arrayOf(Any()), null) }
         assertTrue(loopback.received.isEmpty())
     }
 }

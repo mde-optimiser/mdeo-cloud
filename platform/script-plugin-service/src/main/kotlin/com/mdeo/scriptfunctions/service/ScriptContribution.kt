@@ -97,6 +97,7 @@ class ScriptContribution internal constructor(
  * @property generics Names of the generic type parameters the signature uses
  * @property isVarArgs Whether the last parameter takes any number of arguments
  * @property operation The operation name sent over the session
+ * @property readsModel Whether every call is sent the model the script runs on
  * @property implementation What answers a call
  */
 class ScriptFunctionDeclaration internal constructor(
@@ -107,6 +108,7 @@ class ScriptFunctionDeclaration internal constructor(
     val generics: List<String>,
     val isVarArgs: Boolean,
     val operation: String,
+    val readsModel: Boolean,
     val implementation: ScriptFunctionOperation
 ) {
     internal fun toJson(): JsonObject = buildJsonObject {
@@ -126,6 +128,7 @@ class ScriptFunctionDeclaration internal constructor(
         putJsonObject("implementation") {
             put("kind", "external")
             put("operation", operation)
+            if (readsModel) put("model", "readonly")
         }
     }
 
@@ -229,6 +232,13 @@ class ScriptFunctionBuilder internal constructor(private val name: String, priva
     var operation: String = if (overload.isEmpty()) name else "$name/$overload"
 
     /**
+     * Whether the operation reads the model the script runs on, through [ScriptFunctionCall.model].
+     * The model is uploaded once and reused until the script works on a different one. A function
+     * that is passed model instances gets the model whether or not this is set.
+     */
+    var readsModel: Boolean = false
+
+    /**
      * Declares the next parameter.
      *
      * @param name The parameter name
@@ -274,7 +284,7 @@ class ScriptFunctionBuilder internal constructor(private val name: String, priva
             throw IllegalArgumentException("$label takes a lambda in parameter '${it.first}', which cannot be sent to a service")
         }
         require(!containsLambda(returnType)) { "$label returns a lambda, which cannot be sent from a service" }
-        return ScriptFunctionDeclaration(name, overload, parameters.toList(), returnType, generics.toList(), isVarArgs, operation, implementation)
+        return ScriptFunctionDeclaration(name, overload, parameters.toList(), returnType, generics.toList(), isVarArgs, operation, readsModel, implementation)
     }
 
     private fun containsLambda(type: ReturnType): Boolean = when (type) {

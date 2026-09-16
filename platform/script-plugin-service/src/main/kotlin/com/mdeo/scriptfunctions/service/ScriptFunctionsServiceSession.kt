@@ -33,6 +33,15 @@ class ScriptFunctionsServiceSession(
     private val ids = IdentityHashMap<Any, Long>()
     private var nextNewId = -1L
 
+    private var model: ScriptModel? = null
+    private var modelId: Long? = null
+
+    /**
+     * The model calls currently work on, if one was uploaded.
+     */
+    val currentModel: ScriptModel?
+        get() = model
+
     /**
      * Handles one message from the execution.
      *
@@ -45,6 +54,14 @@ class ScriptFunctionsServiceSession(
             null
         }
         is ClientMessage.Call -> call(message)
+        is ClientMessage.ModelPut -> {
+            // A new model ends everything that belonged to the old one, collections included:
+            // they may hold its instances.
+            clear()
+            model = ScriptModel(message.model)
+            modelId = message.modelId
+            null
+        }
     }
 
     /**
@@ -53,6 +70,8 @@ class ScriptFunctionsServiceSession(
     fun clear() {
         objects.clear()
         ids.clear()
+        model = null
+        modelId = null
     }
 
     private fun forget(id: Long) {
@@ -66,6 +85,15 @@ class ScriptFunctionsServiceSession(
             call.objects.forEach { forget(it.id) }
             return ServiceMessage.Failure(call.callId, message, code)
         }
+
+        if (call.modelId != null && call.modelId != modelId) {
+            return ServiceMessage.Failure(
+                call.callId,
+                "Model ${call.modelId} is not held",
+                ServiceMessage.Failure.UNKNOWN_MODEL
+            )
+        }
+        val callModel = if (call.modelId != null) model else null
 
         for (obj in call.objects) {
             if (obj.elements == null && obj.entries == null && obj.id !in objects) {
@@ -102,7 +130,7 @@ class ScriptFunctionsServiceSession(
 
         val returned = try {
             val arguments = call.args.map(::decode)
-            operation.invoke(ScriptFunctionCall(call.operation, arguments, session))
+            operation.invoke(ScriptFunctionCall(call.operation, arguments, session, callModel))
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -158,6 +186,8 @@ class ScriptFunctionsServiceSession(
         is WireValue.StringValue -> value.value
         is WireValue.Ref -> objects[value.id]
             ?: throw IllegalArgumentException("Collection ${value.id} is referenced but was not sent")
+        is WireValue.InstanceValue -> model?.instances?.get(value.name)
+            ?: throw IllegalArgumentException("Instance '${value.name}' is not part of the model")
     }
 
     /**
@@ -172,6 +202,11 @@ class ScriptFunctionsServiceSession(
         is Float -> WireValue.FloatValue(value)
         is Double -> WireValue.DoubleValue(value)
         is String -> WireValue.StringValue(value)
+        is ScriptModelInstance -> if (value.model === model) {
+            WireValue.InstanceValue(value.name)
+        } else {
+            throw UnsupportedValueException("returned an instance of a model the call does not work on")
+        }
         is Collection<*>, is Map<*, *> -> ids[value]?.let { WireValue.Ref(it) } ?: adopt(value, created)
         else -> throw UnsupportedValueException(
             "returned a ${value::class.qualifiedName}, which cannot be sent to a script"

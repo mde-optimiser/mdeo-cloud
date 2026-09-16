@@ -87,6 +87,8 @@ sealed class ClientMessage {
      * @param objects Collections the arguments reach. A collection the service already holds at
      *        its current version is sent without content.
      * @param args The arguments, in declaration order.
+     * @param modelId The model the call works on, as uploaded with [ModelPut]; null for a call
+     *        that needs no model.
      */
     @Serializable
     @SerialName("call")
@@ -94,8 +96,24 @@ sealed class ClientMessage {
         val callId: Long,
         val operation: String,
         val objects: List<HeapObject>,
-        val args: List<WireValue>
+        val args: List<WireValue>,
+        val modelId: Long? = null
     ) : ClientMessage()
+
+    /**
+     * Uploads the model the following calls work on, readonly.
+     *
+     * A service holds one model per session. Uploading one replaces the previous model and ends
+     * everything that belonged to it: the service forgets every collection it holds, and whatever
+     * it cached about the old model. The execution uploads a model once and refers to it by
+     * [modelId] until the model it works on changes.
+     *
+     * @param modelId Identifies the model within the session.
+     * @param model The whole model.
+     */
+    @Serializable
+    @SerialName("model")
+    data class ModelPut(val modelId: Long, val model: WireModel) : ClientMessage()
 
     /**
      * Tells the service it may forget collections the execution no longer holds.
@@ -136,8 +154,9 @@ sealed class ServiceMessage {
      * @param callId The call being answered.
      * @param message What went wrong, as the operation reported it.
      * @param code [UNKNOWN_OBJECT] when the call referred to a collection by id alone that the
-     *        service does not hold, which the execution answers by sending the call again in full;
-     *        null for a failure of the operation itself.
+     *        service does not hold, or [UNKNOWN_MODEL] when it named a model the service does not
+     *        hold; the execution answers either by sending everything again. Null for a failure of
+     *        the operation itself.
      */
     @Serializable
     @SerialName("failure")
@@ -147,6 +166,12 @@ sealed class ServiceMessage {
              * The service was sent a collection without content that it does not hold.
              */
             const val UNKNOWN_OBJECT = "unknown-object"
+
+            /**
+             * The call names a model the service does not hold, which the execution answers by
+             * uploading the model and sending the call again.
+             */
+            const val UNKNOWN_MODEL = "unknown-model"
         }
     }
 }
@@ -202,7 +227,45 @@ sealed class WireValue {
      * A reference to a collection on the heap, by id.
      */
     @Serializable @SerialName("ref") data class Ref(val id: Long) : WireValue()
+
+    /**
+     * An instance of the call's model, by its name. Instances are readonly: nothing can change
+     * one, and no delta can address one.
+     */
+    @Serializable @SerialName("instance") data class InstanceValue(val name: String) : WireValue()
 }
+
+/**
+ * A whole model, as uploaded with [ClientMessage.ModelPut].
+ *
+ * @param metamodelPath The metamodel the model is an instance of.
+ * @param subtypes For every class, the classes that are it or inherit from it, so a service can
+ *        find all instances of a class including those of its subclasses.
+ * @param instances Every instance of the model.
+ */
+@Serializable
+data class WireModel(
+    val metamodelPath: String,
+    val subtypes: Map<String, List<String>> = emptyMap(),
+    val instances: List<WireInstance> = emptyList()
+)
+
+/**
+ * One instance of a [WireModel].
+ *
+ * @param name The instance's name, unique within the model.
+ * @param className The instance's class.
+ * @param attributes Attribute values by attribute name. A single-valued attribute has at most one
+ *        value; an unset one has none. Enum values are sent as the entry's name.
+ * @param references The names of the referenced instances, by association end.
+ */
+@Serializable
+data class WireInstance(
+    val name: String,
+    val className: String,
+    val attributes: Map<String, List<WireValue>> = emptyMap(),
+    val references: Map<String, List<String>> = emptyMap()
+)
 
 /**
  * One change to one inout collection.

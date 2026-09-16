@@ -1,5 +1,6 @@
 package com.mdeo.script.external
 
+import com.mdeo.metamodel.Model
 import com.mdeo.scriptfunctions.protocol.ScriptFunctionsProtocol
 import com.mdeo.common.transport.SessionClient
 import com.mdeo.common.transport.SessionConnection
@@ -33,14 +34,14 @@ class SessionDispatcher(
 
     private val connections = ConcurrentHashMap<String, Connection>()
 
-    override fun call(callId: String, arguments: Array<Any?>): Any? {
+    override fun call(callId: String, arguments: Array<Any?>, model: Model?): Any? {
         val spec = specs[callId] ?: throw ExternalCallException("No external call '$callId' was compiled")
         val session = spec.session ?: throw ExternalCallException(
             "External function '${spec.functionName}' cannot be called: contribution " +
                     "'${spec.contribution}' declares no '${ScriptFunctionsProtocol.NAME}' session"
         )
         val connection = connections.computeIfAbsent(spec.contribution) { open(it, session) }
-        return connection.client.call(callId, arguments)
+        return connection.client.call(callId, arguments, model)
     }
 
     private fun open(contribution: String, sessionName: String): Connection {
@@ -66,7 +67,11 @@ class SessionDispatcher(
                 // A drop reported between calls concerns no call still waiting; the send below
                 // reconnects, so the report must not be mistaken for this call's answer.
                 inbox.removeIf { it.isFailure }
-                runBlocking { session.send(message) }
+                try {
+                    runBlocking { session.send(message) }
+                } catch (e: Exception) {
+                    throw ExternalCallException("Session to '$contribution' failed: ${e.message}")
+                }
             }
             override fun receive(): ByteArray = inbox.take().getOrThrow()
         }

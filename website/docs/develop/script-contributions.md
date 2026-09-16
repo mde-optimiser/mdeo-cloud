@@ -130,7 +130,7 @@ library, or state that has to outlive a single call. For those, an implementatio
 | --- | --- |
 | `kind` | Always `"external"` |
 | `operation` | The operation name your service dispatches on. The platform passes it through untouched |
-| `model` | `"none"` (the default). Passing the model, readonly, is planned as `"versioned"` |
+| `model` | `"none"` (the default), or `"readonly"` to send the model the script runs on. Either way the model is readonly |
 
 A call to such a function looks exactly like a call to any other function in a script. The
 compiler emits a stub with the same JVM signature, and the stub sends the call over the
@@ -186,13 +186,15 @@ Collections the service creates and returns become the collection type the signa
 
 #### What cannot cross
 
-Version 1 of the protocol carries scalars, strings, and collections of them. Refused outright:
+Version 1 of the protocol carries scalars, strings, instances of the script's model, and collections
+of them. A call passed a model instance gets the model, readonly, whether or not the function
+declares `model: "readonly"`. Refused outright:
 
 | Refused | When |
 | --- | --- |
 | A lambda parameter or return type | When the contribution is declared; the script language also rejects it when resolving contributions. A lambda is code in the execution process and cannot be sent |
 | An external implementation without a `script-functions` session | When the script language resolves contributions |
-| Model instances, enums, and other objects | When the call is made, with an error naming the function |
+| Enum values and other objects | When the call is made, with an error naming the function |
 
 A run whose contributions declare external functions checks that every one of their sessions can
 be resolved **before** it starts, and fails with a message naming the contribution otherwise.

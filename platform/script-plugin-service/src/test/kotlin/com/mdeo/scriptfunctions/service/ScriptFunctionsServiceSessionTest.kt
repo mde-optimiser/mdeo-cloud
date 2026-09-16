@@ -5,6 +5,8 @@ import com.mdeo.scriptfunctions.protocol.Delta
 import com.mdeo.scriptfunctions.protocol.HeapKind
 import com.mdeo.scriptfunctions.protocol.HeapObject
 import com.mdeo.scriptfunctions.protocol.ServiceMessage
+import com.mdeo.scriptfunctions.protocol.WireInstance
+import com.mdeo.scriptfunctions.protocol.WireModel
 import com.mdeo.scriptfunctions.protocol.WireValue
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
@@ -122,5 +124,72 @@ class ScriptFunctionsServiceSessionTest {
             ),
             assertIs<ServiceMessage.Result>(answer).deltas
         )
+    }
+
+    private val street = WireModel(
+        metamodelPath = "/houses.mm",
+        subtypes = mapOf("Building" to listOf("Building", "House"), "House" to listOf("House")),
+        instances = listOf(
+            WireInstance("a", "House", attributes = mapOf("rooms" to listOf(WireValue.IntValue(3)))),
+            WireInstance("b", "House", attributes = mapOf("rooms" to listOf(WireValue.IntValue(5))))
+        )
+    )
+
+    @Test
+    fun `a call names the model it works on, and a stale name asks for an upload`() = runBlocking {
+        val service = session("count" to ScriptFunctionOperation { call -> call.model!!.instancesOf("Building").size })
+        assertNull(service.handle(ClientMessage.ModelPut(7, street)))
+
+        val answer = service.handle(ClientMessage.Call(1, "count", emptyList(), emptyList(), modelId = 7))
+        assertEquals(WireValue.IntValue(2), assertIs<ServiceMessage.Result>(answer).value)
+
+        val stale = service.handle(ClientMessage.Call(2, "count", emptyList(), emptyList(), modelId = 6))
+        assertEquals(ServiceMessage.Failure.UNKNOWN_MODEL, assertIs<ServiceMessage.Failure>(stale).code)
+    }
+
+    @Test
+    fun `a new model drops the old one, its cache and every collection`() = runBlocking {
+        val service = session(append)
+        service.handle(ClientMessage.ModelPut(1, street))
+        val first = service.currentModel!!
+        first.cache["index"] = "built"
+        service.handle(ClientMessage.Call(1, "append", listOf(list(1, 1)), listOf(WireValue.Ref(1)), modelId = 1))
+
+        service.handle(ClientMessage.ModelPut(2, street))
+
+        assertTrue(service.currentModel !== first)
+        assertTrue(service.currentModel!!.cache.isEmpty())
+        val resent = service.handle(
+            ClientMessage.Call(2, "append", listOf(HeapObject(1, HeapKind.LIST, 2, true)), listOf(WireValue.Ref(1)), modelId = 2)
+        )
+        assertEquals(ServiceMessage.Failure.UNKNOWN_OBJECT, assertIs<ServiceMessage.Failure>(resent).code)
+    }
+
+    @Test
+    fun `instances arrive as the model's own objects and go back by name`() = runBlocking {
+        val service = session("other" to ScriptFunctionOperation { call ->
+            val given = call.argument<ScriptModelInstance>(0)
+            assertTrue(given === call.model!!.instances[given.name])
+            call.model.instances.values.first { it !== given }
+        })
+        service.handle(ClientMessage.ModelPut(1, street))
+        val answer = service.handle(
+            ClientMessage.Call(1, "other", emptyList(), listOf(WireValue.InstanceValue("a")), modelId = 1)
+        )
+        assertEquals(WireValue.InstanceValue("b"), assertIs<ServiceMessage.Result>(answer).value)
+    }
+
+    @Test
+    fun `an instance of a model the call does not work on cannot be returned`() = runBlocking {
+        var kept: ScriptModelInstance? = null
+        val service = session("keep" to ScriptFunctionOperation { call ->
+            kept ?: call.model!!.instances.getValue("a").also { kept = it }
+        })
+        service.handle(ClientMessage.ModelPut(1, street))
+        service.handle(ClientMessage.Call(1, "keep", emptyList(), emptyList(), modelId = 1))
+        service.handle(ClientMessage.ModelPut(2, street))
+
+        val answer = service.handle(ClientMessage.Call(2, "keep", emptyList(), emptyList(), modelId = 2))
+        assertTrue(assertIs<ServiceMessage.Failure>(answer).message.contains("model the call does not work on"))
     }
 }

@@ -1,5 +1,9 @@
 package com.mdeo.script.external
 
+import java.util.WeakHashMap
+import com.mdeo.script.ast.ExternalImplementation
+import com.mdeo.metamodel.ModelInstance
+import com.mdeo.metamodel.Model
 import com.mdeo.scriptfunctions.protocol.ScriptFunctionsProtocol
 import com.mdeo.scriptfunctions.protocol.ClientMessage
 import com.mdeo.scriptfunctions.protocol.ServiceMessage
@@ -61,7 +65,20 @@ class ScriptFunctionsClient(
     private var nextCallId = 1L
     private val lock = Any()
 
-    override fun call(callId: String, arguments: Array<Any?>): Any? = synchronized(lock) {
+    /**
+     * Encoded models by the object they were built from. An execution calls many times on one
+     * model, and encoding it is the costly part of deciding whether it has to be uploaded.
+     */
+    private val encodedModels = WeakHashMap<Model, EncodedModel>()
+
+    /**
+     * The digest and id of the model the service holds, if any.
+     */
+    private var heldModelDigest: String? = null
+    private var heldModelId = 0L
+    private var nextModelId = 1L
+
+    override fun call(callId: String, arguments: Array<Any?>, model: Model?): Any? = synchronized(lock) {
         val spec = specs[callId] ?: throw ExternalCallException("No external call '$callId' was compiled")
 
         val released = registry.drainReleased()
@@ -72,15 +89,29 @@ class ScriptFunctionsClient(
 
         var resentInFull = false
         while (true) {
-            val encoder = HeapEncoder()
+            val encoder = HeapEncoder(model)
             val args = arguments.mapIndexed { index, argument ->
                 encoder.encode(argument, spec.parameterTypes.getOrElse(index) { ParameterModes.any }, spec.functionName)
+            }
+
+            val needsModel = spec.model == ExternalImplementation.MODEL_READONLY || encoder.usesInstances
+            val modelId = if (needsModel) {
+                if (model == null) {
+                    throw ExternalCallException(
+                        "External function '${spec.functionName}' reads the model, but the script runs on none"
+                    )
+                }
+                // Uploading a model resets the service, so this comes before deciding which
+                // collections can be sent without content.
+                uploadIfNotHeld(model)
+            } else {
+                null
             }
 
             val id = nextCallId++
             transport.send(
                 ScriptFunctionsProtocol.encodeClient(
-                    ClientMessage.Call(id, spec.operation, encoder.objects(), args)
+                    ClientMessage.Call(id, spec.operation, encoder.objects(), args, modelId)
                 )
             )
 
@@ -89,7 +120,12 @@ class ScriptFunctionsClient(
                     // Whatever the service did to its copies before failing is not ours; it has
                     // to be sent everything again next time.
                     encoder.sent.keys.forEach { serviceVersions.remove(it) }
-                    if (answer.code == ServiceMessage.Failure.UNKNOWN_OBJECT && !resentInFull) {
+                    val lostState = answer.code == ServiceMessage.Failure.UNKNOWN_OBJECT ||
+                            answer.code == ServiceMessage.Failure.UNKNOWN_MODEL
+                    if (lostState && !resentInFull) {
+                        // The service lost what it held, as after a reconnect: send everything.
+                        heldModelDigest = null
+                        serviceVersions.clear()
                         resentInFull = true
                         continue
                     }
@@ -109,6 +145,25 @@ class ScriptFunctionsClient(
         }
     }
 
+    /**
+     * Makes sure the service holds [model], uploading it when the service holds a different one or
+     * none.
+     *
+     * @return The id the service holds the model under
+     */
+    private fun uploadIfNotHeld(model: Model): Long {
+        val encoded = encodedModels.getOrPut(model) { ModelEncoder.encode(model) }
+        if (encoded.digest != heldModelDigest) {
+            val modelId = nextModelId++
+            transport.send(ScriptFunctionsProtocol.encodeClient(ClientMessage.ModelPut(modelId, encoded.wire)))
+            heldModelDigest = encoded.digest
+            heldModelId = modelId
+            // A new model replaces everything the service held.
+            serviceVersions.clear()
+        }
+        return heldModelId
+    }
+
     private fun awaitAnswer(callId: Long): ServiceMessage {
         while (true) {
             val message = ScriptFunctionsProtocol.decodeService(transport.receive())
@@ -123,7 +178,13 @@ class ScriptFunctionsClient(
     /**
      * Encodes the arguments of one call, collecting every collection they reach.
      */
-    private inner class HeapEncoder {
+    private inner class HeapEncoder(val model: Model?) {
+        /**
+         * Whether an argument reaches a model instance, which the service can only resolve with
+         * the model.
+         */
+        var usesInstances = false
+
         /**
          * The collections of this call by id, and whether any path reached them as inout.
          */
@@ -139,6 +200,14 @@ class ScriptFunctionsClient(
             is Float -> WireValue.FloatValue(value)
             is Double -> WireValue.DoubleValue(value)
             is String -> WireValue.StringValue(value)
+            is ModelInstance -> {
+                val name = model?.nameOf(value) ?: throw ExternalCallException(
+                    "External function '$functionName' was passed a model instance that is not part " +
+                            "of the model the script runs on"
+                )
+                usesInstances = true
+                WireValue.InstanceValue(name)
+            }
             is DeltaTarget, is MapDeltaTarget -> {
                 val id = registry.idFor(value)
                 val inout = ParameterModes.isInout(declared)
@@ -165,7 +234,7 @@ class ScriptFunctionsClient(
             else -> throw ExternalCallException(
                 "External function '$functionName' was passed a ${value::class.simpleName}, which " +
                         "script-functions version ${ScriptFunctionsProtocol.VERSION} cannot carry. " +
-                        "Only scalars, strings and collections of them can be passed."
+                        "Only scalars, strings, model instances and collections of them can be passed."
             )
         }
 
@@ -264,6 +333,9 @@ class ScriptFunctionsClient(
         }
 
         private fun checkValue(value: WireValue, newIds: Set<Long>) {
+            if (value is WireValue.InstanceValue && encoder.model?.instancesByName?.containsKey(value.name) != true) {
+                reject("referred to instance '${value.name}', which is not part of the model the script runs on")
+            }
             if (value is WireValue.Ref && value.id !in newIds && value.id !in encoder.sent && registry.objectOf(value.id) == null) {
                 reject("referred to unknown collection ${value.id}")
             }
@@ -338,6 +410,7 @@ class ScriptFunctionsClient(
                 is WireValue.DoubleValue -> value.value
                 is WireValue.StringValue -> value.value
                 is WireValue.Ref -> created[value.id] ?: encoder.sent[value.id] ?: registry.objectOf(value.id)
+                is WireValue.InstanceValue -> encoder.model?.instancesByName?.get(value.name)
             }
             return coerceNumber(decoded, expected)
         }

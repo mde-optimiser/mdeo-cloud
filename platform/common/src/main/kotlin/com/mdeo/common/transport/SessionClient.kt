@@ -143,11 +143,17 @@ class SessionClient(
             val live = session ?: reconnect()
             try {
                 live.send(Frame.Binary(fin = true, data = data))
-            } catch (e: CancellationException) {
-                throw e
             } catch (e: Exception) {
+                // A connection the peer closed cancels its outgoing channel; only a cancellation
+                // of the caller itself must propagate as one.
+                if (e is CancellationException && !currentCoroutineContext().isActive) throw e
                 logger.warn("Session send failed, reconnecting: ${e.message}")
-                reconnect().send(Frame.Binary(fin = true, data = data))
+                try {
+                    reconnect().send(Frame.Binary(fin = true, data = data))
+                } catch (retry: Exception) {
+                    if (retry is CancellationException && !currentCoroutineContext().isActive) throw retry
+                    throw retry as? SessionException ?: SessionException("Could not send on the session", retry)
+                }
             }
         }
     }

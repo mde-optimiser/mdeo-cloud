@@ -15,6 +15,7 @@ import com.mdeo.pluginservice.session.SessionContext
  * | `List`, `Bag` | [MutableList] |
  * | `Set`, `OrderedSet` | [MutableSet], iterating in insertion order |
  * | `Map` | [MutableMap], iterating in insertion order |
+ * | a model class | [ScriptModelInstance] |
  *
  * The same collection passed twice is the same object twice, and a collection that contains itself
  * does so here as well.
@@ -46,11 +47,14 @@ fun interface ScriptFunctionOperation {
  * @property arguments The arguments, in declaration order
  * @property session The session the call arrived on; null when the service is used without one,
  *           as in tests
+ * @property model The model the call works on, when the function reads the model or is passed
+ *           instances of it; null otherwise
  */
 class ScriptFunctionCall(
     val operation: String,
     val arguments: List<Any?>,
-    val session: SessionContext?
+    val session: SessionContext?,
+    val model: ScriptModel? = null
 ) {
     /**
      * Returns one argument as the type it was declared with.
