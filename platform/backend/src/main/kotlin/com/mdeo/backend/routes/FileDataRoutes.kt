@@ -89,7 +89,9 @@ fun Route.fileDataRoutes(
                 return@get
             }
             
-            val result = fileDataService.getFileData(projectId, path, language, key)
+            val callerComputationId = jwtPrincipal?.payload?.getClaim(JwtService.CLAIM_COMPUTATION_ID)?.asString()
+                ?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+            val result = fileDataService.getFileData(projectId, path, language, key, callerComputationId)
             call.respondApiResult(result)
         }
     }

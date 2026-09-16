@@ -37,6 +37,12 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
     private val logger = LoggerFactory.getLogger(FileDataService::class.java)
     private val json = Json { ignoreUnknownKeys = true }
     private val computationLog = FileDataComputationLog()
+    private val flights = ComputationFlights<FileDataTarget, ApiResult<FileDataResponse>>()
+
+    /**
+     * One piece of file data, as computations are shared by it.
+     */
+    private data class FileDataTarget(val projectId: UUID, val path: String, val key: String)
 
     /**
      * File data configuration settings 
@@ -59,13 +65,16 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
      * @param path The normalized path to the file (optional if language is provided)
      * @param languageId The language ID (optional if path is provided, assumes root path)
      * @param key The data key (e.g., "ast")
+     * @param callerComputationId The file data computation the request comes from, when a plugin
+     *        asks for this data while computing other data
      * @return ApiResult containing the computed data with version or an error
      */
     suspend fun getFileData(
         projectId: UUID,
         path: String?,
         languageId: String?,
-        key: String
+        key: String,
+        callerComputationId: UUID? = null
     ): ApiResult<FileDataResponse> {
         val normalizedPath = when {
             path != null -> normalizePath(path)
@@ -76,7 +85,26 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
             )
         }
 
-        val computingCheck = transaction {
+        cachedFileData(projectId, normalizedPath, key)?.let { return success(it) }
+
+        // Requests for the same data while it is being computed wait for that computation.
+        return flights.run(FileDataTarget(projectId, normalizedPath, key), callerComputationId) { computationId ->
+            // Another computation may have finished between the check above and taking the flight.
+            cachedFileData(projectId, normalizedPath, key)?.let { success(it) }
+                ?: computeFileData(projectId, normalizedPath, languageId, key, computationId)
+        }
+    }
+
+    /**
+     * Returns the stored data for a file and key, if it is still current.
+     *
+     * @param projectId The UUID of the project
+     * @param normalizedPath The normalized file path
+     * @param key The data key
+     * @return The data with its source version, or null when there is none or it is outdated
+     */
+    private fun cachedFileData(projectId: UUID, normalizedPath: String, key: String): FileDataResponse? {
+        val row = transaction {
             FileDataTable.selectAll()
                 .where {
                     (FileDataTable.projectId eq projectId.toKotlinUuid()) and
@@ -84,17 +112,30 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
                             (FileDataTable.dataKey eq key)
                 }
                 .firstOrNull()
-        }
+        } ?: return null
 
-        if (computingCheck != null && isDataCurrent(projectId, computingCheck)) {
-            val cachedJson: JsonElement = computingCheck[FileDataTable.data]
-            return success(
-                FileDataResponse(
-                    data = cachedJson,
-                    version = computingCheck[FileDataTable.sourceVersion]
-                )
-            )
-        }
+        if (!isDataCurrent(projectId, row)) return null
+        val cachedJson: JsonElement = row[FileDataTable.data]
+        return FileDataResponse(data = cachedJson, version = row[FileDataTable.sourceVersion])
+    }
+
+    /**
+     * Computes file data with the responsible plugin and stores it.
+     *
+     * @param projectId The UUID of the project
+     * @param normalizedPath The normalized file path
+     * @param languageId The language ID, when the data is addressed by language
+     * @param key The data key
+     * @param computationId The id the computation is recorded and its token issued under
+     * @return The computed data, or an error
+     */
+    private suspend fun computeFileData(
+        projectId: UUID,
+        normalizedPath: String,
+        languageId: String?,
+        key: String,
+        computationId: UUID
+    ): ApiResult<FileDataResponse> {
 
         val fileRow = transaction {
             FilesTable.selectAll()
@@ -153,7 +194,7 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
 
         // Recorded before the plugin is called so the token below is backed by a computation that is
         // already visible to token verification, and removed again as soon as the call is done.
-        val computationId = beginComputation(projectId, normalizedPath, key)
+        beginComputation(projectId, normalizedPath, key, computationId)
         val logged = computationLog.start(projectId, normalizedPath, key)
 
         try {
@@ -209,10 +250,9 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
      * @param projectId The UUID of the project
      * @param path The normalized path of the file being computed
      * @param key The data key being computed
-     * @return The UUID of the recorded computation
+     * @param computationId The UUID to record the computation under
      */
-    private fun beginComputation(projectId: UUID, path: String, key: String): UUID {
-        val computationId = UUID.randomUUID()
+    private fun beginComputation(projectId: UUID, path: String, key: String, computationId: UUID) {
         val now = Instant.now()
         val staleBefore = now.minusSeconds(fileDataConfig.computationTimeoutSeconds)
 
@@ -227,8 +267,6 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
                 it[startedAt] = now
             }
         }
-
-        return computationId
     }
 
     /**
