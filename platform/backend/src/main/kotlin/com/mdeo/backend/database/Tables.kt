@@ -210,12 +210,15 @@ object PluginSessionsTable : Table("plugin_sessions") {
 
 /**
  * File data table schema for caching computed file data (e.g., AST).
+ *
+ * [data] is a JSON column read and written as its text: Postgres keeps `json` exactly as written, so
+ * cached data is served as stored, without being parsed and serialized again on every request.
  */
 object FileDataTable : Table("file_data") {
     val projectId = uuid("project_id")
     val path = varchar("path", 1024)
     val dataKey = varchar("data_key", 255)
-    val data = json<JsonElement>("data", Json)
+    val data = json<String>("data", { it }, { it })
     val sourceVersion = integer("source_version")
     val createdAt = timestamp("created_at")
     val updatedAt = timestamp("updated_at")

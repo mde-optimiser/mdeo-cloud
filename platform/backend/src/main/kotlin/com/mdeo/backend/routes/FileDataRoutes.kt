@@ -94,7 +94,11 @@ fun Route.fileDataRoutes(
                 ?.let { runCatching { UUID.fromString(it) }.getOrNull() }
             val deadline = CallerDeadline.fromHeader(call.request.headers[CallerDeadline.HEADER])
             val result = fileDataService.getFileData(projectId, path, language, key, callerComputationId, deadline)
-            call.respondApiResult(result)
+            when (result) {
+                // Served as stored, without parsing the data.
+                is ApiResult.Success -> call.respondText(result.value.toResponseJson(), ContentType.Application.Json)
+                is ApiResult.Failure -> call.respondApiResult(result)
+            }
         }
     }
 }

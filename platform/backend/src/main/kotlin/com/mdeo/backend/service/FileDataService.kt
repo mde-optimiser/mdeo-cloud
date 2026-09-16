@@ -38,7 +38,7 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
     private val logger = LoggerFactory.getLogger(FileDataService::class.java)
     private val json = Json { ignoreUnknownKeys = true }
     private val computationLog = FileDataComputationLog()
-    private val flights = ComputationFlights<FileDataTarget, ApiResult<FileDataResponse>>()
+    private val flights = ComputationFlights<FileDataTarget, ApiResult<RawFileData>>()
 
     /**
      * One piece of file data, as computations are shared by it.
@@ -78,7 +78,7 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
         key: String,
         callerComputationId: UUID? = null,
         deadline: CallerDeadline? = null
-    ): ApiResult<FileDataResponse> {
+    ): ApiResult<RawFileData> {
         val normalizedPath = when {
             path != null -> normalizePath(path)
             languageId != null -> normalizePath("/")
@@ -114,7 +114,7 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
      * @param key The data key
      * @return The data with its source version, or null when there is none or it is outdated
      */
-    private fun cachedFileData(projectId: UUID, normalizedPath: String, key: String): FileDataResponse? {
+    private fun cachedFileData(projectId: UUID, normalizedPath: String, key: String): RawFileData? {
         val row = transaction {
             FileDataTable.selectAll()
                 .where {
@@ -126,8 +126,7 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
         } ?: return null
 
         if (!isDataCurrent(projectId, row)) return null
-        val cachedJson: JsonElement = row[FileDataTable.data]
-        return FileDataResponse(data = cachedJson, version = row[FileDataTable.sourceVersion])
+        return RawFileData(json = row[FileDataTable.data], version = row[FileDataTable.sourceVersion])
     }
 
     /**
@@ -148,7 +147,7 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
         key: String,
         computationId: UUID,
         deadline: CallerDeadline?
-    ): ApiResult<FileDataResponse> {
+    ): ApiResult<RawFileData> {
 
         val fileRow = transaction {
             FilesTable.selectAll()
@@ -235,12 +234,7 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
                 )
             }
 
-            return success(
-                FileDataResponse(
-                    data = computedData.data,
-                    version = fileSource?.version ?: -1
-                )
-            )
+            return success(RawFileData(json = computedData.data.toString(), version = fileSource?.version ?: -1))
         } catch (e: DeadlineExceededException) {
             logged.fail()
             return fileDataFailure(ErrorCodes.DEADLINE_EXCEEDED, e.message ?: "Deadline exceeded")
@@ -313,156 +307,36 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
     }
 
     /**
-     * Checks if cached file data is still current based on transitive version checking.
+     * Checks if cached file data is still current, and deletes it when it is not.
+     *
+     * Data is current when its source file still has the version it was computed from, and every
+     * file and data dependency — of the data itself and, transitively, of every data it depends
+     * on — still has the version recorded for it. All of that is one query, however deep the
+     * dependencies go.
      */
     private fun isDataCurrent(projectId: UUID, row: ResultRow): Boolean {
         val path = row[FileDataTable.path]
         val dataKey = row[FileDataTable.dataKey]
+        val sourceVersion = row[FileDataTable.sourceVersion]
 
-        if (!checkSourceFileVersion(projectId, row)) {
-            deleteFileData(projectId, path, dataKey)
-            return false
-        }
-
-        if (!checkFileDependencies(projectId, path, dataKey)) {
-            deleteFileData(projectId, path, dataKey)
-            return false
-        }
-
-        if (!checkDataDependenciesTransitively(projectId, path, dataKey)) {
-            deleteFileData(projectId, path, dataKey)
-            return false
-        }
-
-        return true
-    }
-
-    /**
-     * Checks if the source file version matches the cached version.
-     */
-    private fun checkSourceFileVersion(projectId: UUID, row: ResultRow): Boolean {
-        val cachedSourceVersion = row[FileDataTable.sourceVersion]
-        val path = row[FileDataTable.path]
-
-        val currentVersion = transaction {
-            FilesTable.selectAll()
-                .where { (FilesTable.projectId eq projectId.toKotlinUuid()) and (FilesTable.path eq path) }
-                .firstOrNull()
-                ?.get(FilesTable.version)
-        } ?: return false
-
-        return currentVersion == cachedSourceVersion
-    }
-
-    /**
-     * Checks all file dependencies using a single LEFT JOIN query.
-     */
-    private fun checkFileDependencies(projectId: UUID, path: String, dataKey: String): Boolean {
-        return transaction {
-            val results = FileDependenciesTable
-                .leftJoin(
-                    FilesTable,
-                    { FileDependenciesTable.dependencyPath },
-                    { FilesTable.path },
-                    additionalConstraint = { FilesTable.projectId eq projectId.toKotlinUuid() }
+        val current = transaction {
+            exec(
+                VALIDITY_QUERY,
+                listOf(
+                    TextColumnType() to projectId.toString(),
+                    TextColumnType() to path,
+                    IntegerColumnType() to sourceVersion,
+                    TextColumnType() to projectId.toString(),
+                    TextColumnType() to path,
+                    TextColumnType() to dataKey
                 )
-                .selectAll()
-                .where {
-                    (FileDependenciesTable.projectId eq projectId.toKotlinUuid()) and
-                            (FileDependenciesTable.path eq path) and
-                            (FileDependenciesTable.dataKey eq dataKey)
-                }
-
-            for (result in results) {
-                val expectedVersion = result[FileDependenciesTable.dependencyVersion]
-                val currentVersion = result.getOrNull(FilesTable.version)
-
-                if (currentVersion == null || currentVersion != expectedVersion) {
-                    return@transaction false
-                }
-            }
-
-            true
-        }
-    }
-
-    /**
-     * Checks data dependencies transitively using a queue-based approach.
-     * Data dependencies can themselves have file and data dependencies that must be checked.
-     */
-    private fun checkDataDependenciesTransitively(projectId: UUID, path: String, dataKey: String): Boolean {
-        val queue = ArrayDeque<DataKey>()
-        val visited = mutableSetOf<DataKey>()
-
-        val initialDeps = getDataDependenciesWithVersionCheck(projectId, path, dataKey)
-            ?: return false
-
-        queue.addAll(initialDeps)
-
-        while (queue.isNotEmpty()) {
-            val current = queue.removeFirst()
-
-            if (!visited.add(current)) {
-                continue
-            }
-
-            if (!checkFileDependencies(projectId, current.path, current.key)) {
-                return false
-            }
-
-            val deps = getDataDependenciesWithVersionCheck(projectId, current.path, current.key)
-                ?: return false
-
-            queue.addAll(deps)
+            ) { resultSet -> resultSet.next() && resultSet.getBoolean(1) } ?: false
         }
 
-        return true
-    }
-
-    /**
-     * Fetches data dependencies for a given file data entry and validates their versions.
-     * Returns null if any version check fails, otherwise returns the list of dependencies.
-     */
-    private fun getDataDependenciesWithVersionCheck(
-        projectId: UUID,
-        path: String,
-        dataKey: String
-    ): List<DataKey>? {
-        return transaction {
-            val results = DataDependenciesTable
-                .leftJoin(
-                    FilesTable,
-                    { DataDependenciesTable.dependencyPath },
-                    { FilesTable.path },
-                    additionalConstraint = { FilesTable.projectId eq projectId.toKotlinUuid() }
-                )
-                .selectAll()
-                .where {
-                    (DataDependenciesTable.projectId eq projectId.toKotlinUuid()) and
-                            (DataDependenciesTable.path eq path) and
-                            (DataDependenciesTable.dataKey eq dataKey)
-                }
-
-            val dependencies = mutableListOf<DataKey>()
-
-            for (result in results) {
-                val expectedVersion = result[DataDependenciesTable.dependencyVersion]
-                val currentVersion = result.getOrNull(FilesTable.version)
-
-                if (currentVersion == null || currentVersion != expectedVersion) {
-                    return@transaction null
-                }
-
-                dependencies.add(
-                    DataKey(
-                        result[DataDependenciesTable.dependencyPath],
-                        result[DataDependenciesTable.dependencyKey]
-                    )
-                )
-            }
-
-            dependencies
+        if (!current) {
+            deleteFileData(projectId, path, dataKey)
         }
+        return current
     }
 
     /**
@@ -563,7 +437,7 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
                 it[FileDataTable.projectId] = projectId.toKotlinUuid()
                 it[FileDataTable.path] = path
                 it[FileDataTable.dataKey] = key
-                it[FileDataTable.data] = response.data
+                it[FileDataTable.data] = response.data.toString()
                 it[FileDataTable.sourceVersion] = sourceVersion ?: -1
                 it[FileDataTable.createdAt] = now
                 it[FileDataTable.updatedAt] = now
@@ -633,6 +507,52 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
 }
 
 /**
- * Data class representing a file data key (path + key combination).
+ * File data as stored: the JSON text of the data, and the version of the source it was computed from.
+ *
+ * @property json The data, as JSON text
+ * @property version The source file version, -1 for data computed for a directory
  */
-private data class DataKey(val path: String, val key: String)
+class RawFileData(val json: String, val version: Int?) {
+    /**
+     * The response body of a file data request, `{"data": …, "version": …}`, built without parsing
+     * the data.
+     */
+    fun toResponseJson(): String = """{"data":$json,"version":${version ?: "null"}}"""
+}
+
+/**
+ * Whether one piece of file data is current, in a single statement.
+ *
+ * Parameters: project id, path and source version for the source check, then project id, path and
+ * data key for the dependency walk. The recursive part collects the data itself and everything it
+ * depends on; the data is stale if any of those has a file or data dependency whose file changed.
+ */
+private val VALIDITY_QUERY = """
+    SELECT
+      EXISTS (
+        SELECT 1 FROM files f
+        WHERE f.project_id = CAST(? AS uuid) AND f.path = ? AND f.version = ?
+      )
+      AND NOT EXISTS (
+        WITH RECURSIVE nodes(project_id, path, data_key) AS (
+            SELECT CAST(? AS uuid), CAST(? AS varchar), CAST(? AS varchar)
+          UNION
+            SELECT dd.project_id, dd.dependency_path, dd.dependency_key
+            FROM data_dependencies dd
+            JOIN nodes n ON dd.project_id = n.project_id AND dd.path = n.path AND dd.data_key = n.data_key
+        )
+        SELECT 1 FROM nodes n
+        WHERE EXISTS (
+            SELECT 1 FROM file_dependencies d
+            LEFT JOIN files f ON f.project_id = d.project_id AND f.path = d.dependency_path
+            WHERE d.project_id = n.project_id AND d.path = n.path AND d.data_key = n.data_key
+              AND (f.version IS NULL OR f.version <> d.dependency_version)
+          )
+          OR EXISTS (
+            SELECT 1 FROM data_dependencies d
+            LEFT JOIN files f ON f.project_id = d.project_id AND f.path = d.dependency_path
+            WHERE d.project_id = n.project_id AND d.path = n.path AND d.data_key = n.data_key
+              AND (f.version IS NULL OR f.version <> d.dependency_version)
+          )
+      )
+""".trimIndent()
