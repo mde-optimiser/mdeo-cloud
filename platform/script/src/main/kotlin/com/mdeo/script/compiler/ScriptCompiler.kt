@@ -2,10 +2,12 @@ package com.mdeo.script.compiler
 
 import com.mdeo.metamodel.Metamodel
 import com.mdeo.metamodel.data.MetamodelData
+import com.mdeo.script.ast.ExternalImplementation
 import com.mdeo.script.ast.TypedAst
 import com.mdeo.script.ast.TypedFunction
 import com.mdeo.script.ast.TypedImport
 import com.mdeo.script.ast.TypedPluginAst
+import com.mdeo.script.ast.TypedPluginFunctionSignature
 import com.mdeo.expression.ast.types.ClassTypeRef
 import com.mdeo.expression.ast.types.ReturnType
 import com.mdeo.expression.ast.types.VoidType
@@ -39,6 +41,8 @@ import com.mdeo.script.compiler.registry.function.FunctionRegistry
 import com.mdeo.script.compiler.registry.function.GlobalFunctionRegistry
 import com.mdeo.script.compiler.registry.function.PluginFunctionParameter
 import com.mdeo.script.compiler.registry.function.PluginFunctionSignatureDefinition
+import com.mdeo.script.compiler.util.ASMUtil
+import com.mdeo.script.compiler.util.CoercionUtil
 import com.mdeo.script.compiler.util.MethodDescriptorUtil
 import com.mdeo.script.compiler.registry.property.GlobalPropertyRegistry
 import com.mdeo.script.compiler.registry.type.TypeRegistry
@@ -180,10 +184,11 @@ class ScriptCompiler {
             functionLookup
         )
 
+        val externalCalls = mutableMapOf<String, ExternalCallSpec>()
         val generatedInterfaces = mutableMapOf<String, ByteArray>()
         val programBytecode = compileSingleClass(
             input, fileRegistries, effectiveGlobalRegistry, typeRegistries, functionLookup,
-            pluginLookup, generatedInterfaces
+            pluginLookup, generatedInterfaces, externalCalls
         )
 
         allBytecodes[CompiledProgram.SCRIPT_PROGRAM_BINARY_NAME] = programBytecode
@@ -192,7 +197,7 @@ class ScriptCompiler {
         }
 
         val immutableLookup = functionLookup.mapValues { (_, v) -> v.toMap() }
-        return CompiledProgram(allBytecodes, immutableLookup, metamodel)
+        return CompiledProgram(allBytecodes, immutableLookup, metamodel, externalCalls.toMap())
     }
 
     /**
@@ -219,6 +224,7 @@ class ScriptCompiler {
      * @param typeRegistries Shared type and property registries derived from the metamodel.
      * @param functionLookup Pre-assigned (filePath → functionName → jvmMethodName) mapping.
      * @param generatedInterfaces Shared mutable map for collecting generated lambda interfaces.
+     * @param externalCalls Shared mutable map collecting one spec per emitted external stub.
      * @return The bytecode of the single ScriptProgram class.
      */
     private fun compileSingleClass(
@@ -228,7 +234,8 @@ class ScriptCompiler {
         typeRegistries: TypeRegistries,
         functionLookup: Map<String, Map<String, String>>,
         pluginLookup: Map<String, Map<String, String>>,
-        generatedInterfaces: MutableMap<String, ByteArray>
+        generatedInterfaces: MutableMap<String, ByteArray>,
+        externalCalls: MutableMap<String, ExternalCallSpec>
     ): ByteArray {
         val cw = ClassWriter(ClassWriter.COMPUTE_FRAMES)
 
@@ -275,11 +282,19 @@ class ScriptCompiler {
                 val overloadLookup = pluginLookup[func.name] ?: continue
                 for ((overloadKey, signature) in func.signatures) {
                     val jvmMethodName = overloadLookup[overloadKey] ?: continue
+                    val external = signature.external
+                    if (external != null) {
+                        externalCalls[jvmMethodName] = compileExternalStub(
+                            func.name, overloadKey, external, signature, pluginAst,
+                            jvmMethodName, cw, pluginRegistry
+                        )
+                        continue
+                    }
                     val syntheticFunc = TypedFunction(
                         name = func.name,
                         parameters = signature.parameters,
                         returnType = signature.returnType,
-                        body = signature.body
+                        body = signature.body!!
                     )
                     compileFunction(
                         syntheticFunc, pluginTypedAst, jvmMethodName,
@@ -428,6 +443,130 @@ class ScriptCompiler {
     }
 
     /**
+     * Emits the stub standing in for a signature implemented outside the platform.
+     *
+     * The stub has the *same descriptor* as a locally implemented overload would, so nothing at
+     * the call site can tell the two apart: a call to an external function compiles to the same
+     * INVOKEVIRTUAL, with the same coercions, as a call to a contributed function with a body.
+     * The difference lives entirely inside the method, which boxes its arguments into an
+     * `Object[]`, hands them to the dispatcher on the script context, and unboxes the result
+     * back to the declared return type.
+     *
+     * @param functionName The function name as the script sees it.
+     * @param overloadKey Which overload of that name this is.
+     * @param external The declared external implementation.
+     * @param signature The overload's parameters and return type.
+     * @param pluginAst The plugin AST the type indices refer to.
+     * @param jvmMethodName The JVM method name assigned to this overload, also its call id.
+     * @param cw The class writer to emit the method on.
+     * @param functionRegistry Registry holding the descriptor assigned to this overload.
+     * @return The spec describing the emitted stub.
+     */
+    private fun compileExternalStub(
+        functionName: String,
+        overloadKey: String,
+        external: ExternalImplementation,
+        signature: TypedPluginFunctionSignature,
+        pluginAst: TypedPluginAst,
+        jvmMethodName: String,
+        cw: ClassWriter,
+        functionRegistry: FunctionRegistry
+    ): ExternalCallSpec {
+        val parameterTypes = signature.parameters.map { pluginAst.types[it.type] }
+        val returnType = pluginAst.types[signature.returnType]
+        val descriptor = functionRegistry.lookupFunction(functionName)
+            ?.getOverload(overloadKey)
+            ?.descriptor
+            ?: MethodDescriptorUtil.buildDescriptor(parameterTypes, returnType)
+
+        val mv = cw.visitMethod(Opcodes.ACC_PUBLIC, jvmMethodName, descriptor, null, null)
+        mv.visitCode()
+
+        // this.__ctx.getExternalCalls()
+        mv.visitVarInsn(Opcodes.ALOAD, 0)
+        mv.visitFieldInsn(
+            Opcodes.GETFIELD,
+            CompiledProgram.SCRIPT_PROGRAM_INTERNAL_NAME,
+            CONTEXT_FIELD_NAME,
+            CONTEXT_DESCRIPTOR
+        )
+        mv.visitMethodInsn(
+            Opcodes.INVOKEINTERFACE,
+            CONTEXT_INTERNAL_NAME,
+            "getExternalCalls",
+            "()L$EXTERNAL_DISPATCHER_INTERNAL_NAME;",
+            true
+        )
+
+        mv.visitLdcInsn(jvmMethodName)
+
+        mv.visitLdcInsn(parameterTypes.size)
+        mv.visitTypeInsn(Opcodes.ANEWARRAY, "java/lang/Object")
+
+        var localIndex = 1
+        for ((index, parameterType) in parameterTypes.withIndex()) {
+            mv.visitInsn(Opcodes.DUP)
+            mv.visitLdcInsn(index)
+            mv.visitVarInsn(ASMUtil.getLoadOpcode(parameterType), localIndex)
+            if (parameterType is ClassTypeRef && !parameterType.isNullable) {
+                CoercionUtil.emitBoxing(parameterType, mv)
+            }
+            mv.visitInsn(Opcodes.AASTORE)
+            localIndex += ASMUtil.getSlotsForType(parameterType)
+        }
+
+        mv.visitMethodInsn(
+            Opcodes.INVOKEINTERFACE,
+            EXTERNAL_DISPATCHER_INTERNAL_NAME,
+            "call",
+            "(Ljava/lang/String;[Ljava/lang/Object;)Ljava/lang/Object;",
+            true
+        )
+
+        if (returnType is VoidType) {
+            mv.visitInsn(Opcodes.POP)
+            mv.visitInsn(Opcodes.RETURN)
+        } else {
+            ASMUtil.emitUnboxOrCast(returnType, mv)
+            mv.visitInsn(returnOpcode(returnType))
+        }
+
+        mv.visitMaxs(0, 0)
+        mv.visitEnd()
+
+        return ExternalCallSpec(
+            callId = jvmMethodName,
+            functionName = functionName,
+            overloadKey = overloadKey,
+            operation = external.operation,
+            model = external.model,
+            parameterTypes = parameterTypes,
+            returnType = returnType,
+            contribution = external.contribution,
+            session = external.session
+        )
+    }
+
+    /**
+     * Picks the return instruction for a value of the given type.
+     *
+     * @param type The declared return type.
+     * @return The matching return opcode.
+     */
+    private fun returnOpcode(type: ReturnType): Int {
+        if (type is ClassTypeRef && !type.isNullable && type.`package` == "builtin") {
+            return when (type.type) {
+                "int", "boolean" -> Opcodes.IRETURN
+                "long" -> Opcodes.LRETURN
+                "float" -> Opcodes.FRETURN
+                "double" -> Opcodes.DRETURN
+                else -> Opcodes.ARETURN
+            }
+        }
+        return Opcodes.ARETURN
+    }
+
+    /**
      * Ensures the method ends with a return instruction.
      *
      * Adds a void return at the end of the method regardless of whether the body already
@@ -527,6 +666,11 @@ class ScriptCompiler {
          * The JVM internal name for [ScriptContext]. 
          */
         const val CONTEXT_INTERNAL_NAME = "com/mdeo/script/runtime/ScriptContext"
+
+        /**
+         * JVM internal class name of the dispatcher an external stub calls through.
+         */
+        const val EXTERNAL_DISPATCHER_INTERNAL_NAME = "com/mdeo/script/runtime/ExternalCallDispatcher"
     }
 }
 

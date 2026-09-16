@@ -1,3 +1,4 @@
+import type { ServerContributionPlugin } from "@mdeo/plugin";
 import type { DirectoryEntry } from "./types.js";
 import type { FileDependency, DataDependency, FileDataResult } from "../handler/types.js";
 
@@ -301,6 +302,32 @@ export class HttpServerApi implements ServerApi {
 
         const result = await response.json();
         return result.data;
+    }
+
+    /**
+     * Fetches the contribution plugins a `lang:` session has to load.
+     *
+     * Requests carry these in their body because the backend relays them. A session is dialed
+     * directly, so they are fetched with the session token while the session opens.
+     *
+     * @param languageId The language the session addresses
+     * @param sessionName The session being opened
+     * @returns The contribution plugins registered for the language in the project
+     */
+    async getSessionContributionPlugins(languageId: string, sessionName: string): Promise<ServerContributionPlugin[]> {
+        const path = `sessions/lang/${encodeURIComponent(languageId)}/${encodeURIComponent(sessionName)}`;
+        const response = await fetch(`${this.projectBackendUrl}/${path}/contribution-plugins`, {
+            method: "GET",
+            headers: this.getAuthHeaders()
+        });
+
+        if (!response.ok) {
+            throw new Error(
+                `Failed to fetch contribution plugins for lang:${languageId}: ${await describeFailedResponse(response)}`
+            );
+        }
+
+        return (await response.json()) as ServerContributionPlugin[];
     }
 
     async updateExecutionMetadata(executionId: string, metadata: Record<string, unknown>): Promise<void> {

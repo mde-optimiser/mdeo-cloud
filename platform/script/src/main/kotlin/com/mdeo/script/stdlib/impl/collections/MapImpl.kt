@@ -7,9 +7,36 @@ package com.mdeo.script.stdlib.impl.collections
  * @param K the type of keys in this map
  * @param V the type of values in this map
  */
-class MapImpl<K, V> : ScriptMap<K, V> {
+class MapImpl<K, V> : ScriptMap<K, V>, MapDeltaTarget {
 
     private val backing: LinkedHashMap<K, V>
+
+    /**
+     * Mutation counter, see [MapDeltaTarget.deltaVersion].
+     */
+    private var version: Long = 0
+
+    override val deltaVersion: Long get() = version
+
+    override fun deltaEntries(): List<Pair<Any?, Any?>> = backing.entries.map { it.key to it.value }
+
+    @Suppress("UNCHECKED_CAST")
+    override fun deltaPut(key: Any?, value: Any?) {
+        version++
+        backing[key as K] = value as V
+    }
+
+    override fun deltaRemoveKey(key: Any?) {
+        version++
+        backing.remove(key)
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    override fun deltaReplace(entries: List<Pair<Any?, Any?>>) {
+        version++
+        backing.clear()
+        for ((key, value) in entries) backing[key as K] = value as V
+    }
 
     /**
      * Creates an empty map.
@@ -42,21 +69,27 @@ class MapImpl<K, V> : ScriptMap<K, V> {
     override fun values(): ReadonlyBag<V> = BagImpl(backing.values)
 
     override fun clear() {
+        version++
         backing.clear()
     }
 
     override fun put(key: K, value: V) {
+        version++
         backing[key] = value
     }
 
     override fun putAll(map: ReadonlyMap<K, V>) {
+        version++
         for (key in map.keySet()) {
             @Suppress("UNCHECKED_CAST")
             backing[key] = map.get(key) as V
         }
     }
 
-    override fun remove(key: K): V? = backing.remove(key)
+    override fun remove(key: K): V? {
+        version++
+        return backing.remove(key)
+    }
 
     override fun equals(other: Any?): Boolean {
         if (this === other) return true

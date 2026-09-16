@@ -99,6 +99,9 @@ export default defineConfig({
                     text: "Reference",
                     items: [
                         { text: "Language service HTTP API", link: "/develop/service-api" },
+                        { text: "Sessions", link: "/develop/sessions" },
+                        { text: "Kotlin plugin services", link: "/develop/kotlin-plugin-service" },
+                        { text: "The script-functions protocol", link: "/develop/script-functions-protocol" },
                         { text: "Local development", link: "/develop/local-development" }
                     ]
                 }

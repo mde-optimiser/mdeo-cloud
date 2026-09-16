@@ -15,7 +15,47 @@ import java.util.concurrent.ThreadLocalRandom
  */
 abstract class AbstractCollection<T, C : MutableCollection<T>>(
     protected val backing: C
-) : Collection<T> {
+) : Collection<T>, DeltaTarget {
+
+    /**
+     * Mutation counter, see [DeltaTarget.deltaVersion].
+     */
+    @JvmField
+    internal var version: Long = 0
+
+    override val deltaVersion: Long get() = version
+
+    override fun deltaSnapshot(): List<Any?> = ArrayList<Any?>(backing)
+
+    override fun deltaSplice(index: Int, deleteCount: Int, insert: List<Any?>) {
+        val elements = ArrayList<Any?>(backing)
+        repeat(deleteCount) { elements.removeAt(index) }
+        elements.addAll(index, insert)
+        deltaReplace(elements)
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    override fun deltaAdd(values: List<Any?>) {
+        version++
+        for (value in values) backing.add(value as T)
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    override fun deltaRemove(values: List<Any?>) {
+        version++
+        for (value in values) backing.remove(value as T)
+    }
+
+    override fun deltaSetCount(value: Any?, count: Int) {
+        throw UnsupportedOperationException("Only a bag has element counts")
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    override fun deltaReplace(elements: List<Any?>) {
+        version++
+        backing.clear()
+        backing.addAll(elements as List<T>)
+    }
 
     override fun iterator(): Iterator<T> = backing.iterator()
 
@@ -379,9 +419,13 @@ abstract class AbstractCollection<T, C : MutableCollection<T>>(
 
     override fun firstOrNull(): T? = backing.firstOrNull()
 
-    override fun add(item: T): Boolean = backing.add(item)
+    override fun add(item: T): Boolean {
+        version++
+        return backing.add(item)
+    }
 
     override fun addAll(col: ReadonlyCollection<T>): Boolean {
+        version++
         var modified = false
         for (element in col) {
             if (backing.add(element)) {
@@ -392,12 +436,17 @@ abstract class AbstractCollection<T, C : MutableCollection<T>>(
     }
 
     override fun clear() {
+        version++
         backing.clear()
     }
 
-    override fun remove(item: T): Boolean = backing.remove(item)
+    override fun remove(item: T): Boolean {
+        version++
+        return backing.remove(item)
+    }
 
     override fun removeAll(col: ReadonlyCollection<T>): Boolean {
+        version++
         var modified = false
         for (element in col) {
             if (backing.remove(element)) {

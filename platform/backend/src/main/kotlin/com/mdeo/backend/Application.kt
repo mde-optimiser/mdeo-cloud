@@ -113,6 +113,7 @@ fun Application.module(appConfig: AppConfig) {
             fileDataRoutes(services.fileDataService, services.projectService, services.jwtService)
             languagePluginRequestRoutes(services.languagePluginRequestService, services.projectService, services.jwtService)
             executionStateRoutes(services.executionService, services.jwtService)
+            sessionRoutes(services.pluginService, services.jwtService)
         }
         
         authenticate(AUTH_SESSION) {

@@ -58,7 +58,8 @@ data class ResolvedPlugin(
  * @property languageId The language ID that this contribution plugin is associated with
  * @property description Brief description of what this contribution plugin provides
  * @property additionalKeywords Optional array of additional keywords that this contribution plugin introduces
- * @property serverContributionPlugins Server contribution plugins as arbitrary JSON objects
+ * @property serverContributionPlugins Server contribution plugins as arbitrary JSON objects.
+ *            Each payload carries its own `id` and, when it declares any, its `sessions`.
  */
 @Serializable
 data class BackendContributionPlugin(
@@ -81,6 +82,7 @@ data class BackendContributionPlugin(
  * @property textualEditorPlugin Optional textual editor plugin configuration
  * @property icon Icon data in Lucide IconNode format
  * @property documentationUrl Optional URL of the documentation for this language
+ * @property sessions Session types this language accepts, keyed by session name, reached at `lang:<id>`
  */
 @Serializable
 data class BackendLanguagePlugin(
@@ -93,7 +95,8 @@ data class BackendLanguagePlugin(
     val textualEditorPlugin: LanguageTextualEditorPlugin? = null,
     val icon: JsonArray,
     val isGenerated: Boolean = false,
-    val documentationUrl: String? = null
+    val documentationUrl: String? = null,
+    val sessions: Map<String, SessionType> = emptyMap()
 )
 
 /**

@@ -36,7 +36,15 @@ export enum PluginErrorCode {
     PluginNotFound = "PluginNotFound",
     PluginAlreadyExists = "PluginAlreadyExists",
     PluginAlreadyAddedToProject = "PluginAlreadyAddedToProject",
-    PluginNotAddedToProject = "PluginNotAddedToProject"
+    PluginNotAddedToProject = "PluginNotAddedToProject",
+    PluginContributionIdConflict = "PluginContributionIdConflict"
+}
+
+/**
+ * Error codes specific to plugin sessions.
+ */
+export enum SessionErrorCode {
+    SessionNotFound = "SessionNotFound"
 }
 
 /**
@@ -61,7 +69,13 @@ export enum ExecutionErrorCode {
  * Union of all possible error codes.
  */
 export type ApiErrorCode =
-    CommonErrorCode | FileSystemErrorCode | ProjectErrorCode | PluginErrorCode | FileDataErrorCode | ExecutionErrorCode;
+    | CommonErrorCode
+    | FileSystemErrorCode
+    | ProjectErrorCode
+    | PluginErrorCode
+    | SessionErrorCode
+    | FileDataErrorCode
+    | ExecutionErrorCode;
 
 /**
  * Base interface for API errors.

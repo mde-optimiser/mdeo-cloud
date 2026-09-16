@@ -50,7 +50,10 @@ fun Application.module(appConfig: AppConfig) {
 
     val apiClient = OptimizerApiClient(appConfig.backendApiUrl)
     val orchestratorRegistry = OrchestratorRegistry()
-    val workerService = WorkerService(appConfig.workerThreads, appConfig.scriptTimeoutMs, appConfig.transformationTimeoutMs, appConfig.serverPort)
+    val workerService = WorkerService(
+        appConfig.workerThreads, appConfig.scriptTimeoutMs, appConfig.transformationTimeoutMs, appConfig.serverPort,
+        backendApiUrl = appConfig.backendApiUrl
+    )
     val executionService = OptimizerExecutionService(apiClient, this, appConfig, orchestratorRegistry, workerService)
 
     monitor.subscribe(ApplicationStopped) {

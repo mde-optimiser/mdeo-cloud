@@ -26,9 +26,15 @@ import com.mdeo.modeltransformation.graph.tinker.TinkerModelGraph
 import com.mdeo.optimizer.config.GraphBackendType
 import com.mdeo.optimizer.config.ObjectiveTendency
 import com.mdeo.script.ast.TypedAst as ScriptTypedAst
+import com.mdeo.script.ast.TypedPluginAst as ScriptTypedPluginAst
 import com.mdeo.script.ast.expressions.TypedExpressionSerializer as ScriptExpressionSerializer
 import com.mdeo.script.ast.statements.TypedStatementSerializer
 import com.mdeo.script.compiler.CompilationInput
+import com.mdeo.script.external.SessionDispatcher
+import com.mdeo.script.runtime.ExternalCallDispatcher
+import com.mdeo.common.model.PluginTarget
+import com.mdeo.common.model.PluginTargetKind
+import com.mdeo.execution.common.api.SessionResolver
 import com.mdeo.script.compiler.ScriptCompiler
 import com.mdeo.script.runtime.ExecutionEnvironment
 import io.ktor.client.*
@@ -526,6 +532,48 @@ class WorkerSubprocessMain : SubprocessMain() {
     }
 
     /**
+     * Sessions opened for the external calls of the current execution, and the resolver they ask.
+     */
+    private var sessionDispatcher: SessionDispatcher? = null
+    private var sessionResolver: SessionResolver? = null
+
+    /**
+     * Builds the dispatcher that answers the program's external calls over sessions.
+     *
+     * Every guidance function of one execution shares it; its clients serialize calls, so
+     * concurrent evaluation threads take turns on one session per contribution.
+     *
+     * @return The dispatcher, or [ExternalCallDispatcher.UNSUPPORTED] when the program makes no
+     *         external call or this node was given no way to open sessions
+     */
+    private fun createExternalCalls(
+        specs: Map<String, com.mdeo.script.compiler.ExternalCallSpec>,
+        request: WorkerSubprocessRequest.Setup
+    ): ExternalCallDispatcher {
+        closeExternalSessions()
+        val backendApiUrl = request.sessionBackendApiUrl
+        val projectId = request.sessionProjectId
+        val runToken = request.sessionRunToken
+        if (specs.isEmpty() || backendApiUrl == null || projectId == null || runToken == null) {
+            return ExternalCallDispatcher.UNSUPPORTED
+        }
+        val resolver = SessionResolver(backendApiUrl)
+        val dispatcher = SessionDispatcher(specs) { contribution, session ->
+            resolver.resolve(projectId, PluginTarget.of(PluginTargetKind.CONTRIBUTION, contribution), session, runToken)
+        }
+        sessionResolver = resolver
+        sessionDispatcher = dispatcher
+        return dispatcher
+    }
+
+    private fun closeExternalSessions() {
+        sessionDispatcher?.close()
+        sessionDispatcher = null
+        sessionResolver?.close()
+        sessionResolver = null
+    }
+
+    /**
      * Compiles all resources and optionally generates initial solutions.
      *
      * @return Pair of the evaluator and the list of initial solutions.
@@ -544,20 +592,29 @@ class WorkerSubprocessMain : SubprocessMain() {
         val scriptAsts: Map<String, ScriptTypedAst> = request.scriptAstJsons
             .mapValues { (_, json) -> scriptJson.decodeFromString<ScriptTypedAst>(json) }
 
-        val compiledProgram = ScriptCompiler().compile(CompilationInput(scriptAsts), request.metamodelData)
+        val pluginAst: ScriptTypedPluginAst? = request.pluginAstJson
+            ?.let { scriptJson.decodeFromString<ScriptTypedPluginAst>(it) }
+
+        val compiledProgram = ScriptCompiler().compile(
+            CompilationInput(scriptAsts, pluginAst), request.metamodelData
+        )
         val metamodel = compiledProgram.metamodel ?: Metamodel.compile(request.metamodelData)
         val clazz = ExecutionEnvironment(compiledProgram).scriptProgramClass
+        val externalCalls = createExternalCalls(compiledProgram.externalCalls, request)
 
         val objectives = request.goalConfig.objectives.map { obj ->
             val jvmName = compiledProgram.functionLookup[obj.path]?.get(obj.functionName)
                 ?: error("Objective '${obj.functionName}' not found in '${obj.path}'")
-            ScriptGuidanceFunction(clazz, jvmName, System.out, "${obj.path}::${obj.functionName}", obj.type)
+            ScriptGuidanceFunction(clazz, jvmName, System.out, "${obj.path}::${obj.functionName}", obj.type, externalCalls)
         }
 
         val constraints = request.goalConfig.constraints.map { con ->
             val jvmName = compiledProgram.functionLookup[con.path]?.get(con.functionName)
                 ?: error("Constraint '${con.functionName}' not found in '${con.path}'")
-            ScriptGuidanceFunction(clazz, jvmName, System.out, "${con.path}::${con.functionName}")
+            ScriptGuidanceFunction(
+                clazz, jvmName, System.out, "${con.path}::${con.functionName}",
+                externalCalls = externalCalls
+            )
         }
 
         val mutationStrategy = MutationStrategyFactory.create(request.solverConfig.parameters.mutation, operators)
@@ -1073,6 +1130,7 @@ class WorkerSubprocessMain : SubprocessMain() {
      * evaluator and clears all counters.
      */
     private fun handleReset(): ByteArray {
+        closeExternalSessions()
         closeOrchestratorChannel()
         closePeerChannels()
         incomingSolutionSignals.clear()
@@ -1112,6 +1170,7 @@ class WorkerSubprocessMain : SubprocessMain() {
     }
 
     override fun cleanup() {
+        closeExternalSessions()
         closeOrchestratorChannel()
         closePeerChannels()
         peerScope.cancel()

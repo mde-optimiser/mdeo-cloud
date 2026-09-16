@@ -19,6 +19,16 @@ export interface JwtClaims extends JWTPayload {
      * Scopes/permissions granted by the token
      */
     scope?: string[];
+
+    /**
+     * Plugin target a session token was issued for, as the `<kind>:<id>` address the caller used.
+     */
+    target?: string;
+
+    /**
+     * Session name a session token was issued for.
+     */
+    session?: string;
 }
 
 /**

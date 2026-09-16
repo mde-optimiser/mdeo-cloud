@@ -7,6 +7,9 @@ In TypeScript the shape is `Plugin` from `@mdeo/plugin`. A service builds a `Ser
 — the same thing without `url` and `default`, which the backend fills in — and `@mdeo/service-common`
 serialises it.
 
+A [Kotlin plugin service](/develop/kotlin-plugin-service) builds it from a `PluginDefinition`
+instead, which writes `languagePlugins` as empty and fills in each contribution's `id` and `sessions`.
+
 ## `Plugin`
 
 ```json
@@ -79,6 +82,7 @@ const icon = convertIcon(Network);
 | `icon` | icon node | ✅ | Icon shown for files of this language |
 | `isGenerated` | boolean | ✅ | Marks a language whose files the platform produces rather than the user |
 | `documentationUrl` | string | — | Documentation for the language. The workbench shows a question mark next to the editor title actions which opens it in a new tab; omit it and no such button appears |
+| `sessions` | object | — | [Sessions](/develop/sessions) this language accepts, keyed by session name. Callers reach them at `lang:<id>` |
 
 ### Relative paths and versioning
 
@@ -143,8 +147,15 @@ The grammar itself comes from the payload.
 
 ### `ServerContributionPlugin`
 
-The base type has one field, `id`. Everything else is defined by the language being extended, which
-type-guards on a `type` discriminator:
+The base type has two platform-owned fields, and everything else is defined by the language being
+extended, which type-guards on a `type` discriminator:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `id` | string | Contribution id, unique **within a project**. This is the address callers write as `contrib:<id>`; a plugin whose id is already taken is refused with `PluginContributionIdConflict` |
+| `sessions` | object | [Sessions](/develop/sessions) this contribution accepts, keyed by session name |
+
+The discriminators of the bundled languages:
 
 | Target | `type` | Payload type |
 | --- | --- | --- |

@@ -168,6 +168,47 @@ object ContributionPluginsTable : Table("contribution_plugins") {
 }
 
 /**
+ * Contribution targets table schema.
+ *
+ * A contribution's payload is stored as one opaque JSON blob under a generated row id, because
+ * its shape belongs to the receiving language rather than to the platform. The one field the
+ * platform does read is the contribution's own `id`, which is what a caller addresses as
+ * `contrib:<id>`. This table lifts that id out so a contribution can be resolved back to the
+ * plugin that ships it without parsing every payload, and so duplicates within a project can
+ * be refused when the plugin is added.
+ */
+object ContributionTargetsTable : Table("contribution_targets") {
+    val pluginId = uuid("plugin_id").references(PluginsTable.id, onDelete = ReferenceOption.CASCADE)
+    val contributionId = varchar("contribution_id", 255)
+    val languageId = varchar("language_id", 255)
+
+    override val primaryKey = PrimaryKey(pluginId, contributionId)
+
+    init {
+        index(false, contributionId)
+    }
+}
+
+/**
+ * Plugin sessions table schema for the session types a target declares.
+ *
+ * Rows exist for both target kinds — `lang:<id>` and `contrib:<id>` — so the connect endpoint
+ * resolves either through one lookup. [versions] holds a JSON array of the protocol versions
+ * the plugin side can speak.
+ */
+object PluginSessionsTable : Table("plugin_sessions") {
+    val pluginId = uuid("plugin_id").references(PluginsTable.id, onDelete = ReferenceOption.CASCADE)
+    val targetKind = varchar("target_kind", 16)
+    val targetId = varchar("target_id", 255)
+    val name = varchar("name", 255)
+    val protocol = varchar("protocol", 255)
+    val versions = text("versions")
+    val description = text("description").nullable()
+
+    override val primaryKey = PrimaryKey(pluginId, targetKind, targetId, name)
+}
+
+/**
  * File data table schema for caching computed file data (e.g., AST).
  */
 object FileDataTable : Table("file_data") {

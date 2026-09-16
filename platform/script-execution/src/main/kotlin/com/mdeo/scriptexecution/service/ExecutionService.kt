@@ -7,6 +7,11 @@ import com.mdeo.execution.common.subprocess.SubprocessRunner
 import com.mdeo.metamodel.data.MetamodelData
 import com.mdeo.metamodel.data.ModelData
 import com.mdeo.script.ast.TypedAst
+import com.mdeo.script.ast.TypedPluginAst
+import com.mdeo.script.external.ExternalSessionCheck
+import com.mdeo.common.model.PluginTarget
+import com.mdeo.common.model.PluginTargetKind
+import com.mdeo.execution.common.api.SessionResolver
 import com.mdeo.common.model.ExecutionState
 import com.mdeo.scriptexecution.database.ExecutionsTable
 import kotlinx.coroutines.CoroutineScope
@@ -229,6 +234,9 @@ class ExecutionService(
             executionId, projectId, filePath, requestData.methodName, jwtToken
         ) ?: return
 
+        val pluginAst = backendApiService.getPluginAst(projectId.toString(), jwtToken)
+        if (!checkExternalSessions(executionId, projectId, pluginAst, jwtToken)) return
+
         val modelContext = if (resolvedAsts.metamodelPath != null && requestData.modelPath != null) {
             fetchModelContext(
                 executionId, projectId,
@@ -257,11 +265,13 @@ class ExecutionService(
 
         val payload = ScriptSubprocessMain.serializeInput(
             resolvedAsts.typedAsts,
+            pluginAst,
             modelContext?.metamodelData,
             modelContext?.modelData,
             filePath,
             requestData.methodName,
-            timeoutMs
+            timeoutMs,
+            SessionAccess(backendApiService.baseUrl, projectId.toString(), jwtToken)
         )
         val result = subprocess.sendCommand(payload)
 
@@ -332,6 +342,34 @@ class ExecutionService(
                 updateExecutionState(executionId, ExecutionState.FAILED, "Runtime error: ${result.message}", jwtToken)
             }
         }
+    }
+
+    /**
+     * Checks, before anything runs, that every contribution with an external function can be
+     * reached over its `script-functions` session. See [ExternalSessionCheck].
+     *
+     * @return true when every session resolves; false after marking the execution failed
+     */
+    private suspend fun checkExternalSessions(
+        executionId: UUID,
+        projectId: UUID,
+        pluginAst: TypedPluginAst?,
+        jwtToken: String
+    ): Boolean {
+        val problem = SessionResolver(backendApiService.baseUrl).use { resolver ->
+            ExternalSessionCheck.findProblem(pluginAst) { contribution, session ->
+                resolver.resolve(
+                    projectId.toString(),
+                    PluginTarget.of(PluginTargetKind.CONTRIBUTION, contribution),
+                    session,
+                    jwtToken
+                )
+            }
+        } ?: return true
+
+        storeError(executionId, problem)
+        updateExecutionState(executionId, ExecutionState.FAILED, problem, jwtToken)
+        return false
     }
 
     /**

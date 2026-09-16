@@ -25,6 +25,13 @@ import kotlinx.serialization.Serializable
  * @param scriptAstJsons Map of script path to its JSON-serialized
  *        [com.mdeo.script.ast.TypedAst]. Workers deserialize these with the
  *        appropriate contextual serializer modules on their side.
+ * @param pluginAstJson JSON-serialized [com.mdeo.script.ast.TypedPluginAst] holding every
+ *        function contributed by script contribution plugins, or `null` when the project
+ *        enables no such contribution.
+ * @param projectId The project the execution belongs to, for opening sessions to contributions
+ *        whose functions are implemented outside the platform.
+ * @param runToken The token the execution holds for the run, which a worker uses to ask the
+ *        backend for those sessions. Null when the run calls no external function.
  * @param goalConfig Objective and constraint definitions for fitness evaluation.
  * @param solverConfig Solver parameters (algorithm, population size, etc.).
  * @param initialSolutionCount Number of initial solutions the worker should generate
@@ -48,6 +55,9 @@ data class WorkerAllocationRequest(
     val initialModelData: ModelData,
     val transformationAstJsons: Map<String, String>,
     val scriptAstJsons: Map<String, String>,
+    val pluginAstJson: String? = null,
+    val projectId: String? = null,
+    val runToken: String? = null,
     val goalConfig: GoalConfig,
     val solverConfig: SolverConfig,
     val initialSolutionCount: Int,

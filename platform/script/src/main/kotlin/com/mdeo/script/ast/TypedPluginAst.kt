@@ -43,13 +43,69 @@ data class TypedPluginFunction(
  *
  * All type indices refer to positions in [TypedPluginAst.types].
  *
+ * Exactly one of [body] and [external] is set. A body is run by the execution service itself;
+ * an external implementation is answered by the service of the plugin that shipped the
+ * contribution, over the `script-functions` session that contribution declares.
+ *
  * @param parameters Parameters of this overload in declaration order.
  * @param returnType Index into [TypedPluginAst.types] for the return type.
- * @param body Compiled callable body that implements this overload.
+ * @param body Compiled callable body that implements this overload, when it is implemented here.
+ * @param external The operation answering this overload, when it is implemented elsewhere.
  */
 @Serializable
 data class TypedPluginFunctionSignature(
     val parameters: List<TypedParameter>,
     val returnType: Int,
-    val body: TypedCallableBody
-)
+    val body: TypedCallableBody? = null,
+    val external: ExternalImplementation? = null
+) {
+    init {
+        require((body == null) != (external == null)) {
+            "A contributed signature needs exactly one of a body and an external implementation"
+        }
+    }
+}
+
+/**
+ * An implementation that lives outside the platform.
+ *
+ * The compiler emits a stub with the declared descriptor for such a signature: the stub boxes
+ * its arguments, hands them to the [dispatcher][com.mdeo.script.runtime.ExternalCallDispatcher]
+ * on the script context, and unboxes whatever comes back. Everything about how the call actually
+ * reaches the plugin — the session, the encoding, the copy-restore of mutable arguments — lives
+ * behind that dispatcher and not in the generated code.
+ *
+ * @param kind Discriminator, always `external`.
+ * @param operation Names the operation within the plugin's own protocol. The platform passes it
+ *        through and ascribes it no meaning.
+ * @param model Whether the operation needs the model, and in what form. `none` sends none;
+ *        `versioned` (planned) will send the model the call works on, readonly, once per round.
+ * @param contribution Id of the contribution that shipped the function, the `contrib:<id>`
+ *        target the call is answered on.
+ * @param session Name of that contribution's `script-functions` session.
+ */
+@Serializable
+data class ExternalImplementation(
+    val kind: String = KIND,
+    val operation: String,
+    val model: String = MODEL_NONE,
+    val contribution: String = "",
+    val session: String? = null
+) {
+    companion object {
+        /**
+         * Discriminator distinguishing an external implementation from a typed AST body.
+         */
+        const val KIND = "external"
+
+        /**
+         * [model] value for an operation that needs no model.
+         */
+        const val MODEL_NONE = "none"
+
+        /**
+         * [model] value for an operation that reads the execution's model.
+         */
+        const val MODEL_VERSIONED = "versioned"
+    }
+}

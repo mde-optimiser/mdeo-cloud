@@ -3,6 +3,7 @@ package com.mdeo.scriptexecution.service
 import com.mdeo.metamodel.data.MetamodelData
 import com.mdeo.metamodel.data.ModelData
 import com.mdeo.script.ast.TypedAst
+import com.mdeo.script.ast.TypedPluginAst
 import com.mdeo.common.model.ApiError
 import com.mdeo.expression.ast.expressions.TypedExpression
 import com.mdeo.expression.ast.statements.TypedStatement
@@ -29,8 +30,15 @@ import io.ktor.client.request.*
  *
  * @param baseUrl Base URL of the backend API
  */
-class BackendApiService(private val baseUrl: String) {
+class BackendApiService(val baseUrl: String) {
     private val logger = LoggerFactory.getLogger(BackendApiService::class.java)
+
+    companion object {
+        /**
+         * Language id of the script language, used to address project-wide (root) file data.
+         */
+        const val SCRIPT_LANGUAGE_ID = "script"
+    }
 
     private val client = HttpClient(CIO) {
         install(ContentNegotiation) {
@@ -76,6 +84,39 @@ class BackendApiService(private val baseUrl: String) {
             }
         } catch (e: Exception) {
             logger.error("Error fetching typed AST", e)
+            null
+        }
+    }
+
+    /**
+     * Fetches the typed AST of all plugin-contributed script functions.
+     *
+     * The contribution AST lives at the project root, so it is requested by language
+     * instead of by path. The script frontend merges every contributed function of every
+     * enabled contribution plugin into this single document.
+     *
+     * @param projectId UUID of the project
+     * @param jwtToken JWT token to pass through to the backend
+     * @return TypedPluginAst object, or null when no contributions exist or the fetch fails
+     */
+    suspend fun getPluginAst(projectId: String, jwtToken: String): TypedPluginAst? {
+        return try {
+            logger.info("Fetching plugin contribution AST for project $projectId")
+
+            val response = client.get("$baseUrl/projects/$projectId/file-data/typed-ast") {
+                parameter("language", SCRIPT_LANGUAGE_ID)
+                contentType(ContentType.Application.Json)
+                header(HttpHeaders.Authorization, "Bearer $jwtToken")
+            }
+
+            if (response.status == HttpStatusCode.OK) {
+                response.body<TypedPluginAstFileDataResponse>().data
+            } else {
+                logger.warn("Failed to fetch plugin contribution AST: ${response.status}")
+                null
+            }
+        } catch (e: Exception) {
+            logger.error("Error fetching plugin contribution AST", e)
             null
         }
     }
@@ -196,6 +237,15 @@ class BackendApiService(private val baseUrl: String) {
 @Serializable
 data class TypedAstFileDataResponse(
     val data: TypedAst?,
+    val version: Int? = null
+)
+
+/**
+ * Response for the root typed-ast file data request that carries plugin contributions.
+ */
+@Serializable
+data class TypedPluginAstFileDataResponse(
+    val data: TypedPluginAst?,
     val version: Int? = null
 )
 

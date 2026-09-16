@@ -63,6 +63,61 @@ export interface ContributedFunction {
 }
 
 /**
+ * An implementation that does not live in the platform at all.
+ *
+ * The body of a contributed function is normally a typed AST, which the execution service runs
+ * exactly as it runs a user-written function. An external implementation says instead that the
+ * function is answered by the service of the plugin that shipped the contribution, over the
+ * `script-functions` [session](/develop/sessions) that contribution declares.
+ *
+ * The contract is copy-restore: arguments are sent, the service may change what it was given,
+ * and only what actually changed comes back. Models are readonly on this path and can never be
+ * edited through it.
+ */
+export interface ExternalImplementation {
+    /**
+     * Marks this implementation as external rather than a typed AST body.
+     */
+    kind: typeof ExternalImplementation.KIND;
+    /**
+     * Names the operation within the plugin's own protocol. The platform passes it through and
+     * ascribes it no meaning; the plugin decides what it dispatches to.
+     */
+    operation: string;
+    /**
+     * Whether the operation needs the model, and in what form.
+     *
+     * `none` — the default — sends no model at all. `versioned` is planned and not yet supported: it
+     * will send the model the call works on, uploaded once per round and never diffed against
+     * another model. Either way the model is readonly.
+     */
+    model?: "none" | "versioned";
+}
+
+export namespace ExternalImplementation {
+    /**
+     * The discriminator distinguishing an external implementation from a typed AST body.
+     */
+    export const KIND = "external";
+
+    /**
+     * Type guard for an external implementation.
+     *
+     * @param value The implementation to check
+     * @returns True when the implementation is external
+     */
+    export function is(value: ContributedImplementation): value is ExternalImplementation {
+        return "kind" in value && value.kind === KIND;
+    }
+}
+
+/**
+ * What backs a contributed function: a typed AST the platform runs, or a call out to the
+ * plugin's own service.
+ */
+export type ContributedImplementation = TypedCallableBody | ExternalImplementation;
+
+/**
  * A contributed function signature with its implementation
  */
 export interface ContributedFunctionSignature {
@@ -71,9 +126,10 @@ export interface ContributedFunctionSignature {
      */
     signature: FunctionSignature;
     /**
-     * The implementation of the function (the body of the function)
+     * The implementation of the function: the body of the function, or an
+     * {@link ExternalImplementation} naming an operation the plugin's service answers
      */
-    implementation: TypedCallableBody;
+    implementation: ContributedImplementation;
 }
 
 /**
@@ -147,4 +203,13 @@ export interface ResolvedContributedFunction {
      * The type lookup used by the implementations of the contributed function
      */
     types: ReturnType[];
+    /**
+     * Id of the contribution that shipped the function, which is the target an external
+     * implementation of it is called on.
+     */
+    contributionId: string;
+    /**
+     * Name of the contribution's `script-functions` session, when it declares one.
+     */
+    sessionName?: string;
 }

@@ -56,6 +56,8 @@ object ErrorCodes {
     const val PLUGIN_ALREADY_EXISTS = "PluginAlreadyExists"
     const val PLUGIN_ALREADY_ADDED_TO_PROJECT = "PluginAlreadyAddedToProject"
     const val PLUGIN_NOT_ADDED_TO_PROJECT = "PluginNotAddedToProject"
+    const val PLUGIN_CONTRIBUTION_ID_CONFLICT = "PluginContributionIdConflict"
+    const val SESSION_NOT_FOUND = "SessionNotFound"
     
     const val USER_NOT_FOUND = "UserNotFound"
     const val INVALID_CREDENTIALS = "InvalidCredentials"

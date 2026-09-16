@@ -20,3 +20,5 @@ export * from "./ws/executionServiceProxy.js";
 export * from "./ws/executionWsClient.js";
 export * from "./ws/executionWsServer.js";
 export * from "./ws/protocol.js";
+export * from "./ws/sessionServer.js";
+export * from "./ws/upgradeRouter.js";

@@ -1,5 +1,6 @@
 import type { IconNode } from "@lucide/vue";
 import type { languages } from "monaco-editor";
+import type { SessionTypes } from "./sessionType.js";
 
 /**
  * Represents a serialized regular expression.
@@ -66,6 +67,11 @@ export interface LanguagePlugin {
      * If undefined, no documentation is linked.
      */
     documentationUrl?: string;
+    /**
+     * Sessions this language accepts, keyed by session name.
+     * Callers reach them at the `lang:<id>` address.
+     */
+    sessions?: SessionTypes;
 }
 
 /**

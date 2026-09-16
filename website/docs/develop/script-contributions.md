@@ -9,7 +9,8 @@ script language itself.
 
 ::: info Not yet used by a bundled plugin
 None of the bundled plugins contributes to the script language today. The mechanism is
-implemented and resolved on every service start; this page documents the payload it expects.
+implemented end to end — contributions are resolved on every service start and compiled into
+every script execution and optimizer run — and this page documents the payload it expects.
 :::
 
 ## The payload
@@ -95,6 +96,132 @@ user-written function.
 The practical consequence: write the function in the script language first, let the language produce
 its typed AST, and ship that.
 
+### Implementations outside the platform
+
+Some functions cannot reasonably be written as a typed AST: they wrap a solver, an index, a
+library, or state that has to outlive a single call. For those, an implementation can name an
+**operation** that the contribution's own plugin service answers instead:
+
+```json
+{
+  "id": "routing",
+  "type": "script-language-contribution",
+  "types": [],
+  "functions": {
+    "shortestTour": {
+      "signatures": {
+        "": {
+          "signature": {
+            "parameters": [{ "name": "stops", "type": { "package": "builtin", "type": "List", "isNullable": false,
+                             "typeArgs": { "T": { "package": "builtin", "type": "string", "isNullable": false } } } }],
+            "returnType": { "kind": "void" }
+          },
+          "implementation": { "kind": "external", "operation": "shortestTour" }
+        }
+      }
+    }
+  },
+  "expressions": {},
+  "sessions": { "functions": { "protocol": "script-functions", "versions": [1] } }
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `kind` | Always `"external"` |
+| `operation` | The operation name your service dispatches on. The platform passes it through untouched |
+| `model` | `"none"` (the default). Passing the model, readonly, is planned as `"versioned"` |
+
+A call to such a function looks exactly like a call to any other function in a script. The
+compiler emits a stub with the same JVM signature, and the stub sends the call over the
+`script-functions` [session](/develop/sessions) the contribution declares.
+
+**Write the service in Kotlin.** You don't write this payload by hand.
+[Kotlin plugin services](/develop/kotlin-plugin-service) declare the function and implement it in
+one place, and the module builds the payload and answers the session:
+
+```kotlin
+val routing = scriptContribution("routing") {
+    function("shortestTour") {
+        parameter("stops", listOfString)
+        implementation { call ->
+            val stops = call.argument<MutableList<String>>(0)
+            val tour = solve(stops)
+            stops.clear()
+            stops.addAll(tour)
+            null
+        }
+    }
+}
+```
+
+What travels on the session is specified in
+[The `script-functions` protocol](/develop/script-functions-protocol).
+
+#### Copy-restore
+
+Arguments are **copied** to the service, and changes are **restored** on return — but only the
+changes that are allowed, and only the ones that happened:
+
+- **The declared type decides what may change.** A parameter declared as a mutable collection —
+  `List`, `Set`, `Bag`, `OrderedSet`, `Map` — may be changed. Everything else — `ReadonlyList` and
+  the other readonly types, `Any`, scalars — may not. Elements follow their own type argument, so
+  a `List<ReadonlyList<int>>` can be reordered but its inner lists cannot be edited. Map keys can
+  never be changed in place.
+- **Only what changed comes back.** The service diffs every collection it was given against what
+  it received and sends per-element changes — a splice for a list, additions and removals for a
+  set, counts for a bag, puts and removed keys for a map. An unchanged collection sends nothing.
+- **Identity survives.** The same collection passed twice is one object on the service, a
+  collection that contains itself still does, and returning an argument returns that very
+  collection to the script.
+- **A result is applied completely or not at all.** Before anything is written back, the whole
+  result is checked: a change to a collection given as readonly, an index out of range, or a
+  reference to an unknown collection rejects it, and the script sees an error with nothing
+  changed. An operation that throws fails the call the same way.
+- **Unchanged collections are not sent twice.** Every collection keeps one id and a mutation
+  counter for the whole session; a collection that has not changed since the service last saw it
+  is sent as just its id.
+
+Collections the service creates and returns become the collection type the signature declares.
+
+#### What cannot cross
+
+Version 1 of the protocol carries scalars, strings, and collections of them. Refused outright:
+
+| Refused | When |
+| --- | --- |
+| A lambda parameter or return type | When the contribution is declared; the script language also rejects it when resolving contributions. A lambda is code in the execution process and cannot be sent |
+| An external implementation without a `script-functions` session | When the script language resolves contributions |
+| Model instances, enums, and other objects | When the call is made, with an error naming the function |
+
+A run whose contributions declare external functions checks that every one of their sessions can
+be resolved **before** it starts, and fails with a message naming the contribution otherwise.
+
+## How a contribution reaches execution
+
+Contributed functions are not compiled per file. The script frontend merges every function of
+every contribution enabled in a project into a single **root typed AST**, served as the
+`typed-ast` file data of the project root:
+
+```
+GET /api/projects/{projectId}/file-data/typed-ast?language=script
+```
+
+Both execution services fetch that document once per run and hand it to the compiler alongside
+the user's own files:
+
+| Service | Fetches with | Hands to |
+| --- | --- | --- |
+| `script-execution` | `BackendApiService.getPluginAst` | `CompilationInput(typedAsts, pluginAst)` |
+| `optimizer-execution` | `OptimizerApiClient.getScriptPluginAst` | the same input, inside each worker subprocess |
+
+The compiler emits the contributed functions into the same generated class as the user's
+functions, so a call to a contributed function costs exactly what a call to a script function
+costs. Overloads are keyed by their signature name; a contribution with a single signature uses
+`FunctionSignature.DEFAULT_SIGNATURE`.
+
+A project with no contributions simply gets no document, and compilation proceeds unchanged.
+
 ## Contributed expressions
 
 An expression is syntactic sugar over a function. You supply a grammar rule, the interface it returns,
@@ -163,7 +290,7 @@ type system only has to know about one thing.
 ## Resolution and errors
 
 At service creation the script language filters the contributions with
-`ScriptContributionPlugin.is`, then resolves them. Three conditions are rejected outright:
+`ScriptContributionPlugin.is`, then resolves them. These conditions are rejected outright:
 
 | Error | Cause |
 | --- | --- |
@@ -171,6 +298,8 @@ At service creation the script language filters the contributions with
 | `Expression rule '…' not found in plugin grammar.` | `ruleName` is not in the serialised grammar |
 | `Expression interface '…' not found in plugin grammar.` | `interfaceName` is not in the serialised grammar |
 | `Duplicate function or expression name '…' contributed by plugins.` | Two contributions claim the same global name |
+| `External function '…' takes a lambda parameter '…'.` / `… returns a lambda.` | An external implementation's signature uses a lambda type |
+| `Contribution '…' declares external implementations for … but no 'script-functions' session.` | An external implementation without a session to answer it |
 
 The last one is worth planning for: the global namespace is shared across every contribution enabled
 in a project, and you do not control which other plugins a user enables. Prefix names that are not
@@ -197,7 +326,8 @@ for inference and validation rules on the contributed node types, and `rules` fo
 - [ ] Every `ruleName` and `interfaceName` present in `grammar`
 - [ ] Contributed interfaces extend `BaseExtension`
 - [ ] Terminals declared with `createExternalTerminalRule`
-- [ ] Implementations supplied as typed ASTs, not as code
+- [ ] Implementations supplied as typed ASTs, or as external operations answered by a [Kotlin plugin service](/develop/kotlin-plugin-service)
+- [ ] A `script-functions` session declared and served for every external implementation
 - [ ] Global names unlikely to collide with another plugin's
 
 ## See also

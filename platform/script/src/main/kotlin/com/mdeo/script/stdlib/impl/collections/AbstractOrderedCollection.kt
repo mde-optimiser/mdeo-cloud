@@ -48,21 +48,25 @@ abstract class AbstractOrderedCollection<T, C : MutableList<T>>(
         if (index < 0 || index >= backing.size) {
             throw IndexOutOfBoundsException("Index: $index, Size: ${backing.size}")
         }
+        version++
         return backing.removeAt(index)
     }
 
     @Suppress("UNCHECKED_CAST")
     override fun sort(): OrderedCollection<T> {
+        version++
         backing.sortWith { a, b -> (a as Comparable<Any>).compareTo(b as Any) }
         return this
     }
 
     override fun sort(comparator: Func2<T, T, Int>): OrderedCollection<T> {
+        version++
         backing.sortWith { a, b -> comparator.call(a, b) }
         return this
     }
 
     override fun <U : Comparable<U>> sortBy(keyExtractor: Func1<T, U>): OrderedCollection<T> {
+        version++
         backing.sortWith { a, b -> keyExtractor.call(a).compareTo(keyExtractor.call(b)) }
         return this
     }

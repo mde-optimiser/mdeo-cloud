@@ -13,9 +13,47 @@ import java.util.concurrent.ThreadLocalRandom
  *
  * @param T the type of elements in this bag
  */
-class BagImpl<T> : Bag<T> {
+class BagImpl<T> : Bag<T>, DeltaTarget {
 
     private val backing: HashMultiSet<T>
+
+    /**
+     * Mutation counter, see [DeltaTarget.deltaVersion].
+     */
+    private var version: Long = 0
+
+    override val deltaVersion: Long get() = version
+
+    override fun deltaSnapshot(): List<Any?> = ArrayList<Any?>(backing)
+
+    override fun deltaSplice(index: Int, deleteCount: Int, insert: List<Any?>) {
+        throw UnsupportedOperationException("A bag has no order to splice into")
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    override fun deltaAdd(values: List<Any?>) {
+        version++
+        for (value in values) backing.add(value as T)
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    override fun deltaRemove(values: List<Any?>) {
+        version++
+        for (value in values) backing.remove(value as T, 1)
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    override fun deltaSetCount(value: Any?, count: Int) {
+        version++
+        backing.setCount(value as T, count)
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    override fun deltaReplace(elements: List<Any?>) {
+        version++
+        backing.clear()
+        for (element in elements) backing.add(element as T)
+    }
 
     /**
      * Creates an empty bag.
@@ -412,11 +450,13 @@ class BagImpl<T> : Bag<T> {
     override fun firstOrNull(): T? = backing.firstOrNull()
 
     override fun add(item: T): Boolean {
+        version++
         backing.add(item)
         return true
     }
 
     override fun addAll(col: ReadonlyCollection<T>): Boolean {
+        version++
         var modified = false
         for (element in col) {
             backing.add(element)
@@ -426,16 +466,19 @@ class BagImpl<T> : Bag<T> {
     }
 
     override fun clear() {
+        version++
         backing.clear()
     }
 
     // MultiSet.remove(item, n) reports the count the item had *before* the removal, so a
     // non-zero result is what signals that something was actually removed.
     override fun remove(item: T): Boolean {
+        version++
         return backing.remove(item, 1) > 0
     }
 
     override fun removeAll(col: ReadonlyCollection<T>): Boolean {
+        version++
         var modified = false
         for (element in col) {
             if (backing.remove(element, 1) > 0) {

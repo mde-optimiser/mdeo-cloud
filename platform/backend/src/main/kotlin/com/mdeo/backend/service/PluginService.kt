@@ -1,6 +1,8 @@
 package com.mdeo.backend.service
 
 import com.mdeo.backend.database.ContributionPluginsTable
+import com.mdeo.backend.database.ContributionTargetsTable
+import com.mdeo.backend.database.PluginSessionsTable
 import com.mdeo.backend.database.LanguagePluginsTable
 import com.mdeo.backend.database.PluginsTable
 import com.mdeo.backend.database.ProjectPluginsTable
@@ -49,7 +51,8 @@ data class ManifestLanguagePlugin(
     val textualEditorPlugin: ManifestTextualEditorPlugin? = null,
     val icon: JsonArray,
     val isGenerated: Boolean = false,
-    val documentationUrl: String? = null
+    val documentationUrl: String? = null,
+    val sessions: Map<String, SessionType> = emptyMap()
 )
 
 @Serializable
@@ -68,6 +71,23 @@ data class ManifestGraphicalEditorPlugin(
 data class ManifestTextualEditorPlugin(
     val languageConfiguration: JsonObject,
     val monarchTokensProvider: JsonObject
+)
+
+/**
+ * One session of one target, resolved within a project.
+ *
+ * @property pluginId The plugin that serves the session
+ * @property pluginUrl Base URL of that plugin, which the connect URL is built from
+ * @property target The addressed target
+ * @property sessionName The session name
+ * @property sessionType The declared protocol and versions
+ */
+data class ResolvedSession(
+    val pluginId: UUID,
+    val pluginUrl: String,
+    val target: PluginTarget,
+    val sessionName: String,
+    val sessionType: SessionType
 )
 
 /**
@@ -255,6 +275,10 @@ class PluginService(services: InjectedServices) : BaseService(), InjectedService
 
             ContributionPluginsTable.deleteWhere { ContributionPluginsTable.pluginId eq pluginId.toKotlinUuid() }
 
+            ContributionTargetsTable.deleteWhere { ContributionTargetsTable.pluginId eq pluginId.toKotlinUuid() }
+
+            PluginSessionsTable.deleteWhere { PluginSessionsTable.pluginId eq pluginId.toKotlinUuid() }
+
             storeLanguagePlugins(pluginId, manifest.languagePlugins, now)
 
             storeContributionPlugins(pluginId, manifest.contributionPlugins, now)
@@ -338,6 +362,40 @@ class PluginService(services: InjectedServices) : BaseService(), InjectedService
                 it[createdAt] = now
                 it[updatedAt] = now
             }
+
+            val target = PluginTarget.parseOrNull("${PluginTargetKind.LANGUAGE.wire}:${plugin.id}")
+            if (target != null) {
+                storeSessions(pluginId, target, plugin.sessions)
+            } else if (plugin.sessions.isNotEmpty()) {
+                logger.warn(
+                    "Language '${plugin.id}' of plugin $pluginId declares sessions but its id " +
+                            "cannot be addressed; ignoring them"
+                )
+            }
+        }
+    }
+
+    /**
+     * Stores the session types one target declares.
+     *
+     * Both target kinds land in the same table, so the connect endpoint resolves either through
+     * a single lookup keyed by the address the caller used.
+     *
+     * @param pluginId The plugin that ships the target
+     * @param target The target the sessions belong to
+     * @param sessions The declared session types, keyed by session name
+     */
+    private fun storeSessions(pluginId: UUID, target: PluginTarget, sessions: Map<String, SessionType>) {
+        for ((sessionName, sessionType) in sessions) {
+            PluginSessionsTable.insert {
+                it[PluginSessionsTable.pluginId] = pluginId.toKotlinUuid()
+                it[targetKind] = target.kind.wire
+                it[targetId] = target.id
+                it[name] = sessionName
+                it[protocol] = sessionType.protocol
+                it[versions] = Json.encodeToString(sessionType.versions)
+                it[description] = sessionType.description
+            }
         }
     }
 
@@ -363,6 +421,53 @@ class PluginService(services: InjectedServices) : BaseService(), InjectedService
                 it[createdAt] = now
                 it[updatedAt] = now
             }
+
+            storeContributionTargets(pluginId, languageId, serverPlugins)
+        }
+    }
+
+    /**
+     * Lifts the platform-owned fields out of each contribution payload.
+     *
+     * The payload as a whole belongs to the receiving language, and the platform reads exactly
+     * two things from it: the contribution's `id`, which is the address callers use, and its
+     * `sessions`. A payload without an id is not addressable and contributes no rows; it still
+     * reaches its language, which may not need one.
+     *
+     * @param pluginId The plugin that ships the contributions
+     * @param languageId The language the contributions extend
+     * @param serverPlugins The contribution payloads, as shipped
+     */
+    private fun storeContributionTargets(pluginId: UUID, languageId: String, serverPlugins: List<JsonObject>) {
+        for (payload in serverPlugins) {
+            val contributionId = payload["id"]?.jsonPrimitive?.contentOrNull ?: continue
+            val target = PluginTarget.parseOrNull("${PluginTargetKind.CONTRIBUTION.wire}:$contributionId")
+            if (target == null) {
+                logger.warn("Ignoring contribution with an unusable id '$contributionId' in plugin $pluginId")
+                continue
+            }
+
+            val alreadyStored = ContributionTargetsTable.selectAll()
+                .where {
+                    (ContributionTargetsTable.pluginId eq pluginId.toKotlinUuid()) and
+                            (ContributionTargetsTable.contributionId eq contributionId)
+                }
+                .count() > 0
+            if (alreadyStored) {
+                logger.warn("Plugin $pluginId ships contribution '$contributionId' more than once; keeping the first")
+                continue
+            }
+
+            ContributionTargetsTable.insert {
+                it[ContributionTargetsTable.pluginId] = pluginId.toKotlinUuid()
+                it[ContributionTargetsTable.contributionId] = contributionId
+                it[ContributionTargetsTable.languageId] = languageId
+            }
+
+            val sessions = payload["sessions"]?.jsonObject
+                ?.mapValues { (_, value) -> json.decodeFromJsonElement<SessionType>(value) }
+                ?: emptyMap()
+            storeSessions(pluginId, target, sessions)
         }
     }
 
@@ -417,6 +522,20 @@ class PluginService(services: InjectedServices) : BaseService(), InjectedService
                 return@transaction pluginFailure(
                     ErrorCodes.PLUGIN_ALREADY_ADDED_TO_PROJECT,
                     "Plugin already added to project"
+                )
+            }
+
+            // Contribution ids are the addresses callers write as `contrib:<id>`, so two
+            // contributions with the same id in one project would make an address ambiguous.
+            // The conflict is refused here rather than resolved later, where the wrong plugin
+            // would silently answer.
+            val conflicts = conflictingContributionIds(projectId, pluginId)
+            if (conflicts.isNotEmpty()) {
+                return@transaction pluginFailure(
+                    ErrorCodes.PLUGIN_CONTRIBUTION_ID_CONFLICT,
+                    "Contribution ${if (conflicts.size == 1) "id" else "ids"} " +
+                            conflicts.joinToString(", ") { "'$it'" } +
+                            " already provided by another plugin in this project"
                 )
             }
 
@@ -626,6 +745,106 @@ class PluginService(services: InjectedServices) : BaseService(), InjectedService
     }
 
     /**
+     * Finds the plugin that ships a contribution, within one project.
+     *
+     * Mirrors [findPluginByLanguage] for the other target kind. Contribution ids are unique
+     * within a project — [addPluginToProject] refuses a plugin that would break that — so at
+     * most one row can match.
+     *
+     * @param projectId The UUID of the project
+     * @param contributionId The contribution id, as addressed by `contrib:<id>`
+     * @return Pair of plugin UUID and the language the contribution extends, or null if not found
+     */
+    fun findPluginByContribution(projectId: UUID, contributionId: String): Pair<UUID, String>? {
+        return transaction {
+            val projectPluginIds = ProjectPluginsTable.selectAll()
+                .where { ProjectPluginsTable.projectId eq projectId.toKotlinUuid() }
+                .map { it[ProjectPluginsTable.pluginId] }
+
+            if (projectPluginIds.isEmpty()) return@transaction null
+
+            val row = ContributionTargetsTable.selectAll()
+                .where {
+                    (ContributionTargetsTable.pluginId inList projectPluginIds) and
+                            (ContributionTargetsTable.contributionId eq contributionId)
+                }
+                .firstOrNull() ?: return@transaction null
+
+            Pair(
+                row[ContributionTargetsTable.pluginId].toJavaUuid(),
+                row[ContributionTargetsTable.languageId]
+            )
+        }
+    }
+
+    /**
+     * Resolves one session of one target, within a project.
+     *
+     * Both target kinds are resolved the same way here, which is the point of spelling the kind
+     * into the address: the caller writes `lang:script` or `contrib:script-functions` and this
+     * looks up exactly what that names.
+     *
+     * @param projectId The UUID of the project
+     * @param target The target being addressed
+     * @param sessionName The session name, the last segment of the address
+     * @param useInternalUrl Whether the returned URL is the one reachable inside the deployment
+     *        rather than the public one; a session is dialled by a service, not by a browser
+     * @return The resolved session, or null when the project has no such target or the target
+     *         declares no session under that name
+     */
+    fun findSession(
+        projectId: UUID,
+        target: PluginTarget,
+        sessionName: String,
+        useInternalUrl: Boolean = true
+    ): ResolvedSession? {
+        val pluginId = when (target.kind) {
+            PluginTargetKind.LANGUAGE -> findPluginByLanguage(projectId, target.id)?.first
+            PluginTargetKind.CONTRIBUTION -> findPluginByContribution(projectId, target.id)?.first
+        } ?: return null
+
+        val sessionType = transaction {
+            loadSessions(pluginId, target.kind, target.id)[sessionName]
+        } ?: return null
+
+        val pluginUrl = getPluginUrl(pluginId, useInternal = useInternalUrl) ?: return null
+
+        return ResolvedSession(pluginId, pluginUrl, target, sessionName, sessionType)
+    }
+
+    /**
+     * Reports which contribution ids a plugin would add to a project that are already taken.
+     *
+     * @param projectId The UUID of the project
+     * @param pluginId The UUID of the plugin about to be added
+     * @return The conflicting contribution ids, empty when there are none
+     */
+    private fun conflictingContributionIds(projectId: UUID, pluginId: UUID): List<String> {
+        return transaction {
+            val incoming = ContributionTargetsTable.selectAll()
+                .where { ContributionTargetsTable.pluginId eq pluginId.toKotlinUuid() }
+                .map { it[ContributionTargetsTable.contributionId] }
+
+            if (incoming.isEmpty()) return@transaction emptyList()
+
+            val existingPluginIds = ProjectPluginsTable.selectAll()
+                .where { ProjectPluginsTable.projectId eq projectId.toKotlinUuid() }
+                .map { it[ProjectPluginsTable.pluginId] }
+                .filter { it.toJavaUuid() != pluginId }
+
+            if (existingPluginIds.isEmpty()) return@transaction emptyList()
+
+            ContributionTargetsTable.selectAll()
+                .where {
+                    (ContributionTargetsTable.pluginId inList existingPluginIds) and
+                            (ContributionTargetsTable.contributionId inList incoming)
+                }
+                .map { it[ContributionTargetsTable.contributionId] }
+                .distinct()
+        }
+    }
+
+    /**
      * Gets the URL for a plugin.
      *
      * @param pluginId The UUID of the plugin
@@ -737,8 +956,37 @@ class PluginService(services: InjectedServices) : BaseService(), InjectedService
             languageId = row[ContributionPluginsTable.languageId],
             description = row[ContributionPluginsTable.description],
             additionalKeywords = json.decodeFromString<List<String>>(row[ContributionPluginsTable.additionalKeywords]),
-            serverContributionPlugins = json.decodeFromString<List<JsonObject>>(row[ContributionPluginsTable.serverContributionPlugins])
+            serverContributionPlugins =
+                json.decodeFromString<List<JsonObject>>(row[ContributionPluginsTable.serverContributionPlugins])
         )
+    }
+
+    /**
+     * Reads back the session types one target declares.
+     *
+     * @param pluginId The plugin that ships the target
+     * @param kind Whether the target is a language or a contribution
+     * @param targetId The language or contribution id
+     * @return The session types, keyed by session name; empty when the target declares none
+     */
+    private fun loadSessions(
+        pluginId: UUID,
+        kind: PluginTargetKind,
+        targetId: String
+    ): Map<String, SessionType> {
+        return PluginSessionsTable.selectAll()
+            .where {
+                (PluginSessionsTable.pluginId eq pluginId.toKotlinUuid()) and
+                        (PluginSessionsTable.targetKind eq kind.wire) and
+                        (PluginSessionsTable.targetId eq targetId)
+            }
+            .associate { row ->
+                row[PluginSessionsTable.name] to SessionType(
+                    protocol = row[PluginSessionsTable.protocol],
+                    versions = json.decodeFromString<List<Int>>(row[PluginSessionsTable.versions]),
+                    description = row[PluginSessionsTable.description]
+                )
+            }
     }
 
     /**
@@ -773,7 +1021,12 @@ class PluginService(services: InjectedServices) : BaseService(), InjectedService
             },
             icon = json.parseToJsonElement(row[LanguagePluginsTable.icon]).jsonArray,
             isGenerated = row[LanguagePluginsTable.isGenerated],
-            documentationUrl = row[LanguagePluginsTable.documentationUrl]
+            documentationUrl = row[LanguagePluginsTable.documentationUrl],
+            sessions = loadSessions(
+                row[LanguagePluginsTable.pluginId].toJavaUuid(),
+                PluginTargetKind.LANGUAGE,
+                row[LanguagePluginsTable.id]
+            )
         )
     }
 

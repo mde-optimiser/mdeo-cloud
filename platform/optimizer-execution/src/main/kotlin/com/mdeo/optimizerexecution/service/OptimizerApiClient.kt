@@ -11,6 +11,7 @@ import com.mdeo.modeltransformation.ast.patterns.TypedPatternElementSerializer
 import com.mdeo.expression.ast.expressions.TypedExpression
 import com.mdeo.modeltransformation.ast.expressions.TypedExpressionSerializer as TransformationExpressionSerializer
 import com.mdeo.script.ast.TypedAst as ScriptTypedAst
+import com.mdeo.script.ast.TypedPluginAst as ScriptTypedPluginAst
 import com.mdeo.script.ast.expressions.TypedExpressionSerializer as ScriptExpressionSerializer
 import com.mdeo.expression.ast.statements.TypedStatement
 import com.mdeo.script.ast.statements.TypedStatementSerializer
@@ -37,6 +38,13 @@ import kotlinx.serialization.modules.contextual
  * @param baseUrl Base URL of the backend API
  */
 class OptimizerApiClient(baseUrl: String) : BackendApiClient(baseUrl) {
+
+    companion object {
+        /**
+         * Language id of the script language, used to address project-wide (root) file data.
+         */
+        const val SCRIPT_LANGUAGE_ID = "script"
+    }
 
     /**
      * HTTP client configured with transformation AST contextual serializers. 
@@ -115,6 +123,36 @@ class OptimizerApiClient(baseUrl: String) : BackendApiClient(baseUrl) {
             }
         } catch (e: Exception) {
             logger.error("Error fetching script typed AST for $filePath", e)
+            null
+        }
+    }
+
+    /**
+     * Fetches the typed AST of all script functions contributed by plugins.
+     *
+     * The contribution AST belongs to the project rather than to any file, so it is
+     * addressed by language id instead of by path.
+     *
+     * @param projectId The project whose enabled contributions should be collected.
+     * @param jwtToken Bearer token for backend API authentication.
+     * @return The [ScriptTypedPluginAst], or `null` when there are no contributions or the fetch fails.
+     */
+    suspend fun getScriptPluginAst(projectId: String, jwtToken: String): ScriptTypedPluginAst? {
+        return try {
+            logger.info("Fetching script plugin contribution AST")
+            val response = scriptClient.get("$baseUrl/projects/$projectId/file-data/typed-ast") {
+                parameter("language", SCRIPT_LANGUAGE_ID)
+                contentType(ContentType.Application.Json)
+                header(HttpHeaders.Authorization, "Bearer $jwtToken")
+            }
+            if (response.status == HttpStatusCode.OK) {
+                response.body<ScriptTypedPluginAstResponse>().data
+            } else {
+                logger.warn("Failed to fetch script plugin contribution AST: ${response.status}")
+                null
+            }
+        } catch (e: Exception) {
+            logger.error("Error fetching script plugin contribution AST", e)
             null
         }
     }
@@ -210,6 +248,18 @@ internal data class TransformationTypedAstResponse(
 @Serializable
 internal data class ScriptTypedAstResponse(
     val data: ScriptTypedAst?,
+    val version: Int? = null
+)
+
+/**
+ * API response wrapper for the script plugin contribution AST.
+ *
+ * @param data The contribution AST, or null if unavailable.
+ * @param version Optional schema version for cache invalidation.
+ */
+@Serializable
+internal data class ScriptTypedPluginAstResponse(
+    val data: ScriptTypedPluginAst?,
     val version: Int? = null
 )
 

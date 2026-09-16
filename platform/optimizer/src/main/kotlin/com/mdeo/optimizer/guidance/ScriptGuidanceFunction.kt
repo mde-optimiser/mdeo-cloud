@@ -2,6 +2,7 @@ package com.mdeo.optimizer.guidance
 
 import com.mdeo.optimizer.config.ObjectiveTendency
 import com.mdeo.optimizer.solution.Solution
+import com.mdeo.script.runtime.ExternalCallDispatcher
 import com.mdeo.script.runtime.ScriptContext
 import com.mdeo.script.runtime.SimpleScriptContext
 import org.slf4j.LoggerFactory
@@ -21,20 +22,22 @@ import java.lang.reflect.InvocationTargetException
  * @param printStream Output stream made available to scripts via the [ScriptContext].
  * @param name Human-readable name of this guidance function.
  * @param tendency Whether to minimise or maximise the function value. Defaults to [ObjectiveTendency.MINIMIZE].
+ * @param externalCalls Dispatcher for contributed functions implemented outside the platform.
  */
 class ScriptGuidanceFunction(
     private val clazz: Class<*>,
     private val jvmMethodName: String,
     private val printStream: PrintStream,
     override val name: String,
-    private val tendency: ObjectiveTendency = ObjectiveTendency.MINIMIZE
+    private val tendency: ObjectiveTendency = ObjectiveTendency.MINIMIZE,
+    private val externalCalls: ExternalCallDispatcher = ExternalCallDispatcher.UNSUPPORTED
 ) : GuidanceFunction {
 
     private val logger = LoggerFactory.getLogger(ScriptGuidanceFunction::class.java)
 
     override fun computeFitness(solution: Solution): Double {
         val model = solution.modelGraph.toModel()
-        val context = SimpleScriptContext(printStream, model)
+        val context = SimpleScriptContext(printStream, model, externalCalls)
         val instance = clazz.getDeclaredConstructor(ScriptContext::class.java).newInstance(context)
         val method = clazz.methods.find { it.name == jvmMethodName && it.parameterCount == 0 }
             ?: error("JVM method '$jvmMethodName' not found in class '${clazz.name}'")

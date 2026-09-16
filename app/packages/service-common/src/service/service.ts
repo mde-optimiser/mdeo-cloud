@@ -4,13 +4,15 @@ import fastifyStatic from "@fastify/static";
 import { resolve } from "path";
 import type { ServiceConfig, FileDataComputeRequest, FileDataComputeResponse, LanguageServiceConfig } from "./types.js";
 import { LangiumInstancePool } from "../langium/langiumPool.js";
-import type { ServerContributionPlugin } from "@mdeo/plugin";
+import { formatPluginTarget, PluginTargetKind, type ServerContributionPlugin, type SessionType } from "@mdeo/plugin";
 import { URI } from "vscode-uri";
 import { buildManifest } from "./util.js";
 import type { FileInfo } from "../handler/types.js";
 import type { ExecutionContext, ExecutionMetadata, ExecutionRequestContext } from "../execution/types.js";
 import { JwtAuthMiddleware } from "../auth/jwtAuth.js";
 import { attachExecutionWebSocketServer } from "../ws/executionWsServer.js";
+import { attachSessionServer } from "../ws/sessionServer.js";
+import { HttpServerApi } from "./serverApi.js";
 
 /**
  * Default maximum size in bytes of a request body accepted by a language service.
@@ -109,6 +111,8 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
         const languageId = langConfig.languagePlugin.id;
         const pool = new LangiumInstancePool<T>({
             maxInstances: config.maxLangiumInstances ?? 5,
+            maxSessionInstances: config.maxSessionInstances,
+            acquireTimeoutMs: config.langiumAcquireTimeoutMs,
             languagePluginProvider: langConfig.languagePluginProvider,
             serviceModule: langConfig.serviceModule,
             languageId,
@@ -711,7 +715,115 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
         }
     });
 
+    const sessionTypes = collectDeclaredSessionTypes(config);
+    reportSessionMismatches(config.sessions ?? {}, sessionTypes, (message) => fastify.log.warn(message));
+
+    if (Object.keys(config.sessions ?? {}).length > 0) {
+        attachSessionServer(fastify.server, {
+            jwtAuth,
+            handlers: config.sessions ?? {},
+            resolveSessionType: (address, sessionName) => sessionTypes.get(address)?.[sessionName],
+            acquireLanguageInstance: async ({ languageId, sessionName }, jwt, project) => {
+                const languageHandler = languageHandlers.get(languageId);
+                if (!languageHandler) {
+                    throw new Error(`Unknown language: ${languageId}`);
+                }
+                const serverApi = new HttpServerApi(config.backendApiUrl);
+                serverApi.setContext(jwt, project);
+                const contributionPlugins = await serverApi.getSessionContributionPlugins(languageId, sessionName);
+                return languageHandler.pool.acquireForSession(contributionPlugins, jwt, project);
+            },
+            releaseLanguageInstance: (languageId, instance) => {
+                languageHandlers.get(languageId)?.pool.releaseFromSession(instance);
+            },
+            createServerApi: (jwt, project) => {
+                const serverApi = new HttpServerApi(config.backendApiUrl);
+                serverApi.setContext(jwt, project);
+                return serverApi;
+            },
+            log: {
+                warn: (message) => fastify.log.warn(message),
+                error: (message) => fastify.log.error(message)
+            }
+        });
+    }
+
     return fastify;
+}
+
+/**
+ * Collects every session type this service's plugin declares, keyed by target address.
+ *
+ * The manifest is the single place a session type is written down: the connect endpoint hands
+ * a caller the protocol and versions from there, and the session endpoint negotiates against
+ * the same values. Handlers registered in the service configuration only say what answers.
+ *
+ * @param config The service configuration
+ * @returns Declared session types, keyed by target address and then by session name
+ */
+function collectDeclaredSessionTypes<T>(config: ServiceConfig<T>): Map<string, Record<string, SessionType>> {
+    const declared = new Map<string, Record<string, SessionType>>();
+
+    for (const languagePlugin of config.plugin.languagePlugins) {
+        if (languagePlugin.sessions) {
+            declared.set(
+                formatPluginTarget({ kind: PluginTargetKind.LANGUAGE, id: languagePlugin.id }),
+                languagePlugin.sessions
+            );
+        }
+    }
+
+    for (const contribution of config.plugin.contributionPlugins) {
+        for (const serverPlugin of contribution.serverContributionPlugins) {
+            if (serverPlugin.sessions) {
+                declared.set(
+                    formatPluginTarget({ kind: PluginTargetKind.CONTRIBUTION, id: serverPlugin.id }),
+                    serverPlugin.sessions
+                );
+            }
+        }
+    }
+
+    return declared;
+}
+
+/**
+ * Reports registrations and declarations that do not line up.
+ *
+ * Either half alone is dead weight: a handler nobody can reach because the manifest advertises
+ * no session, or an advertised session that closes every connection because nothing answers it.
+ * Both are wiring mistakes worth naming at startup rather than at execution time.
+ *
+ * @param handlers The handlers the service registered
+ * @param declared The session types the manifest advertises
+ * @param warn Where to report a mismatch
+ */
+function reportSessionMismatches(
+    handlers: Record<string, Record<string, unknown>>,
+    declared: Map<string, Record<string, SessionType>>,
+    warn: (message: string) => void
+): void {
+    for (const [address, sessions] of Object.entries(handlers)) {
+        for (const sessionName of Object.keys(sessions)) {
+            if (declared.get(address)?.[sessionName] == undefined) {
+                warn(
+                    `Session handler ${address}/${sessionName} is registered but the plugin ` +
+                        `manifest declares no such session, so nothing can connect to it`
+                );
+            }
+        }
+    }
+
+    for (const [address, sessions] of declared) {
+        for (const sessionName of Object.keys(sessions)) {
+            if (handlers[address]?.[sessionName] == undefined) {
+                warn(
+                    `Session ${address}/${sessionName} is declared in the plugin manifest but ` +
+                        `this service registers no handler for it`
+                );
+            }
+        }
+    }
 }
 
 /**

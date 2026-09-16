@@ -5,6 +5,7 @@ import com.auth0.jwt.JWTVerifier
 import com.auth0.jwt.algorithms.Algorithm
 import com.auth0.jwt.interfaces.DecodedJWT
 import com.mdeo.backend.config.JwtConfig
+import com.mdeo.common.model.PluginTarget
 import org.slf4j.LoggerFactory
 import java.security.KeyFactory
 import java.security.KeyPairGenerator
@@ -39,6 +40,17 @@ class JwtService(services: InjectedServices) : BaseService(), InjectedServices b
         const val CLAIM_SCOPE = "scope"
 
         /**
+         * Claim naming the plugin target a session token was issued for, written as the same
+         * `<kind>:<id>` address the caller used — `lang:script`, `contrib:script-functions`.
+         */
+        const val CLAIM_TARGET = "target"
+
+        /**
+         * Claim naming the session, the last segment of the address.
+         */
+        const val CLAIM_SESSION = "session"
+
+        /**
          * Claim naming the piece of work a token is bound to. A bound token is only accepted while
          * that work is still in progress, which keeps a long-lived token from outliving its purpose.
          * Tokens without this claim are only bounded by their expiry.
@@ -64,6 +76,12 @@ class JwtService(services: InjectedServices) : BaseService(), InjectedServices b
         const val SCOPE_PLUGIN_EXECUTION_READ = "plugin:execution:read"
         const val SCOPE_PLUGIN_EXECUTION_CANCEL = "plugin:execution:cancel"
         const val SCOPE_PLUGIN_EXECUTION_DELETE = "plugin:execution:delete"
+
+        /**
+         * Scope of a token that opens one session on one plugin target. It grants nothing else:
+         * a session carries a protocol the plugin defines, not calls back into this backend.
+         */
+        const val SCOPE_SESSION_CONNECT = "session:connect"
 
     }
     
@@ -215,6 +233,54 @@ class JwtService(services: InjectedServices) : BaseService(), InjectedServices b
             .withArrayClaim(CLAIM_SCOPE, arrayOf(SCOPE_FILES_READ, SCOPE_FILE_DATA_READ))
             .sign(algorithm)
     }
+
+    /**
+     * Generates the token that opens one session on one plugin target.
+     *
+     * The token names the target and the session it may be used on, so a node holding a token
+     * for one session cannot open another, and it is bound to the execution so that a lifetime
+     * long enough to cover a run stops granting anything once the run ends. A session carries a
+     * plugin-defined protocol, so the token carries the single [SCOPE_SESSION_CONNECT] scope and
+     * nothing more. The only backend call it authorizes is the one a language service makes while
+     * opening a `lang:` session, to learn which contribution plugins to load.
+     *
+     * @param projectId The UUID of the project
+     * @param executionId The UUID of the execution the session belongs to
+     * @param target The addressed target, written into the token as `<kind>:<id>`
+     * @param sessionName The session name
+     * @param ttlSeconds Token lifetime in seconds. A reconnect needs a fresh token, so this need
+     *   only outlive the connect attempt rather than the whole run.
+     * @return The generated JWT token string
+     */
+    fun generateSessionConnectToken(
+        projectId: UUID,
+        executionId: UUID,
+        target: PluginTarget,
+        sessionName: String,
+        ttlSeconds: Long = jwtConfig.expirationSeconds
+    ): String {
+        val now = Instant.now()
+        val expiration = now.plusSeconds(ttlSeconds)
+
+        return JWT.create()
+            .withIssuer(jwtConfig.issuer)
+            .withIssuedAt(Date.from(now))
+            .withExpiresAt(Date.from(expiration))
+            .withClaim(CLAIM_PROJECT_ID, projectId.toString())
+            .withClaim(CLAIM_EXECUTION_ID, executionId.toString())
+            .withClaim(CLAIM_TARGET, target.toString())
+            .withClaim(CLAIM_SESSION, sessionName)
+            .withClaim(CLAIM_BINDING, BINDING_ACTIVE_EXECUTION)
+            .withArrayClaim(CLAIM_SCOPE, arrayOf(SCOPE_SESSION_CONNECT))
+            .sign(algorithm)
+    }
+
+    /**
+     * Lifetime of a session connect token, in seconds.
+     *
+     * @return The configured general token lifetime
+     */
+    fun sessionConnectTokenTtlSeconds(): Long = jwtConfig.expirationSeconds
 
     /**
      * Gets a JWT verifier for validating tokens.

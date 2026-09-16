@@ -23,17 +23,71 @@ import { JsonAstSerializer } from "./jsonAstSerializer.js";
 import { ExtendedIndexManager } from "./extendedIndexManager.js";
 
 /**
+ * How long a request waits for a free instance before giving up, when the pool is not
+ * configured otherwise. Long enough to ride out a slow request ahead of it, short enough that
+ * a caller learns the pool is stuck instead of hanging on it.
+ */
+const DEFAULT_ACQUIRE_TIMEOUT_MS = 30_000;
+
+/**
+ * How many instances open sessions may hold at once, when the pool is not configured otherwise.
+ */
+const DEFAULT_MAX_SESSION_INSTANCES = 2;
+
+/**
+ * Raised when the pool cannot serve an acquisition.
+ *
+ * Both causes are worth telling apart from an ordinary failure: the request path waited out
+ * its timeout because every instance is held, or a session was refused because the session
+ * budget is full. Neither is the caller's fault, and both say something specific about the
+ * service's state.
+ */
+export class LangiumPoolExhaustedError extends Error {
+    /**
+     * Creates the error.
+     *
+     * @param message What could not be served, and why
+     */
+    constructor(message: string) {
+        super(message);
+        this.name = "LangiumPoolExhaustedError";
+    }
+}
+
+/**
+ * One request waiting for an instance to come free.
+ */
+interface InstanceWaiter<T> {
+    /**
+     * Hands the waiter an instance that just became available.
+     */
+    resolve(instance: LangiumInstance<T>): void;
+    /**
+     * Whether this waiter has already been served or has given up.
+     */
+    settled: boolean;
+}
+
+/**
  * Manages a pool of Langium instances for handling file data requests.
  *
  * Each instance is tied to a specific contribution plugin configuration.
  * Instances are reused when the same configuration is requested, and
  * evicted based on LRU when the pool is full.
+ *
+ * Sessions draw on a separate budget. An instance handed to a session leaves the pool for the
+ * lifetime of the connection, which can be a whole execution, so it must not be counted among
+ * the instances the request path expects to get back.
  */
 export class LangiumInstancePool<T> {
     /**
      * Map of instance IDs to Langium instances
      */
     private readonly instances: Map<string, LangiumInstance<T>> = new Map();
+    /**
+     * Instances currently held by open sessions, keyed by instance id.
+     */
+    private readonly sessionInstances: Map<string, LangiumInstance<T>> = new Map();
     /**
      * Counter for generating unique instance IDs
      */
@@ -42,7 +96,7 @@ export class LangiumInstancePool<T> {
     /**
      * Queue of waiters for instances when all are busy
      */
-    private readonly instanceWaitQueue: ((instance: LangiumInstance<T>) => void)[] = [];
+    private readonly instanceWaitQueue: InstanceWaiter<T>[] = [];
 
     constructor(private readonly config: LangiumPoolConfig<T>) {
         this.config = config;
@@ -126,17 +180,120 @@ export class LangiumInstancePool<T> {
             return this.createInstance(contributionPlugins, key);
         }
 
-        return new Promise<LangiumInstance<T>>((resolve) => {
-            this.instanceWaitQueue.push((availableInstance) => {
-                if (availableInstance.contributionPluginKey === key) {
-                    resolve(availableInstance);
-                } else {
-                    this.instances.delete(availableInstance.id);
-                    const newInstance = this.createInstance(contributionPlugins, key);
-                    resolve(newInstance);
+        const timeoutMs = this.config.acquireTimeoutMs ?? DEFAULT_ACQUIRE_TIMEOUT_MS;
+
+        return new Promise<LangiumInstance<T>>((resolve, reject) => {
+            const waiter: InstanceWaiter<T> = {
+                settled: false,
+                resolve: (availableInstance) => {
+                    clearTimeout(timer);
+                    if (availableInstance.contributionPluginKey === key) {
+                        resolve(availableInstance);
+                    } else {
+                        this.instances.delete(availableInstance.id);
+                        resolve(this.createInstance(contributionPlugins, key));
+                    }
                 }
-            });
+            };
+
+            const timer = setTimeout(() => {
+                waiter.settled = true;
+                const queued = this.instanceWaitQueue.indexOf(waiter);
+                if (queued >= 0) {
+                    this.instanceWaitQueue.splice(queued, 1);
+                }
+                reject(
+                    new LangiumPoolExhaustedError(
+                        `No Langium instance became available within ${timeoutMs}ms ` +
+                            `(${this.instances.size} pooled, ${this.sessionInstances.size} held by sessions)`
+                    )
+                );
+            }, timeoutMs);
+            // A pool that is merely busy must not keep the process alive on its own account.
+            timer.unref?.();
+
+            this.instanceWaitQueue.push(waiter);
         });
+    }
+
+    /**
+     * Takes an instance out of the pool for the lifetime of a session.
+     *
+     * The instance is removed from the pool rather than marked busy, so the request path never
+     * waits on it. Sessions have their own budget, and it is refused when full instead of
+     * queued: the slot only frees when a connection closes, which may be the end of a run.
+     *
+     * @param contributionPlugins The contribution plugins configuration
+     * @param jwt The JWT token of the caller that opened the session
+     * @param project The project context of the session
+     * @returns The instance the session owns until it closes
+     * @throws LangiumPoolExhaustedError when the session budget is exhausted
+     */
+    acquireForSession(
+        contributionPlugins: ServerContributionPlugin[],
+        jwt: string,
+        project: string
+    ): LangiumInstance<T> {
+        const maxSessionInstances = this.config.maxSessionInstances ?? DEFAULT_MAX_SESSION_INSTANCES;
+        if (this.sessionInstances.size >= maxSessionInstances) {
+            throw new LangiumPoolExhaustedError(
+                `All ${maxSessionInstances} session instances are in use; try again once a session closes`
+            );
+        }
+
+        const key = this.generateContributionKey(contributionPlugins);
+
+        let instance: LangiumInstance<T> | undefined = undefined;
+        for (const candidate of this.instances.values()) {
+            if (candidate.contributionPluginKey === key && !candidate.busy) {
+                instance = candidate;
+                break;
+            }
+        }
+
+        const used = instance ?? this.createInstance(contributionPlugins, key);
+        this.instances.delete(used.id);
+        this.sessionInstances.set(used.id, used);
+        used.configure(jwt, project);
+        return used;
+    }
+
+    /**
+     * Returns an instance a session was holding.
+     *
+     * The instance is reset and readmitted to the pool when there is room, so the next request
+     * reuses it rather than paying to build another. When the pool has meanwhile filled up, it
+     * is dropped instead — the session budget is freed either way.
+     *
+     * @param instance The instance the closing session held
+     */
+    releaseFromSession(instance: LangiumInstance<T>): void {
+        this.sessionInstances.delete(instance.id);
+        if (instance.busy) {
+            instance.reset();
+        }
+        if (this.instances.size >= this.config.maxInstances) {
+            return;
+        }
+        this.instances.set(instance.id, instance);
+        this.serveNextWaiter(instance);
+    }
+
+    /**
+     * Hands a just-freed instance to the request that has been waiting longest, if any.
+     *
+     * @param instance The instance that became available
+     */
+    private serveNextWaiter(instance: LangiumInstance<T>): void {
+        while (this.instanceWaitQueue.length > 0) {
+            const waiter = this.instanceWaitQueue.shift()!;
+            if (waiter.settled) {
+                continue;
+            }
+            waiter.settled = true;
+            waiter.resolve(instance);
+            return;
+        }
     }
 
     /**
@@ -147,10 +304,7 @@ export class LangiumInstancePool<T> {
      */
     release(instance: LangiumInstance<T>): void {
         instance.reset();
-        if (this.instanceWaitQueue.length > 0) {
-            const waiter = this.instanceWaitQueue.shift()!;
-            waiter(instance);
-        }
+        this.serveNextWaiter(instance);
     }
 
     /**

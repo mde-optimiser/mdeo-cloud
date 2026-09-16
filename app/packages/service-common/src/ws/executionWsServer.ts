@@ -1,6 +1,7 @@
 import type { Server } from "node:http";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { JwtAuthMiddleware } from "../auth/jwtAuth.js";
+import { registerUpgradeRoute } from "./upgradeRouter.js";
 import type { ExecutionHandler, ExecutionRequestContext } from "../execution/types.js";
 import type { LangiumInstance } from "../langium/langiumInstance.js";
 import {
@@ -82,26 +83,18 @@ export interface ExecutionWsServerDeps {
 export function attachExecutionWebSocketServer(server: Server, deps: ExecutionWsServerDeps): WebSocketServer {
     const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_PAYLOAD_BYTES });
 
-    server.on("upgrade", (request, socket, head) => {
-        const path = (request.url ?? "").split("?")[0];
-        // Plugin services sit behind a reverse proxy under a per-plugin path prefix, which both
-        // the nginx and Vite configurations strip before forwarding. A proxy that did not would
-        // land here and be rejected — with the reason logged, which is the part that matters.
-        if (path !== EXECUTION_WS_PATH) {
-            // Registering any upgrade listener stops Node from rejecting unhandled upgrades
-            // itself, so an unmatched request would sit open until it timed out. This is the
-            // only endpoint that upgrades; if another is ever added, its listener runs too and
-            // this must stop closing the socket out from under it.
-            deps.log.warn(`Rejecting WebSocket upgrade for unknown path ${path}`);
-            if (server.listenerCount("upgrade") === 1) {
-                socket.destroy();
+    registerUpgradeRoute(
+        server,
+        {
+            matches: (path) => path === EXECUTION_WS_PATH,
+            handle: (request, socket, head) => {
+                wss.handleUpgrade(request, socket, head, (ws) => {
+                    wss.emit("connection", ws, request);
+                });
             }
-            return;
-        }
-        wss.handleUpgrade(request, socket, head, (ws) => {
-            wss.emit("connection", ws, request);
-        });
-    });
+        },
+        deps.log
+    );
 
     wss.on("connection", (socket: WebSocket) => {
         socket.on("message", (raw) => {

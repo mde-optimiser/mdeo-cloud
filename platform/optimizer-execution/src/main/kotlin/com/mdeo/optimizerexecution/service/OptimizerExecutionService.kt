@@ -34,6 +34,11 @@ import com.mdeo.optimizerexecution.worker.RemoteWorkerClient
 import com.mdeo.optimizerexecution.worker.WorkerClient
 import com.mdeo.optimizerexecution.worker.WorkerService
 import com.mdeo.script.ast.TypedAst as ScriptTypedAst
+import com.mdeo.script.ast.TypedPluginAst as ScriptTypedPluginAst
+import com.mdeo.script.external.ExternalSessionCheck
+import com.mdeo.common.model.PluginTarget
+import com.mdeo.common.model.PluginTargetKind
+import com.mdeo.execution.common.api.SessionResolver
 import com.mdeo.script.ast.expressions.TypedExpressionSerializer as ScriptExpressionSerializer
 import com.mdeo.script.ast.statements.TypedStatementSerializer
 import com.mdeo.metamodel.Model
@@ -392,10 +397,23 @@ class OptimizerExecutionService(
         )
         val scriptAsts = fetchAllScripts(executionId, projectId, scriptPaths, jwtToken)
             ?: return
+        val pluginAst = apiClient.getScriptPluginAst(projectId.toString(), jwtToken)
+        val sessionProblem = SessionResolver(apiClient.backendBaseUrl).use { resolver ->
+            ExternalSessionCheck.findProblem(pluginAst) { contribution, session ->
+                resolver.resolve(
+                    projectId.toString(), PluginTarget.of(PluginTargetKind.CONTRIBUTION, contribution), session, jwtToken
+                )
+            }
+        }
+        if (sessionProblem != null) {
+            storeError(executionId, sessionProblem)
+            updateState(executionId, ExecutionState.FAILED, sessionProblem, jwtToken)
+            return
+        }
 
         val federated = createFederatedEvaluator(
             executionId, config, metamodelData, modelData,
-            transformations, scriptAsts
+            transformations, scriptAsts, pluginAst, projectId, jwtToken
         )
         updateState(
             executionId, ExecutionState.RUNNING,
@@ -545,6 +563,9 @@ class OptimizerExecutionService(
      * @param modelData The initial model data to send to workers.
      * @param transformations Map of transformation path to typed AST.
      * @param scriptAsts Map of script path to typed AST.
+     * @param pluginAst Typed AST of all plugin-contributed script functions, or `null`.
+     * @param projectId Project that owns the execution.
+     * @param jwtToken Run token, forwarded to workers only when the run makes external calls.
      * @return A [FederatedMutationEvaluator] ready for use.
      */
     private suspend fun createFederatedEvaluator(
@@ -553,7 +574,10 @@ class OptimizerExecutionService(
         metamodelData: MetamodelData,
         modelData: ModelData,
         transformations: Map<String, TransformationTypedAst>,
-        scriptAsts: Map<String, ScriptTypedAst>
+        scriptAsts: Map<String, ScriptTypedAst>,
+        pluginAst: ScriptTypedPluginAst?,
+        projectId: UUID,
+        jwtToken: String
     ): FederatedMutationEvaluator {
         val resources = config.runtime.resources
         val requiredBackend = config.runtime.backend ?: GraphBackendType.MDEO
@@ -561,7 +585,8 @@ class OptimizerExecutionService(
         val workers = workerAndBudgets.map { it.first }
         val workerThreadBudgets = workerAndBudgets.associate { (client, budget) -> client.nodeId to budget }
         val allocationRequest = buildAllocationRequest(
-            executionId, config, metamodelData, modelData, transformations, scriptAsts,
+            executionId, config, metamodelData, modelData, transformations, scriptAsts, pluginAst,
+            projectId, jwtToken
         )
         return FederatedMutationEvaluator(executionId.toString(), workers, allocationRequest, workerThreadBudgets)
     }
@@ -579,6 +604,9 @@ class OptimizerExecutionService(
      * @param modelData The initial model data.
      * @param transformations Map of transformation path to typed AST.
      * @param scriptAsts Map of script path to typed AST.
+     * @param pluginAst Typed AST of all plugin-contributed script functions, or `null`.
+     * @param projectId Project that owns the execution.
+     * @param jwtToken Run token, forwarded to workers only when the run makes external calls.
      * @return A fully populated [WorkerAllocationRequest].
      */
     private fun buildAllocationRequest(
@@ -588,6 +616,9 @@ class OptimizerExecutionService(
         modelData: ModelData,
         transformations: Map<String, TransformationTypedAst>,
         scriptAsts: Map<String, ScriptTypedAst>,
+        pluginAst: ScriptTypedPluginAst?,
+        projectId: UUID,
+        jwtToken: String,
     ): WorkerAllocationRequest {
         val transformationAstJsons = transformations.mapValues { (_, ast) ->
             transformationJson.encodeToString(TransformationTypedAst.serializer(), ast)
@@ -595,12 +626,21 @@ class OptimizerExecutionService(
         val scriptAstJsons = scriptAsts.mapValues { (_, ast) ->
             scriptJson.encodeToString(ScriptTypedAst.serializer(), ast)
         }
+        val hasExternalCalls = pluginAst?.functions.orEmpty().any { f -> f.signatures.values.any { it.external != null } }
+        val pluginAstJson = pluginAst?.let {
+            scriptJson.encodeToString(ScriptTypedPluginAst.serializer(), it)
+        }
         return WorkerAllocationRequest(
             executionId = executionId.toString(),
             metamodelData = metamodelData,
             initialModelData = modelData,
             transformationAstJsons = transformationAstJsons,
             scriptAstJsons = scriptAstJsons,
+            pluginAstJson = pluginAstJson,
+            // Workers open sessions for external calls themselves, and need the run token to
+            // ask for them. A run without external calls does not hand its token to other nodes.
+            projectId = projectId.toString().takeIf { hasExternalCalls },
+            runToken = jwtToken.takeIf { hasExternalCalls },
             goalConfig = config.goal,
             solverConfig = config.solver,
             initialSolutionCount = config.solver.parameters.population,

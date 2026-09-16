@@ -26,6 +26,9 @@ dependencies {
     implementation(project(":expression"))
     implementation(project(":metamodel"))
     implementation(libs.kotlinx.serialization.json)
+
+    // The script-functions session protocol external functions are called over
+    api(project(":script-functions-protocol"))
     
     // Apache Commons Collections for Bag implementation
     implementation(libs.commons.collections)
@@ -37,4 +40,6 @@ dependencies {
     testImplementation(kotlin("test"))
     testImplementation(libs.junit.jupiter)
     testImplementation(libs.junit.jupiter.params)
+    // The Kotlin service helper, so client tests run against the real service side
+    testImplementation(project(":script-plugin-service"))
 }

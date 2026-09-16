@@ -52,6 +52,22 @@ export class LangiumInstance<T> {
     }
 
     /**
+     * Re-points the instance at the credentials of the message being handled.
+     *
+     * A session holds one instance across many messages, and {@link configure} pins the token
+     * of whoever opened the connection. Anything the instance fetches while handling a later
+     * message has to go out under that message's own authorization, so the context is set
+     * again per message rather than once per connection.
+     *
+     * @param jwt the JWT for authentication
+     * @param project the project context
+     */
+    refreshContext(jwt: string, project: string): void {
+        this.services.shared.ServerApi.setContext(jwt, project);
+        this.lastUsed = Date.now();
+    }
+
+    /**
      * Resets the instance after request processing
      * Clears the JWT and project context
      * Deletes all loaded documents to free memory

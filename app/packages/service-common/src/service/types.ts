@@ -3,6 +3,7 @@ import type { Plugin, LanguagePlugin } from "@mdeo/plugin";
 import type { FastifyInstance } from "fastify";
 import type { FileDataHandler, FileDataResult, RequestHandler } from "../handler/types.js";
 import type { ExecutionHandler } from "../execution/types.js";
+import type { SessionHandlers } from "../ws/sessionServer.js";
 import type { DeepPartial, Module } from "langium";
 
 /**
@@ -106,6 +107,28 @@ export interface ServiceConfig<T = object> {
      * Each configuration defines handlers and providers for a specific language.
      */
     languages: LanguageServiceConfig<T>[];
+
+    /**
+     * Session handlers this service serves, keyed by target address and then by session name.
+     *
+     * A handler must have a matching declaration in {@link plugin} — on the language plugin for
+     * a `lang:` address, on the contribution payload for a `contrib:` one. The declaration is
+     * what a caller negotiates against; this is only what answers once it has.
+     */
+    sessions?: SessionHandlers;
+
+    /**
+     * Maximum number of Langium instances open sessions may hold at once, per language.
+     *
+     * Separate from {@link maxLangiumInstances}, because a session keeps its instance for the
+     * length of a connection rather than the length of a request.
+     */
+    maxSessionInstances?: number;
+
+    /**
+     * How long a request may wait for a free Langium instance before failing, in milliseconds.
+     */
+    langiumAcquireTimeoutMs?: number;
 
     /**
      * Whether to serve static files (default: true)

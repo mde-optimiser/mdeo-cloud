@@ -40,6 +40,12 @@ open class BackendApiClient(
 ) {
     protected val logger = LoggerFactory.getLogger(this::class.java)
 
+    /**
+     * Base URL of the backend API this client talks to, for callers that open other connections
+     * to the same backend.
+     */
+    val backendBaseUrl: String get() = baseUrl
+
     private companion object {
         val TERMINAL_STATES = setOf(
             ExecutionState.COMPLETED,

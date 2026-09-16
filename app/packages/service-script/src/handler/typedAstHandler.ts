@@ -1,9 +1,12 @@
 import {
+    ExternalImplementation,
     Script,
+    type ExternalImplementation as ExternalImplementationType,
     type ResolvedScriptContributionPlugins,
     type ScriptServices,
     type TypedAst,
-    type TypedFunction
+    type TypedFunction,
+    type TypedParameter
 } from "@mdeo/language-script";
 import { hasErrors, type FileDataHandler } from "@mdeo/service-common";
 import { ScriptTypedAstConverter } from "./scriptTypedAstConverter.js";
@@ -46,9 +49,31 @@ interface TypedPluginFunction {
 }
 
 /**
- * A function signature without the name
+ * A function signature without the name.
+ *
+ * Exactly one of `body` and `external` is set. A body is a typed AST the execution service runs
+ * itself; an external implementation names an operation the plugin's own service answers over
+ * its `script-functions` session.
  */
-type TypedPluginFunctionSignature = Omit<TypedFunction, "name">;
+interface TypedPluginFunctionSignature {
+    /**
+     * Parameters of this overload, in declaration order.
+     */
+    parameters: TypedParameter[];
+    /**
+     * Index into the merged types array for the return type.
+     */
+    returnType: number;
+    /**
+     * The typed AST implementing this overload, when it is implemented in the platform.
+     */
+    body?: TypedFunction["body"];
+    /**
+     * The operation answering this overload, when it is implemented outside the platform,
+     * together with the contribution and session it is answered on.
+     */
+    external?: ExternalImplementationType & { contribution: string; session?: string };
+}
 
 /**
  * Handler for computing the typed AST of a script file.
@@ -108,6 +133,11 @@ function createTypedRootAst(resolvedPlugins: ResolvedScriptContributionPlugins):
         for (const [overloadId, contributedSignature] of Object.entries(
             resolvedFunction.contributedFunction.signatures
         )) {
+            const implementation = contributedSignature.implementation;
+
+            // An external implementation has no body to remap, but its signature still indexes
+            // into the plugin's own type table, so the parameter and return types are merged the
+            // same way. The types are what the compiler emits a stub against.
             const typedFunction: TypedFunction = {
                 name: functionName,
                 parameters: contributedSignature.signature.parameters.map((param) => ({
@@ -115,16 +145,26 @@ function createTypedRootAst(resolvedPlugins: ResolvedScriptContributionPlugins):
                     type: merger.addTypeToGlobal(param.type)
                 })),
                 returnType: merger.addTypeToGlobal(contributedSignature.signature.returnType),
-                body: contributedSignature.implementation
+                body: ExternalImplementation.is(implementation) ? { body: [] } : implementation
             };
 
             const remappedFunction = merger.remapFunction(typedFunction, resolvedFunction.types);
 
-            signatures[overloadId] = {
-                parameters: remappedFunction.parameters,
-                returnType: remappedFunction.returnType,
-                body: remappedFunction.body
-            };
+            signatures[overloadId] = ExternalImplementation.is(implementation)
+                ? {
+                      parameters: remappedFunction.parameters,
+                      returnType: remappedFunction.returnType,
+                      external: {
+                          ...implementation,
+                          contribution: resolvedFunction.contributionId,
+                          session: resolvedFunction.sessionName
+                      }
+                  }
+                : {
+                      parameters: remappedFunction.parameters,
+                      returnType: remappedFunction.returnType,
+                      body: remappedFunction.body
+                  };
         }
 
         functions.push({

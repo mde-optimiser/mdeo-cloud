@@ -110,9 +110,16 @@ action.
 
 ## WebSocket
 
-An execution WebSocket server is attached to the same HTTP server. It carries progress updates from
-the execution service to the backend and on to the workbench, so a long-running optimisation reports
-generations as it produces them rather than only at the end.
+Two WebSocket endpoints are attached to the same HTTP server, dispatched by path:
+
+| Path | Purpose |
+| --- | --- |
+| `/ws/executions` | Execution results and progress, read by the backend on a connection it keeps between requests |
+| `/ws/sessions/:kind/:targetId/:name` | A [session](/develop/sessions): a long-lived binary connection between one execution and one plugin target |
+
+The execution endpoint authorizes each request on the connection separately, because one
+connection is shared by unrelated callers. A session authorizes once, at the handshake, because
+one connection *is* one conversation.
 
 ## Configuration
 
@@ -125,6 +132,8 @@ generations as it produces them rather than only at the end.
 | `BACKEND_API_URL` | `http://localhost:8080/api` | Backend base URL for the `ServerApi` |
 | `JWT_ISSUER` | `mdeo-platform` | Expected issuer of incoming tokens |
 | `MAX_LANGIUM_INSTANCES` | `5` | Size of the Langium instance pool |
+| `MAX_SESSION_INSTANCES` | `2` | How many pool instances open sessions may hold at once |
+| `LANGIUM_ACQUIRE_TIMEOUT_MS` | `30000` | How long a request waits for a free instance before failing |
 | `MAX_REQUEST_BODY_BYTES` | 64 MiB | Upper bound on a request body; file contents travel in the body |
 | `SERVICE_VERSION` | — | When set, static assets are served under `/static/<version>/` |
 
@@ -140,3 +149,8 @@ no document survives into the next one.
 
 This is why `MAX_LANGIUM_INSTANCES` is a memory-versus-concurrency trade-off rather than a
 straightforward throughput setting.
+
+A [session](/develop/sessions) on a language target takes its instance *out* of the pool for the
+lifetime of the connection, so it is governed by its own budget rather than by this one. A
+request that finds every instance held now fails after `LANGIUM_ACQUIRE_TIMEOUT_MS` instead of
+waiting indefinitely.

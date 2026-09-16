@@ -57,7 +57,8 @@ class WorkerService(
     private val scriptTimeoutMs: Long,
     private val transformationTimeoutMs: Long,
     private val serverPort: Int = 0,
-    private val subprocessPool: SubprocessPool = buildDefaultPool()
+    private val subprocessPool: SubprocessPool = buildDefaultPool(),
+    private val backendApiUrl: String? = null
 ) {
 
     /**
@@ -157,6 +158,10 @@ class WorkerService(
             initialModelData = request.initialModelData,
             transformationAstJsons = request.transformationAstJsons,
             scriptAstJsons = request.scriptAstJsons,
+            pluginAstJson = request.pluginAstJson,
+            sessionBackendApiUrl = backendApiUrl,
+            sessionProjectId = request.projectId,
+            sessionRunToken = request.runToken,
             goalConfig = request.goalConfig,
             solverConfig = request.solverConfig,
             initialSolutionCount = request.initialSolutionCount,
