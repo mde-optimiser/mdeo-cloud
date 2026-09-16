@@ -189,7 +189,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
             is ApiResult.Failure -> return ApiResult.Failure(result.error)
         }
 
-        val contributionPlugins = pluginService.getContributionPluginsForLanguage(projectId, languagePlugin.id)
+        val contributions = ContributionSet(pluginService.getContributionPluginsForLanguage(projectId, languagePlugin.id))
 
         val executionId = UUID.randomUUID()
         val now = Instant.now()
@@ -219,7 +219,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
                 fileContent,
                 fileVersion,
                 data,
-                contributionPlugins
+                contributions
             )
         } catch (e: Exception) {
             logger.error("Failed to create execution via plugin", e)
@@ -909,7 +909,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
         fileContent: String,
         fileVersion: Int,
         data: JsonElement,
-        contributionPlugins: List<JsonElement>
+        contributions: ContributionSet
     ): CreateExecutionResponse {
         return withContext(Dispatchers.IO) {
             // The execution node keeps this token for the entire run and reports progress and the
@@ -922,32 +922,36 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
                 executionId,
                 ttlSeconds = config.jwt.executionExpirationSeconds
             )
-            val requestBody = json.encodeToString(
-                PluginCreateExecutionRequest.serializer(),
-                PluginCreateExecutionRequest(
-                    executionId = executionId.toString(),
-                    project = projectId.toString(),
-                    filePath = filePath,
-                    fileContent = fileContent,
-                    fileVersion = fileVersion,
-                    data = data,
-                    contributionPlugins = contributionPlugins
-                )
-            )
-
             val uri = URI.create(pluginUrl).resolve("$languageId/executions")
-            val request = CompressedResponses.accept(HttpRequest.newBuilder())
-                .uri(uri)
-                .header("Content-Type", "application/json")
-                .header("Authorization", "Bearer $token")
-                .POST(HttpRequest.BodyPublishers.ofString(requestBody))
-                // Starting an execution can require the plugin to have file data computed first,
-                // which for a large model takes minutes, so by default this waits as long as a
-                // single file data computation may take.
-                .timeout(Duration.ofSeconds(config.timeouts.executionStartSeconds))
-                .build()
 
-            val response = httpClient.send(request, CompressedResponses.ofString())
+            val response = ContributionDelivery.send(pluginUrl) { includePayloads ->
+                val requestBody = json.encodeToString(
+                    PluginCreateExecutionRequest.serializer(),
+                    PluginCreateExecutionRequest(
+                        executionId = executionId.toString(),
+                        project = projectId.toString(),
+                        filePath = filePath,
+                        fileContent = fileContent,
+                        fileVersion = fileVersion,
+                        data = data,
+                        contributionPlugins = contributions.plugins.takeIf { includePayloads },
+                        contributionHash = contributions.hash
+                    )
+                )
+
+                val request = CompressedResponses.accept(HttpRequest.newBuilder())
+                    .uri(uri)
+                    .header("Content-Type", "application/json")
+                    .header("Authorization", "Bearer $token")
+                    .POST(HttpRequest.BodyPublishers.ofString(requestBody))
+                    // Starting an execution can require the plugin to have file data computed first,
+                    // which for a large model takes minutes, so by default this waits as long as a
+                    // single file data computation may take.
+                    .timeout(Duration.ofSeconds(config.timeouts.executionStartSeconds))
+                    .build()
+
+                httpClient.send(request, CompressedResponses.ofString())
+            }
 
             if (response.statusCode() != 200 && response.statusCode() != 201) {
                 throw RuntimeException("Plugin returned status ${response.statusCode()}: ${response.body()}")

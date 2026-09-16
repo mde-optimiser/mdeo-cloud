@@ -124,14 +124,20 @@ export class LangiumInstancePool<T> {
      * @param contributionPlugins The contribution plugins configuration
      * @param jwt The JWT token for this request
      * @param project The project context for this request
+     * @param contributionHash The hash the backend identifies the contribution set by, which keys the
+     *        instance when given instead of the payloads themselves
      * @returns Promise resolving to the acquired Langium instance
      */
     async acquire(
         contributionPlugins: ServerContributionPlugin[],
         jwt: string,
-        project: string
+        project: string,
+        contributionHash?: string
     ): Promise<LangiumInstance<T>> {
-        const key = this.generateContributionKey(contributionPlugins);
+        const key =
+            contributionHash != undefined
+                ? `hash:${contributionHash}`
+                : this.generateContributionKey(contributionPlugins);
 
         let instance: LangiumInstance<T> | undefined = undefined;
 

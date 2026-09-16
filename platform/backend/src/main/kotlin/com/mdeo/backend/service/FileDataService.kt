@@ -202,7 +202,7 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
                 "Plugin URL not found"
             )
 
-        val contributionPlugins = pluginService.getContributionPluginsForLanguage(projectId, languagePlugin.id)
+        val contributions = ContributionSet(pluginService.getContributionPluginsForLanguage(projectId, languagePlugin.id))
 
         // Recorded before the plugin is called so the token below is backed by a computation that is
         // already visible to token verification, and removed again as soon as the call is done.
@@ -213,7 +213,7 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
             val token = jwtService.generateFileDataComputationToken(projectId, computationId)
 
             val call =
-                computeFromPlugin(pluginUrl, languagePlugin.id, key, projectId, fileSource, token, contributionPlugins, deadline)
+                computeFromPlugin(pluginUrl, languagePlugin.id, key, projectId, fileSource, token, contributions, deadline)
             logged.finish(call.requestBytes, call.responseBytes)
             val computedData = call.response
 
@@ -351,7 +351,7 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
      * @param project Project UUID
      * @param fileSource Source data with version, content, and path (null for directories)
      * @param token JWT token for authentication
-     * @param contributionPlugins List of contribution plugins to send to the plugin
+     * @param contributions The contribution plugins the plugin needs, sent as a hash when it holds them
      * @param deadline The caller's deadline, which shortens the wait and is forwarded to the plugin
      * @return Computed data response from the plugin, with the sizes of both messages
      */
@@ -362,7 +362,7 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
         project: UUID,
         fileSource: FileSource?,
         token: String,
-        contributionPlugins: List<JsonObject>,
+        contributions: ContributionSet,
         deadline: CallerDeadline?
     ): PluginComputation {
         return withContext(Dispatchers.IO) {
@@ -370,27 +370,30 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
             if (timeout.isZero) {
                 throw DeadlineExceededException("The caller's deadline passed before $key was sent to the plugin")
             }
-            val requestBody = json.encodeToString(
-                FileDataComputeRequest(
-                    project = project.toString(),
-                    source = fileSource,
-                    contributionPlugins = contributionPlugins
-                )
-            )
-
-            val requestBytes = requestBody.toByteArray(Charsets.UTF_8)
             val dataUrl = URI.create(pluginUrl).resolve("data/$languageId/$key")
+            var requestBytes = ByteArray(0)
 
-            val request = CompressedResponses.accept(HttpRequest.newBuilder())
-                .uri(dataUrl)
-                .header("Content-Type", "application/json")
-                .header("Authorization", "Bearer $token")
-                .header(CallerDeadline.HEADER, CallerDeadline.headerValue(timeout))
-                .POST(HttpRequest.BodyPublishers.ofByteArray(requestBytes))
-                .timeout(timeout)
-                .build()
+            val response = ContributionDelivery.send(pluginUrl) { includePayloads ->
+                requestBytes = json.encodeToString(
+                    FileDataComputeRequest(
+                        project = project.toString(),
+                        source = fileSource,
+                        contributionPlugins = contributions.plugins.takeIf { includePayloads },
+                        contributionHash = contributions.hash
+                    )
+                ).toByteArray(Charsets.UTF_8)
 
-            val response = httpClient.send(request, CompressedResponses.ofByteArray())
+                val request = CompressedResponses.accept(HttpRequest.newBuilder())
+                    .uri(dataUrl)
+                    .header("Content-Type", "application/json")
+                    .header("Authorization", "Bearer $token")
+                    .header(CallerDeadline.HEADER, CallerDeadline.headerValue(timeout))
+                    .POST(HttpRequest.BodyPublishers.ofByteArray(requestBytes))
+                    .timeout(timeout)
+                    .build()
+
+                httpClient.send(request, CompressedResponses.ofByteArray())
+            }
             val responseText = String(response.body(), Charsets.UTF_8)
 
             if (response.statusCode() != 200) {

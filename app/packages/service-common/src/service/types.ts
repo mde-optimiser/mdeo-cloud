@@ -204,6 +204,11 @@ export interface FileDataComputeRequest {
      * Contribution plugins to apply for this request
      */
     contributionPlugins?: object[];
+    /**
+     * Identifies the contribution set. Sent alone once the backend knows this service keeps sets by
+     * hash; see `ContributionCache`.
+     */
+    contributionHash?: string;
 }
 
 /**

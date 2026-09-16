@@ -882,6 +882,8 @@ class PluginService(services: InjectedServices) : BaseService(), InjectedService
                     (ContributionPluginsTable.pluginId inList projectPluginIds) and
                             (ContributionPluginsTable.languageId eq languageId)
                 }
+                // A stable order keeps the hash of an unchanged set unchanged.
+                .orderBy(ContributionPluginsTable.id)
                 .flatMap { row ->
                     json.decodeFromString<List<JsonObject>>(row[ContributionPluginsTable.serverContributionPlugins])
                 }

@@ -3,11 +3,16 @@ import cors from "@fastify/cors";
 import compress from "@fastify/compress";
 import { COMPRESSION_THRESHOLD_BYTES } from "../util/compression.js";
 import { createRequestLimits } from "../util/requestLimits.js";
+import {
+    CONTRIBUTION_HASH_SUPPORT_HEADER,
+    CONTRIBUTIONS_UNKNOWN_HEADER,
+    ContributionCache
+} from "../util/contributionCache.js";
 import fastifyStatic from "@fastify/static";
 import { resolve } from "path";
 import type { ServiceConfig, FileDataComputeRequest, FileDataComputeResponse, LanguageServiceConfig } from "./types.js";
 import { LangiumInstancePool } from "../langium/langiumPool.js";
-import { formatPluginTarget, PluginTargetKind, type ServerContributionPlugin, type SessionType } from "@mdeo/plugin";
+import { formatPluginTarget, PluginTargetKind, type SessionType } from "@mdeo/plugin";
 import { URI } from "vscode-uri";
 import { buildManifest } from "./util.js";
 import type { FileInfo } from "../handler/types.js";
@@ -137,6 +142,13 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
 
     const manifest = buildManifest(config.plugin, config.version);
 
+    // Contribution sets the backend sent, so later requests can carry just their hash.
+    const contributions = new ContributionCache();
+    fastify.addHook("onSend", async (_request, reply, payload) => {
+        reply.header(CONTRIBUTION_HASH_SUPPORT_HEADER, "1");
+        return payload;
+    });
+
     fastify.get("/", async (request: FastifyRequest, reply: FastifyReply) => {
         return reply.send(manifest);
     });
@@ -155,7 +167,7 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
         },
         async (request, reply) => {
             const { languageId, key } = request.params;
-            const { project, source, contributionPlugins } = request.body;
+            const { project, source, contributionPlugins, contributionHash } = request.body;
 
             if (!JwtAuthMiddleware.hasScope(request, "file-data:read")) {
                 return reply.status(403).send({ error: "Insufficient permissions: file-data:read scope required" });
@@ -173,9 +185,17 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
                 return reply.status(404).send({ error: `No handler registered for key: ${key}` });
             }
 
-            const serverContributionPlugins = (contributionPlugins ?? []) as unknown as ServerContributionPlugin[];
+            const serverContributionPlugins = contributions.resolve(contributionPlugins, contributionHash);
+            if (serverContributionPlugins == undefined) {
+                return refuseUnknownContributions(reply);
+            }
             const limits = createRequestLimits(request, reply);
-            const instance = await languageHandler.pool.acquire(serverContributionPlugins, jwt, project);
+            const instance = await languageHandler.pool.acquire(
+                serverContributionPlugins,
+                jwt,
+                project,
+                contributionHash
+            );
             instance.services.shared.ServerApi.setRequestLimits(limits.signal, limits.deadline);
 
             let fileInfo: FileInfo | undefined = undefined;
@@ -223,7 +243,7 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
     if (hasRequestHandlers) {
         fastify.post<{
             Params: { languageId: string; key: string };
-            Body: { project: string; body: unknown; contributionPlugins?: object[] };
+            Body: { project: string; body: unknown; contributionPlugins?: object[]; contributionHash?: string };
         }>(
             "/request/:languageId/:key",
             {
@@ -231,7 +251,7 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
             },
             async (request, reply) => {
                 const { languageId, key } = request.params;
-                const { project, body, contributionPlugins } = request.body;
+                const { project, body, contributionPlugins, contributionHash } = request.body;
 
                 if (!JwtAuthMiddleware.hasScope(request, "file-data:read")) {
                     return reply.status(403).send({ error: "Insufficient permissions: file-data:read scope required" });
@@ -249,9 +269,17 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
                     return reply.status(404).send({ error: `No request handler registered for key: ${key}` });
                 }
 
-                const serverContributionPlugins = (contributionPlugins ?? []) as unknown as ServerContributionPlugin[];
+                const serverContributionPlugins = contributions.resolve(contributionPlugins, contributionHash);
+                if (serverContributionPlugins == undefined) {
+                    return refuseUnknownContributions(reply);
+                }
                 const limits = createRequestLimits(request, reply);
-                const instance = await languageHandler.pool.acquire(serverContributionPlugins, jwt, project);
+                const instance = await languageHandler.pool.acquire(
+                    serverContributionPlugins,
+                    jwt,
+                    project,
+                    contributionHash
+                );
                 instance.services.shared.ServerApi.setRequestLimits(limits.signal, limits.deadline);
 
                 try {
@@ -301,6 +329,7 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
                 fileVersion: number;
                 data: object;
                 contributionPlugins?: object[];
+                contributionHash?: string;
             };
         }>(
             "/:languageId/executions",
@@ -309,8 +338,16 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
             },
             async (request, reply) => {
                 const { languageId } = request.params;
-                const { executionId, project, filePath, fileContent, fileVersion, data, contributionPlugins } =
-                    request.body;
+                const {
+                    executionId,
+                    project,
+                    filePath,
+                    fileContent,
+                    fileVersion,
+                    data,
+                    contributionPlugins,
+                    contributionHash
+                } = request.body;
 
                 if (!JwtAuthMiddleware.hasScope(request, "execution:write")) {
                     return reply
@@ -332,8 +369,16 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
                     return reply.status(503).send({ error: "Execution service not available for this language" });
                 }
 
-                const serverContributionPlugins = (contributionPlugins ?? []) as unknown as ServerContributionPlugin[];
-                const instance = await languageHandler.pool.acquire(serverContributionPlugins, jwt, project);
+                const serverContributionPlugins = contributions.resolve(contributionPlugins, contributionHash);
+                if (serverContributionPlugins == undefined) {
+                    return refuseUnknownContributions(reply);
+                }
+                const instance = await languageHandler.pool.acquire(
+                    serverContributionPlugins,
+                    jwt,
+                    project,
+                    contributionHash
+                );
 
                 const uri = URI.parse(filePath);
                 instance.services.shared.workspace.LangiumDocuments.createDocument(uri, fileContent);
@@ -780,6 +825,20 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
     }
 
     return fastify;
+}
+
+/**
+ * Answers a request that carries only the hash of a contribution set this service does not hold,
+ * so the backend sends it again with the payloads.
+ *
+ * @param reply The reply to send
+ * @returns The sent reply
+ */
+function refuseUnknownContributions(reply: FastifyReply): FastifyReply {
+    return reply
+        .status(409)
+        .header(CONTRIBUTIONS_UNKNOWN_HEADER, "1")
+        .send({ error: "The contribution plugins of this request are not known to this service; send them again" });
 }
 
 /**

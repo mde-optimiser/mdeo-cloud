@@ -71,7 +71,7 @@ class LanguagePluginRequestService(services: InjectedServices) : BaseService(), 
                 "Plugin URL not found"
             )
 
-        val contributionPlugins = pluginService.getContributionPluginsForLanguage(projectId, languageId)
+        val contributions = ContributionSet(pluginService.getContributionPluginsForLanguage(projectId, languageId))
 
         return try {
             val token = callerJwt ?: jwtService.generateProjectToken(projectId)
@@ -83,7 +83,7 @@ class LanguagePluginRequestService(services: InjectedServices) : BaseService(), 
                 projectId,
                 body,
                 token,
-                contributionPlugins,
+                contributions,
                 deadline
             )
 
@@ -118,7 +118,7 @@ class LanguagePluginRequestService(services: InjectedServices) : BaseService(), 
      * @param project project UUID used in the request payload.
      * @param body JSON body forwarded to the plugin.
      * @param token JWT token included as a Bearer token in the Authorization header.
-     * @param contributionPlugins list of contribution plugin metadata to include in the payload.
+     * @param contributions contribution plugins to include, sent as a hash when the plugin holds them.
      * @param deadline the caller's deadline, which shortens the wait and is forwarded to the plugin.
      * @return the deserialized plugin response JSON element.
      * @throws RuntimeException when the plugin returns a non-200 status or when decoding fails.
@@ -130,7 +130,7 @@ class LanguagePluginRequestService(services: InjectedServices) : BaseService(), 
         project: UUID,
         body: JsonElement,
         token: String,
-        contributionPlugins: List<JsonObject>,
+        contributions: ContributionSet,
         deadline: CallerDeadline?
     ): JsonElement {
         return withContext(Dispatchers.IO) {
@@ -138,28 +138,30 @@ class LanguagePluginRequestService(services: InjectedServices) : BaseService(), 
             if (timeout.isZero) {
                 throw DeadlineExceededException("The caller's deadline passed before $languageId:$key was sent to the plugin")
             }
-            val requestBody = json.encodeToString(
-                LanguagePluginRequest.serializer(),
-                LanguagePluginRequest(
-                    project = project.toString(),
-                    body = body,
-                    contributionPlugins = contributionPlugins
-                )
-            )
-
             val requestUrl = URI.create(pluginUrl).resolve("request/$languageId/$key")
 
-            val requestBuilder = CompressedResponses.accept(HttpRequest.newBuilder())
-                .uri(requestUrl)
-                .header("Content-Type", "application/json")
-                .header("Authorization", "Bearer $token")
-                .header(CallerDeadline.HEADER, CallerDeadline.headerValue(timeout))
-                .POST(HttpRequest.BodyPublishers.ofString(requestBody))
-                .timeout(timeout)
+            val response = ContributionDelivery.send(pluginUrl) { includePayloads ->
+                val requestBody = json.encodeToString(
+                    LanguagePluginRequest.serializer(),
+                    LanguagePluginRequest(
+                        project = project.toString(),
+                        body = body,
+                        contributionPlugins = contributions.plugins.takeIf { includePayloads },
+                        contributionHash = contributions.hash
+                    )
+                )
 
-            val request = requestBuilder.build()
+                val request = CompressedResponses.accept(HttpRequest.newBuilder())
+                    .uri(requestUrl)
+                    .header("Content-Type", "application/json")
+                    .header("Authorization", "Bearer $token")
+                    .header(CallerDeadline.HEADER, CallerDeadline.headerValue(timeout))
+                    .POST(HttpRequest.BodyPublishers.ofString(requestBody))
+                    .timeout(timeout)
+                    .build()
 
-            val response = httpClient.send(request, CompressedResponses.ofString())
+                httpClient.send(request, CompressedResponses.ofString())
+            }
 
             if (response.statusCode() != 200) {
                 throw RuntimeException("Plugin returned status ${response.statusCode()}: ${response.body()}")

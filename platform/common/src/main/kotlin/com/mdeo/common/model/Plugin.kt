@@ -200,13 +200,17 @@ data class FileSource(
  *
  * @property project Project ID the file/directory belongs to
  * @property source Source data (version, content, and path), only present for files, absent for directories
- * @property contributionPlugins Server contribution plugins associated with this language
+ * @property contributionPlugins Server contribution plugins associated with this language; left out
+ *           when the service is sent [contributionHash] alone
+ * @property contributionHash Identifies [contributionPlugins]. A service that already holds the set
+ *           under this hash is sent the hash alone, see `ContributionDelivery` in the backend.
  */
 @Serializable
 data class FileDataComputeRequest(
     val project: String,
     val source: FileSource? = null,
-    val contributionPlugins: List<JsonObject> = emptyList()
+    val contributionPlugins: List<JsonObject>? = null,
+    val contributionHash: String? = null
 )
 
 /**
@@ -289,13 +293,17 @@ data class FileDataResponse(
  *
  * @property project Project ID the request belongs to
  * @property body Arbitrary JSON body to be forwarded to the plugin
- * @property contributionPlugins Server contribution plugins associated with this language
+ * @property contributionPlugins Server contribution plugins associated with this language; left out
+ *           when the service is sent [contributionHash] alone
+ * @property contributionHash Identifies [contributionPlugins]. A service that already holds the set
+ *           under this hash is sent the hash alone, see `ContributionDelivery` in the backend.
  */
 @Serializable
 data class LanguagePluginRequest(
     val project: String,
     val body: JsonElement,
-    val contributionPlugins: List<JsonObject> = emptyList()
+    val contributionPlugins: List<JsonObject>? = null,
+    val contributionHash: String? = null
 )
 
 /**

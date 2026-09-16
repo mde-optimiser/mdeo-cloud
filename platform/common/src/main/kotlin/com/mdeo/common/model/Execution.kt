@@ -97,6 +97,10 @@ data class UpdateExecutionMetadataRequest(
  * @property project Project ID
  * @property filePath Path to the file being executed
  * @property data Arbitrary JSON data for the execution
+ * @property contributionPlugins Server contribution plugins associated with this language; left out
+ *           when the service is sent [contributionHash] alone
+ * @property contributionHash Identifies [contributionPlugins]. A service that already holds the set
+ *           under this hash is sent the hash alone, see `ContributionDelivery` in the backend.
  */
 @Serializable
 data class PluginCreateExecutionRequest(
@@ -106,7 +110,8 @@ data class PluginCreateExecutionRequest(
     val fileContent: String,
     val fileVersion: Int,
     val data: JsonElement,
-    val contributionPlugins: List<JsonElement> = emptyList()
+    val contributionPlugins: List<JsonElement>? = null,
+    val contributionHash: String? = null
 )
 
 /**

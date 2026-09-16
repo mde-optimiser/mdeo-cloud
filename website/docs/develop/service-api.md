@@ -60,6 +60,15 @@ or has been invalidated.
 the contribution plugins active for the project, and is part of the key under which the service pools
 its Langium instances.
 
+**Contribution hashes.** Every request also carries `contributionHash`, which identifies the
+contribution set. A service that answers with the header `X-Mdeo-Contribution-Hashes` tells the
+backend it keeps sets by hash; from then on the backend sends `contributionHash` without
+`contributionPlugins`. A service that does not hold the set a hash stands for — after a restart, or
+when the set changed — answers `409` with `X-Mdeo-Contributions-Unknown`, and the backend sends the
+request again with the payloads. This applies to `/data`, `/request` and `/executions` alike, and
+`@mdeo/service-common` does all of it; a service in another stack can ignore it and always receives
+the payloads.
+
 ```json
 {
   "data": { },
