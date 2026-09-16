@@ -108,7 +108,7 @@ class PluginService(services: InjectedServices) : BaseService(), InjectedService
     private val internalPluginBaseUrl get() = pluginConfig.internalBaseUrl
 
     private val httpClient = HttpClient.newBuilder()
-        .connectTimeout(Duration.ofSeconds(10))
+        .connectTimeout(Duration.ofSeconds(config.timeouts.connectSeconds))
         .version(if (pluginConfig.forceHttp1) HttpClient.Version.HTTP_1_1 else HttpClient.Version.HTTP_2)
         .build()
 
@@ -327,7 +327,7 @@ class PluginService(services: InjectedServices) : BaseService(), InjectedService
             val request = CompressedResponses.accept(HttpRequest.newBuilder())
                 .uri(URI.create(resolvedUrl))
                 .GET()
-                .timeout(Duration.ofSeconds(30))
+                .timeout(Duration.ofSeconds(config.timeouts.manifestFetchSeconds))
                 .build()
 
             val response = httpClient.send(request, CompressedResponses.ofString())

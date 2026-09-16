@@ -12,6 +12,7 @@ import java.util.concurrent.TimeUnit
  * @property defaultAdmin Default administrator account configuration
  * @property defaultNewUserCanCreateProject Whether newly registered users can create projects by default
  * @property plugin Plugin system configuration
+ * @property timeouts How long the backend waits on the services it calls
  */
 data class AppConfig(
     val serverPort: Int,
@@ -22,7 +23,8 @@ data class AppConfig(
     val defaultNewUserCanCreateProject: Boolean,
     val plugin: PluginConfig,
     val jwt: JwtConfig,
-    val fileData: FileDataConfig
+    val fileData: FileDataConfig,
+    val timeouts: TimeoutConfig
 ) {
     companion object {
         /**
@@ -99,10 +101,8 @@ data class AppConfig(
                     privateKey = System.getenv("JWT_PRIVATE_KEY"),
                     publicKey = System.getenv("JWT_PUBLIC_KEY")
                 ),
-                fileData = FileDataConfig(
-                    computationTimeoutSeconds = System.getenv("FILE_DATA_COMPUTATION_TIMEOUT_SECONDS")?.toLongOrNull()
-                        ?: TimeUnit.MINUTES.toSeconds(5)
-                )
+                fileData = FileDataConfig.load(),
+                timeouts = TimeoutConfig.load()
             )
         }
     }
@@ -200,8 +200,80 @@ data class JwtConfig(
 /**
  * File data computation configuration.
  *
- * @property computationTimeoutSeconds Timeout in seconds before a computation is considered stale (default 5 minutes)
+ * Two different lifetimes: how long the backend waits for a plugin to answer, and how long a
+ * computation stays recorded as running — which is how long the token handed to the plugin keeps
+ * being accepted. They share a default but are separate settings, so a deployment can let tokens
+ * outlive a slow HTTP answer without waiting longer for it, or the other way round.
+ *
+ * @property computationTimeoutSeconds How long the backend waits for a plugin to compute file data
+ *           (`FILE_DATA_COMPUTATION_TIMEOUT_SECONDS`, default 5 minutes)
+ * @property computationBindingSeconds How long a computation, and the token bound to it, stays live
+ *           before it is treated as abandoned (`FILE_DATA_COMPUTATION_BINDING_SECONDS`, default
+ *           [computationTimeoutSeconds])
  */
 data class FileDataConfig(
-    val computationTimeoutSeconds: Long
-)
+    val computationTimeoutSeconds: Long,
+    val computationBindingSeconds: Long = computationTimeoutSeconds
+) {
+    companion object {
+        /**
+         * Reads the configuration from the environment.
+         *
+         * @param environment Where to read from
+         * @return The configuration
+         */
+        fun load(environment: Map<String, String> = System.getenv()): FileDataConfig {
+            val timeout = environment["FILE_DATA_COMPUTATION_TIMEOUT_SECONDS"]?.toLongOrNull()
+                ?: TimeUnit.MINUTES.toSeconds(5)
+            return FileDataConfig(
+                computationTimeoutSeconds = timeout,
+                computationBindingSeconds = environment["FILE_DATA_COMPUTATION_BINDING_SECONDS"]?.toLongOrNull() ?: timeout
+            )
+        }
+    }
+}
+
+/**
+ * How long the backend waits on the services it calls, in one place.
+ *
+ * Sessions have no timeout here: a call on a session can take as long as the work takes, and
+ * liveness comes from keepalives instead.
+ *
+ * @property pluginRequestSeconds A one-shot request to a language plugin
+ *           (`PLUGIN_REQUEST_TIMEOUT_SECONDS`, default 5 minutes)
+ * @property executionStartSeconds Starting an execution on a plugin or execution service
+ *           (`EXECUTION_START_TIMEOUT_SECONDS`, default 5 minutes)
+ * @property executionReadSeconds Reading an execution's state, summary or files, or cancelling or
+ *           deleting it (`EXECUTION_READ_TIMEOUT_SECONDS`, default 1 minute)
+ * @property manifestFetchSeconds Fetching a plugin's manifest (`PLUGIN_MANIFEST_TIMEOUT_SECONDS`,
+ *           default 30 seconds)
+ * @property connectSeconds Opening a connection to any service (`SERVICE_CONNECT_TIMEOUT_SECONDS`,
+ *           default 10 seconds)
+ */
+data class TimeoutConfig(
+    val pluginRequestSeconds: Long = TimeUnit.MINUTES.toSeconds(5),
+    val executionStartSeconds: Long = TimeUnit.MINUTES.toSeconds(5),
+    val executionReadSeconds: Long = TimeUnit.MINUTES.toSeconds(1),
+    val manifestFetchSeconds: Long = 30,
+    val connectSeconds: Long = 10
+) {
+    companion object {
+        /**
+         * Reads the configuration from the environment, falling back to the defaults.
+         *
+         * @param environment Where to read from
+         * @return The configuration
+         */
+        fun load(environment: Map<String, String> = System.getenv()): TimeoutConfig {
+            val defaults = TimeoutConfig()
+            fun seconds(name: String, default: Long) = environment[name]?.toLongOrNull()?.takeIf { it > 0 } ?: default
+            return TimeoutConfig(
+                pluginRequestSeconds = seconds("PLUGIN_REQUEST_TIMEOUT_SECONDS", defaults.pluginRequestSeconds),
+                executionStartSeconds = seconds("EXECUTION_START_TIMEOUT_SECONDS", defaults.executionStartSeconds),
+                executionReadSeconds = seconds("EXECUTION_READ_TIMEOUT_SECONDS", defaults.executionReadSeconds),
+                manifestFetchSeconds = seconds("PLUGIN_MANIFEST_TIMEOUT_SECONDS", defaults.manifestFetchSeconds),
+                connectSeconds = seconds("SERVICE_CONNECT_TIMEOUT_SECONDS", defaults.connectSeconds)
+            )
+        }
+    }
+}

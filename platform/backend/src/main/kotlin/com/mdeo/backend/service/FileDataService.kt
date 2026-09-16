@@ -51,7 +51,7 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
 
     private val httpClient by lazy {
         HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(10))
+            .connectTimeout(Duration.ofSeconds(config.timeouts.connectSeconds))
             .version(if (config.plugin.forceHttp1) HttpClient.Version.HTTP_1_1 else HttpClient.Version.HTTP_2)
             .build()
     }
@@ -254,7 +254,7 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
      */
     private fun beginComputation(projectId: UUID, path: String, key: String, computationId: UUID) {
         val now = Instant.now()
-        val staleBefore = now.minusSeconds(fileDataConfig.computationTimeoutSeconds)
+        val staleBefore = now.minusSeconds(fileDataConfig.computationBindingSeconds)
 
         transaction {
             FileDataComputationsTable.deleteWhere { startedAt less staleBefore }
@@ -280,7 +280,7 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
                 FileDataComputationsTable.deleteWhere { id eq computationId.toKotlinUuid() }
             }
         } catch (e: Exception) {
-            // The row is ignored once it is older than the computation timeout, so a failure here
+            // The row is ignored once it is older than the computation binding, so a failure here
             // delays the token becoming unusable rather than leaving it valid indefinitely.
             logger.warn("Failed to clear file data computation $computationId", e)
         }

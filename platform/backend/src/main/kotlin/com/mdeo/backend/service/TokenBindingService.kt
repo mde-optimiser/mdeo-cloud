@@ -93,7 +93,7 @@ class TokenBindingService(services: InjectedServices) : BaseService(), InjectedS
 
     /**
      * Whether the file data computation named by the token is still recorded as running. A row that
-     * outlived the configured computation timeout is treated as abandoned by a crashed request.
+     * outlived the configured computation binding is treated as abandoned by a crashed request.
      */
     private suspend fun isComputationRunning(payload: Payload): Boolean {
         val computationId = payload.uuidClaim(JwtService.CLAIM_COMPUTATION_ID)
@@ -103,7 +103,7 @@ class TokenBindingService(services: InjectedServices) : BaseService(), InjectedS
         }
 
         val cutoff = Instant.now()
-            .minusSeconds(config.fileData.computationTimeoutSeconds + COMPUTATION_BINDING_GRACE_SECONDS)
+            .minusSeconds(config.fileData.computationBindingSeconds + COMPUTATION_BINDING_GRACE_SECONDS)
 
         val running = withContext(Dispatchers.IO) {
             transaction {

@@ -26,7 +26,7 @@ class LanguagePluginRequestService(services: InjectedServices) : BaseService(), 
 
     private val httpClient by lazy {
         HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(10))
+            .connectTimeout(Duration.ofSeconds(config.timeouts.connectSeconds))
             .version(if (config.plugin.forceHttp1) HttpClient.Version.HTTP_1_1 else HttpClient.Version.HTTP_2)
             .build()
     }
@@ -134,7 +134,7 @@ class LanguagePluginRequestService(services: InjectedServices) : BaseService(), 
                 .header("Content-Type", "application/json")
                 .header("Authorization", "Bearer $token")
                 .POST(HttpRequest.BodyPublishers.ofString(requestBody))
-                .timeout(Duration.ofMinutes(5))
+                .timeout(Duration.ofSeconds(config.timeouts.pluginRequestSeconds))
 
             val request = requestBuilder.build()
 

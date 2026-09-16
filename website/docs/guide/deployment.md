@@ -51,6 +51,11 @@ Images follow the naming scheme `${MDEO_IMAGE_PREFIX}/mdeo-<service>:${MDEO_IMAG
 | `PLUGIN_BASE_URL`, `INTERNAL_PLUGIN_BASE_URL` | How plugin URLs are resolved for the browser and for the backend respectively. |
 | `DEFAULT_PLUGIN_URLS` | Comma-separated plugin URLs registered at startup. |
 | `EXECUTION_TIMEOUT_MS` | Upper bound on a single execution. |
+| `FILE_DATA_COMPUTATION_TIMEOUT_SECONDS` | How long the backend waits for a plugin to compute file data. Default 300. |
+| `FILE_DATA_COMPUTATION_BINDING_SECONDS` | How long a running computation, and the token the plugin computes with, stays valid. Defaults to the computation timeout. |
+| `PLUGIN_REQUEST_TIMEOUT_SECONDS` | How long a one-shot request to a plugin may take. Default 300. |
+| `EXECUTION_START_TIMEOUT_SECONDS`, `EXECUTION_READ_TIMEOUT_SECONDS` | How long starting an execution, and reading, cancelling or deleting one, may take. Defaults 300 and 60. |
+| `PLUGIN_MANIFEST_TIMEOUT_SECONDS`, `SERVICE_CONNECT_TIMEOUT_SECONDS` | How long fetching a plugin manifest, and opening any connection to a service, may take. Defaults 30 and 10. |
 
 The full list is in `infra/.env.example`.
 

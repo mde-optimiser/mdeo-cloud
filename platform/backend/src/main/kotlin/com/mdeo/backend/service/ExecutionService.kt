@@ -39,7 +39,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
 
     private val httpClient by lazy {
         HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(10))
+            .connectTimeout(Duration.ofSeconds(config.timeouts.connectSeconds))
             .version(if (config.plugin.forceHttp1) HttpClient.Version.HTTP_1_1 else HttpClient.Version.HTTP_2)
             .build()
     }
@@ -942,9 +942,9 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
                 .header("Authorization", "Bearer $token")
                 .POST(HttpRequest.BodyPublishers.ofString(requestBody))
                 // Starting an execution can require the plugin to have file data computed first,
-                // which for a large model takes minutes, so this must not give up before a single
-                // computation would have been abandoned anyway.
-                .timeout(Duration.ofSeconds(config.fileData.computationTimeoutSeconds))
+                // which for a large model takes minutes, so by default this waits as long as a
+                // single file data computation may take.
+                .timeout(Duration.ofSeconds(config.timeouts.executionStartSeconds))
                 .build()
 
             val response = httpClient.send(request, CompressedResponses.ofString())
@@ -1001,7 +1001,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
                 .uri(uri)
                 .header("Authorization", "Bearer $token")
                 .GET()
-                .timeout(Duration.ofMinutes(1))
+                .timeout(Duration.ofSeconds(config.timeouts.executionReadSeconds))
                 .applyExecutionMetadataHeader(metadata)
                 .build()
 
@@ -1059,7 +1059,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
                 .uri(uri)
                 .header("Authorization", "Bearer $token")
                 .GET()
-                .timeout(Duration.ofMinutes(1))
+                .timeout(Duration.ofSeconds(config.timeouts.executionReadSeconds))
                 .applyExecutionMetadataHeader(metadata)
                 .build()
 
@@ -1121,7 +1121,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
                 .uri(uri)
                 .header("Authorization", "Bearer $token")
                 .GET()
-                .timeout(Duration.ofMinutes(1))
+                .timeout(Duration.ofSeconds(config.timeouts.executionReadSeconds))
                 .applyExecutionMetadataHeader(metadata)
                 .build()
 
@@ -1182,7 +1182,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
                 .uri(uri)
                 .header("Authorization", "Bearer $token")
                 .POST(HttpRequest.BodyPublishers.noBody())
-                .timeout(Duration.ofMinutes(1))
+                .timeout(Duration.ofSeconds(config.timeouts.executionReadSeconds))
                 .applyExecutionMetadataHeader(metadata)
                 .build()
 
@@ -1249,7 +1249,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
                 .uri(uri)
                 .header("Authorization", "Bearer $token")
                 .DELETE()
-                .timeout(Duration.ofMinutes(1))
+                .timeout(Duration.ofSeconds(config.timeouts.executionReadSeconds))
                 .applyExecutionMetadataHeader(metadata)
                 .build()
 
