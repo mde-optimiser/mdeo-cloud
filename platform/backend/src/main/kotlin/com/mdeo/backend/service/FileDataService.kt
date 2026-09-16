@@ -213,7 +213,7 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
             val token = jwtService.generateFileDataComputationToken(projectId, computationId)
 
             val call =
-                computeFromPlugin(pluginUrl, languagePlugin.id, key, projectId, fileSource, token, contributions, deadline)
+                computeFromPlugin(pluginId, pluginUrl, languagePlugin.id, key, projectId, fileSource, token, contributions, deadline)
             logged.finish(call.requestBytes, call.responseBytes)
             val computedData = call.response
 
@@ -345,6 +345,7 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
      * For files, fileSource contains version, content, and path.
      * For directories, fileSource is null.
      *
+     * @param pluginId The plugin, whose answer shows whether its manifest changed
      * @param pluginUrl Base URL of the plugin
      * @param languageId The language identifier for routing the request
      * @param key The data key to compute (e.g., "ast")
@@ -356,6 +357,7 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
      * @return Computed data response from the plugin, with the sizes of both messages
      */
     private suspend fun computeFromPlugin(
+        pluginId: UUID,
         pluginUrl: String,
         languageId: String,
         key: String,
@@ -394,6 +396,7 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
 
                 httpClient.send(request, CompressedResponses.ofByteArray())
             }
+            pluginService.observeManifestFingerprint(pluginId, response)
             val responseText = String(response.body(), Charsets.UTF_8)
 
             if (response.statusCode() != 200) {

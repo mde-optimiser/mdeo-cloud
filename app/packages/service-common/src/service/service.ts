@@ -10,6 +10,7 @@ import {
 } from "../util/contributionCache.js";
 import fastifyStatic from "@fastify/static";
 import { resolve } from "path";
+import { createHash } from "node:crypto";
 import type { ServiceConfig, FileDataComputeRequest, FileDataComputeResponse, LanguageServiceConfig } from "./types.js";
 import { LangiumInstancePool } from "../langium/langiumPool.js";
 import { formatPluginTarget, PluginTargetKind, type SessionType } from "@mdeo/plugin";
@@ -141,16 +142,20 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
     const jwtAuth = new JwtAuthMiddleware(config.backendApiUrl, config.jwtIssuer);
 
     const manifest = buildManifest(config.plugin, config.version);
+    const manifestJson = JSON.stringify(manifest);
+    // Sent with every answer, so the backend notices a redeployed plugin and fetches its manifest again.
+    const manifestFingerprint = createHash("sha256").update(manifestJson).digest("hex");
 
     // Contribution sets the backend sent, so later requests can carry just their hash.
     const contributions = new ContributionCache();
     fastify.addHook("onSend", async (_request, reply, payload) => {
         reply.header(CONTRIBUTION_HASH_SUPPORT_HEADER, "1");
+        reply.header(MANIFEST_FINGERPRINT_HEADER, manifestFingerprint);
         return payload;
     });
 
     fastify.get("/", async (request: FastifyRequest, reply: FastifyReply) => {
-        return reply.send(manifest);
+        return reply.type("application/json").send(manifestJson);
     });
 
     /**
@@ -826,6 +831,12 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
 
     return fastify;
 }
+
+/**
+ * Header every answer of a plugin service carries: a fingerprint of its manifest, by which the
+ * backend notices that the plugin was redeployed with a changed manifest.
+ */
+export const MANIFEST_FINGERPRINT_HEADER = "x-mdeo-manifest-fingerprint";
 
 /**
  * Answers a request that carries only the hash of a contribution set this service does not hold,

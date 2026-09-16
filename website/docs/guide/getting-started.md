@@ -54,8 +54,8 @@ For iterating on the frontend without Docker, see [Local development](/develop/l
 
 ## Upgrading
 
-::: danger After upgrading
-An administrator has to refresh all plugins (**Settings → Plugins → Refresh**) after moving to a new
-version. Plugin manifests point at versioned static assets; without a refresh the workbench keeps
-asking for files the new services no longer serve, and plugin loading fails.
+::: tip After upgrading
+The backend notices redeployed plugin services within a minute and fetches their manifests again.
+If plugins fail to load right after an upgrade, wait a moment, or refresh them by hand
+(**Settings → Plugins → Refresh**).
 :::

@@ -211,6 +211,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
 
         val createResponse = try {
             callPluginCreateExecution(
+                pluginId,
                 pluginUrl,
                 languagePlugin.id,
                 executionId,
@@ -892,6 +893,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
     /**
      * Calls the plugin to create an execution.
      *
+     * @param pluginId The plugin, whose answer shows whether its manifest changed
      * @param pluginUrl The base URL of the plugin
      * @param languageId The language identifier for routing the request
      * @param executionId The UUID of the execution
@@ -901,6 +903,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
      * @return The CreateExecutionResponse from the plugin
      */
     private suspend fun callPluginCreateExecution(
+        pluginId: UUID,
         pluginUrl: String,
         languageId: String,
         executionId: UUID,
@@ -952,6 +955,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
 
                 httpClient.send(request, CompressedResponses.ofString())
             }
+            pluginService.observeManifestFingerprint(pluginId, response)
 
             if (response.statusCode() != 200 && response.statusCode() != 201) {
                 throw RuntimeException("Plugin returned status ${response.statusCode()}: ${response.body()}")

@@ -77,6 +77,7 @@ class LanguagePluginRequestService(services: InjectedServices) : BaseService(), 
             val token = callerJwt ?: jwtService.generateProjectToken(projectId)
 
             val responseData = callPlugin(
+                pluginId,
                 pluginUrl,
                 languageId,
                 key,
@@ -112,6 +113,7 @@ class LanguagePluginRequestService(services: InjectedServices) : BaseService(), 
     /**
      * Internal helper to call the plugin's HTTP endpoint.
      *
+     * @param pluginId the plugin, whose answer shows whether its manifest changed.
      * @param pluginUrl base URL of the plugin.
      * @param languageId language identifier used to resolve the plugin route.
      * @param key specific plugin route key.
@@ -124,6 +126,7 @@ class LanguagePluginRequestService(services: InjectedServices) : BaseService(), 
      * @throws RuntimeException when the plugin returns a non-200 status or when decoding fails.
      */
     private suspend fun callPlugin(
+        pluginId: UUID,
         pluginUrl: String,
         languageId: String,
         key: String,
@@ -162,6 +165,7 @@ class LanguagePluginRequestService(services: InjectedServices) : BaseService(), 
 
                 httpClient.send(request, CompressedResponses.ofString())
             }
+            pluginService.observeManifestFingerprint(pluginId, response)
 
             if (response.statusCode() != 200) {
                 throw RuntimeException("Plugin returned status ${response.statusCode()}: ${response.body()}")

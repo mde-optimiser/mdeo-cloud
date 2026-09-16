@@ -70,6 +70,7 @@ fun Application.module(appConfig: AppConfig) {
         services.userService.createDefaultAdmin(appConfig.defaultAdmin.username, appConfig.defaultAdmin.password)
         services.pluginService.initializeDefaultPlugins(appConfig.plugin.defaultPluginUrls)
     }
+    services.pluginService.startManifestChecks(appConfig.plugin.manifestCheckSeconds)
     
     monitor.subscribe(ApplicationStopped) {
         DatabaseFactory.close()

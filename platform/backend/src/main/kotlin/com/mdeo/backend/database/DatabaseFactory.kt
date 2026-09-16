@@ -44,6 +44,7 @@ object DatabaseFactory {
                 FilesTable,
                 FileMetadataTable,
                 PluginsTable,
+                PluginManifestFingerprintsTable,
                 ProjectPluginsTable,
                 LanguagePluginsTable,
                 ContributionPluginsTable,

@@ -11,6 +11,7 @@ import io.ktor.server.netty.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.websocket.*
+import java.security.MessageDigest
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -30,6 +31,12 @@ const val SESSION_PONG_TIMEOUT_SECONDS = 90L
 const val SESSION_MAX_FRAME_BYTES = 512L * 1024 * 1024
 
 /**
+ * Header every answer of a plugin service carries: a fingerprint of its manifest, by which the
+ * backend notices that the plugin was redeployed with a changed manifest.
+ */
+const val MANIFEST_FINGERPRINT_HEADER = "X-Mdeo-Manifest-Fingerprint"
+
+/**
  * Installs everything a plugin service serves: the manifest at `GET /` and the session endpoint.
  *
  * Use this to add a plugin service to an application you configure yourself, for example to add
@@ -43,8 +50,15 @@ fun Application.pluginService(
     verifier: SessionTokenVerifier
 ) {
     val manifest = definition.manifest().toString()
+    val fingerprint = MessageDigest.getInstance("SHA-256").digest(manifest.toByteArray())
+        .joinToString("") { "%02x".format(it) }
 
     installSessionWebSockets()
+
+    // Sent with every answer, so the backend notices a redeployed plugin and fetches its manifest again.
+    intercept(ApplicationCallPipeline.Plugins) {
+        call.response.header(MANIFEST_FINGERPRINT_HEADER, fingerprint)
+    }
 
     routing {
         get("/") {

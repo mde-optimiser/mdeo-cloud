@@ -55,6 +55,7 @@ Images follow the naming scheme `${MDEO_IMAGE_PREFIX}/mdeo-<service>:${MDEO_IMAG
 | `FILE_DATA_COMPUTATION_BINDING_SECONDS` | How long a running computation, and the token the plugin computes with, stays valid. Defaults to the computation timeout. |
 | `PLUGIN_REQUEST_TIMEOUT_SECONDS` | How long a one-shot request to a plugin may take. Default 300. |
 | `EXECUTION_START_TIMEOUT_SECONDS`, `EXECUTION_READ_TIMEOUT_SECONDS` | How long starting an execution, and reading, cancelling or deleting one, may take. Defaults 300 and 60. |
+| `PLUGIN_MANIFEST_CHECK_SECONDS` | How often every plugin is asked whether its manifest changed. Default 60; 0 checks only on the plugins' answers. |
 | `PLUGIN_MANIFEST_TIMEOUT_SECONDS`, `SERVICE_CONNECT_TIMEOUT_SECONDS` | How long fetching a plugin manifest, and opening any connection to a service, may take. Defaults 30 and 10. |
 
 The full list is in `infra/.env.example`.
@@ -78,8 +79,13 @@ single run.
 
 ## After an upgrade
 
-::: danger
-Administrators must refresh all plugins (**Settings → Plugins**) after deploying a new version.
-Plugin manifests reference versioned static assets, and stale manifests make plugin loading fail in
-the workbench.
+Plugin manifests reference versioned static assets, and a stale manifest makes plugin loading fail
+in the workbench. The backend keeps them current by itself: every answer of a plugin service carries
+a fingerprint of its manifest, and the backend also asks every plugin for it once a minute
+(`PLUGIN_MANIFEST_CHECK_SECONDS`). When a redeployed service reports a different fingerprint, the
+backend fetches its manifest again in the background — at most a minute after the deploy.
+
+::: warning
+Plugin services built on an older `@mdeo/service-common`, which send no fingerprint, still need a
+manual refresh (**Settings → Plugins**) after an upgrade.
 :::

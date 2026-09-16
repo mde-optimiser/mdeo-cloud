@@ -88,7 +88,12 @@ class PluginServiceTest {
 
     @Test
     fun `the manifest lists the contribution with its sessions`() = service {
-        val manifest = Json.parseToJsonElement(client.get("/").bodyAsText()).jsonObject
+        val response = client.get("/")
+        val body = response.bodyAsText()
+        val expectedFingerprint = java.security.MessageDigest.getInstance("SHA-256").digest(body.toByteArray())
+            .joinToString("") { "%02x".format(it) }
+        assertEquals(expectedFingerprint, response.headers[MANIFEST_FINGERPRINT_HEADER], "every answer names the manifest")
+        val manifest = Json.parseToJsonElement(body).jsonObject
         assertEquals("echo-service", manifest["id"]!!.jsonPrimitive.content)
         assertEquals(0, manifest["languagePlugins"]!!.jsonArray.size)
         val entry = manifest["contributionPlugins"]!!.jsonArray.single().jsonObject

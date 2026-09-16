@@ -90,7 +90,8 @@ data class AppConfig(
                         ?.split(",")
                         ?.map { it.trim() }
                         ?.filter { it.isNotEmpty() }
-                        ?: emptyList()
+                        ?: emptyList(),
+                    manifestCheckSeconds = System.getenv("PLUGIN_MANIFEST_CHECK_SECONDS")?.toLongOrNull()?.coerceAtLeast(0) ?: 60
                 ),
                 jwt = JwtConfig(
                     expirationSeconds = System.getenv("JWT_EXPIRATION_SECONDS")?.toLongOrNull()
@@ -170,12 +171,15 @@ data class DefaultAdminConfig(
  * @property internalBaseUrl Base URL for internal backend-to-plugin communication
  * @property forceHttp1 Whether to force HTTP/1.1 for plugin requests
  * @property defaultPluginUrls List of plugin URLs to initialize as default plugins at startup
+ * @property manifestCheckSeconds How often every plugin is asked whether its manifest changed
+ *           (`PLUGIN_MANIFEST_CHECK_SECONDS`, default 60, 0 to only check on the plugin's answers)
  */
 data class PluginConfig(
     val baseUrl: String,
     val internalBaseUrl: String,
     val forceHttp1: Boolean,
-    val defaultPluginUrls: List<String> = emptyList()
+    val defaultPluginUrls: List<String> = emptyList(),
+    val manifestCheckSeconds: Long = 60
 )
 
 /**

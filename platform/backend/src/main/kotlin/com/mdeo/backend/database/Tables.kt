@@ -151,6 +151,20 @@ object LanguagePluginsTable : Table("language_plugins") {
 }
 
 /**
+ * The manifest fingerprint each plugin reported when its manifest was last fetched.
+ *
+ * A plugin service sends the fingerprint of its manifest with every answer. When an answer carries a
+ * different one than recorded here, the plugin was redeployed with a changed manifest and is
+ * refreshed.
+ */
+object PluginManifestFingerprintsTable : Table("plugin_manifest_fingerprints") {
+    val pluginId = uuid("plugin_id").references(PluginsTable.id, onDelete = ReferenceOption.CASCADE)
+    val fingerprint = varchar("fingerprint", 128)
+
+    override val primaryKey = PrimaryKey(pluginId)
+}
+
+/**
  * Contribution plugins table schema for storing contribution plugins from plugin manifests.
  * Contribution plugins provide additional functionality to existing languages.
  */
