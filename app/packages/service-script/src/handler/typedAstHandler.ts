@@ -135,25 +135,18 @@ function createTypedRootAst(resolvedPlugins: ResolvedScriptContributionPlugins):
         )) {
             const implementation = contributedSignature.implementation;
 
-            // An external implementation has no body to remap, but its signature still indexes
-            // into the plugin's own type table, so the parameter and return types are merged the
-            // same way. The types are what the compiler emits a stub against.
-            const typedFunction: TypedFunction = {
-                name: functionName,
-                parameters: contributedSignature.signature.parameters.map((param) => ({
-                    name: param.name,
-                    type: merger.addTypeToGlobal(param.type)
-                })),
-                returnType: merger.addTypeToGlobal(contributedSignature.signature.returnType),
-                body: ExternalImplementation.is(implementation) ? { body: [] } : implementation
-            };
-
-            const remappedFunction = merger.remapFunction(typedFunction, resolvedFunction.types);
+            // A signature names its types directly, so they go straight into the global table. Only a
+            // typed AST body refers to its contribution's own types array by index.
+            const parameters = contributedSignature.signature.parameters.map((param) => ({
+                name: param.name,
+                type: merger.addTypeToGlobal(param.type)
+            }));
+            const returnType = merger.addTypeToGlobal(contributedSignature.signature.returnType);
 
             signatures[overloadId] = ExternalImplementation.is(implementation)
                 ? {
-                      parameters: remappedFunction.parameters,
-                      returnType: remappedFunction.returnType,
+                      parameters,
+                      returnType,
                       external: {
                           ...implementation,
                           contribution: resolvedFunction.contributionId,
@@ -161,9 +154,9 @@ function createTypedRootAst(resolvedPlugins: ResolvedScriptContributionPlugins):
                       }
                   }
                 : {
-                      parameters: remappedFunction.parameters,
-                      returnType: remappedFunction.returnType,
-                      body: remappedFunction.body
+                      parameters,
+                      returnType,
+                      body: merger.remapBody(implementation, resolvedFunction.types)
                   };
         }
 

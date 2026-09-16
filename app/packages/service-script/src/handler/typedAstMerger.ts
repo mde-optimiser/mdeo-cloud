@@ -3,7 +3,8 @@ import {
     type ReturnType,
     type TypedExpression,
     type TypedExtensionCallExpression,
-    type TypedExtensionCallArgument
+    type TypedExtensionCallArgument,
+    type TypedCallableBody
 } from "@mdeo/language-expression";
 import type { TypedFunction, TypedParameter, TypedLambdaExpression } from "@mdeo/language-script";
 
@@ -18,6 +19,24 @@ export class ScriptTypedAstMerger extends BaseTypedAstMerger {
      * @param func The function to remap
      * @param typesArray The original types array used by this function
      * @returns A new function with remapped type indices
+     */
+    /**
+     * Remaps a contributed body, whose type indices refer to its contribution's own types array.
+     *
+     * @param body The body to remap
+     * @param typesArray The contribution's types array
+     * @returns The body with global type indices
+     */
+    remapBody(body: TypedCallableBody, typesArray: ReturnType[]): TypedCallableBody {
+        return this.remapCallableBody(body, this.indexTypesArray(typesArray));
+    }
+
+    /**
+     * Remaps a function whose parameter, return and body type indices all refer to one types array.
+     *
+     * @param func The function to remap
+     * @param typesArray The types array its indices refer to
+     * @returns The function with global type indices
      */
     remapFunction(func: TypedFunction, typesArray: ReturnType[]): TypedFunction {
         const mapping = this.indexTypesArray(typesArray);
