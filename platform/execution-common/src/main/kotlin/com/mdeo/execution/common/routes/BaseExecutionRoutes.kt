@@ -1,8 +1,8 @@
 package com.mdeo.execution.common.routes
 
+import com.mdeo.common.auth.Scopes
 import com.mdeo.execution.common.auth.*
 import com.mdeo.execution.common.config.ExecutionWsVerifierKey
-import com.mdeo.execution.common.service.ExecutionScopes
 import com.mdeo.execution.common.service.ExecutionService
 import com.mdeo.execution.common.service.ExecutionServiceWithFileTree
 import com.mdeo.execution.common.routes.ErrorResponses.respondBadRequest
@@ -85,7 +85,7 @@ private fun Route.cancelExecutionRoute(
     executionService: ExecutionService
 ) {
     post("{id}/cancel") {
-        val authResult = call.requireScope(ExecutionScopes.EXECUTION_CANCEL)
+        val authResult = call.requireScope(Scopes.PLUGIN_EXECUTION_CANCEL)
         if (authResult is AuthorizationResult.Denied) {
             call.respondAuthError(authResult)
             return@post
@@ -119,7 +119,7 @@ private fun Route.deleteExecutionRoute(
     executionService: ExecutionService
 ) {
     delete("{id}") {
-        val authResult = call.requireScope(ExecutionScopes.EXECUTION_DELETE)
+        val authResult = call.requireScope(Scopes.PLUGIN_EXECUTION_DELETE)
         if (authResult is AuthorizationResult.Denied) {
             call.respondAuthError(authResult)
             return@delete
@@ -153,7 +153,7 @@ private fun Route.getSummaryRoute(
     executionService: ExecutionService
 ) {
     get("{id}/summary") {
-        val authResult = call.requireScope(ExecutionScopes.EXECUTION_READ)
+        val authResult = call.requireScope(Scopes.PLUGIN_EXECUTION_READ)
         if (authResult is AuthorizationResult.Denied) {
             call.respondAuthError(authResult)
             return@get
@@ -191,7 +191,7 @@ private fun Route.getFileTreeRoute(
     executionService: ExecutionServiceWithFileTree
 ) {
     get("{id}/file-tree") {
-        val authResult = call.requireScope(ExecutionScopes.EXECUTION_READ)
+        val authResult = call.requireScope(Scopes.PLUGIN_EXECUTION_READ)
         if (authResult is AuthorizationResult.Denied) {
             call.respondAuthError(authResult)
             return@get
@@ -231,7 +231,7 @@ private fun Route.getFileContentsRoute(
     executionService: ExecutionServiceWithFileTree
 ) {
     get("{id}/files/{path...}") {
-        val authResult = call.requireScope(ExecutionScopes.EXECUTION_READ)
+        val authResult = call.requireScope(Scopes.PLUGIN_EXECUTION_READ)
         if (authResult is AuthorizationResult.Denied) {
             call.respondAuthError(authResult)
             return@get

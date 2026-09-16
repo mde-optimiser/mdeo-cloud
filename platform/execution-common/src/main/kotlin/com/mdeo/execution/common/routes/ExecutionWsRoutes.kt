@@ -1,11 +1,11 @@
 package com.mdeo.execution.common.routes
 
+import com.mdeo.common.auth.Scopes
 import com.mdeo.common.model.ErrorCodes
 import com.mdeo.common.transport.*
 import com.mdeo.execution.common.auth.JwtPrincipalData
 import com.mdeo.execution.common.auth.WsTokenVerifier
 import com.mdeo.execution.common.auth.hasScope
-import com.mdeo.execution.common.service.ExecutionScopes
 import com.mdeo.execution.common.service.ExecutionService
 import com.mdeo.execution.common.service.ExecutionServiceWithFileTree
 import io.ktor.server.routing.*
@@ -65,9 +65,9 @@ private suspend fun handleExecutionWsRequest(
         ?: throw ExecutionWsException(ErrorCodes.BAD_REQUEST, "Unsupported request: ${request::class.simpleName}")
 
     val requiredScope = when (request) {
-        is ExecutionCancelWsRequest -> ExecutionScopes.EXECUTION_CANCEL
-        is ExecutionDeleteWsRequest -> ExecutionScopes.EXECUTION_DELETE
-        else -> ExecutionScopes.EXECUTION_READ
+        is ExecutionCancelWsRequest -> Scopes.PLUGIN_EXECUTION_CANCEL
+        is ExecutionDeleteWsRequest -> Scopes.PLUGIN_EXECUTION_DELETE
+        else -> Scopes.PLUGIN_EXECUTION_READ
     }
 
     val principal = authorize(verifier, context, requiredScope)

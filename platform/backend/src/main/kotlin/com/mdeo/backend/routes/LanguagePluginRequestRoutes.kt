@@ -1,5 +1,6 @@
 package com.mdeo.backend.routes
 
+import com.mdeo.common.auth.Scopes
 import com.mdeo.common.transport.respondError
 import com.mdeo.backend.plugins.*
 import com.mdeo.backend.service.CallerDeadline
@@ -49,7 +50,7 @@ fun Route.languagePluginRequestRoutes(
                     call.respondError(HttpStatusCode.Forbidden, "Token not valid for this project")
                     return@post
                 }
-                if (JwtService.SCOPE_FILE_DATA_READ !in jwtPrincipal.scopes) {
+                if (Scopes.PLUGIN_REQUEST_SEND !in jwtPrincipal.scopes) {
                     call.respondError(HttpStatusCode.Forbidden, "Token missing required scope")
                     return@post
                 }

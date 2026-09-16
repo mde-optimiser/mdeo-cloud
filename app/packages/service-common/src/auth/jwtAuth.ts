@@ -136,7 +136,7 @@ export class JwtAuthMiddleware {
      *
      * @example
      * ```typescript
-     * if (JwtAuthMiddleware.hasScope(request, "file-data:read")) {
+     * if (JwtAuthMiddleware.hasScope(request, Scopes.FilesRead)) {
      *     // User has permission to read file data
      * }
      * ```

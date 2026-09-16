@@ -50,7 +50,7 @@ class PluginServiceEndToEndTest {
     }
 
     private val verifier = SessionTokenVerifier { token ->
-        if (token == "run-token") SessionTokenClaims("p", "e", listOf("session:connect"), "contrib:stats", "functions") else null
+        if (token == "run-token") SessionTokenClaims("p", "e", listOf("plugin:session:connect"), "contrib:stats", "functions") else null
     }
 
     private lateinit var server: EmbeddedServer<NettyApplicationEngine, NettyApplicationEngine.Configuration>

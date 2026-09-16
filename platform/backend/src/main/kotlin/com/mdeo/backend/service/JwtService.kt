@@ -1,11 +1,13 @@
 package com.mdeo.backend.service
 
+import com.mdeo.common.auth.Scopes
 import com.auth0.jwt.JWT
 import com.auth0.jwt.JWTVerifier
 import com.auth0.jwt.algorithms.Algorithm
 import com.auth0.jwt.interfaces.DecodedJWT
 import com.mdeo.backend.config.JwtConfig
 import com.mdeo.common.model.PluginTarget
+import com.mdeo.common.model.PluginTargetKind
 import org.slf4j.LoggerFactory
 import java.security.KeyFactory
 import java.security.KeyPairGenerator
@@ -68,21 +70,6 @@ class JwtService(services: InjectedServices) : BaseService(), InjectedServices b
          * [CLAIM_COMPUTATION_ID] is still running.
          */
         const val BINDING_FILE_DATA_COMPUTATION = "file-data-computation"
-
-        const val SCOPE_FILES_READ = "files:read"
-        const val SCOPE_FILE_DATA_READ = "file-data:read"
-        const val SCOPE_EXECUTION_READ = "execution:read"
-        const val SCOPE_EXECUTION_WRITE = "execution:write"
-        const val SCOPE_PLUGIN_EXECUTION_READ = "plugin:execution:read"
-        const val SCOPE_PLUGIN_EXECUTION_CANCEL = "plugin:execution:cancel"
-        const val SCOPE_PLUGIN_EXECUTION_DELETE = "plugin:execution:delete"
-
-        /**
-         * Scope of a token that opens one session on one plugin target. It grants nothing else:
-         * a session carries a protocol the plugin defines, not calls back into this backend.
-         */
-        const val SCOPE_SESSION_CONNECT = "session:connect"
-
     }
     
     /**
@@ -118,12 +105,15 @@ class JwtService(services: InjectedServices) : BaseService(), InjectedServices b
     }
     
     /**
-     * Generates a JWT token for a project with read-only access to files and file-data.
+     * Generates the token a language plugin request is sent with when the caller is a user.
+     *
+     * The handler may read the project's files and file data, and may pass the request on to
+     * another plugin through the backend.
      *
      * @param projectId The UUID of the project to grant access to
      * @return The generated JWT token string
      */
-    fun generateProjectToken(projectId: UUID): String {
+    fun generatePluginRequestToken(projectId: UUID): String {
         val now = Instant.now()
         val expiration = now.plusSeconds(jwtConfig.expirationSeconds)
         
@@ -132,17 +122,18 @@ class JwtService(services: InjectedServices) : BaseService(), InjectedServices b
             .withIssuedAt(Date.from(now))
             .withExpiresAt(Date.from(expiration))
             .withClaim(CLAIM_PROJECT_ID, projectId.toString())
-            .withArrayClaim(CLAIM_SCOPE, arrayOf(SCOPE_FILES_READ, SCOPE_FILE_DATA_READ))
+            .withArrayClaim(CLAIM_SCOPE, arrayOf(Scopes.FILES_READ, Scopes.FILE_DATA_READ, Scopes.PLUGIN_REQUEST_SEND))
             .sign(algorithm)
     }
     
     /**
-     * Generates the token an execution node keeps for the duration of a run.
+     * Generates the token an execution is started with and its execution node keeps for the run.
      *
-     * This is the only token that calls back into this backend: the node reads the project data it
-     * needs and reports progress and the final state with it. It is therefore the only execution
-     * token carrying backend scopes, and it is bound to the execution so that a lifetime long enough
-     * to cover the run does not keep granting access once the run is over.
+     * The plugin service and the execution service it forwards to accept it for starting the
+     * execution. The node then reads the project data it needs, opens sessions, and reports progress
+     * and the final state with it. It is the only token that may report execution state, and it is
+     * bound to the execution so that a lifetime long enough to cover the run does not keep granting
+     * access once the run is over.
      *
      * @param projectId The UUID of the project
      * @param executionId The UUID of the execution
@@ -162,10 +153,12 @@ class JwtService(services: InjectedServices) : BaseService(), InjectedServices b
             .withClaim(CLAIM_EXECUTION_ID, executionId.toString())
             .withClaim(CLAIM_BINDING, BINDING_ACTIVE_EXECUTION)
             .withArrayClaim(CLAIM_SCOPE, arrayOf(
-                SCOPE_FILES_READ,
-                SCOPE_FILE_DATA_READ,
-                SCOPE_EXECUTION_READ,
-                SCOPE_EXECUTION_WRITE
+                Scopes.PLUGIN_EXECUTION_START,
+                Scopes.FILES_READ,
+                Scopes.FILE_DATA_READ,
+                Scopes.PLUGIN_REQUEST_SEND,
+                Scopes.SESSION_OPEN,
+                Scopes.EXECUTION_WRITE
             ))
             .sign(algorithm)
     }
@@ -177,7 +170,7 @@ class JwtService(services: InjectedServices) : BaseService(), InjectedServices b
      * The plugin serves these calls by reading back what belongs to the execution, and a plugin that
      * only routes them onwards - the config plugin forwards to whichever contribution plugin owns
      * the executable section - has to reach this backend to do so. The token therefore carries the
-     * same read scopes as a project token, plus the single `plugin:execution:*` scope the call
+     * same scopes as a plugin request token, plus the single `plugin:execution:*` scope the call
      * itself requires.
      *
      * These calls legitimately target executions that have already finished, so the token cannot be
@@ -201,10 +194,10 @@ class JwtService(services: InjectedServices) : BaseService(), InjectedServices b
             .withClaim(CLAIM_PROJECT_ID, projectId.toString())
             .withClaim(CLAIM_EXECUTION_ID, executionId.toString())
             .withArrayClaim(CLAIM_SCOPE, arrayOf(
-                SCOPE_FILES_READ,
-                SCOPE_FILE_DATA_READ,
-                SCOPE_EXECUTION_READ,
-                pluginScope
+                pluginScope,
+                Scopes.FILES_READ,
+                Scopes.FILE_DATA_READ,
+                Scopes.PLUGIN_REQUEST_SEND
             ))
             .sign(algorithm)
     }
@@ -212,8 +205,8 @@ class JwtService(services: InjectedServices) : BaseService(), InjectedServices b
     /**
      * Generates a token for a plugin computing file data, bound to that computation.
      *
-     * The token carries the same read scopes as a project token, so the plugin can fetch the files
-     * and file data it depends on, but is only accepted while [computationId] is still running.
+     * Besides computing, the token lets the plugin fetch the files and file data it depends on and ask
+     * other plugins, but it is only accepted while [computationId] is still running.
      *
      * @param projectId The UUID of the project
      * @param computationId The UUID of the in-flight computation, as recorded in the database
@@ -230,7 +223,12 @@ class JwtService(services: InjectedServices) : BaseService(), InjectedServices b
             .withClaim(CLAIM_PROJECT_ID, projectId.toString())
             .withClaim(CLAIM_COMPUTATION_ID, computationId.toString())
             .withClaim(CLAIM_BINDING, BINDING_FILE_DATA_COMPUTATION)
-            .withArrayClaim(CLAIM_SCOPE, arrayOf(SCOPE_FILES_READ, SCOPE_FILE_DATA_READ))
+            .withArrayClaim(CLAIM_SCOPE, arrayOf(
+                Scopes.PLUGIN_FILE_DATA_COMPUTE,
+                Scopes.FILES_READ,
+                Scopes.FILE_DATA_READ,
+                Scopes.PLUGIN_REQUEST_SEND
+            ))
             .sign(algorithm)
     }
 
@@ -240,9 +238,8 @@ class JwtService(services: InjectedServices) : BaseService(), InjectedServices b
      * The token names the target and the session it may be used on, so a node holding a token
      * for one session cannot open another, and it is bound to the execution so that a lifetime
      * long enough to cover a run stops granting anything once the run ends. A session carries a
-     * plugin-defined protocol, so the token carries the single [SCOPE_SESSION_CONNECT] scope and
-     * nothing more. The only backend call it authorizes is the one a language service makes while
-     * opening a `lang:` session, to learn which contribution plugins to load.
+     * plugin-defined protocol, so the token grants connecting and nothing more, except for a `lang:`
+     * target: the language service may ask this backend which contribution plugins to load.
      *
      * @param projectId The UUID of the project
      * @param executionId The UUID of the execution the session belongs to
@@ -271,7 +268,14 @@ class JwtService(services: InjectedServices) : BaseService(), InjectedServices b
             .withClaim(CLAIM_TARGET, target.toString())
             .withClaim(CLAIM_SESSION, sessionName)
             .withClaim(CLAIM_BINDING, BINDING_ACTIVE_EXECUTION)
-            .withArrayClaim(CLAIM_SCOPE, arrayOf(SCOPE_SESSION_CONNECT))
+            .withArrayClaim(
+                CLAIM_SCOPE,
+                if (target.kind == PluginTargetKind.LANGUAGE) {
+                    arrayOf(Scopes.PLUGIN_SESSION_CONNECT, Scopes.SESSION_CONTRIBUTIONS_READ)
+                } else {
+                    arrayOf(Scopes.PLUGIN_SESSION_CONNECT)
+                }
+            )
             .sign(algorithm)
     }
 

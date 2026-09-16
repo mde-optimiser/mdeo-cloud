@@ -89,3 +89,11 @@ backend fetches its manifest again in the background — at most a minute after 
 Plugin services built on an older `@mdeo/service-common`, which send no fingerprint, still need a
 manual refresh (**Settings → Plugins**) after an upgrade.
 :::
+
+::: warning
+Tokens carry [one scope per capability](/develop/service-api#scopes) since this release, and error
+responses share [one shape](/develop/service-api#errors). A plugin or execution service built
+before that refuses the tokens the backend now issues. Upgrade the backend, the workbench and every
+plugin and execution service together, including plugin services a project builds itself on
+`@mdeo/service-common` or the Kotlin plugin service module.
+:::

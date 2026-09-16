@@ -147,7 +147,7 @@ the run:
 POST /api/projects/{projectId}/sessions/{kind}/{targetId}/{name}/connect
 ```
 
-**Scope:** `execution:read`, on a token bound to an execution.
+**Scope:** `session:open`, on a token bound to an execution.
 
 ```json
 {
@@ -160,7 +160,7 @@ POST /api/projects/{projectId}/sessions/{kind}/{targetId}/{name}/connect
 ```
 
 The backend decides whether the project has that target at all, so a run cannot reach a plugin
-the project has not enabled. The token it returns carries the single `session:connect` scope and
+the project has not enabled. The token it returns carries the `plugin:session:connect` scope and
 names the one target and session it may be spent on; it is bound to the execution, so it stops
 being accepted the moment the run ends.
 
@@ -178,7 +178,7 @@ GET /ws/sessions/:kind/:targetId/:name        (WebSocket upgrade)
 The token goes in `Authorization: Bearer`, or in a `token` query parameter for callers that
 cannot set headers. A service implementing this endpoint itself verifies the token as an RS256 JWT
 against the keys at `<BACKEND_API_URL>/.well-known/jwks.json`, requires the configured issuer, and
-accepts it only when its `scope` contains `session:connect`, its `target` and `session` claims name
+accepts it only when its `scope` contains `plugin:session:connect`, its `target` and `session` claims name
 exactly the addressed target and session, and it carries `projectId` and `executionId`. The caller lists the versions it can speak in `?v=2,1`, most preferred first,
 and the first one the plugin also declares wins.
 
@@ -236,7 +236,7 @@ language service fetches the list itself, with the session token:
 GET /api/projects/{projectId}/sessions/lang/{languageId}/{name}/contribution-plugins
 ```
 
-**Scope:** `session:connect`, on the token issued for exactly that session. The caller never sends
+**Scope:** `session:contributions:read`, which only the token issued for exactly that `lang:` session carries. The caller never sends
 the list, so it cannot choose what gets loaded. When the fetch fails, the connection is closed
 with `4503`.
 

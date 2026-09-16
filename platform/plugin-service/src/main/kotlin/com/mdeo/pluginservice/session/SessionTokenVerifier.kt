@@ -14,7 +14,7 @@ import java.util.concurrent.TimeUnit
  *
  * @property projectId The project the token was issued for
  * @property executionId The execution the token is bound to
- * @property scopes The granted scopes; a session needs `session:connect`
+ * @property scopes The granted scopes; a session needs `plugin:session:connect`
  * @property target The one target the token opens, as `<kind>:<id>`
  * @property session The one session name the token opens
  */

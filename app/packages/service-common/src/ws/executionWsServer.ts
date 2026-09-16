@@ -1,4 +1,4 @@
-import { ErrorCodes } from "@mdeo/plugin";
+import { ErrorCodes, Scopes } from "@mdeo/plugin";
 import type { Server } from "node:http";
 import { COMPRESSION_THRESHOLD_BYTES } from "../util/compression.js";
 import { WebSocketServer, type WebSocket } from "ws";
@@ -313,10 +313,10 @@ async function authorize(request: ExecutionWsRequest, deps: ExecutionWsServerDep
 
     const requiredScope =
         request.messageType === "exec/cancel"
-            ? "plugin:execution:cancel"
+            ? Scopes.PluginExecutionCancel
             : request.messageType === "exec/delete"
-              ? "plugin:execution:delete"
-              : "plugin:execution:read";
+              ? Scopes.PluginExecutionDelete
+              : Scopes.PluginExecutionRead;
 
     if (!claims.scope?.includes(requiredScope)) {
         throw new ExecutionWsRequestError(ErrorCodes.Forbidden, `Token missing ${requiredScope} scope`);

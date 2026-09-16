@@ -1,5 +1,6 @@
 package com.mdeo.backend.routes
 
+import com.mdeo.common.auth.Scopes
 import com.mdeo.common.transport.respondError
 import com.mdeo.backend.plugins.*
 import com.mdeo.backend.service.JwtService
@@ -83,7 +84,7 @@ fun Route.sessionRoutes(
                 return@post
             }
 
-            if (JwtService.SCOPE_EXECUTION_READ !in jwtPrincipal.scopes) {
+            if (Scopes.SESSION_OPEN !in jwtPrincipal.scopes) {
                 call.respondError(HttpStatusCode.Forbidden, "Token missing required scope")
                 return@post
             }
@@ -167,7 +168,7 @@ fun Route.sessionRoutes(
                 return@get
             }
 
-            if (JwtService.SCOPE_SESSION_CONNECT !in jwtPrincipal.scopes) {
+            if (Scopes.SESSION_CONTRIBUTIONS_READ !in jwtPrincipal.scopes) {
                 call.respondError(HttpStatusCode.Forbidden, "Token missing required scope")
                 return@get
             }

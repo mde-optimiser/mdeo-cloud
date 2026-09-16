@@ -1,7 +1,7 @@
 import type { IncomingMessage, Server } from "node:http";
 import { COMPRESSION_THRESHOLD_BYTES } from "../util/compression.js";
 import { WebSocketServer, type WebSocket } from "ws";
-import { parsePluginTarget, type PluginTarget, type SessionType } from "@mdeo/plugin";
+import { parsePluginTarget, Scopes, type PluginTarget, type SessionType } from "@mdeo/plugin";
 import type { JwtAuthMiddleware, JwtClaims } from "../auth/jwtAuth.js";
 import type { LangiumInstance } from "../langium/langiumInstance.js";
 import type { HttpServerApi } from "../service/serverApi.js";
@@ -11,11 +11,6 @@ import { registerUpgradeRoute, type UpgradeLog } from "./upgradeRouter.js";
  * Path prefix every session endpoint lives under, followed by `<kind>/<targetId>/<name>`.
  */
 export const SESSION_WS_PATH_PREFIX = "/ws/sessions/";
-
-/**
- * Scope a token must carry to open a session.
- */
-export const SESSION_CONNECT_SCOPE = "session:connect";
 
 /**
  * Close codes the platform itself uses.
@@ -317,8 +312,8 @@ async function openSession(socket: WebSocket, request: IncomingMessage, deps: Se
         return;
     }
 
-    if (!claims.scope?.includes(SESSION_CONNECT_SCOPE)) {
-        refuse(socket, SessionCloseCodes.Unauthorized, `Token missing ${SESSION_CONNECT_SCOPE} scope`, deps);
+    if (!claims.scope?.includes(Scopes.PluginSessionConnect)) {
+        refuse(socket, SessionCloseCodes.Unauthorized, `Token missing ${Scopes.PluginSessionConnect} scope`, deps);
         return;
     }
 

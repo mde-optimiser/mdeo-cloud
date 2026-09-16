@@ -1,5 +1,6 @@
 package com.mdeo.pluginservice.session
 
+import com.mdeo.common.auth.Scopes
 import com.mdeo.common.model.PluginTarget
 import com.mdeo.pluginservice.ServedSession
 import io.ktor.http.*
@@ -14,17 +15,12 @@ import org.slf4j.LoggerFactory
  */
 const val SESSION_PATH_PREFIX = "/ws/sessions"
 
-/**
- * Scope a token must carry to open a session.
- */
-const val SESSION_CONNECT_SCOPE = "session:connect"
-
 private val logger = LoggerFactory.getLogger("com.mdeo.pluginservice.session")
 
 /**
  * Serves the session endpoint: `GET /ws/sessions/{kind}/{targetId}/{name}`, upgraded to a WebSocket.
  *
- * The connection is authorized once, when it opens. The token must carry `session:connect` and
+ * The connection is authorized once, when it opens. The token must carry `plugin:session:connect` and
  * name exactly this target and session, as tokens issued by the backend's connect endpoint do.
  * Keepalives are handled by the WebSockets plugin, see [installSessionWebSockets].
  *
@@ -56,8 +52,8 @@ fun Route.sessionEndpoint(
             refuse(SessionCloseCodes.UNAUTHORIZED, "Missing or invalid token")
             return@webSocket
         }
-        if (SESSION_CONNECT_SCOPE !in claims.scopes) {
-            refuse(SessionCloseCodes.UNAUTHORIZED, "Token missing $SESSION_CONNECT_SCOPE scope")
+        if (Scopes.PLUGIN_SESSION_CONNECT !in claims.scopes) {
+            refuse(SessionCloseCodes.UNAUTHORIZED, "Token missing $Scopes.PLUGIN_SESSION_CONNECT scope")
             return@webSocket
         }
         // The token names the one session it opens, so a token issued for one target cannot be

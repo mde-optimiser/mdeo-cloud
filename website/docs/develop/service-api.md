@@ -5,7 +5,7 @@ Every plugin service exposes the same endpoints, implemented by `startLanguageSe
 for debugging, and for anyone implementing a plugin service in another stack.
 
 All endpoints except `GET /` and the static assets require a JWT issued by the backend, presented as
-`Authorization: Bearer <token>`, and are checked against a scope.
+`Authorization: Bearer <token>`, and are checked against a scope (see [Scopes](#scopes)).
 
 A caller can say how long it is willing to wait by sending `X-Mdeo-Timeout-Ms` with the
 milliseconds it has left. The backend sends it with every file data computation and plugin request,
@@ -43,6 +43,44 @@ unreadable bodies and uncaught handler errors in this shape too. [Sessions](/dev
 the exception: what travels on them is a protocol the plugin defines, and they are refused with
 WebSocket close codes.
 
+## Scopes
+
+Each scope grants exactly one capability, and every service serving that capability checks the same
+scope, so a token passed on from one hop to the next is accepted for the same thing at each. The
+constants are `Scopes` in `@mdeo/plugin` and `com.mdeo.common.auth.Scopes` in Kotlin. Scopes checked
+by plugin and execution services start with `plugin:`; the others are checked by the backend.
+
+| Scope | Grants | Checked by |
+| --- | --- | --- |
+| `files:read` | Reading the project's files | Backend |
+| `file-data:read` | Reading computed file data | Backend |
+| `execution:write` | Reporting an execution's state and metadata | Backend |
+| `session:open` | Getting the token that opens a [session](/develop/sessions) | Backend |
+| `session:contributions:read` | Reading which contribution plugins a `lang:` session loads | Backend |
+| `plugin:file-data:compute` | `POST /data/:languageId/:key` | Plugin service |
+| `plugin:request:send` | `POST /request/:languageId/:key`, directly or through the backend | Backend, plugin service |
+| `plugin:execution:start` | Starting an execution | Plugin service, execution service |
+| `plugin:execution:read` | An execution's summary and result files | Plugin service, execution service |
+| `plugin:execution:cancel` | Cancelling an execution | Plugin service, execution service |
+| `plugin:execution:delete` | Deleting an execution | Plugin service, execution service |
+| `plugin:session:connect` | Opening a session | Plugin service |
+
+The backend issues one token per purpose. It carries the scope for that purpose plus what the
+handler needs to do its work:
+
+| Token | Scopes |
+| --- | --- |
+| Plugin request from the workbench | `plugin:request:send`, `files:read`, `file-data:read` |
+| File data computation | `plugin:file-data:compute`, `files:read`, `file-data:read`, `plugin:request:send` |
+| Execution run, kept by the execution for its lifetime | `plugin:execution:start`, `files:read`, `file-data:read`, `plugin:request:send`, `session:open`, `execution:write` |
+| Reading, cancelling or deleting an execution | the one `plugin:execution:*` scope, `files:read`, `file-data:read`, `plugin:request:send` |
+| Session | `plugin:session:connect`, plus `session:contributions:read` for a `lang:` target |
+
+A service forwards the token it was called with and never mints one of its own. That is how the
+config plugin passes an execution on to the contribution plugin that runs it: the run token reaches
+the contribution plugin through `plugin:request:send`, and that plugin's execution service accepts it
+through `plugin:execution:start`.
+
 ## `GET /`
 
 Returns the [plugin manifest](/develop/manifest). This is the only endpoint the backend needs to
@@ -65,7 +103,7 @@ requires.
 Computes [file data](/guide/concepts#file-data). Called by the backend when a cached entry is missing
 or has been invalidated.
 
-**Scope:** `file-data:read`
+**Scope:** `plugin:file-data:compute`
 
 ```json
 {
@@ -115,7 +153,7 @@ Responses: `404` for an unknown language or an unregistered data key, `403` for 
 
 An arbitrary language-specific request. Registered only if the service has `requestHandlers`.
 
-**Scope:** `file-data:read`
+**Scope:** `plugin:request:send`
 
 ```json
 {
@@ -133,6 +171,8 @@ section data, and the `config-execution-*` keys to manage runs.
 ## `POST /:languageId/executions`
 
 Starts an execution. Registered only if the service has `executionHandlers`.
+
+**Scope:** `plugin:execution:start`
 
 ```json
 {
@@ -158,6 +198,10 @@ action.
 | `GET /:languageId/executions/:executionId/files` | The result file tree |
 | `GET /:languageId/executions/:executionId/files/*` | One result file |
 | `POST /:languageId/executions/:executionId/cancel` | Cancel a running execution |
+
+The summary and file reads need `plugin:execution:read`, cancelling needs `plugin:execution:cancel`,
+and deleting needs `plugin:execution:delete`. The same scopes authorize the same requests on the
+`/ws/executions` WebSocket.
 
 ## WebSocket
 

@@ -65,10 +65,10 @@ class PluginServiceTest {
     /** Stands in for the backend: each token name maps to the claims a real token would carry. */
     private val verifier = SessionTokenVerifier { token ->
         when (token) {
-            "good" -> SessionTokenClaims("p", "e", listOf("session:connect"), "contrib:echoes", "echo")
-            "other" -> SessionTokenClaims("p", "e", listOf("session:connect"), "contrib:other", "echo")
-            "unserved" -> SessionTokenClaims("p", "e", listOf("session:connect"), "contrib:echoes", "nope")
-            "unscoped" -> SessionTokenClaims("p", "e", listOf("execution:read"), "contrib:echoes", "echo")
+            "good" -> SessionTokenClaims("p", "e", listOf("plugin:session:connect"), "contrib:echoes", "echo")
+            "other" -> SessionTokenClaims("p", "e", listOf("plugin:session:connect"), "contrib:other", "echo")
+            "unserved" -> SessionTokenClaims("p", "e", listOf("plugin:session:connect"), "contrib:echoes", "nope")
+            "unscoped" -> SessionTokenClaims("p", "e", listOf("session:open"), "contrib:echoes", "echo")
             else -> null
         }
     }

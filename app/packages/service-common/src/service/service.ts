@@ -13,7 +13,7 @@ import { resolve } from "path";
 import { createHash } from "node:crypto";
 import type { ServiceConfig, FileDataComputeRequest, FileDataComputeResponse, LanguageServiceConfig } from "./types.js";
 import { LangiumInstancePool } from "../langium/langiumPool.js";
-import { errorResponse, formatPluginTarget, PluginTargetKind, type SessionType } from "@mdeo/plugin";
+import { errorResponse, formatPluginTarget, Scopes, PluginTargetKind, type SessionType } from "@mdeo/plugin";
 import { URI } from "vscode-uri";
 import { buildManifest } from "./util.js";
 import type { FileInfo } from "../handler/types.js";
@@ -187,10 +187,12 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
             const { languageId, key } = request.params;
             const { project, source, contributionPlugins, contributionHash } = request.body;
 
-            if (!JwtAuthMiddleware.hasScope(request, "file-data:read")) {
+            if (!JwtAuthMiddleware.hasScope(request, Scopes.PluginFileDataCompute)) {
                 return reply
                     .status(403)
-                    .send(errorResponse(403, "Insufficient permissions: file-data:read scope required"));
+                    .send(
+                        errorResponse(403, `Insufficient permissions: ${Scopes.PluginFileDataCompute} scope required`)
+                    );
             }
 
             const languageHandler = languageHandlers.get(languageId);
@@ -275,10 +277,12 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
                 const { languageId, key } = request.params;
                 const { project, body, contributionPlugins, contributionHash } = request.body;
 
-                if (!JwtAuthMiddleware.hasScope(request, "file-data:read")) {
+                if (!JwtAuthMiddleware.hasScope(request, Scopes.PluginRequestSend)) {
                     return reply
                         .status(403)
-                        .send(errorResponse(403, "Insufficient permissions: file-data:read scope required"));
+                        .send(
+                            errorResponse(403, `Insufficient permissions: ${Scopes.PluginRequestSend} scope required`)
+                        );
                 }
 
                 const languageHandler = languageHandlers.get(languageId);
@@ -373,10 +377,15 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
                     contributionHash
                 } = request.body;
 
-                if (!JwtAuthMiddleware.hasScope(request, "execution:write")) {
+                if (!JwtAuthMiddleware.hasScope(request, Scopes.PluginExecutionStart)) {
                     return reply
                         .status(403)
-                        .send(errorResponse(403, "Insufficient permissions: execution:write scope required"));
+                        .send(
+                            errorResponse(
+                                403,
+                                `Insufficient permissions: ${Scopes.PluginExecutionStart} scope required`
+                            )
+                        );
                 }
 
                 const languageHandler = languageHandlers.get(languageId);
@@ -465,10 +474,12 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
             async (request, reply) => {
                 const { languageId, executionId } = request.params;
 
-                if (!JwtAuthMiddleware.hasScope(request, "plugin:execution:read")) {
+                if (!JwtAuthMiddleware.hasScope(request, Scopes.PluginExecutionRead)) {
                     return reply
                         .status(403)
-                        .send(errorResponse(403, "Insufficient permissions: plugin:execution:read scope required"));
+                        .send(
+                            errorResponse(403, `Insufficient permissions: ${Scopes.PluginExecutionRead} scope required`)
+                        );
                 }
 
                 const languageHandler = languageHandlers.get(languageId);
@@ -535,10 +546,12 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
             async (request, reply) => {
                 const { languageId, executionId } = request.params;
 
-                if (!JwtAuthMiddleware.hasScope(request, "plugin:execution:read")) {
+                if (!JwtAuthMiddleware.hasScope(request, Scopes.PluginExecutionRead)) {
                     return reply
                         .status(403)
-                        .send(errorResponse(403, "Insufficient permissions: plugin:execution:read scope required"));
+                        .send(
+                            errorResponse(403, `Insufficient permissions: ${Scopes.PluginExecutionRead} scope required`)
+                        );
                 }
 
                 const languageHandler = languageHandlers.get(languageId);
@@ -606,10 +619,12 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
                 const { languageId, executionId } = request.params;
                 const path = request.params["*"];
 
-                if (!JwtAuthMiddleware.hasScope(request, "plugin:execution:read")) {
+                if (!JwtAuthMiddleware.hasScope(request, Scopes.PluginExecutionRead)) {
                     return reply
                         .status(403)
-                        .send(errorResponse(403, "Insufficient permissions: plugin:execution:read scope required"));
+                        .send(
+                            errorResponse(403, `Insufficient permissions: ${Scopes.PluginExecutionRead} scope required`)
+                        );
                 }
 
                 const languageHandler = languageHandlers.get(languageId);
@@ -676,10 +691,15 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
             async (request, reply) => {
                 const { languageId, executionId } = request.params;
 
-                if (!JwtAuthMiddleware.hasScope(request, "plugin:execution:cancel")) {
+                if (!JwtAuthMiddleware.hasScope(request, Scopes.PluginExecutionCancel)) {
                     return reply
                         .status(403)
-                        .send(errorResponse(403, "Insufficient permissions: plugin:execution:cancel scope required"));
+                        .send(
+                            errorResponse(
+                                403,
+                                `Insufficient permissions: ${Scopes.PluginExecutionCancel} scope required`
+                            )
+                        );
                 }
 
                 const languageHandler = languageHandlers.get(languageId);
@@ -748,10 +768,15 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
             async (request, reply) => {
                 const { languageId, executionId } = request.params;
 
-                if (!JwtAuthMiddleware.hasScope(request, "plugin:execution:delete")) {
+                if (!JwtAuthMiddleware.hasScope(request, Scopes.PluginExecutionDelete)) {
                     return reply
                         .status(403)
-                        .send(errorResponse(403, "Insufficient permissions: plugin:execution:write scope required"));
+                        .send(
+                            errorResponse(
+                                403,
+                                `Insufficient permissions: ${Scopes.PluginExecutionDelete} scope required`
+                            )
+                        );
                 }
 
                 const languageHandler = languageHandlers.get(languageId);

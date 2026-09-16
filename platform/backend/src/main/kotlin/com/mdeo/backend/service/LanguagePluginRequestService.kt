@@ -37,9 +37,9 @@ class LanguagePluginRequestService(services: InjectedServices) : BaseService(), 
      * This method locates the appropriate plugin for the language, prepares a JWT,
      * and forwards the provided JSON body to the plugin endpoint. When a
      * [callerJwt] is supplied (service-to-service calls) it is forwarded directly
-     * so that its full scope set (e.g. execution:write) reaches the plugin.
+     * so that its full scope set (e.g. plugin:execution:start) reaches the plugin.
      * For browser-session calls where no [callerJwt] is available a fresh
-     * project token is generated instead.
+     * plugin request token is generated instead.
      *
      * Contribution plugin metadata is included in the request payload.
      *
@@ -74,7 +74,7 @@ class LanguagePluginRequestService(services: InjectedServices) : BaseService(), 
         val contributions = ContributionSet(pluginService.getContributionPluginsForLanguage(projectId, languageId))
 
         return try {
-            val token = callerJwt ?: jwtService.generateProjectToken(projectId)
+            val token = callerJwt ?: jwtService.generatePluginRequestToken(projectId)
 
             val responseData = callPlugin(
                 pluginId,

@@ -1,5 +1,6 @@
 package com.mdeo.backend.routes
 
+import com.mdeo.common.auth.Scopes
 import com.mdeo.common.transport.respondError
 import com.mdeo.backend.plugins.*
 import com.mdeo.backend.service.FileService
@@ -260,7 +261,7 @@ private suspend fun ApplicationCall.validateProjectAccessWithJwt(projectService:
             respondError(HttpStatusCode.Forbidden, "Token not valid for this project")
             return null
         }
-        if (JwtService.SCOPE_FILES_READ !in jwtPrincipal.scopes) {
+        if (Scopes.FILES_READ !in jwtPrincipal.scopes) {
             respondError(HttpStatusCode.Forbidden, "Token missing required scope")
             return null
         }

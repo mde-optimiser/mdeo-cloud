@@ -1,5 +1,6 @@
 package com.mdeo.backend.routes
 
+import com.mdeo.common.auth.Scopes
 import com.mdeo.common.transport.respondError
 import com.mdeo.backend.plugins.*
 import com.mdeo.backend.service.ExecutionService
@@ -225,7 +226,7 @@ fun Route.executionStateRoutes(
                 return@patch
             }
             
-            if (JwtService.SCOPE_EXECUTION_WRITE !in jwtPrincipal.scopes) {
+            if (Scopes.EXECUTION_WRITE !in jwtPrincipal.scopes) {
                 call.respondError(HttpStatusCode.Forbidden, "Token missing execution:write scope")
                 return@patch
             }
@@ -272,7 +273,7 @@ fun Route.executionStateRoutes(
                 return@patch
             }
 
-            if (JwtService.SCOPE_EXECUTION_WRITE !in jwtPrincipal.scopes) {
+            if (Scopes.EXECUTION_WRITE !in jwtPrincipal.scopes) {
                 call.respondError(HttpStatusCode.Forbidden, "Token missing execution:write scope")
                 return@patch
             }

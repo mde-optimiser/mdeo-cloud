@@ -1,5 +1,6 @@
 package com.mdeo.backend.service
 
+import com.mdeo.common.auth.Scopes
 import com.mdeo.common.transport.CompressedResponses
 import com.mdeo.common.model.ExecutionState
 import com.mdeo.backend.database.ExecutionsTable
@@ -54,18 +55,6 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
      * that authorizes it, so a dropped connection costs nothing but a reconnect.
      */
     private val executionWsClient by lazy { ExecutionWsClient() }
-
-    companion object {
-        /**
-         * JWT scope for reading execution data 
-         */
-        const val SCOPE_EXECUTION_READ = "execution:read"
-
-        /**
-         * JWT scope for writing execution state 
-         */
-        const val SCOPE_EXECUTION_WRITE = "execution:write"
-    }
 
     /**
      * Lists all executions for a project.
@@ -624,7 +613,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
         return try {
             val response = pluginWsRequest(
                 pluginUrl,
-                JwtService.SCOPE_PLUGIN_EXECUTION_READ,
+                Scopes.PLUGIN_EXECUTION_READ,
                 executionId,
                 projectId,
                 { token ->
@@ -981,7 +970,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
         projectId: UUID,
         metadata: JsonObject?
     ): List<FileEntry> {
-        val overWs = pluginWsRequest(pluginUrl, JwtService.SCOPE_PLUGIN_EXECUTION_READ, executionId, projectId, build = { token ->
+        val overWs = pluginWsRequest(pluginUrl, Scopes.PLUGIN_EXECUTION_READ, executionId, projectId, build = { token ->
             ExecutionFileTreeWsRequest("", wsContext(executionId, projectId, languageId, metadata, token))
         })
         if (overWs != null) {
@@ -1001,7 +990,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
             val token = jwtService.generatePluginExecutionToken(
                 projectId,
                 executionId,
-                JwtService.SCOPE_PLUGIN_EXECUTION_READ
+                Scopes.PLUGIN_EXECUTION_READ
             )
             val uri = URI.create(pluginUrl).resolve("$languageId/executions/$executionId/files")
 
@@ -1039,7 +1028,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
         projectId: UUID,
         metadata: JsonObject?
     ): String {
-        val overWs = pluginWsRequest(pluginUrl, JwtService.SCOPE_PLUGIN_EXECUTION_READ, executionId, projectId, build = { token ->
+        val overWs = pluginWsRequest(pluginUrl, Scopes.PLUGIN_EXECUTION_READ, executionId, projectId, build = { token ->
             ExecutionSummaryWsRequest("", wsContext(executionId, projectId, languageId, metadata, token))
         })
         if (overWs != null) {
@@ -1059,7 +1048,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
             val token = jwtService.generatePluginExecutionToken(
                 projectId,
                 executionId,
-                JwtService.SCOPE_PLUGIN_EXECUTION_READ
+                Scopes.PLUGIN_EXECUTION_READ
             )
             val uri = URI.create(pluginUrl).resolve("$languageId/executions/$executionId/summary")
 
@@ -1099,7 +1088,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
         path: String,
         metadata: JsonObject?
     ): ByteArray {
-        val overWs = pluginWsRequest(pluginUrl, JwtService.SCOPE_PLUGIN_EXECUTION_READ, executionId, projectId, build = { token ->
+        val overWs = pluginWsRequest(pluginUrl, Scopes.PLUGIN_EXECUTION_READ, executionId, projectId, build = { token ->
             ExecutionFileWsRequest("", wsContext(executionId, projectId, languageId, metadata, token), normalizePath(path))
         })
         if (overWs != null) {
@@ -1120,7 +1109,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
             val token = jwtService.generatePluginExecutionToken(
                 projectId,
                 executionId,
-                JwtService.SCOPE_PLUGIN_EXECUTION_READ
+                Scopes.PLUGIN_EXECUTION_READ
             )
             val normalizedPath = normalizePath(path)
             val uri = URI.create(pluginUrl).resolve("$languageId/executions/$executionId/files/$normalizedPath")
@@ -1160,7 +1149,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
         metadata: JsonObject?
     ) {
         val overWs = pluginWsRequest(
-            pluginUrl, JwtService.SCOPE_PLUGIN_EXECUTION_CANCEL, executionId, projectId,
+            pluginUrl, Scopes.PLUGIN_EXECUTION_CANCEL, executionId, projectId,
             build = { token ->
                 ExecutionCancelWsRequest("", wsContext(executionId, projectId, languageId, metadata, token))
             }
@@ -1182,7 +1171,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
             val token = jwtService.generatePluginExecutionToken(
                 projectId,
                 executionId,
-                JwtService.SCOPE_PLUGIN_EXECUTION_CANCEL
+                Scopes.PLUGIN_EXECUTION_CANCEL
             )
             val uri = URI.create(pluginUrl).resolve("$languageId/executions/$executionId/cancel")
 
@@ -1220,7 +1209,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
     ) {
         val overWs = try {
             pluginWsRequest(
-                pluginUrl, JwtService.SCOPE_PLUGIN_EXECUTION_DELETE, executionId, projectId,
+                pluginUrl, Scopes.PLUGIN_EXECUTION_DELETE, executionId, projectId,
                 build = { token ->
                     ExecutionDeleteWsRequest("", wsContext(executionId, projectId, languageId, metadata, token))
                 }
@@ -1249,7 +1238,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
             val token = jwtService.generatePluginExecutionToken(
                 projectId,
                 executionId,
-                JwtService.SCOPE_PLUGIN_EXECUTION_DELETE
+                Scopes.PLUGIN_EXECUTION_DELETE
             )
             val uri = URI.create(pluginUrl).resolve("$languageId/executions/$executionId")
 
