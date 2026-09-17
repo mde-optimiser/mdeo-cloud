@@ -1,17 +1,16 @@
 package com.mdeo.backend.service
 
-import com.mdeo.common.transport.CompressedResponses
 import com.mdeo.common.model.*
+import com.mdeo.common.transport.CompressedResponses
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
 import org.slf4j.LoggerFactory
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
-import java.net.http.HttpResponse
 import java.time.Duration
 import java.util.*
 
@@ -89,24 +88,28 @@ class LanguagePluginRequestService(services: InjectedServices) : BaseService(), 
             )
 
             success(LanguagePluginResponse(data = responseData))
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: DeadlineExceededException) {
             languagePluginRequestFailure(ErrorCodes.DEADLINE_EXCEEDED, e.message ?: "Deadline exceeded")
         } catch (e: java.net.http.HttpTimeoutException) {
-            if (deadline == null) {
-                logger.error("Language plugin request $languageId:$key timed out", e)
-                languagePluginRequestFailure(ErrorCodes.FILE_DATA_COMPUTATION_FAILED, "Failed to execute request: ${e.message}")
-            } else {
+            // The wait is the shorter of the caller's deadline and the backend's maximum; only an
+            // expired deadline makes it the caller's.
+            if (deadline?.isExpired == true) {
                 languagePluginRequestFailure(
                     ErrorCodes.DEADLINE_EXCEEDED,
                     "The plugin did not answer $languageId:$key before the caller's deadline"
                 )
+            } else {
+                logger.error("Language plugin request $languageId:$key timed out", e)
+                languagePluginRequestFailure(
+                    ErrorCodes.UNAVAILABLE,
+                    "The plugin did not answer $languageId:$key within ${config.timeouts.pluginRequestSeconds} seconds"
+                )
             }
         } catch (e: Exception) {
             logger.error("Failed to execute language plugin request for $languageId:$key", e)
-            languagePluginRequestFailure(
-                ErrorCodes.FILE_DATA_COMPUTATION_FAILED,
-                "Failed to execute request: ${e.message}"
-            )
+            languagePluginRequestFailure(ErrorCodes.UNAVAILABLE, "The plugin could not answer $languageId:$key")
         }
     }
 

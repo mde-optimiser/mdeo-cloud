@@ -8,8 +8,10 @@ All endpoints except `GET /` and the static assets require a JWT issued by the b
 `Authorization: Bearer <token>`, and are checked against a scope (see [Scopes](#scopes)).
 
 A caller can say how long it is willing to wait by sending `X-Mdeo-Timeout-Ms` with the
-milliseconds it has left. The backend sends it with every file data computation and plugin request,
-never more than its own configured maximum. A handler sees the limit as `context.signal`, which
+milliseconds it has left. The backend sends it with every plugin request, never more than its own
+configured maximum. A file data computation is shared by every request waiting for the same data, so
+the plugin always gets the configured maximum for it; each request only stops waiting at its own
+deadline and leaves the computation to the others. A handler sees the limit as `context.signal`, which
 aborts when the time is up or the caller disconnects; every `serverApi` call made while handling the
 request is aborted with it and passes the remaining time on to the backend. A handler that fails
 after its deadline passed is answered with `504`.

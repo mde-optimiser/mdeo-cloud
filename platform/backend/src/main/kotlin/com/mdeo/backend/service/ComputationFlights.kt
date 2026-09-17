@@ -1,17 +1,24 @@
 package com.mdeo.backend.service
 
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.isActive
+import kotlinx.coroutines.ensureActive
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Makes concurrent requests for the same computation share one run of it.
  *
- * The first request for a key computes; every request for that key arriving while it runs waits
- * for its result instead of computing the same thing again.
+ * The first request for a key starts the computation; every request for that key arriving while it
+ * runs waits for its result instead of computing the same thing again.
+ *
+ * The run belongs to none of the requests: it runs in [scope], so a request that stops waiting —
+ * because its deadline passed or its caller went away — leaves the run to the others. That is also
+ * why a run must not depend on anything one request brought along, such as its deadline.
  *
  * Computations nest: a plugin computing one piece of data may request another, with a token naming
  * the computation it belongs to. A request that waited on a computation which is itself waiting on
@@ -22,10 +29,13 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * @param K What identifies one computation
  * @param R Its result
+ * @param scope Where runs execute; cancelling it cancels every run
  */
-class ComputationFlights<K : Any, R> {
+class ComputationFlights<K : Any, R>(private val scope: CoroutineScope) {
 
-    private class Flight<R>(val computationId: UUID, val result: CompletableDeferred<R>)
+    private class Flight<R>(val computationId: UUID) {
+        lateinit var result: Deferred<R>
+    }
 
     private val flights = ConcurrentHashMap<K, Flight<R>>()
 
@@ -39,40 +49,47 @@ class ComputationFlights<K : Any, R> {
     /**
      * Runs [compute] for [key], or waits for the run already in progress.
      *
-     * A run that fails with an exception is not shared: waiters try again, and one of them runs it.
-     * A run that returns a failure value shares it like any other result.
+     * A run that fails with an exception is not shared: the request that started it gets the
+     * exception, and every other request tries again. A run that returns a failure value shares it
+     * like any other result.
      *
      * @param key The computation
      * @param caller The computation whose request this is, when it comes from one
      * @param compute Computes the result under the given computation id
-     * @return The result, computed here or by the run that was already in progress
+     * @return The result, computed by the run this request started or joined
      */
     suspend fun run(key: K, caller: UUID?, compute: suspend (computationId: UUID) -> R): R {
         while (true) {
-            val mine = Flight<R>(UUID.randomUUID(), CompletableDeferred())
-            val running = flights.putIfAbsent(key, mine)
-
-            if (running == null) {
-                return try {
-                    runTracked(mine.computationId, caller, compute).also { mine.result.complete(it) }
-                } catch (e: Throwable) {
-                    mine.result.completeExceptionally(e)
-                    throw e
+            val mine = Flight<R>(UUID.randomUUID())
+            mine.result = scope.async(start = CoroutineStart.LAZY) {
+                try {
+                    runTracked(mine.computationId, caller, compute)
                 } finally {
+                    // Before the result is published, so nobody who sees it finds this flight again.
                     flights.remove(key, mine)
                 }
             }
+            val running = flights.putIfAbsent(key, mine)
+            val started = running == null
+            val flight = running ?: mine
 
-            if (isWithin(running.computationId, caller)) {
-                return runTracked(UUID.randomUUID(), caller, compute)
+            if (started) {
+                mine.result.start()
+            } else {
+                mine.result.cancel()
+                if (isWithin(flight.computationId, caller)) {
+                    return runTracked(UUID.randomUUID(), caller, compute)
+                }
             }
 
             try {
-                return running.result.await()
+                return flight.result.await()
             } catch (e: CancellationException) {
-                if (!currentCoroutineContext().isActive) throw e
+                // This request was cancelled, or the run was: only the latter is worth a retry.
+                currentCoroutineContext().ensureActive()
+                if (started) throw IllegalStateException("The computation was cancelled", e)
             } catch (e: Exception) {
-                // The run failed without a result; try again.
+                if (started) throw e
             }
         }
     }
