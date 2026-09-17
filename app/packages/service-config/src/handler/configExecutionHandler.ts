@@ -184,7 +184,11 @@ export class ConfigExecutionHandler implements ExecutionHandler<ExecuteResponse>
     }
 
     async cancel(context: ExecutionRequestContext): Promise<void> {
-        const routing = this.getRoutingMetadata(context);
+        const routing = this.findRoutingMetadata(context);
+        if (routing == undefined) {
+            // The execution failed before it reached a contribution plugin: nothing runs there.
+            return;
+        }
         const requestBody: ConfigExecutionFollowUpRequestBody = {
             executionId: context.executionId
         };
@@ -197,7 +201,11 @@ export class ConfigExecutionHandler implements ExecutionHandler<ExecuteResponse>
     }
 
     async delete(context: ExecutionRequestContext): Promise<void> {
-        const routing = this.getRoutingMetadata(context);
+        const routing = this.findRoutingMetadata(context);
+        if (routing == undefined) {
+            // The execution failed before it reached a contribution plugin: nothing is stored there.
+            return;
+        }
         const requestBody: ConfigExecutionFollowUpRequestBody = {
             executionId: context.executionId
         };
@@ -262,10 +270,24 @@ export class ConfigExecutionHandler implements ExecutionHandler<ExecuteResponse>
     }
 
     private getRoutingMetadata(context: ExecutionRequestContext): ConfigExecutionRoutingMetadata {
+        const routing = this.findRoutingMetadata(context);
+        if (routing == undefined) {
+            throw new Error("Missing execution routing metadata for config execution forwarding");
+        }
+        return routing;
+    }
+
+    /**
+     * Reads which contribution plugin an execution was forwarded to.
+     *
+     * @param context The execution request context
+     * @returns The routing, or undefined when the execution failed before it was forwarded
+     */
+    private findRoutingMetadata(context: ExecutionRequestContext): ConfigExecutionRoutingMetadata | undefined {
         const envelope = context.metadata as ConfigExecutionMetadataEnvelope | undefined;
         const routing = envelope?.configExecution;
         if (routing == undefined || typeof routing.languageId !== "string" || routing.languageId.length === 0) {
-            throw new Error("Missing execution routing metadata for config execution forwarding");
+            return undefined;
         }
         return routing;
     }
