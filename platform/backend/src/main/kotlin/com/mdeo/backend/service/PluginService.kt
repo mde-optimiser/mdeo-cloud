@@ -337,16 +337,13 @@ class PluginService(services: InjectedServices) : BaseService(), InjectedService
     }
 
     /**
-     * Fetches the plugin manifest from the plugin's GET / endpoint.
-     * Uses the internal base URL for backend-to-plugin communication.
-     */
-    /**
      * A fetched manifest, and the fingerprint the plugin reported with it.
      */
     private class FetchedManifest(val manifest: PluginManifest, val fingerprint: String?)
 
     /**
-     * Fetches the plugin manifest, together with the manifest fingerprint the plugin sends.
+     * Fetches the plugin manifest from the plugin's `GET /` endpoint, over the internal base URL,
+     * together with the manifest fingerprint the plugin sends.
      */
     private suspend fun fetchManifest(url: String): FetchedManifest {
         return withContext(Dispatchers.IO) {

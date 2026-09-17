@@ -1,7 +1,6 @@
 import {
     ExternalImplementation,
     Script,
-    type ExternalImplementation as ExternalImplementationType,
     type ResolvedScriptContributionPlugins,
     type ScriptServices,
     type TypedAst,
@@ -99,7 +98,7 @@ interface TypedPluginFunctionSignature {
      * The operation answering this overload, when it is implemented outside the platform,
      * together with the contribution and session it is answered on.
      */
-    external?: ExternalImplementationType & { contribution: string; session?: string };
+    external?: ExternalImplementation & { contribution: string; session?: string };
 }
 
 /**

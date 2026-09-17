@@ -2,6 +2,7 @@ package com.mdeo.execution.common.api
 
 import com.mdeo.common.transport.acceptCompressedResponses
 import com.mdeo.common.model.PluginTarget
+import com.mdeo.common.model.SessionConnectResponse
 import com.mdeo.common.transport.SessionConnection
 import io.ktor.client.*
 import io.ktor.client.call.*
@@ -13,29 +14,10 @@ import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
-
-/**
- * The backend's answer to a session connect request.
- *
- * @property url WebSocket URL of the session endpoint
- * @property protocol Name of the protocol spoken on the session
- * @property versions Protocol versions the plugin side can speak, most preferred first
- * @property token Bearer token that authorizes exactly this session
- * @property expiresAt Epoch second at which the token stops being accepted
- */
-@Serializable
-private data class SessionConnectResponse(
-    val url: String,
-    val protocol: String,
-    val versions: List<Int>,
-    val token: String,
-    val expiresAt: Long
-)
 
 /**
  * Resolves where a session lives and gets a token to open it.

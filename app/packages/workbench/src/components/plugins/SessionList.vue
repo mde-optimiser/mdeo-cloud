@@ -3,7 +3,7 @@
         <div class="text-sm font-medium text-foreground">Sessions</div>
         <div v-for="entry in entries" :key="entry.name" class="text-sm text-muted-foreground mt-1">
             <span class="font-mono">{{ address }}/{{ entry.name }}</span>
-            &mdash; {{ entry.type.protocol }} v{{ entry.type.versions.join(", ") }}
+            &mdash; {{ entry.type.protocol }} {{ entry.type.versions.map((version) => `v${version}`).join(", ") }}
             <div v-if="entry.type.description" class="text-xs">{{ entry.type.description }}</div>
         </div>
     </div>

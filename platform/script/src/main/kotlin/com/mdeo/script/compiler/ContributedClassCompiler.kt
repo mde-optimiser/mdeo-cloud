@@ -102,9 +102,23 @@ internal object ContributedClassCompiler {
         return registry
     }
 
-    private fun jvmClassName(contribution: String, name: String): String {
-        val safeContribution = contribution.replace(Regex("[^A-Za-z0-9_]"), "_")
-        return "com/mdeo/script/contrib/$safeContribution/$name"
+    private fun jvmClassName(contribution: String, name: String): String =
+        "com/mdeo/script/contrib/${packageSegment(contribution)}/$name"
+
+    /**
+     * Turns a contribution id into a package name segment, differently for every id: `a-b`, `a.b`
+     * and `a_b` are three contributions, and their classes must not land in one package.
+     */
+    internal fun packageSegment(contribution: String): String = buildString {
+        for (char in contribution) {
+            when {
+                char == '_' -> append("__")
+                char == '-' -> append("_d")
+                char == '.' -> append("_p")
+                char in 'A'..'Z' || char in 'a'..'z' || char in '0'..'9' -> append(char)
+                else -> append("_u").append(char.code.toString(16).padStart(4, '0'))
+            }
+        }
     }
 
     private fun generate(spec: ContributedClassSpec): ByteArray {

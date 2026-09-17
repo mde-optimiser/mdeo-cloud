@@ -14,7 +14,10 @@ import java.lang.ref.WeakReference
 internal class IdentityRegistry {
 
     private class Entry(referent: Any, val id: Long, queue: ReferenceQueue<Any>) :
-        WeakReference<Any>(referent, queue)
+        WeakReference<Any>(referent, queue) {
+        /** Kept, because once the referent is collected there is nothing left to hash. */
+        val hash: Int = System.identityHashCode(referent)
+    }
 
     private val queue = ReferenceQueue<Any>()
     private val byHash = HashMap<Int, MutableList<Entry>>()
@@ -39,7 +42,7 @@ internal class IdentityRegistry {
      */
     fun register(value: Any, id: Long): Long {
         val entry = Entry(value, id, queue)
-        byHash.getOrPut(System.identityHashCode(value)) { ArrayList(1) }.add(entry)
+        byHash.getOrPut(entry.hash) { ArrayList(1) }.add(entry)
         byId[id] = entry
         return id
     }
@@ -84,14 +87,8 @@ internal class IdentityRegistry {
     }
 
     private fun removeFromBucket(entry: Entry) {
-        // An entry whose referent is gone cannot tell its hash any more, so every bucket is searched.
-        val iterator = byHash.values.iterator()
-        while (iterator.hasNext()) {
-            val bucket = iterator.next()
-            if (bucket.remove(entry)) {
-                if (bucket.isEmpty()) iterator.remove()
-                return
-            }
-        }
+        val bucket = byHash[entry.hash] ?: return
+        bucket.remove(entry)
+        if (bucket.isEmpty()) byHash.remove(entry.hash)
     }
 }

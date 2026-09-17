@@ -233,7 +233,7 @@ export class ExecutionWsRequestError extends Error {
     /**
      * Creates a new error.
      *
-     * @param code One of {@link ErrorCodes}
+     * @param code One of `ErrorCodes` from `@mdeo/plugin`
      * @param message Human-readable description
      */
     constructor(

@@ -127,7 +127,7 @@ export class BackendApi implements BackendApiCore {
             });
 
             if (!response.ok) {
-                return this.handleErrorResponse(response);
+                return this.parseErrorResponse(response);
             }
 
             return this.handleSuccessResponse<T>(response);
@@ -163,10 +163,6 @@ export class BackendApi implements BackendApiCore {
             }
         }
         return fallback;
-    }
-
-    private async handleErrorResponse<T>(response: Response): Promise<ApiResult<T, any>> {
-        return this.parseErrorResponse(response);
     }
 
     private async handleSuccessResponse<T>(response: Response): Promise<ApiResult<T, any>> {
