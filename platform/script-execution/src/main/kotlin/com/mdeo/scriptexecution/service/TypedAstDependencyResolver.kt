@@ -39,7 +39,10 @@ class TypedAstDependencyResolver(
         // One request for the file and everything it imports; older script services do not offer it.
         backendApiService.getTypedAstClosure(projectId, filePath, jwtToken)?.let { closure ->
             logger.info("Resolved ${closure.size} file(s) including dependencies for $filePath in one request")
-            return closure
+            // The closure names every file by its absolute path; the main file is looked up by the
+            // path the execution was given, which may lack the leading slash.
+            val absolutePath = "/" + filePath.removePrefix("/")
+            return closure.mapKeys { (path, _) -> if (path == absolutePath) filePath else path }
         }
 
         val resolvedAsts = mutableMapOf<String, TypedAst>()
