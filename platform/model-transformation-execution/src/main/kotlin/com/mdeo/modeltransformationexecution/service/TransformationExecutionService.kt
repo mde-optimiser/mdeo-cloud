@@ -326,7 +326,7 @@ class TransformationExecutionService(
         )
         
         if (typedAst == null) {
-            val msg = "Failed to fetch transformation typed AST"
+            val msg = "Could not load transformation $transformationPath: it is missing or has errors"
             storeError(executionId, msg)
             updateState(executionId, ExecutionState.FAILED, msg, jwtToken)
         }

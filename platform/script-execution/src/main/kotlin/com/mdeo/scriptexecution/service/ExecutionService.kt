@@ -393,7 +393,7 @@ class ExecutionService(
             projectId.toString(), filePath, jwtToken
         )
         if (typedAsts == null) {
-            val msg = "Failed to fetch typed AST or its dependencies from backend"
+            val msg = "Could not load script $filePath or a file it imports: one is missing or has errors"
             storeError(executionId, msg)
             updateExecutionState(executionId, ExecutionState.FAILED, msg, jwtToken)
             return null

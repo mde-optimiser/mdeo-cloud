@@ -37,7 +37,7 @@ any of the marked changes are applied. Elements can be:
 | Object | `name: Class { ... }` | An object of that class must exist |
 | Link | `source[.property] -- target[.property]` | A link must exist between two matched objects |
 | Reference | `name { ... }` | Constrain or update an object matched in an *enclosing* scope |
-| Delete | `delete name` | Remove an object matched earlier |
+| Delete | `delete name` | Remove an object bound by an earlier or enclosing statement |
 | Variable | `var name[: type] = expression` | Bind a value for later use in the pattern |
 | Condition | `where expression` | An arbitrary boolean condition on the match, or — inside a block — on that condition |
 | Application condition | `forbid [name] { ... }` / `require [name] { ... }` | A sub-pattern that must not / must be findable |
@@ -49,6 +49,10 @@ Objects and links can carry a modifier:
 | *(none)* | The element must exist and is left untouched |
 | `create` | The element is added |
 | `delete` | The element is removed |
+
+To remove an object found in the same pattern, put the modifier on the object itself —
+`delete book: Book { }`. `delete name` only names objects of an earlier or enclosing statement; inside the pattern
+that declares `name`, it is rejected.
 
 #### Application conditions
 

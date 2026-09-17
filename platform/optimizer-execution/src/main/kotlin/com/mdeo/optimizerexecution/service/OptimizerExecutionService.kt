@@ -918,7 +918,7 @@ class OptimizerExecutionService(
         for (path in usingPaths) {
             val ast = apiClient.getTransformationTypedAst(projectId.toString(), path, jwtToken)
             if (ast == null) {
-                val msg = "Failed to fetch transformation: $path"
+                val msg = "Could not load transformation $path: it is missing or has errors"
                 storeError(executionId, msg)
                 updateState(executionId, ExecutionState.FAILED, msg, jwtToken)
                 return null
