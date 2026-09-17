@@ -1,5 +1,6 @@
 package com.mdeo.pluginservice
 
+import com.mdeo.common.transport.MAX_SERVICE_WEBSOCKET_MESSAGE_BYTES
 import com.mdeo.common.transport.installDeflate
 import com.mdeo.common.transport.respondError
 import com.mdeo.pluginservice.session.JwksSessionTokenVerifier
@@ -31,7 +32,7 @@ const val SESSION_PONG_TIMEOUT_SECONDS = 90L
 /**
  * Largest message accepted on a session.
  */
-const val SESSION_MAX_FRAME_BYTES = 512L * 1024 * 1024
+const val SESSION_MAX_FRAME_BYTES = MAX_SERVICE_WEBSOCKET_MESSAGE_BYTES
 
 /**
  * Header every answer of a plugin service carries: a fingerprint of its manifest, by which the
@@ -96,7 +97,7 @@ fun Application.installSessionWebSockets() {
         timeout = SESSION_PONG_TIMEOUT_SECONDS.seconds
         maxFrameSize = SESSION_MAX_FRAME_BYTES
         masking = false
-        extensions { installDeflate() }
+        extensions { installDeflate(SESSION_MAX_FRAME_BYTES) }
     }
 }
 

@@ -19,7 +19,19 @@ import java.nio.charset.Charset
 const val COMPRESSION_MIN_BYTES: Long = 1024
 
 /**
- * Compresses HTTP responses for every client that accepts it.
+ * Largest request body a service inflates. Matches the body limit of the workbench proxy and of the
+ * TypeScript services, so a compressed body is held to the same bound as a plain one.
+ */
+const val MAX_DECODED_REQUEST_BYTES: Long = 64L * 1024 * 1024
+
+/**
+ * Largest WebSocket message between services: a whole model or result file travels in one message.
+ */
+const val MAX_SERVICE_WEBSOCKET_MESSAGE_BYTES: Long = 512L * 1024 * 1024
+
+/**
+ * Compresses HTTP responses for every client that accepts it, and inflates compressed request bodies
+ * up to [MAX_DECODED_REQUEST_BYTES].
  *
  * The platform's payloads are JSON — ASTs, typed ASTs, contribution payloads, model data — which
  * shrink by an order of magnitude or more, so every service compresses what it answers with.
@@ -27,6 +39,8 @@ const val COMPRESSION_MIN_BYTES: Long = 1024
 fun Application.installHttpCompression() {
     if (pluginOrNull(Compression) != null) return
     install(Compression) {
+        // Without a bound, a few megabytes of compressed zeros inflate into gigabytes.
+        maxDecodedContentLength = MAX_DECODED_REQUEST_BYTES
         gzip {
             minimumSize(COMPRESSION_MIN_BYTES)
         }
@@ -50,10 +64,16 @@ fun HttpClientConfig<*>.acceptCompressedResponses() {
 /**
  * Negotiates permessage-deflate on a WebSocket, for the side this is installed on. The other side
  * decides whether it is used; a peer that does not offer or accept it gets uncompressed messages.
+ *
+ * The frame limit of a WebSocket applies to what arrives on the wire, so a compressed message is
+ * bounded again after it is inflated. Pass the same limit as the connection's `maxFrameSize`.
+ *
+ * @param maxMessageBytes Largest message this side accepts once inflated
  */
-fun WebSocketExtensionsConfig.installDeflate() {
+fun WebSocketExtensionsConfig.installDeflate(maxMessageBytes: Long) {
     install(WebSocketDeflateExtension) {
         compressIfBiggerThan(COMPRESSION_MIN_BYTES.toInt())
+        maxInflatedFrameSize = maxMessageBytes.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
     }
 }
 

@@ -88,7 +88,8 @@ class SessionClient(
     private val client: HttpClient = httpClient ?: HttpClient(CIO) {
         install(WebSockets) {
             pingIntervalMillis = PING_INTERVAL_MILLIS
-            extensions { installDeflate() }
+            maxFrameSize = MAX_SERVICE_WEBSOCKET_MESSAGE_BYTES
+            extensions { installDeflate(MAX_SERVICE_WEBSOCKET_MESSAGE_BYTES) }
         }
         engine {
             endpoint {

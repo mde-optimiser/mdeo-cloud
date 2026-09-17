@@ -7,6 +7,7 @@ import com.mdeo.pluginservice.session.SessionTokenClaims
 import com.mdeo.pluginservice.session.SessionTokenVerifier
 import com.mdeo.pluginservice.session.closeReason
 import com.mdeo.pluginservice.session.negotiateVersion
+import com.mdeo.common.transport.MAX_SERVICE_WEBSOCKET_MESSAGE_BYTES
 import com.mdeo.common.transport.installDeflate
 import io.ktor.client.*
 import io.ktor.client.engine.cio.*
@@ -137,7 +138,7 @@ class PluginServiceTest {
     fun `messages are deflated when the caller offers it`() {
         // Ktor's test engine does not negotiate WebSocket extensions, so this needs a real server.
         val server = embeddedServer(Netty, port = 0, host = "127.0.0.1") { pluginService(definition, verifier) }.start()
-        val client = HttpClient(CIO) { install(WebSockets) { extensions { installDeflate() } } }
+        val client = HttpClient(CIO) { install(WebSockets) { extensions { installDeflate(MAX_SERVICE_WEBSOCKET_MESSAGE_BYTES) } } }
         try {
             val port = runBlocking { server.engine.resolvedConnectors().first().port }
             val large = ByteArray(64_000) { (it % 7).toByte() }

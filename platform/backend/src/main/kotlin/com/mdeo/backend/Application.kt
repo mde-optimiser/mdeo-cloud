@@ -1,5 +1,6 @@
 package com.mdeo.backend
 
+import com.mdeo.common.transport.MAX_DECODED_REQUEST_BYTES
 import com.mdeo.common.transport.installDeflate
 import com.mdeo.common.transport.installHttpCompression
 import com.mdeo.backend.config.AppConfig
@@ -106,7 +107,9 @@ fun Application.module(appConfig: AppConfig) {
     install(WebSockets) {
         pingPeriodMillis = 30_000
         timeoutMillis = 60_000
-        extensions { installDeflate() }
+        // Browsers write files over this connection, so it takes what an HTTP upload may carry.
+        maxFrameSize = MAX_DECODED_REQUEST_BYTES
+        extensions { installDeflate(MAX_DECODED_REQUEST_BYTES) }
     }
     
     routing {

@@ -1,5 +1,6 @@
 package com.mdeo.optimizerexecution
 
+import com.mdeo.common.transport.MAX_SERVICE_WEBSOCKET_MESSAGE_BYTES
 import com.mdeo.common.transport.installDeflate
 import com.mdeo.common.transport.installHttpCompression
 import com.mdeo.execution.common.auth.configureJwtAuth
@@ -68,7 +69,8 @@ fun Application.module(appConfig: AppConfig) {
     install(WebSockets) {
         pingPeriodMillis = 30_000L
         timeoutMillis = 15_000L
-        extensions { installDeflate() }
+        maxFrameSize = MAX_SERVICE_WEBSOCKET_MESSAGE_BYTES
+        extensions { installDeflate(MAX_SERVICE_WEBSOCKET_MESSAGE_BYTES) }
     }
     configureSerialization()
     installHttpCompression()

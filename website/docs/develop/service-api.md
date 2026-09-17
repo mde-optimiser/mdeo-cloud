@@ -20,6 +20,11 @@ The backend, the execution services and the workbench proxy compress the same wa
 connections negotiate `permessage-deflate`. A service implemented in another stack should do the
 same: the platform's payloads are JSON that shrinks by an order of magnitude.
 
+Limits apply to what a body or message inflates to, not to its compressed size, so a small
+compressed body cannot expand past them. Request bodies may inflate to 64 MiB, the same as a plain
+body. WebSocket messages between services may be 512 MiB; the browser's connection to the backend
+takes 64 MiB. A peer that exceeds a WebSocket limit is disconnected with close code `1009`.
+
 ## Errors
 
 Every service of the platform reports a failure the same way. Over HTTP, an error status comes with

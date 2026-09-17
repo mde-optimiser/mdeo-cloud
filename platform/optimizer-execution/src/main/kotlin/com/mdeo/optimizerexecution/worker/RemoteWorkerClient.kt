@@ -1,6 +1,7 @@
 package com.mdeo.optimizerexecution.worker
 
 import com.mdeo.common.transport.acceptCompressedResponses
+import com.mdeo.common.transport.MAX_SERVICE_WEBSOCKET_MESSAGE_BYTES
 import com.mdeo.common.transport.installDeflate
 import com.mdeo.optimizer.worker.*
 import com.mdeo.optimizerexecution.service.OrchestratorRegistry
@@ -66,7 +67,8 @@ class RemoteWorkerClient(
             // disconnected stays open on this side indefinitely. Pinging turns that into a
             // closed session, which drains the requests waiting on it.
             pingIntervalMillis = HEARTBEAT_INTERVAL_MS
-            extensions { installDeflate() }
+            maxFrameSize = MAX_SERVICE_WEBSOCKET_MESSAGE_BYTES
+            extensions { installDeflate(MAX_SERVICE_WEBSOCKET_MESSAGE_BYTES) }
         }
         acceptCompressedResponses()
     }

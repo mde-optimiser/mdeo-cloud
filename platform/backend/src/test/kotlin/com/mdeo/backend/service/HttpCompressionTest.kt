@@ -1,15 +1,22 @@
 package com.mdeo.backend.service
 
 import com.mdeo.common.transport.CompressedResponses
+import com.mdeo.common.transport.MAX_DECODED_REQUEST_BYTES
 import com.mdeo.common.transport.acceptCompressedResponses
+import com.mdeo.common.transport.installDeflate
 import com.mdeo.common.transport.installHttpCompression
 import com.sun.net.httpserver.HttpServer
+import io.ktor.client.plugins.websocket.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
+import io.ktor.server.application.*
+import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.testing.*
+import io.ktor.server.websocket.webSocket
+import io.ktor.websocket.*
 import org.junit.jupiter.api.Test
 import java.io.ByteArrayOutputStream
 import java.net.InetSocketAddress
@@ -19,6 +26,7 @@ import java.net.http.HttpRequest
 import java.util.zip.GZIPOutputStream
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * The compression every hop uses: Ktor servers compress, Ktor clients and `java.net.http` inflate.
@@ -44,6 +52,78 @@ class HttpCompressionTest {
 
         val inflating = createClient { acceptCompressedResponses() }
         assertEquals(body, inflating.get("/large").bodyAsText())
+    }
+
+    @Test
+    fun `a compressed request body is inflated only up to the request limit`() = testApplication {
+        application {
+            installHttpCompression()
+            routing {
+                post("/echo-size") {
+                    val size = try {
+                        call.receive<ByteArray>().size.toString()
+                    } catch (e: Exception) {
+                        "refused"
+                    }
+                    call.respondText(size)
+                }
+            }
+        }
+
+        fun gzip(bytes: Int): ByteArray = ByteArrayOutputStream().also { out ->
+            GZIPOutputStream(out).use { zip ->
+                val chunk = ByteArray(1024 * 1024)
+                repeat(bytes / chunk.size) { zip.write(chunk) }
+            }
+        }.toByteArray()
+
+        val small = client.post("/echo-size") {
+            header(HttpHeaders.ContentEncoding, "gzip")
+            setBody(gzip(1024 * 1024))
+        }
+        assertEquals((1024 * 1024).toString(), small.bodyAsText())
+
+        val bomb = gzip((MAX_DECODED_REQUEST_BYTES + 1024 * 1024).toInt())
+        assertTrue(bomb.size < 1024 * 1024, "the test body must be small on the wire")
+        val refused = client.post("/echo-size") {
+            header(HttpHeaders.ContentEncoding, "gzip")
+            setBody(bomb)
+        }
+        assertEquals("refused", refused.bodyAsText())
+    }
+
+    @Test
+    fun `a compressed WebSocket message is refused once it inflates past the limit`() = testApplication {
+        val limit = 1024L * 1024
+        application {
+            install(io.ktor.server.websocket.WebSockets) {
+                maxFrameSize = limit
+                extensions { installDeflate(limit) }
+            }
+            routing {
+                webSocket("/ws") {
+                    for (frame in incoming) {
+                        send(Frame.Text(frame.data.size.toString()))
+                    }
+                }
+            }
+        }
+        val wsClient = createClient {
+            this.install(io.ktor.client.plugins.websocket.WebSockets) {
+                extensions { installDeflate(8 * limit) }
+            }
+        }
+
+        wsClient.webSocket("/ws") {
+            send(Frame.Binary(true, ByteArray((limit / 2).toInt())))
+            assertEquals((limit / 2).toString(), (incoming.receive() as Frame.Text).readText())
+
+            // Zeros compress to a few kilobytes, well under the wire limit.
+            send(Frame.Binary(true, ByteArray((2 * limit).toInt())))
+            val closed = runCatching { incoming.receive() }
+            assertTrue(closed.isFailure, "the oversized message must not be delivered")
+            assertEquals(CloseReason.Codes.TOO_BIG.code, closeReason.await()?.code)
+        }
     }
 
     @Test

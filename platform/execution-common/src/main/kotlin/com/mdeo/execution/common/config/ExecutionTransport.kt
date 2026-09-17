@@ -1,5 +1,6 @@
 package com.mdeo.execution.common.config
 
+import com.mdeo.common.transport.MAX_SERVICE_WEBSOCKET_MESSAGE_BYTES
 import com.mdeo.common.transport.installDeflate
 import com.mdeo.execution.common.auth.WsTokenVerifier
 import io.ktor.server.application.*
@@ -36,7 +37,7 @@ fun Application.configureExecutionTransport(backendUrl: String, issuer: String) 
             maxFrameSize = MAX_FRAME_SIZE_BYTES
             pingPeriod = 30.seconds
             timeout = 60.seconds
-            extensions { installDeflate() }
+            extensions { installDeflate(MAX_FRAME_SIZE_BYTES) }
         }
     }
     attributes.put(ExecutionWsVerifierKey, WsTokenVerifier(backendUrl, issuer))
@@ -45,4 +46,4 @@ fun Application.configureExecutionTransport(backendUrl: String, issuer: String) 
 /**
  * Largest WebSocket frame accepted on the execution endpoint.
  */
-const val MAX_FRAME_SIZE_BYTES: Long = 512L * 1024 * 1024
+const val MAX_FRAME_SIZE_BYTES: Long = MAX_SERVICE_WEBSOCKET_MESSAGE_BYTES
