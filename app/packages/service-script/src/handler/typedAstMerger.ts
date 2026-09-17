@@ -6,20 +6,13 @@ import {
     type TypedExtensionCallArgument,
     type TypedCallableBody
 } from "@mdeo/language-expression";
-import type { TypedFunction, TypedParameter, TypedLambdaExpression } from "@mdeo/language-script";
+import type { TypedLambdaExpression } from "@mdeo/language-script";
 
 /**
  * Script-specific extension of TypedAstMerger that adds support for
  * script-specific features like functions, lambdas, and extension calls.
  */
 export class ScriptTypedAstMerger extends BaseTypedAstMerger {
-    /**
-     * Remaps a function to use the global type indices.
-     *
-     * @param func The function to remap
-     * @param typesArray The original types array used by this function
-     * @returns A new function with remapped type indices
-     */
     /**
      * Remaps a contributed body, whose type indices refer to its contribution's own types array.
      *
@@ -29,38 +22,6 @@ export class ScriptTypedAstMerger extends BaseTypedAstMerger {
      */
     remapBody(body: TypedCallableBody, typesArray: ReturnType[]): TypedCallableBody {
         return this.remapCallableBody(body, this.indexTypesArray(typesArray));
-    }
-
-    /**
-     * Remaps a function whose parameter, return and body type indices all refer to one types array.
-     *
-     * @param func The function to remap
-     * @param typesArray The types array its indices refer to
-     * @returns The function with global type indices
-     */
-    remapFunction(func: TypedFunction, typesArray: ReturnType[]): TypedFunction {
-        const mapping = this.indexTypesArray(typesArray);
-
-        return {
-            name: func.name,
-            parameters: func.parameters.map((p) => this.remapParameter(p, mapping)),
-            returnType: mapping.get(func.returnType)!,
-            body: this.remapCallableBody(func.body, mapping)
-        };
-    }
-
-    /**
-     * Remaps a parameter to use global type indices.
-     *
-     * @param param The parameter to remap
-     * @param mapping The index mapping
-     * @returns A new parameter with remapped type index
-     */
-    private remapParameter(param: TypedParameter, mapping: Map<number, number>): TypedParameter {
-        return {
-            name: param.name,
-            type: mapping.get(param.type)!
-        };
     }
 
     /**

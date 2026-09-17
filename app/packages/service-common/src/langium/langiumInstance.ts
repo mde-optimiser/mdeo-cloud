@@ -52,12 +52,12 @@ export class LangiumInstance<T> {
     }
 
     /**
-     * Re-points the instance at the credentials of the message being handled.
+     * Sets the session's credentials on the instance again before a message is handled, and marks
+     * the instance as used.
      *
-     * A session holds one instance across many messages, and {@link configure} pins the token
-     * of whoever opened the connection. Anything the instance fetches while handling a later
-     * message has to go out under that message's own authorization, so the context is set
-     * again per message rather than once per connection.
+     * A session holds one instance across many messages. Messages carry no credentials of their
+     * own: everything the instance fetches while handling one goes out under the token the
+     * connection was opened with, which authorizes exactly that session.
      *
      * @param jwt the JWT for authentication
      * @param project the project context

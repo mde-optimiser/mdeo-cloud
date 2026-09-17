@@ -2,7 +2,7 @@ import Fastify, { type FastifyInstance, type FastifyRequest, type FastifyReply }
 import cors from "@fastify/cors";
 import compress from "@fastify/compress";
 import { COMPRESSION_THRESHOLD_BYTES } from "../util/compression.js";
-import { createRequestLimits } from "../util/requestLimits.js";
+import { createRequestLimits, type RequestLimits } from "../util/requestLimits.js";
 import {
     CONTRIBUTION_HASH_SUPPORT_HEADER,
     CONTRIBUTIONS_UNKNOWN_HEADER,
@@ -12,8 +12,16 @@ import fastifyStatic from "@fastify/static";
 import { resolve } from "path";
 import { createHash } from "node:crypto";
 import type { ServiceConfig, FileDataComputeRequest, FileDataComputeResponse, LanguageServiceConfig } from "./types.js";
-import { LangiumInstancePool } from "../langium/langiumPool.js";
-import { errorResponse, formatPluginTarget, Scopes, PluginTargetKind, type SessionType } from "@mdeo/plugin";
+import { LangiumInstancePool, LangiumPoolExhaustedError } from "../langium/langiumPool.js";
+import type { LangiumInstance } from "../langium/langiumInstance.js";
+import {
+    errorResponse,
+    formatPluginTarget,
+    Scopes,
+    PluginTargetKind,
+    type ServerContributionPlugin,
+    type SessionType
+} from "@mdeo/plugin";
 import { URI } from "vscode-uri";
 import { buildManifest } from "./util.js";
 import type { FileInfo } from "../handler/types.js";
@@ -213,52 +221,39 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
             if (serverContributionPlugins == undefined) {
                 return refuseUnknownContributions(reply);
             }
-            const limits = createRequestLimits(request, reply);
-            const instance = await languageHandler.pool.acquire(
-                serverContributionPlugins,
-                jwt,
-                project,
-                contributionHash
-            );
-            instance.services.shared.ServerApi.setRequestLimits(limits.signal, limits.deadline);
+            return serveOnInstance(
+                request,
+                reply,
+                languageHandler.pool,
+                { contributionPlugins: serverContributionPlugins, jwt, project, contributionHash },
+                `Computing ${key}`,
+                async (instance, signal) => {
+                    let fileInfo: FileInfo | undefined = undefined;
+                    if (source != undefined) {
+                        const uri = URI.parse(source.path);
+                        fileInfo = {
+                            uri,
+                            version: source.version
+                        };
+                        instance.services.shared.workspace.LangiumDocuments.createDocument(uri, source.content);
+                    }
 
-            let fileInfo: FileInfo | undefined = undefined;
-            if (source != undefined) {
-                const uri = URI.parse(source.path);
-                fileInfo = {
-                    uri,
-                    version: source.version
-                };
-                instance.services.shared.workspace.LangiumDocuments.createDocument(uri, source.content);
-            }
+                    const result = await handler({
+                        fileInfo,
+                        instance,
+                        services: instance.services,
+                        serverApi: instance.services.shared.ServerApi,
+                        contributionPlugins: serverContributionPlugins,
+                        signal
+                    });
 
-            try {
-                const result = await handler({
-                    fileInfo,
-                    instance,
-                    services: instance.services,
-                    serverApi: instance.services.shared.ServerApi,
-                    contributionPlugins: serverContributionPlugins,
-                    signal: limits.signal
-                });
-
-                const response: FileDataComputeResponse = {
-                    ...result,
-                    additionalFileData: result.additionalFileData ?? []
-                };
-
-                return reply.send(response);
-            } catch (error) {
-                if (limits.timedOut) {
-                    return reply
-                        .status(504)
-                        .send(errorResponse(504, `Computing ${key} took longer than the caller could wait`));
+                    const response: FileDataComputeResponse = {
+                        ...result,
+                        additionalFileData: result.additionalFileData ?? []
+                    };
+                    return reply.send(response);
                 }
-                throw error;
-            } finally {
-                limits.dispose();
-                languageHandler.pool.release(instance);
-            }
+            );
         }
     );
 
@@ -303,38 +298,25 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
                 if (serverContributionPlugins == undefined) {
                     return refuseUnknownContributions(reply);
                 }
-                const limits = createRequestLimits(request, reply);
-                const instance = await languageHandler.pool.acquire(
-                    serverContributionPlugins,
-                    jwt,
-                    project,
-                    contributionHash
-                );
-                instance.services.shared.ServerApi.setRequestLimits(limits.signal, limits.deadline);
-
-                try {
-                    const result = await handler({
-                        body,
-                        jwt,
-                        instance,
-                        services: instance.services,
-                        serverApi: instance.services.shared.ServerApi,
-                        contributionPlugins: serverContributionPlugins,
-                        signal: limits.signal
-                    });
-
-                    return reply.send({ data: result ?? null });
-                } catch (error) {
-                    if (limits.timedOut) {
-                        return reply
-                            .status(504)
-                            .send(errorResponse(504, `Request ${key} took longer than the caller could wait`));
+                return serveOnInstance(
+                    request,
+                    reply,
+                    languageHandler.pool,
+                    { contributionPlugins: serverContributionPlugins, jwt, project, contributionHash },
+                    `Request ${key}`,
+                    async (instance, signal) => {
+                        const result = await handler({
+                            body,
+                            jwt,
+                            instance,
+                            services: instance.services,
+                            serverApi: instance.services.shared.ServerApi,
+                            contributionPlugins: serverContributionPlugins,
+                            signal
+                        });
+                        return reply.send({ data: result ?? null });
                     }
-                    throw error;
-                } finally {
-                    limits.dispose();
-                    languageHandler.pool.release(instance);
-                }
+                );
             }
         );
     }
@@ -899,6 +881,87 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
  * backend notices that the plugin was redeployed with a changed manifest.
  */
 export const MANIFEST_FINGERPRINT_HEADER = "x-mdeo-manifest-fingerprint";
+
+/**
+ * Runs one request's work on a pooled Langium instance, within the request's limits.
+ *
+ * Waiting for an instance counts against the caller's deadline like the work itself. What can go
+ * wrong without the handler being at fault is answered here: a deadline that passed is `504`, a
+ * pool that stayed full is `503`, and a caller that went away is answered without being logged as
+ * an error, since nobody reads the answer.
+ *
+ * @param request The request
+ * @param reply The reply
+ * @param pool The pool of the request's language
+ * @param acquisition What the instance is acquired for
+ * @param description What the request does, for messages, such as `Computing ast`
+ * @param run The work, given the instance and the signal that aborts it
+ * @returns The sent reply
+ */
+async function serveOnInstance<T>(
+    request: FastifyRequest,
+    reply: FastifyReply,
+    pool: LangiumInstancePool<T>,
+    acquisition: {
+        contributionPlugins: ServerContributionPlugin[];
+        jwt: string;
+        project: string;
+        contributionHash: string | undefined;
+    },
+    description: string,
+    run: (instance: LangiumInstance<T>, signal: AbortSignal) => Promise<FastifyReply>
+): Promise<FastifyReply> {
+    const limits = createRequestLimits(request, reply);
+    let instance: LangiumInstance<T>;
+    try {
+        instance = await pool.acquire(
+            acquisition.contributionPlugins,
+            acquisition.jwt,
+            acquisition.project,
+            acquisition.contributionHash,
+            limits.signal
+        );
+    } catch (error) {
+        limits.dispose();
+        return answerUnserved(reply, limits, error, description);
+    }
+
+    instance.services.shared.ServerApi.setRequestLimits(limits.signal, limits.deadline);
+    try {
+        return await run(instance, limits.signal);
+    } catch (error) {
+        if (limits.signal.aborted) {
+            return answerUnserved(reply, limits, error, description);
+        }
+        throw error;
+    } finally {
+        limits.dispose();
+        pool.release(instance);
+    }
+}
+
+/**
+ * Answers a request that could not be served for a reason other than its handler failing.
+ *
+ * @param reply The reply
+ * @param limits The request's limits
+ * @param error What stopped it
+ * @param description What the request does, for messages
+ * @returns The sent reply
+ * @throws The error, when it is none of those reasons
+ */
+function answerUnserved(reply: FastifyReply, limits: RequestLimits, error: unknown, description: string): FastifyReply {
+    if (limits.timedOut) {
+        return reply.status(504).send(errorResponse(504, `${description} took longer than the caller could wait`));
+    }
+    if (limits.signal.aborted) {
+        return reply.status(503).send(errorResponse(503, "The caller stopped waiting"));
+    }
+    if (error instanceof LangiumPoolExhaustedError) {
+        return reply.status(503).send(errorResponse(503, "The service is busy; try again shortly"));
+    }
+    throw error;
+}
 
 /**
  * Answers a request that carries only the hash of a contribution set this service does not hold,

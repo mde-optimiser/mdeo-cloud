@@ -126,14 +126,17 @@ export class LangiumInstancePool<T> {
      * @param project The project context for this request
      * @param contributionHash The hash the backend identifies the contribution set by, which keys the
      *        instance when given instead of the payloads themselves
+     * @param signal Stops waiting for an instance when it aborts
      * @returns Promise resolving to the acquired Langium instance
      */
     async acquire(
         contributionPlugins: ServerContributionPlugin[],
         jwt: string,
         project: string,
-        contributionHash?: string
+        contributionHash?: string,
+        signal?: AbortSignal
     ): Promise<LangiumInstance<T>> {
+        signal?.throwIfAborted();
         const key =
             contributionHash != undefined
                 ? `hash:${contributionHash}`
@@ -154,7 +157,7 @@ export class LangiumInstancePool<T> {
             instance = this.createInstance(contributionPlugins, key);
         }
 
-        const usedInstance = instance ?? (await this.evictOrWait(key, contributionPlugins));
+        const usedInstance = instance ?? (await this.evictOrWait(key, contributionPlugins, signal));
 
         usedInstance.configure(jwt, project);
         return usedInstance;
@@ -165,11 +168,13 @@ export class LangiumInstancePool<T> {
      *
      * @param key The contribution plugin key
      * @param contributionPlugins The contribution plugins configuration
+     * @param signal Stops the wait when it aborts
      * @returns Promise resolving to the acquired Langium instance
      */
     private async evictOrWait(
         key: ContributionPluginKey,
-        contributionPlugins: ServerContributionPlugin[]
+        contributionPlugins: ServerContributionPlugin[],
+        signal?: AbortSignal
     ): Promise<LangiumInstance<T>> {
         let oldestAvailable: LangiumInstance<T> | undefined = undefined;
 
@@ -189,10 +194,25 @@ export class LangiumInstancePool<T> {
         const timeoutMs = this.config.acquireTimeoutMs ?? DEFAULT_ACQUIRE_TIMEOUT_MS;
 
         return new Promise<LangiumInstance<T>>((resolve, reject) => {
+            const giveUp = (): void => {
+                waiter.settled = true;
+                clearTimeout(timer);
+                signal?.removeEventListener("abort", onAbort);
+                const queued = this.instanceWaitQueue.indexOf(waiter);
+                if (queued >= 0) {
+                    this.instanceWaitQueue.splice(queued, 1);
+                }
+            };
+            const onAbort = (): void => {
+                giveUp();
+                reject(signal?.reason ?? new Error("Stopped waiting for a Langium instance"));
+            };
+
             const waiter: InstanceWaiter<T> = {
                 settled: false,
                 resolve: (availableInstance) => {
                     clearTimeout(timer);
+                    signal?.removeEventListener("abort", onAbort);
                     if (availableInstance.contributionPluginKey === key) {
                         resolve(availableInstance);
                     } else {
@@ -203,11 +223,7 @@ export class LangiumInstancePool<T> {
             };
 
             const timer = setTimeout(() => {
-                waiter.settled = true;
-                const queued = this.instanceWaitQueue.indexOf(waiter);
-                if (queued >= 0) {
-                    this.instanceWaitQueue.splice(queued, 1);
-                }
+                giveUp();
                 reject(
                     new LangiumPoolExhaustedError(
                         `No Langium instance became available within ${timeoutMs}ms ` +
@@ -218,6 +234,7 @@ export class LangiumInstancePool<T> {
             // A pool that is merely busy must not keep the process alive on its own account.
             timer.unref?.();
 
+            signal?.addEventListener("abort", onAbort, { once: true });
             this.instanceWaitQueue.push(waiter);
         });
     }

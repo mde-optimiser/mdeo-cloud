@@ -1,3 +1,4 @@
+import { errorCodeFor } from "@mdeo/plugin";
 import { ApiResult, CommonErrorCode } from "./apiResult";
 import { AuthApi } from "./areas/authApi";
 import { UsersApi } from "./areas/usersApi";
@@ -180,22 +181,14 @@ export class BackendApi implements BackendApiCore {
 }
 
 /**
- * The general error code for a status, used when an error response has no readable body.
+ * The general error code for a status, used when an error response has no readable body. It is the
+ * mapping every service uses, so a code means the same whether a service or this fallback chose it.
  *
  * @param status The HTTP status
  * @returns A common error code
  */
 function codeForStatus(status: number): CommonErrorCode {
-    switch (status) {
-        case 401:
-            return CommonErrorCode.Unauthenticated;
-        case 403:
-            return CommonErrorCode.Forbidden;
-        case 404:
-            return CommonErrorCode.NotFound;
-        default:
-            return status >= 500 ? CommonErrorCode.Unavailable : CommonErrorCode.Unknown;
-    }
+    return errorCodeFor(status) as CommonErrorCode;
 }
 
 /**
