@@ -18,9 +18,9 @@ import java.util.concurrent.LinkedBlockingQueue
  * for the rest of the execution. Each session carries its own [ScriptFunctionsClient], so the
  * heap of one contribution's service never sees another's collections.
  *
- * When a connection drops, [SessionClient] brings the transport back; the service on the other
- * side has lost its copies by then, answers the next call with an unknown-object failure, and the
- * client sends that call again in full. Nothing has to be re-established by hand.
+ * When a connection drops, [SessionClient] brings the transport back. The service on the other side
+ * has lost everything it held by then; the client notices the new connection, sends what the call
+ * needs in full, and refuses handles that stood for state the lost service held.
  *
  * @param specs The external calls of the compiled program, keyed by call id
  * @param classes The records and opaque classes contributions define, keyed by type id
@@ -77,6 +77,7 @@ class SessionDispatcher(
                 }
             }
             override fun receive(): ByteArray = inbox.take().getOrThrow()
+            override val connection: Long get() = session.connectionNumber
         }
         val ownSpecs = specs.filterValues { it.contribution == contribution }
         val ownClasses = classes.filterValues { it.contribution == contribution }

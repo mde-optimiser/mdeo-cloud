@@ -22,4 +22,10 @@ interface ScriptFunctionsTransport {
      * @return The encoded message
      */
     fun receive(): ByteArray
+
+    /**
+     * Identifies the connection messages currently go out on. It changes when the transport
+     * reconnected, which tells the client that the service lost everything it held.
+     */
+    val connection: Long get() = 0
 }

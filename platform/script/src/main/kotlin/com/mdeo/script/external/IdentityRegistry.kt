@@ -50,17 +50,48 @@ internal class IdentityRegistry {
     fun objectOf(id: Long): Any? = byId[id]?.get()
 
     /**
+     * Gives every collection registered under an id the service chose a fresh id of this side's.
+     *
+     * Called when the service that chose those ids is gone: a new one chooses its own, and could
+     * choose the same ones again. Collections that were already collected are forgotten without
+     * being reported as released, since there is nobody left to tell.
+     */
+    fun rekeyServiceIds() {
+        val stale = byId.values.filter { it.id < 0 }
+        for (entry in stale) {
+            byId.remove(entry.id)
+            removeFromBucket(entry)
+            val referent = entry.get()
+            entry.clear()
+            if (referent != null) register(referent, nextId++)
+        }
+    }
+
+    /**
      * Returns the ids of collections collected since the last call, and forgets them.
      */
     fun drainReleased(): List<Long> {
         val released = ArrayList<Long>()
         while (true) {
             val entry = queue.poll() as Entry? ?: break
+            // An entry replaced by [rekeyServiceIds] no longer stands for its id.
+            if (byId[entry.id] !== entry) continue
             released += entry.id
             byId.remove(entry.id)
-            byHash.values.forEach { bucket -> bucket.remove(entry) }
+            removeFromBucket(entry)
         }
-        byHash.values.removeIf { it.isEmpty() }
         return released
+    }
+
+    private fun removeFromBucket(entry: Entry) {
+        // An entry whose referent is gone cannot tell its hash any more, so every bucket is searched.
+        val iterator = byHash.values.iterator()
+        while (iterator.hasNext()) {
+            val bucket = iterator.next()
+            if (bucket.remove(entry)) {
+                if (bucket.isEmpty()) iterator.remove()
+                return
+            }
+        }
     }
 }

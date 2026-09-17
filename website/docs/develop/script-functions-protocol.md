@@ -84,8 +84,14 @@ list can contain itself.
 | `entries` | `WireValue[]` \| null | `null` | A map's entries, as alternating keys and values |
 
 **Ids.** The client assigns positive ids to collections it sends. The service assigns negative ids
-to collections it creates. Both sides keep using an id for as long as the session lasts, so a
-collection the service created and returned is later sent back under its negative id.
+to collections it creates, and never one it currently holds a collection under. Both sides keep
+using an id for as long as the connection lasts, so a collection the service created and returned
+is later sent back under its negative id.
+
+**Reconnects.** A new connection reaches a service that holds nothing. The client gives every
+collection an earlier service created a positive id of its own, sends content in full, and refuses
+to pass a handle whose state only the earlier service held. A call whose message went out on a new
+connection is sent once more, and whatever the first answer created is released.
 
 **Content may be omitted.** When the service already holds a collection at the version the client
 is sending, the client leaves `elements` and `entries` out (both `null`). The service uses what it
@@ -188,7 +194,8 @@ after a reconnect. The client uploads the model again if the call needs one, and
 once more with every collection in full.
 
 After a failure, the client assumes the service's copies of that call's collections are stale and
-sends them in full next time. A service should forget them.
+sends them in full next time. A service keeps them: another collection it holds may contain one, and
+the next call refills it in place.
 
 ## Deltas
 

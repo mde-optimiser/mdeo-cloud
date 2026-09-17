@@ -58,8 +58,13 @@ class ContributedClassesTest {
         )
     )
 
-    private fun run(operations: Map<String, (ScriptFunctionCall) -> Any?>, function: String, vararg args: Any?): Pair<Any?, Loopback> {
-        val loopback = Loopback(operations)
+    private fun run(
+        operations: Map<String, (ScriptFunctionCall) -> Any?>,
+        function: String,
+        vararg args: Any?,
+        dropBeforeCall: Int? = null
+    ): Pair<Any?, Loopback> {
+        val loopback = Loopback(operations).also { it.dropBeforeCall = dropBeforeCall }
         val client = ScriptFunctionsClient(loopback, program.externalCalls, program.contributedClasses)
         val context = SimpleScriptContext(System.out, null, client)
         return ExecutionEnvironment(program).invoke(scriptPath, function, context, *args) to loopback
@@ -110,6 +115,22 @@ class ContributedClassesTest {
         assertEquals(listOf<Any?>(built.single(), built.single()), seen, "both queries get the very same state")
         assertTrue(contribution.opaqueClasses.containsKey("Index"))
         assertTrue(loopback.received.filterIsInstance<ClientMessage.Call>().size == 3)
+    }
+
+    @Test
+    fun `a handle whose state was lost with the connection is refused`() {
+        class Index
+        lateinit var geoIndex: com.mdeo.scriptfunctions.service.OpaqueType
+        com.mdeo.scriptfunctions.service.scriptContribution("geo") { geoIndex = opaque("Index") }
+        val operations = mapOf<String, (ScriptFunctionCall) -> Any?>(
+            "buildIndex" to { geoIndex.wrap(Index()) },
+            "query" to { call -> call.argument<Int>(1) }
+        )
+
+        // The first query reaches a service that never built the index.
+        val failure = runCatching { run(operations, "lookup", dropBeforeCall = 2) }.exceptionOrNull()
+        val messages = generateSequence(failure) { it.cause }.mapNotNull { it.message }.toList()
+        assertTrue(messages.any { "was lost" in it }, "got: $messages")
     }
 
     @Test

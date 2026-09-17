@@ -46,16 +46,32 @@ class Loopback(
      */
     val answered = mutableListOf<ServiceMessage>()
 
+    private val serviceOperations =
+        operations.mapValues { (_, operation) -> ScriptFunctionOperation { call -> operation(call) } }
+
     /**
      * The service itself, for tests to inspect or to make it lose its state.
      */
-    val service = ScriptFunctionsServiceSession(
-        operations.mapValues { (_, operation) -> ScriptFunctionOperation { call -> operation(call) } }
-    )
+    var service = ScriptFunctionsServiceSession(serviceOperations)
+        private set
     private val outbox = ArrayDeque<ByteArray>()
+
+    override var connection: Long = 1
+        private set
+
+    /**
+     * When set, the connection drops just before the call with this number (counting from 1) is
+     * handled, and a fresh service answers it, as after a reconnect inside a send.
+     */
+    var dropBeforeCall: Int? = null
+    private var calls = 0
 
     override fun send(message: ByteArray) {
         val decoded = ScriptFunctionsProtocol.decodeClient(message)
+        if (decoded is ClientMessage.Call && ++calls == dropBeforeCall) {
+            service = ScriptFunctionsServiceSession(serviceOperations)
+            connection++
+        }
         received += decoded
         val handed = if (claimEverythingMutable && decoded is ClientMessage.Call) {
             decoded.copy(objects = decoded.objects.map { it.copy(mutable = true) })

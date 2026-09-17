@@ -116,6 +116,14 @@ class SessionClient(
         private set
 
     /**
+     * How many times the session was opened: 1 after [open], one more after every reconnect. A
+     * change tells the owner the peer lost whatever state the previous connection built up.
+     */
+    @Volatile
+    var connectionNumber: Long = 0
+        private set
+
+    /**
      * The connection details the last successful dial used.
      */
     @Volatile
@@ -190,6 +198,7 @@ class SessionClient(
                     }
                 ) {
                     session = this
+                    connectionNumber++
                     negotiatedVersion = agreed
                     connection = resolved
                     opened.complete(Unit)

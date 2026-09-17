@@ -33,6 +33,19 @@ internal class HandleRegistry {
     }
 
     /**
+     * Whether [handle] stands for state the current service holds under [id].
+     */
+    fun isCurrent(id: Long, handle: Any): Boolean = handles[id]?.get() === handle
+
+    /**
+     * Forgets every handle, because the service that held their state is gone. Handles the script
+     * still holds are no longer current, and none of them is reported as released.
+     */
+    fun reset() {
+        handles.clear()
+    }
+
+    /**
      * Returns the ids of handles the script no longer holds, and forgets them.
      *
      * @return The released ids

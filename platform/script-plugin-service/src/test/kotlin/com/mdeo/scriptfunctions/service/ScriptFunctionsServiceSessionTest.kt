@@ -67,15 +67,40 @@ class ScriptFunctionsServiceSessionTest {
     }
 
     @Test
-    fun `a failed call forgets the collections it was sent`() = runBlocking {
-        val service = session("boom" to ScriptFunctionOperation { error("no capacity") }, append)
-        val failed = service.handle(ClientMessage.Call(1, "boom", listOf(list(1, 1)), listOf(WireValue.Ref(1))))
+    fun `a failed call keeps the collections other collections still hold`() = runBlocking {
+        val outer = HeapObject(1, HeapKind.LIST, 1, true, elements = listOf(WireValue.Ref(2)))
+        val inner = list(2, 1)
+        val service = session(
+            "boom" to ScriptFunctionOperation { error("no capacity") },
+            "appendToFirst" to ScriptFunctionOperation { call ->
+                @Suppress("UNCHECKED_CAST")
+                (call.argument<List<Any?>>(0)[0] as MutableList<Any?>).add(4)
+                null
+            }
+        )
+        service.handle(ClientMessage.Call(1, "appendToFirst", listOf(outer, inner), listOf(WireValue.Ref(1))))
+
+        val failed = service.handle(ClientMessage.Call(2, "boom", listOf(list(2, 1, 4)), listOf(WireValue.Ref(2))))
         assertEquals("no capacity", assertIs<ServiceMessage.Failure>(failed).message)
 
-        val retried = service.handle(
-            ClientMessage.Call(2, "append", listOf(HeapObject(1, HeapKind.LIST, 1, true)), listOf(WireValue.Ref(1)))
+        // The outer list is sent by id; the inner one again in full, as a client does after a failure.
+        val answer = service.handle(
+            ClientMessage.Call(
+                3, "appendToFirst",
+                listOf(HeapObject(1, HeapKind.LIST, 1, true), list(2, 1, 4)),
+                listOf(WireValue.Ref(1))
+            )
         )
-        assertEquals(ServiceMessage.Failure.UNKNOWN_OBJECT, assertIs<ServiceMessage.Failure>(retried).code)
+        val delta = assertIs<ServiceMessage.Result>(answer).deltas.single()
+        assertEquals(Delta.Splice(2, 2, 0, listOf(WireValue.IntValue(4))), delta)
+    }
+
+    @Test
+    fun `a new collection never takes an id the execution still uses`() = runBlocking {
+        val service = session("fresh" to ScriptFunctionOperation { mutableListOf(1) })
+        val answer = service.handle(ClientMessage.Call(1, "fresh", listOf(list(-1, 7)), listOf(WireValue.Ref(-1))))
+        val created = assertIs<ServiceMessage.Result>(answer).objects.single()
+        assertTrue(created.id < -1, "got ${created.id}")
     }
 
     @Test

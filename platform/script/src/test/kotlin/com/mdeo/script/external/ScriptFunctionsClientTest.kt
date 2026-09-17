@@ -217,6 +217,31 @@ class ScriptFunctionsClientTest {
         assertEquals(listOf(1, 2), (returned.at(0) as ListImpl<*>).deltaSnapshot())
     }
 
+    @Suppress("UNCHECKED_CAST")
+    @Test
+    fun `collections the service created stay usable after a reconnect`() {
+        val loopback = Loopback.ofArguments(
+            mapOf(
+                "make" to { args -> mutableListOf(args[0], args[0]) },
+                "size" to { args -> (args[0] as List<Any?>).size }
+            )
+        )
+        val make = spec("make", collection("List", "T" to int), int)
+        val size = spec("size", int, collection("List", "T" to int))
+        val dispatcher = client(loopback, make, size)
+
+        val first = dispatcher.call("make", arrayOf(1), null, javaClass.classLoader) as ListImpl<*>
+
+        // The new service picks the same id for its first collection as the lost one did.
+        loopback.dropBeforeCall = 2
+        val second = dispatcher.call("make", arrayOf(2), null, javaClass.classLoader) as ListImpl<*>
+
+        assertEquals(listOf(1, 1), first.deltaSnapshot())
+        assertEquals(listOf(2, 2), second.deltaSnapshot())
+        assertEquals(2, dispatcher.call("size", arrayOf(first), null, javaClass.classLoader))
+        assertEquals(2, dispatcher.call("size", arrayOf(second), null, javaClass.classLoader))
+    }
+
     @Test
     fun `a value the protocol cannot carry is refused before anything is sent`() {
         val loopback = Loopback.ofArguments(emptyMap())

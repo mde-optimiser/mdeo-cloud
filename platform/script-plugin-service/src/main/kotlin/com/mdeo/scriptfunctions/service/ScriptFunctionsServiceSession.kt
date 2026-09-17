@@ -86,12 +86,11 @@ class ScriptFunctionsServiceSession(
     }
 
     private suspend fun call(call: ClientMessage.Call): ServiceMessage {
-        fun failure(message: String, code: String? = null): ServiceMessage {
-            // What the service holds of these collections may no longer match the execution's
-            // copies, so it drops them; the next call sends them in full again.
-            call.objects.forEach { forget(it.id) }
-            return ServiceMessage.Failure(call.callId, message, code)
-        }
+        // The copies are kept even when the operation changed them before failing: other held
+        // collections may contain them, and the execution sends their content again with the next
+        // call, which refills them in place.
+        fun failure(message: String, code: String? = null): ServiceMessage =
+            ServiceMessage.Failure(call.callId, message, code)
 
         if (call.modelId != null && call.modelId != modelId) {
             return ServiceMessage.Failure(
@@ -245,6 +244,9 @@ class ScriptFunctionsServiceSession(
         }
 
     private fun adopt(value: Any, created: MutableList<HeapObject>): WireValue {
+        // An execution that reconnected may still send collections under ids an earlier
+        // connection's service chose; a new id must not collide with one of those.
+        while (nextNewId in objects) nextNewId--
         val id = nextNewId--
         objects[id] = value
         ids[value] = id

@@ -50,6 +50,11 @@ class ExternalCallException(message: String) : RuntimeException(message)
  *
  * Calls are serialized: one session carries one conversation at a time.
  *
+ * When the transport reconnects, the service on the other side starts empty. The client notices
+ * the new connection, gives the collections the old service created ids of its own, sends what the
+ * next call needs in full, and refuses handles whose state only the old service held. A call whose
+ * message went out on a connection that was not the one it was prepared for is sent again.
+ *
  * @param transport The pipe to the service
  * @param specs The external calls of the compiled program, keyed by call id
  * @param classes The records and opaque classes of the contribution this client calls, keyed by
@@ -88,9 +93,15 @@ class ScriptFunctionsClient(
     private var heldModelId = 0L
     private var nextModelId = 1L
 
+    /**
+     * The transport connection the state above describes, once a call was made.
+     */
+    private var knownConnection: Long? = null
+
     override fun call(callId: String, arguments: Array<Any?>, model: Model?, classLoader: ClassLoader): Any? = synchronized(lock) {
         val spec = specs[callId] ?: throw ExternalCallException("No external call '$callId' was compiled")
 
+        followConnection()
         val released = registry.drainReleased()
         val releasedHandles = handles.drainReleased()
         if (released.isNotEmpty() || releasedHandles.isNotEmpty()) {
@@ -99,7 +110,10 @@ class ScriptFunctionsClient(
         }
 
         var resentInFull = false
+        var reconnects = 0
         while (true) {
+            followConnection()
+            val preparedFor = transport.connection
             val encoder = HeapEncoder(model)
             val args = arguments.mapIndexed { index, argument ->
                 encoder.encode(argument, spec.parameterTypes.getOrElse(index) { ParameterModes.any }, spec.functionName)
@@ -126,7 +140,19 @@ class ScriptFunctionsClient(
                 )
             )
 
-            when (val answer = awaitAnswer(id)) {
+            val answer = awaitAnswer(id)
+            if (transport.connection != preparedFor) {
+                // The call reached a service that started empty, with ids and handles meant for
+                // the one before it: whatever it answered describes nothing this side holds.
+                discard(answer, encoder)
+                if (++reconnects > MAX_RECONNECTS_PER_CALL) {
+                    throw ExternalCallException(
+                        "External function '${spec.functionName}' could not be called: the session kept reconnecting"
+                    )
+                }
+                continue
+            }
+            when (answer) {
                 is ServiceMessage.Failure -> {
                     // Whatever the service did to its copies before failing is not ours; it has
                     // to be sent everything again next time.
@@ -153,6 +179,32 @@ class ScriptFunctionsClient(
                     return applier.apply(answer)
                 }
             }
+        }
+    }
+
+    /**
+     * Brings this side's state in line with a service that started empty, when the transport
+     * reconnected since the last look.
+     */
+    private fun followConnection() {
+        val current = transport.connection
+        val known = knownConnection
+        knownConnection = current
+        if (known == null || known == current) return
+        registry.rekeyServiceIds()
+        handles.reset()
+        serviceVersions.clear()
+        heldModelDigest = null
+    }
+
+    /**
+     * Lets the service drop what an answer that is being thrown away made it hold.
+     */
+    private fun discard(answer: ServiceMessage, encoder: HeapEncoder) {
+        val stale = encoder.sent.keys.filter { it < 0 } +
+                ((answer as? ServiceMessage.Result)?.objects?.map { it.id } ?: emptyList())
+        if (stale.isNotEmpty()) {
+            transport.send(ScriptFunctionsProtocol.encodeClient(ClientMessage.Release(stale, emptyList())))
         }
     }
 
@@ -229,6 +281,12 @@ class ScriptFunctionsClient(
                     ?: throw ExternalCallException(
                         "External function '$functionName' was passed a ${value.opaqueType}, which its contribution does not define"
                     )
+                if (!handles.isCurrent(value.handle, value)) {
+                    throw ExternalCallException(
+                        "External function '$functionName' was passed a ${opaqueClass.name} whose state was held by " +
+                                "a connection to the service that was lost; create it again after a reconnect"
+                    )
+                }
                 WireValue.HandleValue(opaqueClass.name, value.handle)
             }
             is ModelInstance -> {
@@ -477,6 +535,11 @@ class ScriptFunctionsClient(
     }
 
     companion object {
+        /**
+         * How often one call is sent again because the connection changed under it.
+         */
+        private const val MAX_RECONNECTS_PER_CALL = 3
+
         private fun versionOf(value: Any): Long = when (value) {
             is MapDeltaTarget -> value.deltaVersion
             else -> (value as DeltaTarget).deltaVersion
