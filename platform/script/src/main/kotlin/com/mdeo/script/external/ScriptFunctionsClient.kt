@@ -7,6 +7,7 @@ import com.mdeo.script.ast.TypedPluginClass
 import java.util.WeakHashMap
 import com.mdeo.script.ast.ExternalImplementation
 import com.mdeo.metamodel.ModelInstance
+import com.mdeo.metamodel.Metamodel
 import com.mdeo.metamodel.Model
 import com.mdeo.scriptfunctions.protocol.ScriptFunctionsProtocol
 import com.mdeo.scriptfunctions.protocol.ClientMessage
@@ -85,6 +86,12 @@ class ScriptFunctionsClient(
      * model, and encoding it is the costly part of deciding whether it has to be uploaded.
      */
     private val encodedModels = WeakHashMap<Model, EncodedModel>()
+    private val encodedMetamodels = WeakHashMap<Metamodel, EncodedMetamodel>()
+
+    /**
+     * The digest of every metamodel the service holds, by path. Each is sent once per connection.
+     */
+    private val heldMetamodelDigests = HashMap<String, String>()
 
     /**
      * The digest and id of the model the service holds, if any.
@@ -162,6 +169,7 @@ class ScriptFunctionsClient(
                     if (lostState && !resentInFull) {
                         // The service lost what it held, as after a reconnect: send everything.
                         heldModelDigest = null
+                        heldMetamodelDigests.clear()
                         serviceVersions.clear()
                         resentInFull = true
                         continue
@@ -195,6 +203,7 @@ class ScriptFunctionsClient(
         handles.reset()
         serviceVersions.clear()
         heldModelDigest = null
+        heldMetamodelDigests.clear()
     }
 
     /**
@@ -209,12 +218,22 @@ class ScriptFunctionsClient(
     }
 
     /**
-     * Makes sure the service holds [model], uploading it when the service holds a different one or
-     * none.
+     * Makes sure the service holds [model] and its metamodel, sending the metamodel when the
+     * service does not hold it at this content, and the model when the service holds a different
+     * one or none.
      *
      * @return The id the service holds the model under
      */
     private fun uploadIfNotHeld(model: Model): Long {
+        val path = model.metamodelPath
+        val metamodel = encodedMetamodels[model.metamodel]?.takeIf { it.wire.path == path }
+            ?: ModelEncoder.encodeMetamodel(model.metamodel, path).also { encodedMetamodels[model.metamodel] = it }
+        if (heldMetamodelDigests[path] != metamodel.digest) {
+            transport.send(ScriptFunctionsProtocol.encodeClient(ClientMessage.MetamodelPut(metamodel.wire)))
+            heldMetamodelDigests[path] = metamodel.digest
+            // A metamodel replacing one under the held model's path drops that model on the service.
+            heldModelDigest = null
+        }
         val encoded = encodedModels.getOrPut(model) { ModelEncoder.encode(model) }
         if (encoded.digest != heldModelDigest) {
             val modelId = nextModelId++

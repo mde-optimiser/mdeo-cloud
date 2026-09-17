@@ -248,6 +248,8 @@ function("totalRooms") {
 | --- | --- |
 | `instances` | Every instance, by name |
 | `instancesOf(className)` | The instances of a class, including its subclasses |
+| `links` | Every link, each once: `association`, `source` and `target` instance |
+| `metamodel` | The metamodel the model is an instance of |
 | `cache` | Scratch space for what you derive from this model |
 
 | On `ScriptModelInstance` | Meaning |
@@ -259,12 +261,33 @@ function("totalRooms") {
 An instance passed as an argument is the same object as the one in `call.model.instances`, and an
 operation can return an instance of the call's model to the script.
 
+The metamodel describes what the model's instances can hold, so a service can work on models of
+any metamodel without knowing it in advance:
+
+| On `ScriptMetamodel` | Meaning |
+| --- | --- |
+| `path` | Where the metamodel lives in the project |
+| `classes` | Every class by name, with `isAbstract`, `extends` and its own `attributes` (`name`, `type`, `isEnum`, `multiplicity`) |
+| `enums` | The entries of every enum, by name |
+| `associations` | Every association: its `source` and `target` end (`className`, `name`, `multiplicity`) and its `operator` |
+| `subtypesOf(className)` | A class and every class inheriting from it |
+| `cache` | Scratch space for what you derive from this metamodel |
+
+An association end's `name` is the property its class refers to the other end through, so
+`instance.references(end.name)` walks it. `links` does that for every association, and lists a
+link whose association has a property on both ends once rather than from each side.
+
 **A model lives exactly as long as the script works on it.** The model is uploaded once and reused
 for every call on the same model: an optimizer evaluating several guidance functions on one solution
 sends that solution's model once. When the script moves on to another model, the service drops the
 previous one together with its `cache` and every collection it held. Use `cache` for anything worth
 computing once per model, like an index or a distance matrix; nothing in it is ever seen while
 working on a different model.
+
+**A metamodel lives as long as the session.** It is sent once, before the first model of it, and
+every later model of the same metamodel shares the same `ScriptMetamodel` object and its `cache`.
+Derive what depends only on the metamodel — which associations to follow, which attributes are
+numeric — there, once.
 
 ## Configuration
 

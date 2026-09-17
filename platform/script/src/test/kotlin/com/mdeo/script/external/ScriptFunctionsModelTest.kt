@@ -32,8 +32,9 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
- * Models on the `script-functions` protocol: uploaded once per model, dropped with everything
- * derived from it when the script moves on to another, and never changed through a call.
+ * Models on the `script-functions` protocol: their metamodel sent once per connection, each model
+ * uploaded once, dropped with everything derived from it when the script moves on to another, and
+ * never changed through a call.
  */
 class ScriptFunctionsModelTest {
 
@@ -112,6 +113,31 @@ class ScriptFunctionsModelTest {
     }
 
     @Test
+    fun `the service reads the metamodel, and counts each link once`() {
+        var seen = ""
+        val loopback = Loopback(mapOf("inspect" to { call ->
+            val model = call.model!!
+            val metamodel = model.metamodel
+            val house = metamodel.classes.getValue("House")
+            val houses = metamodel.associations.single()
+            seen = "${metamodel.path} ${metamodel.subtypesOf("Building")} ${house.extends} " +
+                    "${house.attributes.map { "${it.name}:${it.type}${if (it.isEnum) "!" else ""}" }} ${metamodel.enums} " +
+                    "${houses.source.name}${houses.operator}${houses.target.name} " +
+                    "${model.links.map { "${it.source.name}-${it.target.name}" }}"
+            null
+        }))
+        val client = ScriptFunctionsClient(loopback, mapOf("inspect" to spec("inspect", any, true)))
+
+        client.call("inspect", arrayOf(), model(), javaClass.classLoader)
+
+        // Both ends of houses/street have a property, so each instance lists the link; it is one link.
+        assertEquals(
+            "/houses.mm [Building, House] [Building] [rooms:int, style:Style!] {Style=[Modern, Classic]} houses--street [main-a, main-b]",
+            seen
+        )
+    }
+
+    @Test
     fun `several calls on the same model content upload it once`() {
         val loopback = Loopback(mapOf("total" to totalRooms))
         val client = ScriptFunctionsClient(loopback, mapOf("total" to spec("total", int, true)))
@@ -123,6 +149,7 @@ class ScriptFunctionsModelTest {
         assertEquals(8, client.call("total", arrayOf(), same, javaClass.classLoader))
         assertEquals(8, client.call("total", arrayOf(), same, javaClass.classLoader))
 
+        assertEquals(1, loopback.received.count { it is ClientMessage.MetamodelPut })
         assertEquals(1, loopback.received.count { it is ClientMessage.ModelPut })
     }
 
@@ -148,6 +175,7 @@ class ScriptFunctionsModelTest {
 
         assertEquals(listOf<Any?>(null, 8, null), cachedOnEntry.toList(), "the cache lives exactly as long as its model")
         assertEquals(2, loopback.received.count { it is ClientMessage.ModelPut })
+        assertEquals(1, loopback.received.count { it is ClientMessage.MetamodelPut }, "the metamodel is sent once")
 
         // Collections the service held are dropped with the model too, so they are sent in full again.
         withList.call("remember", arrayOf(list), model(rooms = 5), javaClass.classLoader)
@@ -205,11 +233,27 @@ class ScriptFunctionsModelTest {
         val model = model()
 
         assertEquals(8, client.call("total", arrayOf(), model, javaClass.classLoader))
-        loopback.service.clear() // as after a reconnect
+        loopback.service.clear() // as after a restart the client did not notice
         assertEquals(8, client.call("total", arrayOf(), model, javaClass.classLoader))
 
+        assertEquals(2, loopback.received.count { it is ClientMessage.MetamodelPut })
         assertEquals(2, loopback.received.count { it is ClientMessage.ModelPut })
         assertTrue(loopback.answered.any { it is ServiceMessage.Failure && it.code == ServiceMessage.Failure.UNKNOWN_MODEL })
+    }
+
+    @Test
+    fun `a new connection is sent the metamodel again`() {
+        val loopback = Loopback(mapOf("total" to totalRooms))
+        val client = ScriptFunctionsClient(loopback, mapOf("total" to spec("total", int, true)))
+        val model = model()
+
+        assertEquals(8, client.call("total", arrayOf(), model, javaClass.classLoader))
+        loopback.dropBeforeCall = 2
+        assertEquals(8, client.call("total", arrayOf(), model, javaClass.classLoader))
+        assertEquals(8, client.call("total", arrayOf(), model, javaClass.classLoader))
+
+        assertEquals(2, loopback.received.count { it is ClientMessage.MetamodelPut })
+        assertEquals(2, loopback.received.count { it is ClientMessage.ModelPut })
     }
 
     @Test

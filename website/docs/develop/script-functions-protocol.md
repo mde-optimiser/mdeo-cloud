@@ -121,6 +121,60 @@ model answers with the `unknown-model` failure.
 `objects` may refer to each other, and to themselves, in any order. A service creates every listed
 collection first and fills them afterwards.
 
+### `metamodel`
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `metamodel` | `WireMetamodel` | The whole metamodel |
+
+Describes a metamodel that models uploaded afterwards are instances of. There is no answer.
+
+A service keeps **every metamodel for the whole session**, by path. The client sends a metamodel
+once per session, right before the first `model` that is an instance of it, and again only when its
+content changes. Receiving a metamodel under the path of the model the service holds drops that
+model, with everything that belonged to it, as a new `model` would.
+
+A `WireMetamodel`:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `path` | string | The path models of it name as their `metamodelPath` |
+| `classes` | `WireClass[]` | Every class |
+| `enums` | `WireEnum[]` | Every enum, each with a `name` and its `entries`, in declaration order |
+| `associations` | `WireAssociation[]` | Every association |
+| `subtypes` | map of string to string[] | For every class, the classes that are it or inherit from it |
+
+A `WireClass`:
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `name` | string | — | Unique within the metamodel |
+| `isAbstract` | boolean | `false` | Whether the class has no instances of its own |
+| `extends` | string[] | `[]` | The classes it directly inherits from |
+| `attributes` | `WireAttribute[]` | `[]` | The attributes it declares itself; inherited ones are declared on the superclass |
+
+A `WireAttribute`:
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `name` | string | — | The attribute name |
+| `type` | string | — | `int`, `long`, `float`, `double`, `boolean` or `string`, or an enum's name when `isEnum` |
+| `isEnum` | boolean | `false` | Whether `type` names an enum |
+| `lower`, `upper` | integer | `0`, `1` | How many values it holds; `upper` is `-1` for unbounded |
+
+A `WireAssociation` has a `source` end, the `operator` as written in the metamodel (`<-->`, `*-->`,
+…) and a `target` end. A `WireAssociationEnd`:
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `className` | string | — | The class at this end |
+| `name` | string \| null | `null` | The property through which instances of `className` refer to the instances at the other end, and the key they list them under in `references`. `null` when the end has none |
+| `lower`, `upper` | integer | `0`, `-1` | How many instances at the other end one instance of `className` refers to |
+
+A link of an association with a property on both ends appears in the `references` of both of its
+instances. Count it from the `source` end when that end has a property, and from the `target` end
+otherwise, and every link counts once.
+
 ### `model`
 
 | Field | Type | Meaning |
@@ -128,7 +182,9 @@ collection first and fills them afterwards.
 | `modelId` | integer | Identifies the model within the session |
 | `model` | `WireModel` | The whole model |
 
-Uploads the model the following calls work on. There is no answer.
+Uploads the model the following calls work on. There is no answer. Its metamodel must have been
+sent before; a service that does not hold it cannot read the model, and answers the next call that
+names it with `unknown-model`.
 
 A service holds **one model per session**. Receiving a model replaces the previous one and ends
 everything that belonged to it: the service forgets every collection and every handle it holds —
@@ -143,8 +199,7 @@ A `WireModel`:
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `metamodelPath` | string | The metamodel the model is an instance of |
-| `subtypes` | map of string to string[] | For every class, the classes that are it or inherit from it |
+| `metamodelPath` | string | The metamodel the model is an instance of, as sent with `metamodel` |
 | `instances` | `WireInstance[]` | Every instance |
 
 A `WireInstance`:
@@ -190,8 +245,8 @@ A collection the call sent that did not change produces no delta.
 | `code` | string \| null | `null` | `unknown-object`, `unknown-model`, or `null` for any other failure |
 
 On `unknown-object` or `unknown-model` the service has lost what the client thought it held, as
-after a reconnect. The client uploads the model again if the call needs one, and sends the call
-once more with every collection in full.
+after a reconnect. The client sends the metamodel and the model again if the call needs one, and
+sends the call once more with every collection in full.
 
 After a failure, the client assumes the service's copies of that call's collections are stale and
 sends them in full next time. A service keeps them: another collection it holds may contain one, and

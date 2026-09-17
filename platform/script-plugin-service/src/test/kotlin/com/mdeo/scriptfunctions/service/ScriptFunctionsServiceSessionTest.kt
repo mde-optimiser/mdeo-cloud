@@ -5,13 +5,18 @@ import com.mdeo.scriptfunctions.protocol.Delta
 import com.mdeo.scriptfunctions.protocol.HeapKind
 import com.mdeo.scriptfunctions.protocol.HeapObject
 import com.mdeo.scriptfunctions.protocol.ServiceMessage
+import com.mdeo.scriptfunctions.protocol.WireAssociation
+import com.mdeo.scriptfunctions.protocol.WireAssociationEnd
+import com.mdeo.scriptfunctions.protocol.WireClass
 import com.mdeo.scriptfunctions.protocol.WireInstance
+import com.mdeo.scriptfunctions.protocol.WireMetamodel
 import com.mdeo.scriptfunctions.protocol.WireModel
 import com.mdeo.scriptfunctions.protocol.WireValue
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -24,8 +29,13 @@ class ScriptFunctionsServiceSessionTest {
     private fun list(id: Long, vararg values: Int, mutable: Boolean = true) =
         HeapObject(id, HeapKind.LIST, version = 1, mutable = mutable, elements = values.map { WireValue.IntValue(it) })
 
+    /**
+     * A session that already holds the metamodel of [street], as every execution sends it first.
+     */
     private fun session(vararg operations: Pair<String, ScriptFunctionOperation>) =
-        ScriptFunctionsServiceSession(mapOf(*operations))
+        ScriptFunctionsServiceSession(mapOf(*operations)).also {
+            runBlocking { it.handle(ClientMessage.MetamodelPut(houses)) }
+        }
 
     @Suppress("UNCHECKED_CAST")
     private val append = "append" to ScriptFunctionOperation { call ->
@@ -151,14 +161,87 @@ class ScriptFunctionsServiceSessionTest {
         )
     }
 
+    private val houses = WireMetamodel(
+        path = "/houses.mm",
+        classes = listOf(
+            WireClass("Building", isAbstract = true),
+            WireClass("House", extends = listOf("Building")),
+            WireClass("Street")
+        ),
+        associations = listOf(
+            // Both ends have a property: every link is listed by both instances.
+            WireAssociation(WireAssociationEnd("Street", "houses"), "<-->", WireAssociationEnd("House", "street", upper = 1)),
+            // Only the target end has one.
+            WireAssociation(WireAssociationEnd("House"), "<--", WireAssociationEnd("House", "neighbours")),
+            WireAssociation(WireAssociationEnd("Street", "crosses"), "-->", WireAssociationEnd("Street"))
+        ),
+        subtypes = mapOf("Building" to listOf("Building", "House"), "House" to listOf("House"), "Street" to listOf("Street"))
+    )
+
     private val street = WireModel(
         metamodelPath = "/houses.mm",
-        subtypes = mapOf("Building" to listOf("Building", "House"), "House" to listOf("House")),
         instances = listOf(
             WireInstance("a", "House", attributes = mapOf("rooms" to listOf(WireValue.IntValue(3)))),
             WireInstance("b", "House", attributes = mapOf("rooms" to listOf(WireValue.IntValue(5))))
         )
     )
+
+    @Test
+    fun `every link is listed once, whichever of its ends have a property`() = runBlocking {
+        val service = session()
+        val linked = WireModel(
+            metamodelPath = "/houses.mm",
+            instances = listOf(
+                WireInstance("main", "Street", references = mapOf("houses" to listOf("a", "b"), "crosses" to listOf("side"))),
+                WireInstance("side", "Street"),
+                WireInstance("a", "House", references = mapOf("street" to listOf("main"), "neighbours" to listOf("b"))),
+                WireInstance("b", "House", references = mapOf("street" to listOf("main"), "neighbours" to listOf("a")))
+            )
+        )
+        service.handle(ClientMessage.ModelPut(1, linked))
+
+        val links = service.currentModel!!.links
+        assertEquals(
+            listOf("main houses a", "main houses b", "b neighbours a", "a neighbours b", "main crosses side"),
+            links.map { "${it.source.name} ${it.association.source.name ?: it.association.target.name} ${it.target.name}" }
+        )
+        assertTrue(links.all { it.association in service.currentModel!!.metamodel.associations })
+    }
+
+    @Test
+    fun `the metamodel is kept across models, and a model without it asks for an upload`() = runBlocking {
+        val service = ScriptFunctionsServiceSession(mapOf("classes" to ScriptFunctionOperation { call ->
+            call.model!!.metamodel.classes.size
+        }))
+        service.handle(ClientMessage.ModelPut(1, street))
+        val missing = service.handle(ClientMessage.Call(1, "classes", emptyList(), emptyList(), modelId = 1))
+        assertEquals(ServiceMessage.Failure.UNKNOWN_MODEL, assertIs<ServiceMessage.Failure>(missing).code)
+
+        service.handle(ClientMessage.MetamodelPut(houses))
+        service.handle(ClientMessage.ModelPut(2, street))
+        val metamodel = service.currentModel!!.metamodel
+        metamodel.cache["derived"] = true
+        service.handle(ClientMessage.ModelPut(3, street))
+
+        assertTrue(service.currentModel!!.metamodel === metamodel)
+        assertEquals(true, metamodel.cache["derived"], "the metamodel's cache outlives every model")
+        val answer = service.handle(ClientMessage.Call(2, "classes", emptyList(), emptyList(), modelId = 3))
+        assertEquals(WireValue.IntValue(3), assertIs<ServiceMessage.Result>(answer).value)
+    }
+
+    @Test
+    fun `a metamodel sent again drops the model built on the one it replaces`() = runBlocking {
+        val service = session("count" to ScriptFunctionOperation { call -> call.model!!.instances.size })
+        service.handle(ClientMessage.ModelPut(1, street))
+
+        service.handle(ClientMessage.MetamodelPut(houses.copy(path = "/other.mm")))
+        assertNotNull(service.currentModel, "a metamodel under another path leaves the model alone")
+        service.handle(ClientMessage.MetamodelPut(houses))
+
+        assertNull(service.currentModel)
+        val answer = service.handle(ClientMessage.Call(1, "count", emptyList(), emptyList(), modelId = 1))
+        assertEquals(ServiceMessage.Failure.UNKNOWN_MODEL, assertIs<ServiceMessage.Failure>(answer).code)
+    }
 
     @Test
     fun `a call names the model it works on, and a stale name asks for an upload`() = runBlocking {

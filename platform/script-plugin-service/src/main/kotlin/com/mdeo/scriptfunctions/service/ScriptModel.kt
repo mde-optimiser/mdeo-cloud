@@ -11,13 +11,14 @@ import java.util.concurrent.ConcurrentHashMap
  * solution an optimizer evaluates, for example — this one is dropped together with everything in
  * [cache], so nothing computed for one model is ever seen while working on another.
  *
- * @property metamodelPath The metamodel the model is an instance of
+ * @property metamodel The metamodel the model is an instance of
  */
-class ScriptModel internal constructor(wire: WireModel) {
+class ScriptModel internal constructor(wire: WireModel, val metamodel: ScriptMetamodel) {
 
-    val metamodelPath: String = wire.metamodelPath
-
-    private val subtypes: Map<String, Set<String>> = wire.subtypes.mapValues { it.value.toSet() }
+    /**
+     * The path of the metamodel the model is an instance of.
+     */
+    val metamodelPath: String get() = metamodel.path
 
     /**
      * Every instance, by name.
@@ -51,8 +52,29 @@ class ScriptModel internal constructor(wire: WireModel) {
      * @return The instances, in model order
      */
     fun instancesOf(className: String): List<ScriptModelInstance> {
-        val classes = subtypes[className] ?: setOf(className)
+        val classes = metamodel.subtypesOf(className)
         return instances.values.filter { it.className in classes }
+    }
+
+    /**
+     * Every link of the model, each exactly once however many of its ends have a property: a link
+     * of a `<-->` association is listed once, not once from each side. Links follow the
+     * associations of the metamodel in declaration order.
+     */
+    val links: List<ScriptModelLink> by lazy {
+        metamodel.associations.flatMap { association ->
+            val source = association.source
+            val target = association.target
+            when {
+                source.name != null -> instancesOf(source.className).flatMap { from ->
+                    from.references(source.name).map { to -> ScriptModelLink(association, from, to) }
+                }
+                target.name != null -> instancesOf(target.className).flatMap { to ->
+                    to.references(target.name).map { from -> ScriptModelLink(association, from, to) }
+                }
+                else -> emptyList()
+            }
+        }
     }
 
     private fun scalar(value: WireValue): Any? = when (value) {
@@ -66,6 +88,19 @@ class ScriptModel internal constructor(wire: WireModel) {
         is WireValue.Ref, is WireValue.InstanceValue, is WireValue.RecordValue, is WireValue.HandleValue -> null
     }
 }
+
+/**
+ * One link of a [ScriptModel]: a pair of instances an association connects.
+ *
+ * @property association The association
+ * @property source The instance at the association's source end
+ * @property target The instance at the association's target end
+ */
+data class ScriptModelLink(
+    val association: MetamodelAssociation,
+    val source: ScriptModelInstance,
+    val target: ScriptModelInstance
+)
 
 /**
  * One instance of a [ScriptModel], readonly.

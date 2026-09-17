@@ -101,12 +101,28 @@ sealed class ClientMessage {
     ) : ClientMessage()
 
     /**
+     * Describes a metamodel that models uploaded afterwards are instances of.
+     *
+     * The execution sends each metamodel once per session, before the first model that needs it,
+     * and again only when its content changes. A service keeps every metamodel it was sent, by
+     * path, for the whole session. Sending a metamodel under a path the held model is an instance
+     * of drops that model, as a new model would.
+     *
+     * @param metamodel The whole metamodel.
+     */
+    @Serializable
+    @SerialName("metamodel")
+    data class MetamodelPut(val metamodel: WireMetamodel) : ClientMessage()
+
+    /**
      * Uploads the model the following calls work on, readonly.
      *
      * A service holds one model per session. Uploading one replaces the previous model and ends
      * everything that belonged to it: the service forgets every collection it holds, and whatever
      * it cached about the old model. The execution uploads a model once and refers to it by
-     * [modelId] until the model it works on changes.
+     * [modelId] until the model it works on changes. Its metamodel must have been sent with
+     * [MetamodelPut] before; a service that does not hold it answers the next call naming the
+     * model with [ServiceMessage.Failure.UNKNOWN_MODEL].
      *
      * @param modelId Identifies the model within the session.
      * @param model The whole model.
@@ -255,17 +271,110 @@ sealed class WireValue {
 }
 
 /**
- * A whole model, as uploaded with [ClientMessage.ModelPut].
+ * A whole metamodel, as sent with [ClientMessage.MetamodelPut].
  *
- * @param metamodelPath The metamodel the model is an instance of.
+ * @param path The metamodel's path, which models name as their [WireModel.metamodelPath].
+ * @param classes Every class.
+ * @param enums Every enum.
+ * @param associations Every association.
  * @param subtypes For every class, the classes that are it or inherit from it, so a service can
  *        find all instances of a class including those of its subclasses.
+ */
+@Serializable
+data class WireMetamodel(
+    val path: String,
+    val classes: List<WireClass> = emptyList(),
+    val enums: List<WireEnum> = emptyList(),
+    val associations: List<WireAssociation> = emptyList(),
+    val subtypes: Map<String, List<String>> = emptyMap()
+)
+
+/**
+ * One class of a [WireMetamodel].
+ *
+ * @param name The class name, unique within the metamodel.
+ * @param isAbstract Whether the class has no instances of its own.
+ * @param extends The classes it directly inherits from.
+ * @param attributes The attributes it declares itself, without inherited ones.
+ */
+@Serializable
+data class WireClass(
+    val name: String,
+    val isAbstract: Boolean = false,
+    val extends: List<String> = emptyList(),
+    val attributes: List<WireAttribute> = emptyList()
+)
+
+/**
+ * One attribute of a [WireClass].
+ *
+ * @param name The attribute name.
+ * @param type A primitive type name (`int`, `long`, `float`, `double`, `boolean`, `string`), or the
+ *        name of an enum of the metamodel when [isEnum] is set.
+ * @param isEnum Whether [type] names an enum.
+ * @param lower The least number of values.
+ * @param upper The greatest number of values, `-1` for unbounded.
+ */
+@Serializable
+data class WireAttribute(
+    val name: String,
+    val type: String,
+    val isEnum: Boolean = false,
+    val lower: Int = 0,
+    val upper: Int = 1
+)
+
+/**
+ * One enum of a [WireMetamodel].
+ *
+ * @param name The enum name.
+ * @param entries The entry names, in declaration order.
+ */
+@Serializable
+data class WireEnum(val name: String, val entries: List<String> = emptyList())
+
+/**
+ * One association of a [WireMetamodel].
+ *
+ * @param source The end on the left of the operator.
+ * @param operator The operator as written in the metamodel, such as `<-->` or `*-->`.
+ * @param target The end on the right of the operator.
+ */
+@Serializable
+data class WireAssociation(
+    val source: WireAssociationEnd,
+    val operator: String,
+    val target: WireAssociationEnd
+)
+
+/**
+ * One end of a [WireAssociation].
+ *
+ * @param className The class at this end.
+ * @param name The property through which instances of [className] refer to the instances at the
+ *        other end, and under which they list those in [WireInstance.references]; null when this
+ *        end has no property.
+ * @param lower The least number of instances at the other end one instance of [className] refers to.
+ * @param upper The greatest number of them, `-1` for unbounded.
+ */
+@Serializable
+data class WireAssociationEnd(
+    val className: String,
+    val name: String? = null,
+    val lower: Int = 0,
+    val upper: Int = -1
+)
+
+/**
+ * A whole model, as uploaded with [ClientMessage.ModelPut].
+ *
+ * @param metamodelPath The metamodel the model is an instance of, as sent with
+ *        [ClientMessage.MetamodelPut].
  * @param instances Every instance of the model.
  */
 @Serializable
 data class WireModel(
     val metamodelPath: String,
-    val subtypes: Map<String, List<String>> = emptyMap(),
     val instances: List<WireInstance> = emptyList()
 )
 

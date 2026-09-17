@@ -37,6 +37,7 @@ class ScriptFunctionsServiceSession(
     private val handleIds = IdentityHashMap<Any, Long>()
     private var nextHandleId = 1L
 
+    private val metamodels = HashMap<String, ScriptMetamodel>()
     private var model: ScriptModel? = null
     private var modelId: Long? = null
 
@@ -59,20 +60,36 @@ class ScriptFunctionsServiceSession(
             null
         }
         is ClientMessage.Call -> call(message)
+        is ClientMessage.MetamodelPut -> {
+            val metamodel = ScriptMetamodel(message.metamodel)
+            // The held model was built on the metamodel this one replaces.
+            if (model?.metamodelPath == metamodel.path) dropModel()
+            metamodels[metamodel.path] = metamodel
+            null
+        }
         is ClientMessage.ModelPut -> {
             // A new model ends everything that belonged to the old one, collections included:
             // they may hold its instances.
-            clear()
-            model = ScriptModel(message.model)
-            modelId = message.modelId
+            dropModel()
+            // Without its metamodel the model cannot be read; the next call naming it answers
+            // unknown-model, and the execution sends both again.
+            metamodels[message.model.metamodelPath]?.let { metamodel ->
+                model = ScriptModel(message.model, metamodel)
+                modelId = message.modelId
+            }
             null
         }
     }
 
     /**
-     * Forgets every collection, as when the session ends.
+     * Forgets everything the session was sent, as when the session ends.
      */
     fun clear() {
+        dropModel()
+        metamodels.clear()
+    }
+
+    private fun dropModel() {
         objects.clear()
         ids.clear()
         handles.clear()
