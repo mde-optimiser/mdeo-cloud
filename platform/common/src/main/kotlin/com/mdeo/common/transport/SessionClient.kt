@@ -127,6 +127,12 @@ class SessionClient(
     private var closing = false
 
     /**
+     * Completes with how the peer ended the current connection, once it has.
+     */
+    @Volatile
+    private var peerClosed = CompletableDeferred<String>()
+
+    /**
      * The protocol version both sides agreed on, available once the session is open.
      */
     @Volatile
@@ -179,7 +185,11 @@ class SessionClient(
                     reconnect().send(Frame.Binary(fin = true, data = data))
                 } catch (retry: Exception) {
                     if (retry is CancellationException && !currentCoroutineContext().isActive) throw retry
-                    throw retry as? SessionException ?: SessionException("Could not send on the session", retry)
+                    if (retry is SessionException) throw retry
+                    // A peer that refuses the session closes it right after the upgrade, which is
+                    // what made the send fail; its reason says why.
+                    val why = withTimeoutOrNull(CLOSE_REASON_WAIT_MILLIS) { peerClosed.await() }
+                    throw SessionException("Could not send on the session" + (why?.let { ": $it" } ?: ""), retry)
                 }
             }
         }
@@ -208,6 +218,8 @@ class SessionClient(
 
         val opened = CompletableDeferred<Unit>()
         var peerClose: CloseReason? = null
+        val closedHere = CompletableDeferred<String>()
+        peerClosed = closedHere
         val reader = scope.launch {
             try {
                 client.webSocket(
@@ -231,6 +243,7 @@ class SessionClient(
                     peerClose = withTimeoutOrNull(CLOSE_REASON_WAIT_MILLIS) { closeReason.await() }
                 }
                 session = null
+                closedHere.complete(describeClose(peerClose))
                 if (!closing) {
                     val described = describeClose(peerClose)
                     logger.info("Session to ${resolved.url} closed by the peer: $described")

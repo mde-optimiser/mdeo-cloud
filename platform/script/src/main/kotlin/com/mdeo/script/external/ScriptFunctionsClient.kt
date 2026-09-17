@@ -467,6 +467,35 @@ class ScriptFunctionsClient(
                 }
             }
 
+            // Validation catches every broken delta it can see coming; a delta that still fails to
+            // apply rolls back the ones before it, so the script never sees half a result.
+            val changed = result.deltas.map { it.id }.toSet()
+            val before = changed.associateWith { contentOf(encoder.sent.getValue(it)) }
+            try {
+                applyDeltas(result)
+            } catch (e: RuntimeException) {
+                for ((id, content) in before) restore(encoder.sent.getValue(id), content)
+                changed.forEach { serviceVersions.remove(it) }
+                throw ExternalCallException(
+                    "External function '${spec.functionName}' returned changes that could not be applied, " +
+                            "so none were: ${e.message}"
+                )
+            }
+
+            val reshaped = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Any, Boolean>())
+            val value = conform(decode(result.value, spec.returnType), spec.returnType, reshaped)
+
+            // After applying, what the execution holds is exactly what the service holds, except for
+            // collections rebuilt as their declared kind: those are sent in full next time.
+            for (id in changed) serviceVersions[id] = versionOf(encoder.sent.getValue(id))
+            for ((id, instance) in created) {
+                registry.register(instance, id)
+                if (instance !in reshaped) serviceVersions[id] = versionOf(instance)
+            }
+            return value
+        }
+
+        private fun applyDeltas(result: ServiceMessage.Result) {
             for (delta in result.deltas) {
                 val target = encoder.sent.getValue(delta.id)
                 val declared = encoder.declaredTypes.getValue(delta.id)
@@ -491,16 +520,48 @@ class ScriptFunctionsClient(
                 }
             }
 
-            // After applying, what the execution holds is exactly what the service holds.
-            val touched = result.deltas.map { it.id }.toSet()
-            for (id in touched) serviceVersions[id] = versionOf(encoder.sent.getValue(id))
-            for ((id, instance) in created) {
-                registry.register(instance, id)
-                serviceVersions[id] = versionOf(instance)
+        }
+
+        /**
+         * Rebuilds the collections this result created as the kinds the signature declares, at every
+         * level: a service may return a list where a `Set<List<int>>` is declared, and only the
+         * declaration says what the script expects.
+         *
+         * Collections the script already held keep their kind; they came from the script.
+         *
+         * @param value A decoded value
+         * @param declared Its declared type
+         * @param reshaped Collects the created collections that were changed or replaced
+         * @return The value, as its declared kind
+         */
+        private fun conform(value: Any?, declared: ReturnType, reshaped: MutableSet<Any>): Any? {
+            if (value !is DeltaTarget && value !is MapDeltaTarget) return value
+            if (created.values.none { it === value } || value in reshaped) return value
+            // Marked before descending, so a collection that contains itself is visited once.
+            reshaped += value
+
+            var contentChanged = false
+            if (value is MapDeltaTarget) {
+                val entries = value.deltaEntries()
+                val conformed = entries.map { (k, v) ->
+                    conform(k, ParameterModes.keyType(declared), reshaped) to conform(v, ParameterModes.valueType(declared), reshaped)
+                }
+                if (conformed.indices.any { conformed[it].first !== entries[it].first || conformed[it].second !== entries[it].second }) {
+                    value.deltaReplace(conformed)
+                    contentChanged = true
+                }
+            } else {
+                val elements = (value as DeltaTarget).deltaSnapshot()
+                val conformed = elements.map { conform(it, ParameterModes.elementType(declared), reshaped) }
+                if (conformed.indices.any { conformed[it] !== elements[it] }) {
+                    value.deltaReplace(conformed)
+                    contentChanged = true
+                }
             }
 
-            val value = decode(result.value, spec.returnType)
-            return convertToDeclared(value, spec.returnType)
+            val converted = convertToDeclared(value, declared)
+            if (converted === value && !contentChanged) reshaped -= value
+            return converted
         }
 
         private fun decode(value: WireValue, expected: ReturnType?): Any? {
@@ -543,6 +604,17 @@ class ScriptFunctionsClient(
         private fun versionOf(value: Any): Long = when (value) {
             is MapDeltaTarget -> value.deltaVersion
             else -> (value as DeltaTarget).deltaVersion
+        }
+
+        private fun contentOf(value: Any): Any = when (value) {
+            is MapDeltaTarget -> value.deltaEntries()
+            else -> (value as DeltaTarget).deltaSnapshot()
+        }
+
+        @Suppress("UNCHECKED_CAST")
+        private fun restore(value: Any, content: Any) = when (value) {
+            is MapDeltaTarget -> value.deltaReplace(content as List<Pair<Any?, Any?>>)
+            else -> (value as DeltaTarget).deltaReplace(content as List<Any?>)
         }
 
         private fun sizeOf(value: Any): Int = when (value) {

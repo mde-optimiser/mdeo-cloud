@@ -1,6 +1,8 @@
 package com.mdeo.script.external
 
 import com.mdeo.scriptfunctions.protocol.ClientMessage
+import com.mdeo.scriptfunctions.protocol.Delta
+import com.mdeo.scriptfunctions.protocol.WireValue
 import com.mdeo.scriptfunctions.protocol.ServiceMessage
 import com.mdeo.expression.ast.types.ClassTypeRef
 import com.mdeo.expression.ast.types.ReturnType
@@ -215,6 +217,51 @@ class ScriptFunctionsClientTest {
         assertEquals(listOf("a", "b", "z"), ordered.deltaSnapshot())
         assertEquals(2, returned.size())
         assertEquals(listOf(1, 2), (returned.at(0) as ListImpl<*>).deltaSnapshot())
+    }
+
+    @Test
+    fun `a delta that fails to apply rolls back the ones before it`() {
+        // Removing two elements and then splicing at an index only the original size allowed.
+        val loopback = Loopback(
+            mapOf("noop" to { _ -> null }),
+            rewriteAnswer = { answer ->
+                val result = answer as ServiceMessage.Result
+                result.copy(
+                    deltas = listOf(
+                        Delta.Remove(1, listOf(WireValue.StringValue("a"), WireValue.StringValue("b"))),
+                        Delta.Splice(1, 2, 1, emptyList())
+                    )
+                )
+            }
+        )
+        val dispatcher = client(loopback, spec("noop", any, collection("OrderedSet", "T" to string)))
+        val ordered = OrderedSetImpl(listOf("a", "b", "c"))
+
+        val error = assertFailsWith<ExternalCallException> { dispatcher.call("noop", arrayOf(ordered), null, javaClass.classLoader) }
+        assertTrue(error.message!!.contains("none were"), error.message)
+        assertEquals(listOf("a", "b", "c"), ordered.deltaSnapshot())
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    @Test
+    fun `returned collections take their declared kind at every level`() {
+        val loopback = Loopback.ofArguments(
+            mapOf(
+                "groups" to { _ -> mutableListOf(mutableListOf(1, 2, 2), mutableListOf(3)) },
+                "count" to { args -> (args[0] as List<Any?>).sumOf { (it as Collection<*>).size } }
+            )
+        )
+        val groups = spec("groups", collection("List", "T" to collection("Set", "T" to int)))
+        val count = spec("count", int, collection("List", "T" to collection("Set", "T" to int)))
+        val dispatcher = client(loopback, groups, count)
+
+        val returned = dispatcher.call("groups", arrayOf(), null, javaClass.classLoader) as ListImpl<*>
+        val first = returned.at(0)
+        assertTrue(first is SetImpl<*>, "got ${first?.javaClass}")
+        assertEquals(setOf(1, 2), first.deltaSnapshot().toSet())
+
+        // Passed back, the rebuilt sets reach the service with their new content.
+        assertEquals(3, dispatcher.call("count", arrayOf(returned), null, javaClass.classLoader))
     }
 
     @Suppress("UNCHECKED_CAST")
