@@ -1,7 +1,0 @@
-fun apply(n: int, op: (int) => int): int {
-    return op(n)
-}
-
-fun t(): int {
-    return apply(3, (v) => v * 2)
-}

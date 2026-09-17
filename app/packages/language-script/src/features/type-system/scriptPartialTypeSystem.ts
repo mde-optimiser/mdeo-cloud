@@ -43,6 +43,12 @@ import type { LangiumDocument, LangiumDocuments } from "langium";
 const { isAstNode, AstUtils } = sharedImport("langium");
 
 /**
+ * How many leading parameters of a function or record can have a default value. The compiled
+ * function marks each parameter a call leaves out with one bit of an `int`.
+ */
+const MAX_DEFAULTED_PARAMETERS = 31;
+
+/**
  * Partial type system implementation for Script-specific AST nodes.
  * Handles validation rules for Script language constructs like functions with return types.
  *
@@ -520,6 +526,13 @@ export class ScriptPartialTypeSystem extends PartialTypeSystem<ScriptTypirSpecif
 
             const parameters = (node.$container as FunctionParametersType).parameters;
             const ownIndex = parameters.indexOf(node);
+            if (ownIndex >= MAX_DEFAULTED_PARAMETERS) {
+                accept({
+                    languageNode: defaultValue,
+                    message: `Only the first ${MAX_DEFAULTED_PARAMETERS} parameters can have a default value.`,
+                    severity: "error"
+                });
+            }
             for (const child of AstUtils.streamAst(defaultValue)) {
                 if (!this.astReflection.isInstance(child, expressionTypes.identifierExpressionType)) {
                     continue;

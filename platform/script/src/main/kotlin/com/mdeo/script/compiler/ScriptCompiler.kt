@@ -654,6 +654,10 @@ class ScriptCompiler {
 
         mv.visitCode()
         for ((index, param) in function.parameters.withIndex()) {
+            // Only the first parameters have a mask bit; a call never leaves out a later one.
+            if (index >= DefaultsMethod.MAX_PARAMETERS) {
+                break
+            }
             val defaultValue = param.defaultValue ?: continue
             val keep = Label()
             mv.visitVarInsn(Opcodes.ILOAD, mask.slotIndex)

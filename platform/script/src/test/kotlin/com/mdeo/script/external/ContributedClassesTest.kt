@@ -1,13 +1,20 @@
 package com.mdeo.script.external
 
-import com.mdeo.expression.ast.expressions.TypedExpression
-import com.mdeo.expression.ast.statements.TypedStatement
-import com.mdeo.script.ast.TypedAst
-import com.mdeo.script.ast.TypedPluginAst
-import com.mdeo.script.ast.expressions.TypedExpressionSerializer
-import com.mdeo.script.ast.statements.TypedStatementSerializer
+import com.mdeo.expression.ast.types.ClassTypeRef
 import com.mdeo.script.compiler.CompilationInput
 import com.mdeo.script.compiler.ScriptCompiler
+import com.mdeo.script.compiler.binaryExpr
+import com.mdeo.script.compiler.buildTypedAst
+import com.mdeo.script.compiler.doubleLiteral
+import com.mdeo.script.compiler.forStmt
+import com.mdeo.script.compiler.functionCall
+import com.mdeo.script.compiler.identifier
+import com.mdeo.script.compiler.intLiteral
+import com.mdeo.script.compiler.memberAccess
+import com.mdeo.script.compiler.assignment
+import com.mdeo.script.compiler.param
+import com.mdeo.script.compiler.returnStmt
+import com.mdeo.script.compiler.varDecl
 import com.mdeo.script.runtime.ExecutionEnvironment
 import com.mdeo.script.runtime.ScriptOpaque
 import com.mdeo.script.runtime.ScriptRecord
@@ -15,48 +22,83 @@ import com.mdeo.script.runtime.SimpleScriptContext
 import com.mdeo.scriptfunctions.protocol.ClientMessage
 import com.mdeo.scriptfunctions.service.RecordValue
 import com.mdeo.scriptfunctions.service.ScriptFunctionCall
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.modules.SerializersModule
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 /**
- * Records and opaque classes, end to end from what the script frontend produces.
+ * Records and opaque classes a contribution defines, returned by its external functions.
  *
- * The two ASTs are the typed ASTs the script service emits for a contribution `geo` declaring a
- * record `Point(x: double, label: string)` and an opaque class `Index`, and for this script:
+ * The contribution `geo` declares a record `Point(x: double, label: string)`, an opaque class
+ * `Index` and the functions `nearest(): Point`, `points(n: int): ReadonlyList<Point>`,
+ * `buildIndex(): Index` and `query(i: Index, k: int): int`, and the script is:
  *
  * ```
- * fun total(): double { var p = nearest(); return p.x }
+ * fun total(): double { val p = nearest(); return p.x }
  * fun label(): string { return nearest().label }
  * fun same(): boolean { return nearest() == nearest() }
  * fun sumAll(n: int): double { var total = 0.0; for (p in points(n)) { total = total + p.x }; return total }
- * fun lookup(): int { var idx = buildIndex(); return query(idx, 3) + query(idx, 4) }
+ * fun lookup(): int { val idx = buildIndex(); return query(idx, 3) + query(idx, 4) }
  * ```
  */
 class ContributedClassesTest {
 
-    private val json = Json {
-        ignoreUnknownKeys = true
-        serializersModule = SerializersModule {
-            contextual(TypedExpression::class, TypedExpressionSerializer)
-            contextual(TypedStatement::class, TypedStatementSerializer)
-        }
-    }
-
     private val scriptPath = "/p/test.fn"
 
-    private fun resource(name: String) =
-        javaClass.getResourceAsStream("/external/$name")!!.readBytes().decodeToString()
+    private val double = ClassTypeRef("builtin", "double", false)
+    private val int = ClassTypeRef("builtin", "int", false)
 
-    private val program = ScriptCompiler().compile(
-        CompilationInput(
-            mapOf(scriptPath to json.decodeFromString<TypedAst>(resource("geo-script-ast.json"))),
-            json.decodeFromString<TypedPluginAst>(resource("geo-plugin-ast.json"))
+    private val plugin = pluginAst("geo") {
+        record("Point", "x" to double, "label" to ClassTypeRef("builtin", "string", false))
+        opaque("Index")
+        external("nearest", classType("Point"))
+        external("points", ClassTypeRef("builtin", "ReadonlyList", false, mapOf("T" to classType("Point"))), "n" to int)
+        external("buildIndex", classType("Index"))
+        external("query", int, "i" to classType("Index"), "k" to int)
+    }
+
+    private val script = buildTypedAst {
+        val doubleType = doubleType()
+        val stringType = stringType()
+        val intType = intType()
+        val point = addType(ClassTypeRef("contrib/geo", "Point", false))
+        val index = addType(ClassTypeRef("contrib/geo", "Index", false))
+        val points = addType(ClassTypeRef("builtin", "ReadonlyList", false, mapOf("T" to ClassTypeRef("contrib/geo", "Point", false))))
+        fun nearest() = functionCall("nearest", "", emptyList(), point)
+        function(
+            "total", doubleType,
+            body = listOf(varDecl("p", point, nearest()), returnStmt(memberAccess(identifier("p", point, 3), "x", resultTypeIndex = doubleType)))
         )
-    )
+        function("label", stringType, body = listOf(returnStmt(memberAccess(nearest(), "label", resultTypeIndex = stringType))))
+        function("same", booleanType(), body = listOf(returnStmt(binaryExpr(nearest(), "==", nearest(), booleanType()))))
+        function(
+            "sumAll", doubleType, listOf(param("n", intType)),
+            listOf(
+                varDecl("total", doubleType, doubleLiteral(0.0, doubleType)),
+                forStmt(
+                    "p", point, functionCall("points", "", listOf(identifier("n", intType, 2)), points),
+                    listOf(
+                        assignment(
+                            identifier("total", doubleType, 3),
+                            binaryExpr(identifier("total", doubleType, 3), "+", memberAccess(identifier("p", point, 4), "x", resultTypeIndex = doubleType), doubleType)
+                        )
+                    )
+                ),
+                returnStmt(identifier("total", doubleType, 3))
+            )
+        )
+        fun query(k: Int) = functionCall("query", "", listOf(identifier("idx", index, 3), intLiteral(k, intType)), intType)
+        function(
+            "lookup", intType,
+            body = listOf(
+                varDecl("idx", index, functionCall("buildIndex", "", emptyList(), index)),
+                returnStmt(binaryExpr(query(3), "+", query(4), intType))
+            )
+        )
+    }
+
+    private val program = ScriptCompiler().compile(CompilationInput(mapOf(scriptPath to script), plugin))
 
     private fun run(
         operations: Map<String, (ScriptFunctionCall) -> Any?>,

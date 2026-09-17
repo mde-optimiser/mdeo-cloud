@@ -1,5 +1,0 @@
-record Point(x: double, y: double = x, label: string = "")
-
-fun origin(): Point {
-    return Point(0.0)
-}
