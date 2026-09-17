@@ -13,6 +13,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
@@ -43,6 +44,13 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
      * Where shared computations run, apart from the requests waiting for them.
      */
     private val computationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /**
+     * Cancels every computation still running, as the backend shuts down.
+     */
+    fun close() {
+        computationScope.cancel()
+    }
     private val flights = ComputationFlights<FileDataTarget, ApiResult<RawFileData>>(computationScope)
 
     /**

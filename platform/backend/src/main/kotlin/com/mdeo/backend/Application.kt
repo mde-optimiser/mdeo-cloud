@@ -74,6 +74,9 @@ fun Application.module(appConfig: AppConfig) {
     services.pluginService.startManifestChecks(appConfig.plugin.manifestCheckSeconds)
     
     monitor.subscribe(ApplicationStopped) {
+        // Background work stops first, so none of it reaches for a database that is already closed.
+        services.pluginService.close()
+        services.fileDataService.close()
         DatabaseFactory.close()
     }
     

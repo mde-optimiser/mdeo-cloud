@@ -5,7 +5,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.mdeo.backend.database.PluginManifestFingerprintsTable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.cancel
 import java.util.concurrent.ConcurrentHashMap
 import com.mdeo.common.transport.CompressedResponses
 import com.mdeo.backend.database.ContributionPluginsTable
@@ -386,6 +388,18 @@ class PluginService(services: InjectedServices) : BaseService(), InjectedService
 
     private val knownFingerprints = ConcurrentHashMap<UUID, String>()
 
+    /**
+     * Where manifest checks and refreshes run; cancelled by [close].
+     */
+    private val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /**
+     * Stops the manifest checks and every refresh still running, as the backend shuts down.
+     */
+    fun close() {
+        backgroundScope.cancel()
+    }
+
     private val manifestWatcher = ManifestWatcher(
         recorded = { pluginId ->
             knownFingerprints[pluginId] ?: transaction {
@@ -402,10 +416,8 @@ class PluginService(services: InjectedServices) : BaseService(), InjectedService
                 is ApiResult.Failure -> logger.warn("Could not refresh plugin $pluginId: ${result.error.message}")
             }
         },
-        scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        scope = backgroundScope
     )
-
-    private val manifestCheckScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /**
      * Asks every plugin for its manifest fingerprint at a fixed interval, refreshing plugins whose
@@ -419,11 +431,20 @@ class PluginService(services: InjectedServices) : BaseService(), InjectedService
      */
     fun startManifestChecks(intervalSeconds: Long) {
         if (intervalSeconds <= 0) return
-        manifestCheckScope.launch {
+        backgroundScope.launch {
             while (isActive) {
                 delay(intervalSeconds * 1000)
-                val plugins = transaction {
-                    PluginsTable.selectAll().map { it[PluginsTable.id].toJavaUuid() to it[PluginsTable.url] }
+                // One failed round, such as the database being briefly unreachable, must not end
+                // the checks for good.
+                val plugins = try {
+                    transaction {
+                        PluginsTable.selectAll().map { it[PluginsTable.id].toJavaUuid() to it[PluginsTable.url] }
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    logger.warn("Manifest checks could not list the plugins: ${e.message}")
+                    continue
                 }
                 for ((pluginId, url) in plugins) {
                     try {
@@ -433,6 +454,8 @@ class PluginService(services: InjectedServices) : BaseService(), InjectedService
                             .timeout(Duration.ofSeconds(config.timeouts.manifestFetchSeconds))
                             .build()
                         observeManifestFingerprint(pluginId, httpClient.send(request, HttpResponse.BodyHandlers.discarding()))
+                    } catch (e: CancellationException) {
+                        throw e
                     } catch (e: Exception) {
                         logger.debug("Manifest check of plugin $pluginId failed: ${e.message}")
                     }
@@ -1000,11 +1023,11 @@ class PluginService(services: InjectedServices) : BaseService(), InjectedService
                     (ContributionPluginsTable.pluginId inList projectPluginIds) and
                             (ContributionPluginsTable.languageId eq languageId)
                 }
-                // A stable order keeps the hash of an unchanged set unchanged.
-                .orderBy(ContributionPluginsTable.id)
-                .flatMap { row ->
-                    json.decodeFromString<List<JsonObject>>(row[ContributionPluginsTable.serverContributionPlugins])
-                }
+                .map { it[ContributionPluginsTable.pluginId].toString() to it[ContributionPluginsTable.serverContributionPlugins] }
+                // Ordered by what the rows hold rather than by their ids, which a refresh generates
+                // anew: an unchanged set keeps its order, and so its hash.
+                .sortedWith(compareBy({ it.first }, { it.second }))
+                .flatMap { (_, payloads) -> json.decodeFromString<List<JsonObject>>(payloads) }
         }
     }
 

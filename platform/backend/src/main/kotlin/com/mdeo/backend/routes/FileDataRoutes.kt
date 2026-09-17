@@ -14,9 +14,14 @@ import io.ktor.server.application.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import org.slf4j.LoggerFactory
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.util.*
@@ -25,6 +30,14 @@ import java.util.*
  * Most entries one batch request may ask for.
  */
 const val MAX_FILE_DATA_BATCH_SIZE = 256
+
+/**
+ * Most entries of one batch request that are looked up at the same time. Each one may wait on the
+ * database and on a plugin, so a full batch must not take that many threads at once.
+ */
+const val MAX_CONCURRENT_BATCH_ENTRIES = 16
+
+private val batchLogger = LoggerFactory.getLogger("com.mdeo.backend.routes.FileDataBatch")
 
 /**
  * One entry of a batch file data request.
@@ -126,14 +139,29 @@ fun Route.fileDataRoutes(
 
             val callerComputationId = call.callerComputationId()
             val deadline = call.callerDeadline()
-            val results = coroutineScope {
+            val permits = Semaphore(MAX_CONCURRENT_BATCH_ENTRIES)
+            fun failed(error: ApiError) = """{"error":${Json.encodeToString(ApiError.serializer(), error)}}"""
+            val results = supervisorScope {
                 request.requests.map { entry ->
-                    async {
-                        when (val result = fileDataService.getFileData(
-                            projectId, entry.path, null, entry.key, callerComputationId, deadline
-                        )) {
-                            is ApiResult.Success -> result.value.toResponseJson()
-                            is ApiResult.Failure -> """{"error":${batchJson.encodeToString(ApiError.serializer(), result.error)}}"""
+                    async(Dispatchers.IO) {
+                        if (entry.path.isBlank() || entry.key.isBlank()) {
+                            return@async failed(ApiError(ErrorCodes.BAD_REQUEST, "An entry needs a path and a key"))
+                        }
+                        try {
+                            permits.withPermit {
+                                when (val result = fileDataService.getFileData(
+                                    projectId, entry.path, null, entry.key, callerComputationId, deadline
+                                )) {
+                                    is ApiResult.Success -> result.value.toResponseJson()
+                                    is ApiResult.Failure -> failed(result.error)
+                                }
+                            }
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            // One entry that fails unexpectedly must not take the others down.
+                            batchLogger.error("File data batch entry ${entry.path}:${entry.key} failed", e)
+                            failed(ApiError(ErrorCodes.INTERNAL, "Could not get ${entry.path}:${entry.key}"))
                         }
                     }
                 }.awaitAll()
@@ -144,7 +172,6 @@ fun Route.fileDataRoutes(
     }
 }
 
-private val batchJson = Json
 
 /**
  * Checks that the caller may read file data of the project in the path, answering the call when not.
