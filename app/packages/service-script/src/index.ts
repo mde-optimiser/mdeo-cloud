@@ -1,5 +1,4 @@
 import { FileCode } from "lucide";
-import { TYPED_AST_CLOSURE_HANDLER_KEY, typedAstClosureHandler } from "./handler/typedAstClosureHandler.js";
 import {
     defaultLanguageConfiguration,
     defaultMonarchTokenProvider,
@@ -66,6 +65,7 @@ initializePluginContext();
 
 const { scriptPluginProvider } = await import("@mdeo/language-script");
 const { typedAstHandler, TYPED_AST_HANDLER_KEY } = await import("./handler/typedAstHandler.js");
+const { typedAstClosureHandler, TYPED_AST_CLOSURE_HANDLER_KEY } = await import("./handler/typedAstClosureHandler.js");
 const { ScriptExecutionHandler } = await import("./handler/scriptExecutionHandler.js");
 const { createScriptConfigContributionPlugin } = await import("./scriptConfigContributionPlugin.js");
 
