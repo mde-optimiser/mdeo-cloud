@@ -164,8 +164,18 @@ reads started together — a `Promise.all` over several files — reach the back
 `POST /api/projects/{projectId}/file-data-batch` request with `{"requests": [{"path", "key"}]}`. The
 backend computes the entries concurrently and answers `{"results": [...]}` in request order, each
 either `{"data", "version"}` or `{"error": {"code", "message"}}`, so one failing entry does not fail the others.
+A batch holds at most 256 entries; a larger one is refused with `400`, and `serverApi` splits its
+reads accordingly.
 
-Responses: `404` for an unknown language or an unregistered data key, `403` for a missing scope.
+Responses:
+
+| Status | When |
+| --- | --- |
+| `403` | The token lacks the scope |
+| `404` | Unknown language, or no handler for the data key |
+| `409` | Only a contribution hash was sent, and this service does not hold that set; the answer carries `X-Mdeo-Contributions-Unknown` and the backend sends the request again with the payloads |
+| `503` | Every Langium instance stayed busy for `LANGIUM_ACQUIRE_TIMEOUT_MS` |
+| `504` | The caller's deadline passed |
 
 ## `POST /request/:languageId/:key`
 
@@ -181,7 +191,8 @@ An arbitrary language-specific request. Registered only if the service has `requ
 }
 ```
 
-The response is `{ "data": … }`, or `{ "data": null }` when the handler produced nothing.
+The response is `{ "data": … }`, or `{ "data": null }` when the handler produced nothing. It fails
+with the same statuses as `/data`.
 
 This is the channel the config language uses to talk to its contribution plugins: `config` to compute
 section data, and the `config-execution-*` keys to manage runs.
@@ -216,6 +227,7 @@ action.
 | `GET /:languageId/executions/:executionId/files` | The result file tree |
 | `GET /:languageId/executions/:executionId/files/*` | One result file |
 | `POST /:languageId/executions/:executionId/cancel` | Cancel a running execution |
+| `DELETE /:languageId/executions/:executionId` | Delete an execution and its results |
 
 The summary and file reads need `plugin:execution:read`, cancelling needs `plugin:execution:cancel`,
 and deleting needs `plugin:execution:delete`. The same scopes authorize the same requests on the

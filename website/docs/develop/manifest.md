@@ -1,7 +1,9 @@
 # Plugin manifest reference
 
 The manifest is the entire external contract of a plugin. The backend fetches it with `GET /` when the
-plugin is registered and whenever an administrator refreshes it.
+plugin is registered, whenever an administrator refreshes it, and whenever the plugin's
+`X-Mdeo-Manifest-Fingerprint` changes — which the backend sees on every answer and also asks for every
+`PLUGIN_MANIFEST_CHECK_SECONDS`.
 
 In TypeScript the shape is `Plugin` from `@mdeo/plugin`. A service builds a `ServicePluginDefinition`
 — the same thing without `url` and `default`, which the backend fills in — and `@mdeo/service-common`
@@ -90,8 +92,8 @@ Write asset paths **relative**, as `"language.js"`. `buildManifest` rewrites the
 `static/<version>/language.js` when `SERVICE_VERSION` is set, and to `static/language.js` otherwise.
 The backend then resolves them against the plugin's URL.
 
-This is why plugins must be refreshed after an upgrade: a stored manifest points at the old version
-segment.
+This is why the backend fetches the manifest again after a redeploy: a stored manifest points at the
+old version segment. See [After an upgrade](/guide/deployment#after-an-upgrade).
 
 ### `graphicalEditorPlugin`
 

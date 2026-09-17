@@ -16,6 +16,10 @@ The platform provides two modules for this, the Kotlin counterpart of `@mdeo/ser
 A Kotlin plugin service provides **contribution plugins**. A language needs a Langium frontend,
 which only exists in TypeScript, so a plugin that adds a language is written with
 `@mdeo/service-common`.
+
+For the same reason the module serves no `/data`, `/request` or `/:languageId/executions`
+endpoints, so what the [service API](/develop/service-api) says about deadlines and contribution
+hashes on those endpoints does not apply to it.
 :::
 
 ## Depending on the modules

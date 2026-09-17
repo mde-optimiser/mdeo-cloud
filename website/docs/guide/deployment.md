@@ -72,8 +72,10 @@ single run.
 - **Optimiser nodes** are the component to add when runs are too slow. The `resources` block of a
   config file caps how much of the available capacity a single run may take (`threads`, `nodes`,
   `threadsPerNode`).
-- **Plugin services** are stateless apart from a pool of Langium instances. `MAX_LANGIUM_INSTANCES`
-  trades memory for the ability to serve concurrent requests with different plugin sets.
+- **Plugin services** keep no durable state. In memory they hold a pool of Langium instances, the
+  contribution sets they were sent by hash, and open sessions. A restart costs one `409` round trip
+  per contribution set and drops open sessions, which reconnect. `MAX_LANGIUM_INSTANCES` trades
+  memory for the ability to serve concurrent requests with different plugin sets.
 - **Databases** are already split per domain, so a heavy optimisation run does not contend with
   workbench traffic.
 
@@ -92,8 +94,12 @@ manual refresh (**Settings → Plugins**) after an upgrade.
 
 ::: warning
 Tokens carry [one scope per capability](/develop/service-api#scopes) since this release, and error
-responses share [one shape](/develop/service-api#errors). A plugin or execution service built
-before that refuses the tokens the backend now issues. Upgrade the backend, the workbench and every
+responses share [one shape](/develop/service-api#errors). Upgrade the backend, the workbench and every
 plugin and execution service together, including plugin services a project builds itself on
-`@mdeo/service-common` or the Kotlin plugin service module.
+`@mdeo/service-common` or the Kotlin plugin service module. A service built before this release still
+accepts the tokens the backend issues, but it reports errors in the old shape: the backend passes its
+HTTP failures on without their message, and cannot read the errors an older execution service sends
+over its WebSocket at all, so those requests fail as `Unavailable`. Sessions and
+[external functions](/develop/script-contributions#implementations-outside-the-platform) need the
+new version on both sides.
 :::

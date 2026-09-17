@@ -147,12 +147,13 @@ const metamodelLanguageConfig: LanguageServiceConfig<MetamodelServices> = {
 
 - the manifest at `GET /`, with static asset paths rewritten to the versioned `static/` prefix;
 - static file serving with CORS and the COOP/COEP headers the workbench needs;
-- JWT authentication for every request, with tokens issued by the backend;
+- JWT authentication for every request, with tokens issued by the backend and one
+  [scope](/develop/service-api#scopes) per capability;
 - a **pool of Langium instances**, keyed by the set of active contribution plugins, so that two
   projects with different plugin sets do not share a parser;
 - dependency tracking: whatever a handler reads through the `ServerApi` is recorded as a file or data
   dependency and returned with the result, so the backend can invalidate the cache correctly;
-- the WebSocket bridge for execution progress.
+- the WebSocket bridge for execution progress, and [sessions](/develop/sessions) with executions.
 
 See [Language service HTTP API](/develop/service-api) for the endpoints themselves.
 

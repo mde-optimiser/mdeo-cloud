@@ -50,28 +50,30 @@ be resolved by whichever row came back first.
 
 ## Declaring a session
 
-A session type is declared in the plugin manifest, beside whatever declares the target.
+A session type is declared in the plugin manifest, beside whatever declares the target. The
+protocols below are made up for illustration; the one real protocol so far, `script-functions`, is
+declared by script contributions for you.
 
 ```ts
 // On a language plugin
-const scriptLanguagePlugin: LanguagePlugin = {
-    id: "script",
+const modelLanguagePlugin: LanguagePlugin = {
+    id: "model",
     // …
     sessions: {
-        functions: {
-            protocol: "script-functions",
+        validation: {
+            protocol: "model-validation",
             versions: [1],
-            description: "Calls contributed functions implemented outside the platform"
+            description: "Validates model changes as a run makes them"
         }
     }
 };
 
 // On a server contribution plugin
-const contribution: ScriptContributionPlugin = {
-    id: "script-functions",
+const contribution: ServerContributionPlugin = {
+    id: "geo",
     // …
     sessions: {
-        calls: { protocol: "script-functions", versions: [2, 1] }
+        calls: { protocol: "geo-queries", versions: [2, 1] }
     }
 };
 ```
@@ -100,7 +102,7 @@ In a TypeScript service, register a handler under the target address and the ses
 const config: ServiceConfig<ScriptServices> = {
     // …
     sessions: {
-        "contrib:script-functions": {
+        "contrib:geo": {
             calls: {
                 open(ctx) {
                     return {
@@ -123,6 +125,8 @@ returns handles that one connection until it ends.
 
 ### The session context
 
+In TypeScript, `open` receives:
+
 | Field | Meaning |
 | --- | --- |
 | `projectId`, `executionId` | Who the session belongs to. A session never outlives its execution |
@@ -133,6 +137,10 @@ returns handles that one connection until it ends.
 | `instance` | For a `lang:` target, the Langium instance this session owns, with the project's contribution plugins loaded |
 | `send(data)` | Writes one message |
 | `close(reason)` | Ends the session |
+
+The Kotlin `SessionContext` has `projectId`, `executionId`, `target`, `sessionName` and `version` as
+above, `token` for the token the session was opened with, and suspending `send` and `close`. It has
+no `serverApi` or `instance`: a Kotlin service holds no Langium instances.
 
 A handler registered without a matching declaration — or a declaration without a handler — is
 reported as a warning at service start. Both are wiring mistakes that would otherwise only show
@@ -151,8 +159,8 @@ POST /api/projects/{projectId}/sessions/{kind}/{targetId}/{name}/connect
 
 ```json
 {
-  "url": "ws://script-service/ws/sessions/contrib/script-functions/calls",
-  "protocol": "script-functions",
+  "url": "ws://workbench:80/plugin/geo/ws/sessions/contrib/geo/calls",
+  "protocol": "geo-queries",
   "versions": [2, 1],
   "token": "eyJ…",
   "expiresAt": 1789000000
@@ -247,10 +255,17 @@ with `4503`.
 ## Deployment
 
 A session is an ordinary WebSocket upgrade on the plugin service's own port, so it needs what the
-execution WebSocket already needs. In the compose deployment each `location ^~ /plugin/…/` block
-already forwards upgrades with a 3600-second read timeout. In the Kubernetes deployment the hop is
-cluster-internal — an execution node reaches a plugin service directly — so no gateway route is
-involved.
+execution WebSocket already needs. The execution node dials the URL the backend resolved for the
+plugin. For a plugin registered with a relative URL such as `/plugin/geo/`, that is the URL behind
+`INTERNAL_PLUGIN_BASE_URL`, which is the workbench's nginx in both the compose and the Kubernetes
+deployment; the Gateway API route in Kubernetes only carries browser traffic. Each
+`location ^~ /plugin/…/` block already forwards upgrades with a 3600-second read timeout, so a new
+plugin service needs such a block, or has to be registered with an absolute URL the execution
+nodes can reach.
+
+A message may be at most 512 MiB once inflated, on both stacks. A session token is valid for
+`JWT_EXPIRATION_SECONDS` and only while its execution runs; `SessionResolver` fetches a new one
+before a reconnect needs it.
 
 ## See also
 

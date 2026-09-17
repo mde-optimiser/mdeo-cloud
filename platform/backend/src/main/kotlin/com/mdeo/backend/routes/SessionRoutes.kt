@@ -5,6 +5,7 @@ import com.mdeo.common.transport.respondError
 import com.mdeo.backend.plugins.*
 import com.mdeo.backend.service.JwtService
 import com.mdeo.backend.service.PluginService
+import com.mdeo.common.model.ErrorCodes
 import com.mdeo.common.model.PluginTarget
 import com.mdeo.common.model.PluginTargetKind
 import io.ktor.http.*
@@ -111,7 +112,7 @@ fun Route.sessionRoutes(
             if (resolved == null) {
                 call.respondError(HttpStatusCode.NotFound, "No session '$sessionName' declared by $target in this project. " +
                                 "Check that the plugin providing $target is enabled and that it " +
-                                "declares a session named '$sessionName'.")
+                                "declares a session named '$sessionName'.", ErrorCodes.SESSION_NOT_FOUND)
                 return@post
             }
 

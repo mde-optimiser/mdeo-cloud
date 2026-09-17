@@ -227,11 +227,12 @@ data class FileDataConfig(
          * @return The configuration
          */
         fun load(environment: Map<String, String> = System.getenv()): FileDataConfig {
-            val timeout = environment["FILE_DATA_COMPUTATION_TIMEOUT_SECONDS"]?.toLongOrNull()
-                ?: TimeUnit.MINUTES.toSeconds(5)
+            // A non-positive value would fail every computation at once, so it counts as unset.
+            fun seconds(name: String) = environment[name]?.toLongOrNull()?.takeIf { it > 0 }
+            val timeout = seconds("FILE_DATA_COMPUTATION_TIMEOUT_SECONDS") ?: TimeUnit.MINUTES.toSeconds(5)
             return FileDataConfig(
                 computationTimeoutSeconds = timeout,
-                computationBindingSeconds = environment["FILE_DATA_COMPUTATION_BINDING_SECONDS"]?.toLongOrNull() ?: timeout
+                computationBindingSeconds = seconds("FILE_DATA_COMPUTATION_BINDING_SECONDS") ?: timeout
             )
         }
     }

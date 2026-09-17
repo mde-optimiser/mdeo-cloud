@@ -241,7 +241,7 @@ the user's own files:
 
 | Service | Fetches with | Hands to |
 | --- | --- | --- |
-| `script-execution` | `BackendApiService.getPluginAst` | `CompilationInput(typedAsts, pluginAst)` |
+| `script-execution` | `BackendApiService.getPluginAst` | `CompilationInput(files, pluginAst)` |
 | `optimizer-execution` | `OptimizerApiClient.getScriptPluginAst` | the same input, inside each worker subprocess |
 
 The compiler emits the contributed functions into the same generated class as the user's
