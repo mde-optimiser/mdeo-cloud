@@ -1,0 +1,113 @@
+fun lateOnEveryBranch(n: int): string {
+    val kind: string
+    if (n < 0) {
+        kind = "negative"
+    } else if (n == 0) {
+        kind = "zero"
+    } else {
+        kind = "positive"
+    }
+    return kind
+}
+
+fun lateWithReturn(n: int): int {
+    val result: int
+    if (n > 10) {
+        return -1
+    } else {
+        result = n * 2
+    }
+    return result
+}
+
+fun capturedByLambda(): int {
+    val base = 40
+    val add: (int) => int = (v) => v + base
+    return add(2)
+}
+
+fun freshInEveryIteration(): int {
+    val adders = emptyList<(int) => int>()
+    for (i in listOf(1, 2, 3)) {
+        val step = i * 10
+        val adder: (int) => int = (v) => v + step
+        adders.add(adder)
+    }
+    var total = 0
+    for (adder in adders) {
+        total = total + adder(0)
+    }
+    return total
+}
+
+fun wideLateValues(flag: boolean): double {
+    val big: long
+    val ratio: double
+    if (flag) {
+        big = 10000000000L
+        ratio = 0.5
+    } else {
+        big = 1L
+        ratio = 2.0
+    }
+    return big * ratio
+}
+
+fun varReassignedInLoop(): int {
+    var last = 0
+    for (i in listOf(3, 5, 7)) {
+        last = last + i
+    }
+    var count = 0
+    while (count < 4) {
+        count = count + 1
+    }
+    return last * 10 + count
+}
+
+fun lateInLoopBody(): int {
+    var total = 0
+    for (i in listOf(1, 2, 3)) {
+        val doubled: int
+        if (i % 2 == 0) {
+            doubled = i * 20
+        } else {
+            doubled = i * 2
+        }
+        total = total + doubled
+    }
+    return total
+}
+
+fun nullableConcat(): string {
+    val d: double? = 1.5
+    val n: double? = null
+    val i: int? = 3
+    return "" + d + n + i
+}
+
+fun readAfterJumpingBranches(n: int): string {
+    var total = 0
+    for (i in listOf(1, 2, 3, 4)) {
+        val label: string
+        if (i == n) {
+            continue
+        } else if (i > 3) {
+            break
+        } else {
+            label = "i" + i
+        }
+        total = total + label.length()
+    }
+    val kind: string
+    if (n < 0) {
+        if (n < -10) {
+            return "far"
+        } else {
+            return "near"
+        }
+    } else {
+        kind = "non-negative"
+    }
+    return kind + total
+}

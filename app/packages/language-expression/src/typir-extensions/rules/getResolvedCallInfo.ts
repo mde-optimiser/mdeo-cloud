@@ -2,7 +2,7 @@ import type { TypirProblem, TypirSpecifics, ValidationProblem } from "typir";
 import type { CustomFunctionType } from "../kinds/custom-function/custom-function-type.js";
 import type { CustomValueType } from "../kinds/custom-value/custom-value-type.js";
 import type { ExtendedTypirServices } from "../service/extendedTypirServices.js";
-import { CallValidationHelper } from "./callValidationHelper.js";
+import { CallValidationHelper, type NamedArgumentNode } from "./callValidationHelper.js";
 import { sharedImport } from "@mdeo/language-shared";
 
 const { ValidationProblem: ValidationProblemConstant } = sharedImport("typir");
@@ -21,6 +21,11 @@ export interface ResolvedCallInfo {
      * For generic functions, these are the types after generic substitution.
      */
     resolvedParameterTypes: CustomValueType[];
+    /**
+     * For every argument, positional ones first and then named ones, the index of the parameter it
+     * is passed to.
+     */
+    argumentParameterIndices: number[];
     /**
      * Whether the chosen signature uses varargs.
      */
@@ -41,6 +46,7 @@ export interface ResolvedCallInfo {
  * @param languageNode The AST node representing the entire call expression
  * @param functionType The type of the function being called
  * @param genericArgumentsNodes AST nodes for explicit generic type arguments
+ * @param namedArgumentNodes AST nodes for the named call arguments
  * @param argumentNodes AST nodes for the call arguments
  * @param services Extended Typir services for type operations
  * @returns The resolved call info including overload name, resolved parameter types, and varargs info;
@@ -51,6 +57,7 @@ export function getResolvedCallInfo<Specifics extends TypirSpecifics>(
     functionType: CustomFunctionType,
     genericArgumentsNodes: Specifics["LanguageType"][],
     argumentNodes: Specifics["LanguageType"][],
+    namedArgumentNodes: NamedArgumentNode<Specifics>[],
     services: ExtendedTypirServices<Specifics>
 ): ResolvedCallInfo | undefined {
     const helper = new OverloadCallHelper<Specifics>(
@@ -58,6 +65,7 @@ export function getResolvedCallInfo<Specifics extends TypirSpecifics>(
         functionType,
         genericArgumentsNodes,
         argumentNodes,
+        namedArgumentNodes,
         services,
         false
     );
@@ -70,6 +78,7 @@ export function getResolvedCallInfo<Specifics extends TypirSpecifics>(
     return {
         overloadName: helper.chosenOverloadName,
         resolvedParameterTypes: helper.resolvedParameterTypes as CustomValueType[],
+        argumentParameterIndices: helper.argumentParameterIndices,
         isVarArgs,
         varArgsStartIndex
     };

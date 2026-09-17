@@ -1,0 +1,194 @@
+{
+  "types": [
+    {
+      "package": "contrib/geo",
+      "type": "Point",
+      "isNullable": false
+    },
+    {
+      "package": "builtin",
+      "type": "string",
+      "isNullable": false
+    },
+    {
+      "package": "contrib/geo",
+      "type": "Route",
+      "isNullable": false
+    },
+    {
+      "package": "builtin",
+      "type": "int",
+      "isNullable": false
+    },
+    {
+      "package": "builtin",
+      "type": "double",
+      "isNullable": false
+    },
+    {
+      "package": "builtin",
+      "type": "List",
+      "isNullable": false,
+      "typeArgs": {
+        "T": {
+          "package": "contrib/geo",
+          "type": "Point",
+          "isNullable": false
+        }
+      }
+    }
+  ],
+  "functions": [
+    {
+      "name": "nearest",
+      "signatures": {
+        "": {
+          "parameters": [],
+          "returnType": 0,
+          "external": {
+            "kind": "external",
+            "operation": "nearest",
+            "contribution": "geo",
+            "session": "functions"
+          }
+        }
+      }
+    },
+    {
+      "name": "describe",
+      "signatures": {
+        "": {
+          "parameters": [
+            {
+              "name": "p",
+              "type": 0
+            }
+          ],
+          "returnType": 1,
+          "external": {
+            "kind": "external",
+            "operation": "describe",
+            "contribution": "geo",
+            "session": "functions"
+          }
+        }
+      }
+    },
+    {
+      "name": "relabel",
+      "signatures": {
+        "": {
+          "parameters": [
+            {
+              "name": "point",
+              "type": 0
+            },
+            {
+              "name": "label",
+              "type": 1
+            }
+          ],
+          "returnType": 0,
+          "external": {
+            "kind": "external",
+            "operation": "relabel",
+            "contribution": "geo",
+            "session": "functions"
+          }
+        }
+      }
+    },
+    {
+      "name": "summarize",
+      "signatures": {
+        "": {
+          "parameters": [
+            {
+              "name": "route",
+              "type": 2
+            }
+          ],
+          "returnType": 1,
+          "external": {
+            "kind": "external",
+            "operation": "summarize",
+            "contribution": "geo",
+            "session": "functions"
+          }
+        }
+      }
+    },
+    {
+      "name": "extend",
+      "signatures": {
+        "": {
+          "parameters": [
+            {
+              "name": "route",
+              "type": 2
+            }
+          ],
+          "returnType": 3,
+          "external": {
+            "kind": "external",
+            "operation": "extend",
+            "contribution": "geo",
+            "session": "functions"
+          }
+        }
+      }
+    },
+    {
+      "name": "reverse",
+      "signatures": {
+        "": {
+          "parameters": [
+            {
+              "name": "route",
+              "type": 2
+            }
+          ],
+          "returnType": 2,
+          "external": {
+            "kind": "external",
+            "operation": "reverse",
+            "contribution": "geo",
+            "session": "functions"
+          }
+        }
+      }
+    }
+  ],
+  "classes": [
+    {
+      "contribution": "geo",
+      "name": "Point",
+      "kind": "record",
+      "fields": [
+        {
+          "name": "x",
+          "type": 4
+        },
+        {
+          "name": "label",
+          "type": 1
+        }
+      ]
+    },
+    {
+      "contribution": "geo",
+      "name": "Route",
+      "kind": "record",
+      "fields": [
+        {
+          "name": "name",
+          "type": 1
+        },
+        {
+          "name": "stops",
+          "type": 5
+        }
+      ]
+    }
+  ]
+}

@@ -1,7 +1,6 @@
 package com.mdeo.scriptfunctions.service
 
 import com.mdeo.scriptfunctions.protocol.ClientMessage
-import com.mdeo.scriptfunctions.protocol.Delta
 import com.mdeo.scriptfunctions.protocol.HeapKind
 import com.mdeo.scriptfunctions.protocol.HeapObject
 import com.mdeo.scriptfunctions.protocol.ServiceMessage
@@ -26,8 +25,8 @@ import kotlin.test.assertTrue
  */
 class ScriptFunctionsServiceSessionTest {
 
-    private fun list(id: Long, vararg values: Int, mutable: Boolean = true) =
-        HeapObject(id, HeapKind.LIST, version = 1, mutable = mutable, elements = values.map { WireValue.IntValue(it) })
+    private fun list(id: Long, vararg values: Int) =
+        HeapObject(id, HeapKind.LIST, version = 1, elements = values.map { WireValue.IntValue(it) })
 
     /**
      * A session that already holds the metamodel of [street], as every execution sends it first.
@@ -37,11 +36,7 @@ class ScriptFunctionsServiceSessionTest {
             runBlocking { it.handle(ClientMessage.MetamodelPut(houses)) }
         }
 
-    @Suppress("UNCHECKED_CAST")
-    private val append = "append" to ScriptFunctionOperation { call ->
-        call.argument<MutableList<Any?>>(0).add(4)
-        null
-    }
+    private val size = "size" to ScriptFunctionOperation { call -> call.argument<List<Any?>>(0).size }
 
     @Test
     fun `a double stays a double`() = runBlocking {
@@ -51,44 +46,44 @@ class ScriptFunctionsServiceSessionTest {
     }
 
     @Test
-    fun `only the appended element comes back`() = runBlocking {
-        val service = session(append)
+    fun `an operation cannot change a collection it is given`() = runBlocking {
+        val service = session("append" to ScriptFunctionOperation { call ->
+            @Suppress("UNCHECKED_CAST")
+            (call.arguments[0] as MutableList<Any?>).add(4)
+            null
+        })
         val answer = service.handle(ClientMessage.Call(1, "append", listOf(list(1, 1, 2, 3)), listOf(WireValue.Ref(1))))
-        val delta = assertIs<ServiceMessage.Result>(answer).deltas.single()
-        assertEquals(Delta.Splice(1, 3, 0, listOf(WireValue.IntValue(4))), delta)
-    }
-
-    @Test
-    fun `changing a readonly collection fails the call`() = runBlocking {
-        val service = session(append)
-        val answer = service.handle(
-            ClientMessage.Call(1, "append", listOf(list(1, 1, mutable = false)), listOf(WireValue.Ref(1)))
-        )
         assertTrue(assertIs<ServiceMessage.Failure>(answer).message.contains("readonly"))
     }
 
     @Test
+    fun `returning an argument returns it by id`() = runBlocking {
+        val service = session("same" to ScriptFunctionOperation { call -> call.arguments[0] })
+        val answer = assertIs<ServiceMessage.Result>(
+            service.handle(ClientMessage.Call(1, "same", listOf(list(1, 1, 2)), listOf(WireValue.Ref(1))))
+        )
+        assertEquals(WireValue.Ref(1), answer.value)
+        assertTrue(answer.objects.isEmpty())
+    }
+
+    @Test
     fun `a collection sent without content that is not held asks for a resend`() = runBlocking {
-        val service = session(append)
+        val service = session(size)
         val answer = service.handle(
-            ClientMessage.Call(1, "append", listOf(HeapObject(5, HeapKind.LIST, 1, true)), listOf(WireValue.Ref(5)))
+            ClientMessage.Call(1, "size", listOf(HeapObject(5, HeapKind.LIST, 1)), listOf(WireValue.Ref(5)))
         )
         assertEquals(ServiceMessage.Failure.UNKNOWN_OBJECT, assertIs<ServiceMessage.Failure>(answer).code)
     }
 
     @Test
     fun `a failed call keeps the collections other collections still hold`() = runBlocking {
-        val outer = HeapObject(1, HeapKind.LIST, 1, true, elements = listOf(WireValue.Ref(2)))
+        val outer = HeapObject(1, HeapKind.LIST, 1, elements = listOf(WireValue.Ref(2)))
         val inner = list(2, 1)
         val service = session(
             "boom" to ScriptFunctionOperation { error("no capacity") },
-            "appendToFirst" to ScriptFunctionOperation { call ->
-                @Suppress("UNCHECKED_CAST")
-                (call.argument<List<Any?>>(0)[0] as MutableList<Any?>).add(4)
-                null
-            }
+            "firstSize" to ScriptFunctionOperation { call -> (call.argument<List<Any?>>(0)[0] as List<*>).size }
         )
-        service.handle(ClientMessage.Call(1, "appendToFirst", listOf(outer, inner), listOf(WireValue.Ref(1))))
+        service.handle(ClientMessage.Call(1, "firstSize", listOf(outer, inner), listOf(WireValue.Ref(1))))
 
         val failed = service.handle(ClientMessage.Call(2, "boom", listOf(list(2, 1, 4)), listOf(WireValue.Ref(2))))
         assertEquals("no capacity", assertIs<ServiceMessage.Failure>(failed).message)
@@ -96,13 +91,12 @@ class ScriptFunctionsServiceSessionTest {
         // The outer list is sent by id; the inner one again in full, as a client does after a failure.
         val answer = service.handle(
             ClientMessage.Call(
-                3, "appendToFirst",
-                listOf(HeapObject(1, HeapKind.LIST, 1, true), list(2, 1, 4)),
+                3, "firstSize",
+                listOf(HeapObject(1, HeapKind.LIST, 1), list(2, 1, 4)),
                 listOf(WireValue.Ref(1))
             )
         )
-        val delta = assertIs<ServiceMessage.Result>(answer).deltas.single()
-        assertEquals(Delta.Splice(2, 2, 0, listOf(WireValue.IntValue(4))), delta)
+        assertEquals(WireValue.IntValue(2), assertIs<ServiceMessage.Result>(answer).value)
     }
 
     @Test
@@ -124,41 +118,42 @@ class ScriptFunctionsServiceSessionTest {
 
     @Test
     fun `a released collection is no longer held`() = runBlocking {
-        val service = session(append)
-        service.handle(ClientMessage.Call(1, "append", listOf(list(1, 1)), listOf(WireValue.Ref(1))))
+        val service = session(size)
+        service.handle(ClientMessage.Call(1, "size", listOf(list(1, 1)), listOf(WireValue.Ref(1))))
         assertNull(service.handle(ClientMessage.Release(listOf(1))))
         val answer = service.handle(
-            ClientMessage.Call(2, "append", listOf(HeapObject(1, HeapKind.LIST, 2, true)), listOf(WireValue.Ref(1)))
+            ClientMessage.Call(2, "size", listOf(HeapObject(1, HeapKind.LIST, 1)), listOf(WireValue.Ref(1)))
         )
         assertEquals(ServiceMessage.Failure.UNKNOWN_OBJECT, assertIs<ServiceMessage.Failure>(answer).code)
     }
 
     @Test
-    fun `sets, bags and maps produce their own deltas`() = runBlocking {
-        @Suppress("UNCHECKED_CAST")
-        val service = session("edit" to ScriptFunctionOperation { call ->
-            (call.arguments[0] as MutableSet<Any?>).apply { remove("a"); add("c") }
-            (call.arguments[1] as MutableList<Any?>).add("x")
-            (call.arguments[2] as MutableMap<Any?, Any?>).apply { remove("gone"); put("k", 2) }
+    fun `sets, bags and maps arrive readonly, in the order they were sent`() = runBlocking {
+        val service = session("describe" to ScriptFunctionOperation { call ->
+            val set = call.argument<Set<Any?>>(0)
+            val bag = call.argument<List<Any?>>(1)
+            val map = call.argument<Map<Any?, Any?>>(2)
+            "$set $bag $map"
+        }, "clear" to ScriptFunctionOperation { call ->
+            @Suppress("UNCHECKED_CAST")
+            (call.arguments[0] as MutableMap<Any?, Any?>).clear()
             null
         })
         fun s(v: String) = WireValue.StringValue(v)
         val objects = listOf(
-            HeapObject(1, HeapKind.SET, 1, true, elements = listOf(s("a"), s("b"))),
-            HeapObject(2, HeapKind.BAG, 1, true, elements = listOf(s("x"))),
-            HeapObject(3, HeapKind.MAP, 1, true, entries = listOf(s("k"), WireValue.IntValue(1), s("gone"), WireValue.IntValue(0)))
+            HeapObject(1, HeapKind.SET, 1, elements = listOf(s("a"), s("b"))),
+            HeapObject(2, HeapKind.BAG, 1, elements = listOf(s("x"), s("x"))),
+            HeapObject(3, HeapKind.MAP, 1, entries = listOf(s("k"), WireValue.IntValue(1), s("gone"), WireValue.IntValue(0)))
         )
-        val answer = service.handle(ClientMessage.Call(1, "edit", objects, listOf(WireValue.Ref(1), WireValue.Ref(2), WireValue.Ref(3))))
-        assertEquals(
-            listOf(
-                Delta.Remove(1, listOf(s("a"))),
-                Delta.Add(1, listOf(s("c"))),
-                Delta.Count(2, s("x"), 2),
-                Delta.RemoveKey(3, s("gone")),
-                Delta.Put(3, s("k"), WireValue.IntValue(2))
-            ),
-            assertIs<ServiceMessage.Result>(answer).deltas
+        val answer = service.handle(
+            ClientMessage.Call(1, "describe", objects, listOf(WireValue.Ref(1), WireValue.Ref(2), WireValue.Ref(3)))
         )
+        assertEquals(s("[a, b] [x, x] {k=1, gone=0}"), assertIs<ServiceMessage.Result>(answer).value)
+
+        val cleared = service.handle(
+            ClientMessage.Call(2, "clear", listOf(HeapObject(3, HeapKind.MAP, 1)), listOf(WireValue.Ref(3)))
+        )
+        assertTrue(assertIs<ServiceMessage.Failure>(cleared).message.contains("readonly"))
     }
 
     private val houses = WireMetamodel(
@@ -257,18 +252,18 @@ class ScriptFunctionsServiceSessionTest {
 
     @Test
     fun `a new model drops the old one, its cache and every collection`() = runBlocking {
-        val service = session(append)
+        val service = session(size)
         service.handle(ClientMessage.ModelPut(1, street))
         val first = service.currentModel!!
         first.cache["index"] = "built"
-        service.handle(ClientMessage.Call(1, "append", listOf(list(1, 1)), listOf(WireValue.Ref(1)), modelId = 1))
+        service.handle(ClientMessage.Call(1, "size", listOf(list(1, 1)), listOf(WireValue.Ref(1)), modelId = 1))
 
         service.handle(ClientMessage.ModelPut(2, street))
 
         assertTrue(service.currentModel !== first)
         assertTrue(service.currentModel!!.cache.isEmpty())
         val resent = service.handle(
-            ClientMessage.Call(2, "append", listOf(HeapObject(1, HeapKind.LIST, 2, true)), listOf(WireValue.Ref(1)), modelId = 2)
+            ClientMessage.Call(2, "size", listOf(HeapObject(1, HeapKind.LIST, 1)), listOf(WireValue.Ref(1)), modelId = 2)
         )
         assertEquals(ServiceMessage.Failure.UNKNOWN_OBJECT, assertIs<ServiceMessage.Failure>(resent).code)
     }

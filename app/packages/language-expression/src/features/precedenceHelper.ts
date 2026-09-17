@@ -48,6 +48,8 @@ function getBinaryOperatorPrecedence(operator: string): Precedence {
         case "+":
         case "-":
             return Precedence.ADDITIVE;
+        case "??":
+            return Precedence.NULL_COALESCING;
         case "<":
         case ">":
         case "<=":
@@ -55,6 +57,8 @@ function getBinaryOperatorPrecedence(operator: string): Precedence {
             return Precedence.RELATIONAL;
         case "==":
         case "!=":
+        case "===":
+        case "!==":
             return Precedence.EQUALITY;
         case "&&":
             return Precedence.LOGICAL_AND;

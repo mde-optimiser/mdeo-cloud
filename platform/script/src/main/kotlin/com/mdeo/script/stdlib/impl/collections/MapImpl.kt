@@ -7,32 +7,21 @@ package com.mdeo.script.stdlib.impl.collections
  * @param K the type of keys in this map
  * @param V the type of values in this map
  */
-class MapImpl<K, V> : ScriptMap<K, V>, MapDeltaTarget {
+class MapImpl<K, V> : ScriptMap<K, V>, HeapMap {
 
     private val backing: LinkedHashMap<K, V>
 
     /**
-     * Mutation counter, see [MapDeltaTarget.deltaVersion].
+     * Mutation counter, see [HeapMap.heapVersion].
      */
     private var version: Long = 0
 
-    override val deltaVersion: Long get() = version
+    override val heapVersion: Long get() = version
 
-    override fun deltaEntries(): List<Pair<Any?, Any?>> = backing.entries.map { it.key to it.value }
-
-    @Suppress("UNCHECKED_CAST")
-    override fun deltaPut(key: Any?, value: Any?) {
-        version++
-        backing[key as K] = value as V
-    }
-
-    override fun deltaRemoveKey(key: Any?) {
-        version++
-        backing.remove(key)
-    }
+    override fun heapEntries(): List<Pair<Any?, Any?>> = backing.entries.map { it.key to it.value }
 
     @Suppress("UNCHECKED_CAST")
-    override fun deltaReplace(entries: List<Pair<Any?, Any?>>) {
+    override fun heapReplace(entries: List<Pair<Any?, Any?>>) {
         version++
         backing.clear()
         for ((key, value) in entries) backing[key as K] = value as V

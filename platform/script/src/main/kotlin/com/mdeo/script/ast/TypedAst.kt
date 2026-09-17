@@ -20,11 +20,13 @@ import kotlinx.serialization.Serializable
  *        When present, the script has access to metamodel types and the `model` global.
  * @param imports All imports in the program.
  * @param functions All top-level functions in the program.
+ * @param records All records the program declares.
  */
 @Serializable
 data class TypedAst(
     val types: List<@Serializable(with = ReturnTypeSerializer::class) ReturnType>,
     val metamodelPath: String? = null,
     val imports: List<TypedImport>,
-    val functions: List<TypedFunction>
+    val functions: List<TypedFunction>,
+    val records: List<TypedRecord> = emptyList()
 )

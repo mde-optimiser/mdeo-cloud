@@ -1,0 +1,223 @@
+{
+  "types": [
+    {
+      "kind": "void"
+    },
+    {
+      "package": "builtin",
+      "type": "string",
+      "isNullable": false,
+      "typeArgs": {}
+    },
+    {
+      "package": "builtin",
+      "type": "double",
+      "isNullable": false,
+      "typeArgs": {}
+    },
+    {
+      "package": "builtin",
+      "type": "boolean",
+      "isNullable": false,
+      "typeArgs": {}
+    },
+    {
+      "package": "builtin",
+      "type": "Any",
+      "isNullable": true
+    },
+    {
+      "package": "builtin",
+      "type": "long",
+      "isNullable": false,
+      "typeArgs": {}
+    },
+    {
+      "package": "record/lib.fn/Money",
+      "type": "Money",
+      "isNullable": false,
+      "typeArgs": {}
+    }
+  ],
+  "imports": [],
+  "functions": [
+    {
+      "name": "price",
+      "parameters": [
+        {
+          "name": "amount",
+          "type": 5
+        },
+        {
+          "name": "currency",
+          "type": 1,
+          "defaultValue": {
+            "kind": "stringLiteral",
+            "evalType": 1,
+            "value": "EUR"
+          }
+        },
+        {
+          "name": "discount",
+          "type": 5,
+          "defaultValue": {
+            "kind": "binary",
+            "evalType": 5,
+            "operator": "/",
+            "left": {
+              "kind": "identifier",
+              "evalType": 5,
+              "name": "amount",
+              "scope": 2
+            },
+            "right": {
+              "kind": "longLiteral",
+              "evalType": 5,
+              "value": "10"
+            }
+          }
+        }
+      ],
+      "returnType": 6,
+      "body": {
+        "body": [
+          {
+            "kind": "return",
+            "value": {
+              "kind": "functionCall",
+              "evalType": 6,
+              "name": "Money",
+              "arguments": [
+                {
+                  "value": {
+                    "kind": "binary",
+                    "evalType": 5,
+                    "operator": "-",
+                    "left": {
+                      "kind": "identifier",
+                      "evalType": 5,
+                      "name": "amount",
+                      "scope": 2
+                    },
+                    "right": {
+                      "kind": "identifier",
+                      "evalType": 5,
+                      "name": "discount",
+                      "scope": 2
+                    }
+                  },
+                  "parameterType": 5
+                },
+                {
+                  "value": {
+                    "kind": "identifier",
+                    "evalType": 1,
+                    "name": "currency",
+                    "scope": 2
+                  },
+                  "parameterType": 1
+                }
+              ],
+              "overload": ""
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "greet",
+      "parameters": [
+        {
+          "name": "name",
+          "type": 1
+        },
+        {
+          "name": "greeting",
+          "type": 1,
+          "defaultValue": {
+            "kind": "stringLiteral",
+            "evalType": 1,
+            "value": "Hello"
+          }
+        },
+        {
+          "name": "punctuation",
+          "type": 1,
+          "defaultValue": {
+            "kind": "stringLiteral",
+            "evalType": 1,
+            "value": "!"
+          }
+        }
+      ],
+      "returnType": 1,
+      "body": {
+        "body": [
+          {
+            "kind": "return",
+            "value": {
+              "kind": "binary",
+              "evalType": 1,
+              "operator": "+",
+              "left": {
+                "kind": "binary",
+                "evalType": 1,
+                "operator": "+",
+                "left": {
+                  "kind": "binary",
+                  "evalType": 1,
+                  "operator": "+",
+                  "left": {
+                    "kind": "identifier",
+                    "evalType": 1,
+                    "name": "greeting",
+                    "scope": 2
+                  },
+                  "right": {
+                    "kind": "stringLiteral",
+                    "evalType": 1,
+                    "value": ", "
+                  }
+                },
+                "right": {
+                  "kind": "identifier",
+                  "evalType": 1,
+                  "name": "name",
+                  "scope": 2
+                }
+              },
+              "right": {
+                "kind": "identifier",
+                "evalType": 1,
+                "name": "punctuation",
+                "scope": 2
+              }
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "records": [
+    {
+      "name": "Money",
+      "package": "record/lib.fn/Money",
+      "type": 6,
+      "fields": [
+        {
+          "name": "amount",
+          "type": 5
+        },
+        {
+          "name": "currency",
+          "type": 1,
+          "defaultValue": {
+            "kind": "stringLiteral",
+            "evalType": 1,
+            "value": "EUR"
+          }
+        }
+      ]
+    }
+  ]
+}

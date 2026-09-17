@@ -1,7 +1,6 @@
 package com.mdeo.script.external
 
 import com.mdeo.scriptfunctions.protocol.ClientMessage
-import com.mdeo.scriptfunctions.protocol.Delta
 import com.mdeo.scriptfunctions.protocol.WireValue
 import com.mdeo.scriptfunctions.protocol.ServiceMessage
 import com.mdeo.expression.ast.types.ClassTypeRef
@@ -21,8 +20,8 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 /**
- * Copy-restore over the `script-functions` protocol, through the real encoding, against the
- * in-process [Loopback] service.
+ * Calls over the `script-functions` protocol, through the real encoding, against the in-process
+ * [Loopback] service.
  */
 class ScriptFunctionsClientTest {
 
@@ -39,46 +38,40 @@ class ScriptFunctionsClientTest {
     private fun client(loopback: Loopback, vararg specs: ExternalCallSpec) =
         ScriptFunctionsClient(loopback, specs.associateBy { it.callId })
 
-    @Suppress("UNCHECKED_CAST")
     @Test
-    fun `a list, a set and a bag come back changed, and only they come back`() {
+    fun `a list, a set and a bag reach the service as they are`() {
         val loopback = Loopback.ofArguments(
-            mapOf(
-                "shuffle" to { args ->
-                    val list = args[0] as MutableList<Any?>
-                    list.reverse()
-                    list.add(99)
-                    (args[1] as MutableSet<Any?>).add("c")
-                    (args[2] as MutableList<Any?>).add("x")
-                    null
-                }
-            )
+            mapOf("describe" to { args -> args.joinToString(" ") })
         )
         val spec = spec(
-            "shuffle", ClassTypeRef("builtin", "void", false),
-            collection("List", "T" to int), collection("Set", "T" to string), collection("Bag", "T" to string),
-            collection("List", "T" to int)
+            "describe", string,
+            collection("List", "T" to int), collection("Set", "T" to string), collection("Bag", "T" to string)
         )
         val dispatcher = client(loopback, spec)
 
-        val list = ListImpl(listOf(1, 2, 3))
+        val list = ListImpl(listOf(3, 1, 2))
         val set = SetImpl(listOf("a", "b"))
-        val bag = BagImpl(listOf("x", "y"))
-        val untouched = ListImpl(listOf(7, 8))
+        val bag = BagImpl(listOf("x", "x"))
 
-        dispatcher.call("shuffle", arrayOf(list, set, bag, untouched), null, javaClass.classLoader)
-
-        assertEquals(listOf(3, 2, 1, 99), list.deltaSnapshot())
-        assertEquals(setOf("a", "b", "c"), set.deltaSnapshot().toSet())
-        assertEquals(2, bag.count("x"))
-        assertEquals(listOf(7, 8), untouched.deltaSnapshot())
-
-        val result = loopback.answered.single() as ServiceMessage.Result
-        val changedIds = result.deltas.map { it.id }.toSet()
-        assertEquals(3, changedIds.size, "only the three changed collections produce deltas")
+        assertEquals("[3, 1, 2] [a, b] [x, x]", dispatcher.call("describe", arrayOf(list, set, bag), null, javaClass.classLoader))
     }
 
     @Suppress("UNCHECKED_CAST")
+    @Test
+    fun `an operation that changes an argument fails and the script's collection stays as it was`() {
+        val loopback = Loopback.ofArguments(
+            mapOf("append" to { args -> (args[0] as MutableList<Any?>).add(4) })
+        )
+        val dispatcher = client(loopback, spec("append", any, collection("List", "T" to int)))
+
+        val list = ListImpl(listOf(1, 2, 3))
+        val error = assertFailsWith<ExternalCallException> {
+            dispatcher.call("append", arrayOf(list), null, javaClass.classLoader)
+        }
+        assertTrue(error.message!!.contains("readonly"), error.message)
+        assertEquals(listOf(1, 2, 3), list.heapSnapshot())
+    }
+
     @Test
     fun `the same list passed twice is one list on the other side`() {
         var sameOnService = false
@@ -86,7 +79,6 @@ class ScriptFunctionsClientTest {
             mapOf(
                 "alias" to { args ->
                     sameOnService = args[0] === args[1]
-                    (args[0] as MutableList<Any?>).add(4)
                     null
                 }
             )
@@ -98,21 +90,18 @@ class ScriptFunctionsClientTest {
         dispatcher.call("alias", arrayOf(list, list), null, javaClass.classLoader)
 
         assertTrue(sameOnService)
-        assertEquals(listOf(1, 2, 3, 4), list.deltaSnapshot())
         val call = loopback.received.single() as ClientMessage.Call
         assertEquals(1, call.objects.size, "an aliased collection is sent once")
     }
 
-    @Suppress("UNCHECKED_CAST")
     @Test
     fun `a list that contains itself survives the trip`() {
         var cycleOnService = false
         val loopback = Loopback.ofArguments(
             mapOf(
                 "cycle" to { args ->
-                    val outer = args[0] as MutableList<Any?>
+                    val outer = args[0] as List<*>
                     cycleOnService = outer[1] === outer
-                    outer.add("tail")
                     outer
                 }
             )
@@ -127,7 +116,7 @@ class ScriptFunctionsClientTest {
 
         assertTrue(cycleOnService)
         assertSame(list, returned, "returning an argument returns the very same collection")
-        assertEquals(3, list.size())
+        assertEquals(2, list.size())
         assertSame(list, list.at(1))
     }
 
@@ -148,33 +137,6 @@ class ScriptFunctionsClientTest {
         assertTrue(calls[2].objects.single().elements != null, "a changed collection is sent in full")
     }
 
-    @Suppress("UNCHECKED_CAST")
-    @Test
-    fun `changing a readonly argument rejects the whole result and applies nothing`() {
-        val loopback = Loopback.ofArguments(
-            mapOf(
-                "sneaky" to { args ->
-                    (args[0] as MutableList<Any?>).add(1)
-                    (args[1] as MutableList<Any?>).add(1)
-                    null
-                }
-            ),
-            claimEverythingMutable = true
-        )
-        val dispatcher = client(
-            loopback,
-            spec("sneaky", any, collection("List", "T" to int), collection("ReadonlyList", "T" to int))
-        )
-
-        val writable = ListImpl<Int>()
-        val readonly = ListImpl<Int>()
-
-        val error = assertFailsWith<ExternalCallException> { dispatcher.call("sneaky", arrayOf(writable, readonly), null, javaClass.classLoader) }
-        assertTrue(error.message!!.contains("readonly"))
-        assertEquals(0, writable.size(), "the legitimate change is not applied either")
-        assertEquals(0, readonly.size())
-    }
-
     @Test
     fun `an operation failure reaches the script and changes nothing`() {
         val loopback = Loopback.ofArguments(mapOf("boom" to { _ -> error("no capacity") }))
@@ -183,7 +145,7 @@ class ScriptFunctionsClientTest {
         val list = ListImpl(listOf(1))
         val error = assertFailsWith<ExternalCallException> { dispatcher.call("boom", arrayOf(list), null, javaClass.classLoader) }
         assertTrue(error.message!!.contains("no capacity"))
-        assertEquals(listOf(1), list.deltaSnapshot())
+        assertEquals(listOf(1), list.heapSnapshot())
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -192,11 +154,9 @@ class ScriptFunctionsClientTest {
         val loopback = Loopback.ofArguments(
             mapOf(
                 "index" to { args ->
-                    val map = args[0] as MutableMap<Any?, Any?>
-                    map.remove("gone")
-                    map["new"] = 3
-                    (args[1] as MutableSet<Any?>).add("z")
-                    mutableListOf(mutableListOf(1, 2), 3)
+                    val map = args[0] as Map<Any?, Any?>
+                    val ordered = args[1] as Set<Any?>
+                    mutableListOf(mutableListOf(map.getValue("kept"), map.size), ordered.last())
                 }
             )
         )
@@ -208,38 +168,28 @@ class ScriptFunctionsClientTest {
             )
         )
 
-        val map = MapImpl<String, Int>().apply { put("kept", 1); put("gone", 2) }
+        val map = MapImpl<String, Int>().apply { put("kept", 1); put("other", 2) }
         val ordered = OrderedSetImpl(listOf("a", "b"))
 
         val returned = dispatcher.call("index", arrayOf(map, ordered), null, javaClass.classLoader) as ListImpl<*>
 
-        assertEquals(listOf("kept" to 1, "new" to 3), map.deltaEntries())
-        assertEquals(listOf("a", "b", "z"), ordered.deltaSnapshot())
         assertEquals(2, returned.size())
-        assertEquals(listOf(1, 2), (returned.at(0) as ListImpl<*>).deltaSnapshot())
+        assertEquals(listOf(1, 2), (returned.at(0) as ListImpl<*>).heapSnapshot())
+        assertEquals("b", returned.at(1))
     }
 
     @Test
-    fun `a delta that fails to apply rolls back the ones before it`() {
-        // Removing two elements and then splicing at an index only the original size allowed.
+    fun `a result referring to a collection nobody holds is rejected`() {
         val loopback = Loopback(
             mapOf("noop" to { _ -> null }),
-            rewriteAnswer = { answer ->
-                val result = answer as ServiceMessage.Result
-                result.copy(
-                    deltas = listOf(
-                        Delta.Remove(1, listOf(WireValue.StringValue("a"), WireValue.StringValue("b"))),
-                        Delta.Splice(1, 2, 1, emptyList())
-                    )
-                )
-            }
+            rewriteAnswer = { answer -> (answer as ServiceMessage.Result).copy(value = WireValue.Ref(-42)) }
         )
         val dispatcher = client(loopback, spec("noop", any, collection("OrderedSet", "T" to string)))
-        val ordered = OrderedSetImpl(listOf("a", "b", "c"))
 
-        val error = assertFailsWith<ExternalCallException> { dispatcher.call("noop", arrayOf(ordered), null, javaClass.classLoader) }
-        assertTrue(error.message!!.contains("none were"), error.message)
-        assertEquals(listOf("a", "b", "c"), ordered.deltaSnapshot())
+        val error = assertFailsWith<ExternalCallException> {
+            dispatcher.call("noop", arrayOf(OrderedSetImpl(listOf("a"))), null, javaClass.classLoader)
+        }
+        assertTrue(error.message!!.contains("unknown collection -42"), error.message)
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -258,7 +208,7 @@ class ScriptFunctionsClientTest {
         val returned = dispatcher.call("groups", arrayOf(), null, javaClass.classLoader) as ListImpl<*>
         val first = returned.at(0)
         assertTrue(first is SetImpl<*>, "got ${first?.javaClass}")
-        assertEquals(setOf(1, 2), first.deltaSnapshot().toSet())
+        assertEquals(setOf(1, 2), first.heapSnapshot().toSet())
 
         // Passed back, the rebuilt sets reach the service with their new content.
         assertEquals(3, dispatcher.call("count", arrayOf(returned), null, javaClass.classLoader))
@@ -283,8 +233,8 @@ class ScriptFunctionsClientTest {
         loopback.dropBeforeCall = 2
         val second = dispatcher.call("make", arrayOf(2), null, javaClass.classLoader) as ListImpl<*>
 
-        assertEquals(listOf(1, 1), first.deltaSnapshot())
-        assertEquals(listOf(2, 2), second.deltaSnapshot())
+        assertEquals(listOf(1, 1), first.heapSnapshot())
+        assertEquals(listOf(2, 2), second.heapSnapshot())
         assertEquals(2, dispatcher.call("size", arrayOf(first), null, javaClass.classLoader))
         assertEquals(2, dispatcher.call("size", arrayOf(second), null, javaClass.classLoader))
     }

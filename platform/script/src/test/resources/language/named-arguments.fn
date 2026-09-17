@@ -1,0 +1,43 @@
+fun f(a: int, b: int = a + 1, c: string = "x"): string {
+    return c + a + ":" + b
+}
+
+fun calls(): string {
+    return f(1) + "|" + f(1, c = "y") + "|" + f(c = "z", a = 2, b = 3) + "|" + f(b = 5, a = 4)
+}
+
+fun note(log: List<string>, entry: string, value: int): int {
+    log.add(entry)
+    return value
+}
+
+fun order(): string {
+    val log = emptyList<string>()
+    val result = f(c = "c" + note(log, "c", 0), b = note(log, "b", 7), a = note(log, "a", 1))
+    var text = result
+    for (entry in log) {
+        text = text + "," + entry
+    }
+    return text
+}
+
+fun apply(n: int, op: (int) => int = (v) => v * n): int {
+    return op(n)
+}
+
+fun lambdas(): int {
+    return apply(3) * 100 + apply(n = 3, op = (v) => v + 1)
+}
+
+fun wide(a: double, b: long = 2L, c: double = a * 2.0, d: int? = null): double {
+    return a + b + c + (d ?? 0)
+}
+
+fun wides(): double {
+    return wide(1.5) + wide(c = 1.0, a = 2.0) * 100.0 + wide(d = 3, a = 0.0) * 10000.0
+}
+
+fun members(): int {
+    val l = listOf(4, 5, 6)
+    return l.indexOf(item = 5)
+}

@@ -144,13 +144,8 @@ one place, and the module builds the payload and answers the session:
 val routing = scriptContribution("routing") {
     function("shortestTour") {
         parameter("stops", listOfString)
-        implementation { call ->
-            val stops = call.argument<MutableList<String>>(0)
-            val tour = solve(stops)
-            stops.clear()
-            stops.addAll(tour)
-            null
-        }
+        returns(listOfString)
+        implementation { call -> solve(call.argument<List<String>>(0)) }
     }
 }
 ```
@@ -177,34 +172,29 @@ Signatures and fields refer to them as `{ "package": "contrib/<contribution id>"
 
 | Kind | Scripts can | Scripts cannot |
 | --- | --- | --- |
-| `record` | Read fields as readonly properties, compare by content with `==`, pass it to the contribution's functions | Create one, assign a field |
-| `opaque` | Hold it and pass it back to the contribution's functions | Access any member |
+| `record` | Create one by calling its name like a function (`Point(1.0, label = "a")`), read and assign fields, copy it with `with`, compare by content with `==`, pass it to the contribution's functions | — |
+| `opaque` | Hold it and pass it back to the contribution's functions | Create one, access any member |
 
-A record field holds a scalar, a string, a model instance or enum value, a record of the same
-contribution, or a readonly collection of those. Anything else — a mutable collection, an opaque
-class, a class of another contribution — is rejected when the contribution is resolved, and so is a
-signature that names a contributed class its contribution does not define.
+A contributed record behaves exactly like a [record a script declares](/plugins/script#records),
+except that its fields have no default values. A record field holds a scalar, a string, a model
+instance or enum value, a record of the same contribution, or a collection of those, and no field
+may be named `with`. Anything else — an opaque class, a class of another contribution — is rejected
+when the contribution is resolved, and so is a signature that names a contributed class its
+contribution does not define, and a record with the name of another contributed function or record.
 
-#### Copy-restore
+#### Arguments are *in*
 
-Arguments are **copied** to the service, and changes are **restored** on return — but only the
-changes that are allowed, and only the ones that happened:
+Arguments are **copied** to the service, and nothing the service does to them comes back:
 
-- **The declared type decides what may change.** A parameter declared as a mutable collection —
-  `List`, `Set`, `Bag`, `OrderedSet`, `Map` — may be changed. Everything else — `ReadonlyList` and
-  the other readonly types, `Any`, scalars — may not. Elements follow their own type argument, so
-  a `List<ReadonlyList<int>>` can be reordered but its inner lists cannot be edited. Map keys can
-  never be changed in place.
-- **Only what changed comes back.** The service diffs every collection it was given against what
-  it received and sends per-element changes — a splice for a list, additions and removals for a
-  set, counts for a bag, puts and removed keys for a map. An unchanged collection sends nothing.
+- **The script's values never change.** An operation gets every collection as a readonly view;
+  trying to change one fails the call. A record the operation gets is a copy of the script's.
+  Everything an operation computes reaches the script through its return value.
 - **Identity survives.** The same collection passed twice is one object on the service, a
   collection that contains itself still does, and returning an argument returns that very
   collection to the script.
-- **A result is applied completely or not at all.** Before anything is written back, the whole
-  result is checked: a change to a collection given as readonly, an index out of range, or a
-  reference to an unknown collection rejects it, and the script sees an error with nothing
-  changed. An operation that throws fails the call the same way.
+- **A result is checked before it is used.** A reference to an unknown collection, instance or
+  class rejects the whole result, and the script sees an error. An operation that throws fails the
+  call the same way.
 - **Unchanged collections are not sent twice.** Every collection keeps one id and a mutation
   counter for the whole session; a collection that has not changed since the service last saw it
   is sent as just its id.

@@ -5,6 +5,7 @@ import com.mdeo.expression.ast.expressions.TypedExpressionCallExpression
 import com.mdeo.expression.ast.types.LambdaType
 import com.mdeo.expression.ast.types.ValueType
 import com.mdeo.script.compiler.CompilationContext
+import com.mdeo.script.compiler.util.CoercionUtil
 import com.mdeo.script.compiler.util.MethodDescriptorUtil
 import org.objectweb.asm.MethodVisitor
 import org.objectweb.asm.Opcodes
@@ -61,10 +62,9 @@ class ExpressionCallCompiler : AbstractCallCompiler() {
         
         context.compileExpression(exprCall.expression, mv, calleeType)
         
-        val registry = context.getLambdaInterfaceRegistry()
-        
-        val lookupResult = registry.getInterfaceForLambdaType(calleeType)
-        val functionalInterface = lookupResult.interfaceName
+        // The call may be compiled before any lambda expression of this type, so the interface
+        // may have to be generated here.
+        val functionalInterface = CoercionUtil.getInterfaceForLambdaType(calleeType, context)
         
         compileArguments(exprCall, calleeType, context, mv)
         

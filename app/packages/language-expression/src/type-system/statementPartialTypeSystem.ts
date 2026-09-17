@@ -2,9 +2,13 @@ import type { TypirLangiumSpecifics } from "typir-langium";
 import { PartialTypeSystem, type PrimitiveTypes } from "./partialTypeSystem.js";
 import { sharedImport } from "@mdeo/language-shared";
 import type {
+    AssignmentStatementType,
+    BaseStatementType,
     ForStatementType,
     ForStatementVariableDeclarationType,
-    StatementTypes
+    StatementsScopeType,
+    StatementTypes,
+    VariableDeclarationStatementType
 } from "../grammar/statementTypes.js";
 import type { ExpressionTypirServices } from "./services.js";
 import type { CustomClassType } from "../typir-extensions/kinds/custom-class/custom-class-type.js";
@@ -21,6 +25,8 @@ import type {
 import type { CustomValueType } from "../typir-extensions/kinds/custom-value/custom-value-type.js";
 import type { ClassType } from "../typir-extensions/config/type.js";
 import type { AstNode } from "langium";
+import type { Interface } from "@mdeo/language-common";
+import type { ScopeEntry } from "../typir-extensions/scope/scope.js";
 
 const { AstUtils } = sharedImport("langium");
 const { InferenceProblem: InferenceProblemConstant } = sharedImport("typir");
@@ -40,7 +46,8 @@ export class StatementPartialTypeSystem<Specifics extends TypirLangiumSpecifics>
         protected readonly expressionTypes: ExpressionTypes,
         protected readonly primitiveTypes: PrimitiveTypes,
         protected readonly nullablePrimitiveTypes: PrimitiveTypes,
-        protected readonly iterableType: ClassType
+        protected readonly iterableType: ClassType,
+        protected readonly jumpStatementTypes: Interface<AstNode>[] = []
     ) {
         super(typir, types);
     }
@@ -183,6 +190,13 @@ export class StatementPartialTypeSystem<Specifics extends TypirLangiumSpecifics>
                 const scope = this.typir.ScopeProvider.getScope(node);
                 const entry = scope.getEntry((node.left as IdentifierExpressionType).name);
                 if (entry != undefined && entry.readonly === true) {
+                    if (
+                        entry.languageNode != undefined &&
+                        this.astReflection.isInstance(entry.languageNode, this.types.variableDeclarationStatementType)
+                    ) {
+                        this.validateValAssignment(node, entry, entry.languageNode, accept);
+                        return;
+                    }
                     isReadonly = true;
                 }
             } else {
@@ -204,6 +218,149 @@ export class StatementPartialTypeSystem<Specifics extends TypirLangiumSpecifics>
                 });
             }
         });
+    }
+
+    /**
+     * Validates an assignment to a `val`.
+     *
+     * A `val` with an initial value can never be assigned. A `val` declared without one must be
+     * assigned exactly once before it is read, as in Kotlin: not inside a loop, not inside a
+     * lambda, and not where an earlier assignment may already have run.
+     *
+     * @param node The assignment
+     * @param entry The scope entry of the `val`
+     * @param declaration The declaration of the `val`
+     * @param accept The validation problem acceptor function
+     */
+    private validateValAssignment(
+        node: AssignmentStatementType,
+        entry: ScopeEntry<Specifics>,
+        declaration: VariableDeclarationStatementType,
+        accept: ValidationProblemAcceptor<Specifics>
+    ): void {
+        const reject = (message: string) =>
+            accept({ $problem: this.validationProblem, languageNode: node, message, severity: "error" });
+
+        if (declaration.initialValue != undefined) {
+            reject(`Val '${declaration.name}' cannot be reassigned.`);
+            return;
+        }
+
+        const declaringBlock = declaration.$container as StatementsScopeType;
+        let current: AstNode | undefined = node.$container;
+        while (current != undefined && current !== declaringBlock) {
+            if (this.astReflection.isInstance(current, this.expressionTypes.baseExpressionType)) {
+                reject(`Val '${declaration.name}' cannot be assigned inside a lambda.`);
+                return;
+            }
+            if (
+                this.astReflection.isInstance(current, this.types.whileStatementType) ||
+                this.astReflection.isInstance(current, this.types.forStatementType)
+            ) {
+                reject(`Val '${declaration.name}' cannot be assigned inside a loop.`);
+                return;
+            }
+            current = (current as AstNode).$container;
+        }
+        if (current == undefined) {
+            return;
+        }
+
+        const following = declaringBlock.statements.slice(declaringBlock.statements.indexOf(declaration) + 1);
+        const state = this.scanValAssignments(following, node, entry, false);
+        if (state.reached && state.maybeAssigned) {
+            reject(`Val '${declaration.name}' may already have been assigned.`);
+        }
+    }
+
+    /**
+     * Follows statements in execution order up to an assignment, tracking whether a `val` may
+     * already have been assigned when control reaches it.
+     *
+     * @param statements The statements to follow
+     * @param target The assignment to stop at
+     * @param entry The scope entry of the `val`
+     * @param maybeAssigned Whether the `val` may be assigned before the first statement
+     * @returns Whether the target was reached, whether the `val` may be assigned at that point (or
+     *          after the statements), and whether the statements always jump away
+     */
+    private scanValAssignments(
+        statements: BaseStatementType[],
+        target: AssignmentStatementType,
+        entry: ScopeEntry<Specifics>,
+        maybeAssigned: boolean
+    ): { reached: boolean; maybeAssigned: boolean; jumps: boolean } {
+        let maybe = maybeAssigned;
+        for (const statement of statements) {
+            if (statement === target) {
+                return { reached: true, maybeAssigned: maybe, jumps: false };
+            }
+            if (this.astReflection.isInstance(statement, this.types.assignmentStatementType)) {
+                if (this.isAssignmentTo(statement, entry)) {
+                    maybe = true;
+                }
+            } else if (this.astReflection.isInstance(statement, this.types.ifStatementType)) {
+                const branches = [statement.thenBlock, ...statement.elseIfs.map((elseIf) => elseIf.thenBlock)];
+                if (statement.elseBlock != undefined) {
+                    branches.push(statement.elseBlock);
+                }
+                let after = statement.elseBlock == undefined ? maybe : false;
+                let allJump = statement.elseBlock != undefined;
+                for (const branch of branches) {
+                    const result = this.scanValAssignments(branch.statements, target, entry, maybe);
+                    if (result.reached) {
+                        return result;
+                    }
+                    if (!result.jumps) {
+                        after = after || result.maybeAssigned;
+                        allJump = false;
+                    }
+                }
+                if (allJump) {
+                    return { reached: false, maybeAssigned: maybe, jumps: true };
+                }
+                maybe = after;
+            } else if (
+                this.astReflection.isInstance(statement, this.types.whileStatementType) ||
+                this.astReflection.isInstance(statement, this.types.forStatementType)
+            ) {
+                if (this.scanValAssignments(statement.body.statements, target, entry, maybe).maybeAssigned) {
+                    maybe = true;
+                }
+            } else if (this.isJumpStatement(statement)) {
+                return { reached: false, maybeAssigned: maybe, jumps: true };
+            }
+        }
+        return { reached: false, maybeAssigned: maybe, jumps: false };
+    }
+
+    /**
+     * Reports whether an assignment assigns the variable of a scope entry.
+     *
+     * @param statement The assignment
+     * @param entry The scope entry
+     * @returns True when the assignment's left-hand side names the entry
+     */
+    private isAssignmentTo(statement: AssignmentStatementType, entry: ScopeEntry<Specifics>): boolean {
+        if (!this.astReflection.isInstance(statement.left, this.expressionTypes.identifierExpressionType)) {
+            return false;
+        }
+        const name = (statement.left as IdentifierExpressionType).name;
+        return name === entry.name && this.typir.ScopeProvider.getScope(statement).getEntry(name) === entry;
+    }
+
+    /**
+     * Reports whether control never continues after a statement.
+     *
+     * @param statement The statement
+     * @returns True for `break`, `continue` and the additional jump statements of the language
+     */
+    private isJumpStatement(statement: BaseStatementType): boolean {
+        return (
+            this.astReflection.isInstance(statement, this.types.breakStatementType) ||
+            this.astReflection.isInstance(statement, this.types.continueStatementType) ||
+            this.jumpStatementTypes.some((type) => this.astReflection.isInstance(statement, type))
+        );
     }
 
     /**

@@ -74,6 +74,11 @@ export interface Parameter {
      * The type of the parameter
      */
     type: ValueType;
+    /**
+     * Whether a call may leave the parameter out, in which case its default value is used.
+     * Only meaningful for function signatures.
+     */
+    hasDefault?: boolean;
 }
 
 /**

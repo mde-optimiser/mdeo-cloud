@@ -78,6 +78,52 @@ interface FunctionSignatureDefinition {
      * @param mv The method visitor to emit bytecode to.
      */
     fun emitInvocation(mv: MethodVisitor)
+
+    /**
+     * Whether some parameters have default values, so a call may leave them out.
+     */
+    val hasDefaults: Boolean
+        get() = false
+
+    /**
+     * Emits the invocation of the companion method that fills in default values.
+     *
+     * All parameters should be on the stack, a placeholder for each one that is left out, followed
+     * by an `int` mask with bit `i` set when parameter `i` is left out.
+     *
+     * @param mv The method visitor to emit bytecode to.
+     */
+    fun emitDefaultsInvocation(mv: MethodVisitor) {
+        throw UnsupportedOperationException("Function '$jvmMethodName' has no default values")
+    }
+}
+
+/**
+ * Naming of the companion method of a function with default values.
+ *
+ * The companion takes the function's parameters followed by an `int` mask with bit `i` set when
+ * parameter `i` was left out. It evaluates the default value of each such parameter, in order,
+ * and then calls the function.
+ */
+object DefaultsMethod {
+    /**
+     * The suffix appended to the function's JVM method name.
+     */
+    const val SUFFIX = "\$default"
+
+    /**
+     * The highest number of parameters a function with default values may have: one mask bit each.
+     */
+    const val MAX_PARAMETERS = 31
+
+    /**
+     * Builds the descriptor of the companion method.
+     *
+     * @param descriptor The descriptor of the function itself.
+     * @return The same descriptor with an `int` mask appended to the parameters.
+     */
+    fun descriptor(descriptor: String): String =
+        descriptor.substringBefore(')') + "I)" + descriptor.substringAfter(')')
 }
 
 /**
@@ -168,6 +214,7 @@ class ContextAwareStaticFunctionSignatureDefinition(
  * @param isVarArgs Whether this is a varargs method.
  * @param parameterTypes The parameter types for coercion.
  * @param returnType The return type for coercion.
+ * @param hasDefaults Whether a [DefaultsMethod] companion exists for this function.
  */
 class InstanceFunctionSignatureDefinition(
     override val overloadKey: String,
@@ -176,7 +223,8 @@ class InstanceFunctionSignatureDefinition(
     override val jvmMethodName: String,
     override val isVarArgs: Boolean = false,
     override val parameterTypes: List<ValueType>,
-    override val returnType: ReturnType
+    override val returnType: ReturnType,
+    override val hasDefaults: Boolean = false
 ) : FunctionSignatureDefinition {
 
     override fun emitInvocation(mv: MethodVisitor) {
@@ -185,6 +233,19 @@ class InstanceFunctionSignatureDefinition(
             ownerClass,
             jvmMethodName,
             descriptor,
+            false
+        )
+    }
+
+    override fun emitDefaultsInvocation(mv: MethodVisitor) {
+        if (!hasDefaults) {
+            super.emitDefaultsInvocation(mv)
+        }
+        mv.visitMethodInsn(
+            Opcodes.INVOKEVIRTUAL,
+            ownerClass,
+            jvmMethodName + DefaultsMethod.SUFFIX,
+            DefaultsMethod.descriptor(descriptor),
             false
         )
     }

@@ -1,0 +1,1554 @@
+{
+  "types": [
+    {
+      "kind": "void"
+    },
+    {
+      "package": "builtin",
+      "type": "string",
+      "isNullable": false,
+      "typeArgs": {}
+    },
+    {
+      "package": "builtin",
+      "type": "double",
+      "isNullable": false,
+      "typeArgs": {}
+    },
+    {
+      "package": "builtin",
+      "type": "boolean",
+      "isNullable": false,
+      "typeArgs": {}
+    },
+    {
+      "package": "builtin",
+      "type": "Any",
+      "isNullable": true
+    },
+    {
+      "package": "contrib/geo",
+      "type": "Point",
+      "isNullable": false,
+      "typeArgs": {}
+    },
+    {
+      "package": "builtin",
+      "type": "int",
+      "isNullable": false,
+      "typeArgs": {}
+    },
+    {
+      "package": "builtin",
+      "type": "Set",
+      "isNullable": false,
+      "typeArgs": {
+        "T": {
+          "package": "contrib/geo",
+          "type": "Point",
+          "isNullable": false,
+          "typeArgs": {}
+        }
+      }
+    },
+    {
+      "package": "contrib/geo",
+      "type": "Route",
+      "isNullable": false,
+      "typeArgs": {}
+    },
+    {
+      "package": "builtin",
+      "type": "List",
+      "isNullable": false,
+      "typeArgs": {
+        "T": {
+          "package": "contrib/geo",
+          "type": "Point",
+          "isNullable": false,
+          "typeArgs": {}
+        }
+      }
+    }
+  ],
+  "imports": [],
+  "functions": [
+    {
+      "name": "build",
+      "parameters": [],
+      "returnType": 1,
+      "body": {
+        "body": [
+          {
+            "kind": "variableDeclaration",
+            "name": "p",
+            "type": 5,
+            "initialValue": {
+              "kind": "functionCall",
+              "evalType": 5,
+              "name": "Point",
+              "arguments": [
+                {
+                  "value": {
+                    "kind": "stringLiteral",
+                    "evalType": 1,
+                    "value": "a"
+                  },
+                  "parameterType": 1,
+                  "parameter": 1
+                },
+                {
+                  "value": {
+                    "kind": "doubleLiteral",
+                    "evalType": 2,
+                    "value": "1.5"
+                  },
+                  "parameterType": 2,
+                  "parameter": 0
+                }
+              ],
+              "overload": ""
+            }
+          },
+          {
+            "kind": "assignment",
+            "left": {
+              "kind": "memberAccess",
+              "evalType": 2,
+              "expression": {
+                "kind": "identifier",
+                "evalType": 5,
+                "name": "p",
+                "scope": 3
+              },
+              "member": "x",
+              "isNullChaining": false
+            },
+            "right": {
+              "kind": "doubleLiteral",
+              "evalType": 2,
+              "value": "2.5"
+            }
+          },
+          {
+            "kind": "variableDeclaration",
+            "name": "q",
+            "type": 5,
+            "initialValue": {
+              "kind": "memberCall",
+              "evalType": 5,
+              "expression": {
+                "kind": "identifier",
+                "evalType": 5,
+                "name": "p",
+                "scope": 3
+              },
+              "member": "with",
+              "isNullChaining": false,
+              "arguments": [
+                {
+                  "value": {
+                    "kind": "stringLiteral",
+                    "evalType": 1,
+                    "value": "b"
+                  },
+                  "parameterType": 1,
+                  "parameter": 1
+                }
+              ],
+              "overload": ""
+            }
+          },
+          {
+            "kind": "return",
+            "value": {
+              "kind": "binary",
+              "evalType": 1,
+              "operator": "+",
+              "left": {
+                "kind": "binary",
+                "evalType": 1,
+                "operator": "+",
+                "left": {
+                  "kind": "binary",
+                  "evalType": 1,
+                  "operator": "+",
+                  "left": {
+                    "kind": "stringLiteral",
+                    "evalType": 1,
+                    "value": ""
+                  },
+                  "right": {
+                    "kind": "identifier",
+                    "evalType": 5,
+                    "name": "p",
+                    "scope": 3
+                  }
+                },
+                "right": {
+                  "kind": "stringLiteral",
+                  "evalType": 1,
+                  "value": " "
+                }
+              },
+              "right": {
+                "kind": "identifier",
+                "evalType": 5,
+                "name": "q",
+                "scope": 3
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "mutateReturned",
+      "parameters": [],
+      "returnType": 2,
+      "body": {
+        "body": [
+          {
+            "kind": "variableDeclaration",
+            "name": "p",
+            "type": 5,
+            "initialValue": {
+              "kind": "functionCall",
+              "evalType": 5,
+              "name": "nearest",
+              "arguments": [],
+              "overload": ""
+            }
+          },
+          {
+            "kind": "assignment",
+            "left": {
+              "kind": "memberAccess",
+              "evalType": 2,
+              "expression": {
+                "kind": "identifier",
+                "evalType": 5,
+                "name": "p",
+                "scope": 3
+              },
+              "member": "x",
+              "isNullChaining": false
+            },
+            "right": {
+              "kind": "binary",
+              "evalType": 2,
+              "operator": "+",
+              "left": {
+                "kind": "memberAccess",
+                "evalType": 2,
+                "expression": {
+                  "kind": "identifier",
+                  "evalType": 5,
+                  "name": "p",
+                  "scope": 3
+                },
+                "member": "x",
+                "isNullChaining": false
+              },
+              "right": {
+                "kind": "doubleLiteral",
+                "evalType": 2,
+                "value": "1.0"
+              }
+            }
+          },
+          {
+            "kind": "return",
+            "value": {
+              "kind": "memberAccess",
+              "evalType": 2,
+              "expression": {
+                "kind": "identifier",
+                "evalType": 5,
+                "name": "p",
+                "scope": 3
+              },
+              "member": "x",
+              "isNullChaining": false
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "passConstructed",
+      "parameters": [],
+      "returnType": 1,
+      "body": {
+        "body": [
+          {
+            "kind": "return",
+            "value": {
+              "kind": "functionCall",
+              "evalType": 1,
+              "name": "describe",
+              "arguments": [
+                {
+                  "value": {
+                    "kind": "functionCall",
+                    "evalType": 5,
+                    "name": "Point",
+                    "arguments": [
+                      {
+                        "value": {
+                          "kind": "doubleLiteral",
+                          "evalType": 2,
+                          "value": "3.0"
+                        },
+                        "parameterType": 2
+                      },
+                      {
+                        "value": {
+                          "kind": "stringLiteral",
+                          "evalType": 1,
+                          "value": "c"
+                        },
+                        "parameterType": 1
+                      }
+                    ],
+                    "overload": ""
+                  },
+                  "parameterType": 5
+                }
+              ],
+              "overload": ""
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "namedArgumentsToExternal",
+      "parameters": [],
+      "returnType": 1,
+      "body": {
+        "body": [
+          {
+            "kind": "return",
+            "value": {
+              "kind": "binary",
+              "evalType": 1,
+              "operator": "+",
+              "left": {
+                "kind": "memberAccess",
+                "evalType": 1,
+                "expression": {
+                  "kind": "functionCall",
+                  "evalType": 5,
+                  "name": "relabel",
+                  "arguments": [
+                    {
+                      "value": {
+                        "kind": "stringLiteral",
+                        "evalType": 1,
+                        "value": "renamed"
+                      },
+                      "parameterType": 1,
+                      "parameter": 1
+                    },
+                    {
+                      "value": {
+                        "kind": "functionCall",
+                        "evalType": 5,
+                        "name": "Point",
+                        "arguments": [
+                          {
+                            "value": {
+                              "kind": "doubleLiteral",
+                              "evalType": 2,
+                              "value": "1.0"
+                            },
+                            "parameterType": 2
+                          },
+                          {
+                            "value": {
+                              "kind": "stringLiteral",
+                              "evalType": 1,
+                              "value": "old"
+                            },
+                            "parameterType": 1
+                          }
+                        ],
+                        "overload": ""
+                      },
+                      "parameterType": 5,
+                      "parameter": 0
+                    }
+                  ],
+                  "overload": ""
+                },
+                "member": "label",
+                "isNullChaining": false
+              },
+              "right": {
+                "kind": "functionCall",
+                "evalType": 1,
+                "name": "describe",
+                "arguments": [
+                  {
+                    "value": {
+                      "kind": "functionCall",
+                      "evalType": 5,
+                      "name": "nearest",
+                      "arguments": [],
+                      "overload": ""
+                    },
+                    "parameterType": 5
+                  }
+                ],
+                "overload": ""
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "argumentsStayUnchanged",
+      "parameters": [],
+      "returnType": 1,
+      "body": {
+        "body": [
+          {
+            "kind": "variableDeclaration",
+            "name": "p",
+            "type": 5,
+            "initialValue": {
+              "kind": "functionCall",
+              "evalType": 5,
+              "name": "Point",
+              "arguments": [
+                {
+                  "value": {
+                    "kind": "doubleLiteral",
+                    "evalType": 2,
+                    "value": "1.0"
+                  },
+                  "parameterType": 2
+                },
+                {
+                  "value": {
+                    "kind": "stringLiteral",
+                    "evalType": 1,
+                    "value": "kept"
+                  },
+                  "parameterType": 1
+                }
+              ],
+              "overload": ""
+            }
+          },
+          {
+            "kind": "variableDeclaration",
+            "name": "q",
+            "type": 5,
+            "initialValue": {
+              "kind": "functionCall",
+              "evalType": 5,
+              "name": "relabel",
+              "arguments": [
+                {
+                  "value": {
+                    "kind": "identifier",
+                    "evalType": 5,
+                    "name": "p",
+                    "scope": 3
+                  },
+                  "parameterType": 5
+                },
+                {
+                  "value": {
+                    "kind": "stringLiteral",
+                    "evalType": 1,
+                    "value": "new"
+                  },
+                  "parameterType": 1
+                }
+              ],
+              "overload": ""
+            }
+          },
+          {
+            "kind": "return",
+            "value": {
+              "kind": "binary",
+              "evalType": 1,
+              "operator": "+",
+              "left": {
+                "kind": "binary",
+                "evalType": 1,
+                "operator": "+",
+                "left": {
+                  "kind": "binary",
+                  "evalType": 1,
+                  "operator": "+",
+                  "left": {
+                    "kind": "binary",
+                    "evalType": 1,
+                    "operator": "+",
+                    "left": {
+                      "kind": "memberAccess",
+                      "evalType": 1,
+                      "expression": {
+                        "kind": "identifier",
+                        "evalType": 5,
+                        "name": "p",
+                        "scope": 3
+                      },
+                      "member": "label",
+                      "isNullChaining": false
+                    },
+                    "right": {
+                      "kind": "stringLiteral",
+                      "evalType": 1,
+                      "value": " "
+                    }
+                  },
+                  "right": {
+                    "kind": "memberAccess",
+                    "evalType": 1,
+                    "expression": {
+                      "kind": "identifier",
+                      "evalType": 5,
+                      "name": "q",
+                      "scope": 3
+                    },
+                    "member": "label",
+                    "isNullChaining": false
+                  }
+                },
+                "right": {
+                  "kind": "stringLiteral",
+                  "evalType": 1,
+                  "value": " "
+                }
+              },
+              "right": {
+                "kind": "binary",
+                "evalType": 3,
+                "operator": "===",
+                "left": {
+                  "kind": "identifier",
+                  "evalType": 5,
+                  "name": "p",
+                  "scope": 3
+                },
+                "right": {
+                  "kind": "identifier",
+                  "evalType": 5,
+                  "name": "q",
+                  "scope": 3
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "equalContributedRecords",
+      "parameters": [],
+      "returnType": 1,
+      "body": {
+        "body": [
+          {
+            "kind": "variableDeclaration",
+            "name": "a",
+            "type": 5,
+            "initialValue": {
+              "kind": "functionCall",
+              "evalType": 5,
+              "name": "Point",
+              "arguments": [
+                {
+                  "value": {
+                    "kind": "doubleLiteral",
+                    "evalType": 2,
+                    "value": "1.0"
+                  },
+                  "parameterType": 2
+                },
+                {
+                  "value": {
+                    "kind": "stringLiteral",
+                    "evalType": 1,
+                    "value": "a"
+                  },
+                  "parameterType": 1
+                }
+              ],
+              "overload": ""
+            }
+          },
+          {
+            "kind": "return",
+            "value": {
+              "kind": "binary",
+              "evalType": 1,
+              "operator": "+",
+              "left": {
+                "kind": "binary",
+                "evalType": 1,
+                "operator": "+",
+                "left": {
+                  "kind": "binary",
+                  "evalType": 1,
+                  "operator": "+",
+                  "left": {
+                    "kind": "stringLiteral",
+                    "evalType": 1,
+                    "value": ""
+                  },
+                  "right": {
+                    "kind": "binary",
+                    "evalType": 3,
+                    "operator": "==",
+                    "left": {
+                      "kind": "identifier",
+                      "evalType": 5,
+                      "name": "a",
+                      "scope": 3
+                    },
+                    "right": {
+                      "kind": "functionCall",
+                      "evalType": 5,
+                      "name": "Point",
+                      "arguments": [
+                        {
+                          "value": {
+                            "kind": "doubleLiteral",
+                            "evalType": 2,
+                            "value": "1.0"
+                          },
+                          "parameterType": 2
+                        },
+                        {
+                          "value": {
+                            "kind": "stringLiteral",
+                            "evalType": 1,
+                            "value": "a"
+                          },
+                          "parameterType": 1
+                        }
+                      ],
+                      "overload": ""
+                    }
+                  }
+                },
+                "right": {
+                  "kind": "binary",
+                  "evalType": 3,
+                  "operator": "==",
+                  "left": {
+                    "kind": "identifier",
+                    "evalType": 5,
+                    "name": "a",
+                    "scope": 3
+                  },
+                  "right": {
+                    "kind": "memberCall",
+                    "evalType": 5,
+                    "expression": {
+                      "kind": "identifier",
+                      "evalType": 5,
+                      "name": "a",
+                      "scope": 3
+                    },
+                    "member": "with",
+                    "isNullChaining": false,
+                    "arguments": [
+                      {
+                        "value": {
+                          "kind": "stringLiteral",
+                          "evalType": 1,
+                          "value": "b"
+                        },
+                        "parameterType": 1,
+                        "parameter": 1
+                      }
+                    ],
+                    "overload": ""
+                  }
+                }
+              },
+              "right": {
+                "kind": "memberCall",
+                "evalType": 6,
+                "expression": {
+                  "kind": "functionCall",
+                  "evalType": 7,
+                  "name": "setOf",
+                  "arguments": [
+                    {
+                      "value": {
+                        "kind": "identifier",
+                        "evalType": 5,
+                        "name": "a",
+                        "scope": 3
+                      },
+                      "parameterType": 5
+                    },
+                    {
+                      "value": {
+                        "kind": "memberCall",
+                        "evalType": 5,
+                        "expression": {
+                          "kind": "identifier",
+                          "evalType": 5,
+                          "name": "a",
+                          "scope": 3
+                        },
+                        "member": "with",
+                        "isNullChaining": false,
+                        "arguments": [],
+                        "overload": ""
+                      },
+                      "parameterType": 5
+                    },
+                    {
+                      "value": {
+                        "kind": "functionCall",
+                        "evalType": 5,
+                        "name": "Point",
+                        "arguments": [
+                          {
+                            "value": {
+                              "kind": "doubleLiteral",
+                              "evalType": 2,
+                              "value": "2.0"
+                            },
+                            "parameterType": 2
+                          },
+                          {
+                            "value": {
+                              "kind": "stringLiteral",
+                              "evalType": 1,
+                              "value": "a"
+                            },
+                            "parameterType": 1
+                          }
+                        ],
+                        "overload": ""
+                      },
+                      "parameterType": 5
+                    }
+                  ],
+                  "overload": ""
+                },
+                "member": "size",
+                "isNullChaining": false,
+                "arguments": [],
+                "overload": ""
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "routeWithStops",
+      "parameters": [],
+      "returnType": 1,
+      "body": {
+        "body": [
+          {
+            "kind": "variableDeclaration",
+            "name": "route",
+            "type": 8,
+            "initialValue": {
+              "kind": "functionCall",
+              "evalType": 8,
+              "name": "Route",
+              "arguments": [
+                {
+                  "value": {
+                    "kind": "stringLiteral",
+                    "evalType": 1,
+                    "value": "r"
+                  },
+                  "parameterType": 1
+                },
+                {
+                  "value": {
+                    "kind": "functionCall",
+                    "evalType": 9,
+                    "name": "listOf",
+                    "arguments": [
+                      {
+                        "value": {
+                          "kind": "functionCall",
+                          "evalType": 5,
+                          "name": "Point",
+                          "arguments": [
+                            {
+                              "value": {
+                                "kind": "doubleLiteral",
+                                "evalType": 2,
+                                "value": "1.0"
+                              },
+                              "parameterType": 2
+                            },
+                            {
+                              "value": {
+                                "kind": "stringLiteral",
+                                "evalType": 1,
+                                "value": "a"
+                              },
+                              "parameterType": 1
+                            }
+                          ],
+                          "overload": ""
+                        },
+                        "parameterType": 5
+                      }
+                    ],
+                    "overload": ""
+                  },
+                  "parameterType": 9
+                }
+              ],
+              "overload": ""
+            }
+          },
+          {
+            "kind": "variableDeclaration",
+            "name": "before",
+            "type": 1,
+            "initialValue": {
+              "kind": "functionCall",
+              "evalType": 1,
+              "name": "summarize",
+              "arguments": [
+                {
+                  "value": {
+                    "kind": "identifier",
+                    "evalType": 8,
+                    "name": "route",
+                    "scope": 3
+                  },
+                  "parameterType": 8
+                }
+              ],
+              "overload": ""
+            }
+          },
+          {
+            "kind": "expression",
+            "expression": {
+              "kind": "memberCall",
+              "evalType": 1,
+              "expression": {
+                "kind": "memberAccess",
+                "evalType": 9,
+                "expression": {
+                  "kind": "identifier",
+                  "evalType": 8,
+                  "name": "route",
+                  "scope": 3
+                },
+                "member": "stops",
+                "isNullChaining": false
+              },
+              "member": "add",
+              "isNullChaining": false,
+              "arguments": [
+                {
+                  "value": {
+                    "kind": "functionCall",
+                    "evalType": 5,
+                    "name": "Point",
+                    "arguments": [
+                      {
+                        "value": {
+                          "kind": "doubleLiteral",
+                          "evalType": 2,
+                          "value": "2.0"
+                        },
+                        "parameterType": 2
+                      },
+                      {
+                        "value": {
+                          "kind": "stringLiteral",
+                          "evalType": 1,
+                          "value": "b"
+                        },
+                        "parameterType": 1
+                      }
+                    ],
+                    "overload": ""
+                  },
+                  "parameterType": 5
+                }
+              ],
+              "overload": ""
+            }
+          },
+          {
+            "kind": "assignment",
+            "left": {
+              "kind": "memberAccess",
+              "evalType": 1,
+              "expression": {
+                "kind": "memberCall",
+                "evalType": 5,
+                "expression": {
+                  "kind": "memberAccess",
+                  "evalType": 9,
+                  "expression": {
+                    "kind": "identifier",
+                    "evalType": 8,
+                    "name": "route",
+                    "scope": 3
+                  },
+                  "member": "stops",
+                  "isNullChaining": false
+                },
+                "member": "first",
+                "isNullChaining": false,
+                "arguments": [],
+                "overload": ""
+              },
+              "member": "label",
+              "isNullChaining": false
+            },
+            "right": {
+              "kind": "stringLiteral",
+              "evalType": 1,
+              "value": "A"
+            }
+          },
+          {
+            "kind": "return",
+            "value": {
+              "kind": "binary",
+              "evalType": 1,
+              "operator": "+",
+              "left": {
+                "kind": "binary",
+                "evalType": 1,
+                "operator": "+",
+                "left": {
+                  "kind": "identifier",
+                  "evalType": 1,
+                  "name": "before",
+                  "scope": 3
+                },
+                "right": {
+                  "kind": "stringLiteral",
+                  "evalType": 1,
+                  "value": " "
+                }
+              },
+              "right": {
+                "kind": "functionCall",
+                "evalType": 1,
+                "name": "summarize",
+                "arguments": [
+                  {
+                    "value": {
+                      "kind": "identifier",
+                      "evalType": 8,
+                      "name": "route",
+                      "scope": 3
+                    },
+                    "parameterType": 8
+                  }
+                ],
+                "overload": ""
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "serviceCannotChangeStops",
+      "parameters": [],
+      "returnType": 6,
+      "body": {
+        "body": [
+          {
+            "kind": "variableDeclaration",
+            "name": "route",
+            "type": 8,
+            "initialValue": {
+              "kind": "functionCall",
+              "evalType": 8,
+              "name": "Route",
+              "arguments": [
+                {
+                  "value": {
+                    "kind": "stringLiteral",
+                    "evalType": 1,
+                    "value": "r"
+                  },
+                  "parameterType": 1
+                },
+                {
+                  "value": {
+                    "kind": "functionCall",
+                    "evalType": 9,
+                    "name": "listOf",
+                    "arguments": [
+                      {
+                        "value": {
+                          "kind": "functionCall",
+                          "evalType": 5,
+                          "name": "Point",
+                          "arguments": [
+                            {
+                              "value": {
+                                "kind": "doubleLiteral",
+                                "evalType": 2,
+                                "value": "1.0"
+                              },
+                              "parameterType": 2
+                            },
+                            {
+                              "value": {
+                                "kind": "stringLiteral",
+                                "evalType": 1,
+                                "value": "a"
+                              },
+                              "parameterType": 1
+                            }
+                          ],
+                          "overload": ""
+                        },
+                        "parameterType": 5
+                      }
+                    ],
+                    "overload": ""
+                  },
+                  "parameterType": 9
+                }
+              ],
+              "overload": ""
+            }
+          },
+          {
+            "kind": "return",
+            "value": {
+              "kind": "functionCall",
+              "evalType": 6,
+              "name": "extend",
+              "arguments": [
+                {
+                  "value": {
+                    "kind": "identifier",
+                    "evalType": 8,
+                    "name": "route",
+                    "scope": 3
+                  },
+                  "parameterType": 8
+                }
+              ],
+              "overload": ""
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "returnedRouteIsUsable",
+      "parameters": [],
+      "returnType": 1,
+      "body": {
+        "body": [
+          {
+            "kind": "variableDeclaration",
+            "name": "route",
+            "type": 8,
+            "initialValue": {
+              "kind": "functionCall",
+              "evalType": 8,
+              "name": "Route",
+              "arguments": [
+                {
+                  "value": {
+                    "kind": "stringLiteral",
+                    "evalType": 1,
+                    "value": "r"
+                  },
+                  "parameterType": 1
+                },
+                {
+                  "value": {
+                    "kind": "functionCall",
+                    "evalType": 9,
+                    "name": "listOf",
+                    "arguments": [
+                      {
+                        "value": {
+                          "kind": "functionCall",
+                          "evalType": 5,
+                          "name": "Point",
+                          "arguments": [
+                            {
+                              "value": {
+                                "kind": "doubleLiteral",
+                                "evalType": 2,
+                                "value": "1.0"
+                              },
+                              "parameterType": 2
+                            },
+                            {
+                              "value": {
+                                "kind": "stringLiteral",
+                                "evalType": 1,
+                                "value": "a"
+                              },
+                              "parameterType": 1
+                            }
+                          ],
+                          "overload": ""
+                        },
+                        "parameterType": 5
+                      },
+                      {
+                        "value": {
+                          "kind": "functionCall",
+                          "evalType": 5,
+                          "name": "Point",
+                          "arguments": [
+                            {
+                              "value": {
+                                "kind": "doubleLiteral",
+                                "evalType": 2,
+                                "value": "2.0"
+                              },
+                              "parameterType": 2
+                            },
+                            {
+                              "value": {
+                                "kind": "stringLiteral",
+                                "evalType": 1,
+                                "value": "b"
+                              },
+                              "parameterType": 1
+                            }
+                          ],
+                          "overload": ""
+                        },
+                        "parameterType": 5
+                      }
+                    ],
+                    "overload": ""
+                  },
+                  "parameterType": 9
+                }
+              ],
+              "overload": ""
+            }
+          },
+          {
+            "kind": "variableDeclaration",
+            "name": "reversed",
+            "type": 8,
+            "initialValue": {
+              "kind": "functionCall",
+              "evalType": 8,
+              "name": "reverse",
+              "arguments": [
+                {
+                  "value": {
+                    "kind": "identifier",
+                    "evalType": 8,
+                    "name": "route",
+                    "scope": 3
+                  },
+                  "parameterType": 8
+                }
+              ],
+              "overload": ""
+            }
+          },
+          {
+            "kind": "expression",
+            "expression": {
+              "kind": "memberCall",
+              "evalType": 1,
+              "expression": {
+                "kind": "memberAccess",
+                "evalType": 9,
+                "expression": {
+                  "kind": "identifier",
+                  "evalType": 8,
+                  "name": "reversed",
+                  "scope": 3
+                },
+                "member": "stops",
+                "isNullChaining": false
+              },
+              "member": "add",
+              "isNullChaining": false,
+              "arguments": [
+                {
+                  "value": {
+                    "kind": "functionCall",
+                    "evalType": 5,
+                    "name": "Point",
+                    "arguments": [
+                      {
+                        "value": {
+                          "kind": "doubleLiteral",
+                          "evalType": 2,
+                          "value": "3.0"
+                        },
+                        "parameterType": 2
+                      },
+                      {
+                        "value": {
+                          "kind": "stringLiteral",
+                          "evalType": 1,
+                          "value": "c"
+                        },
+                        "parameterType": 1
+                      }
+                    ],
+                    "overload": ""
+                  },
+                  "parameterType": 5
+                }
+              ],
+              "overload": ""
+            }
+          },
+          {
+            "kind": "assignment",
+            "left": {
+              "kind": "memberAccess",
+              "evalType": 1,
+              "expression": {
+                "kind": "identifier",
+                "evalType": 8,
+                "name": "reversed",
+                "scope": 3
+              },
+              "member": "name",
+              "isNullChaining": false
+            },
+            "right": {
+              "kind": "stringLiteral",
+              "evalType": 1,
+              "value": "back"
+            }
+          },
+          {
+            "kind": "return",
+            "value": {
+              "kind": "binary",
+              "evalType": 1,
+              "operator": "+",
+              "left": {
+                "kind": "binary",
+                "evalType": 1,
+                "operator": "+",
+                "left": {
+                  "kind": "binary",
+                  "evalType": 1,
+                  "operator": "+",
+                  "left": {
+                    "kind": "binary",
+                    "evalType": 1,
+                    "operator": "+",
+                    "left": {
+                      "kind": "binary",
+                      "evalType": 1,
+                      "operator": "+",
+                      "left": {
+                        "kind": "memberAccess",
+                        "evalType": 1,
+                        "expression": {
+                          "kind": "identifier",
+                          "evalType": 8,
+                          "name": "reversed",
+                          "scope": 3
+                        },
+                        "member": "name",
+                        "isNullChaining": false
+                      },
+                      "right": {
+                        "kind": "memberCall",
+                        "evalType": 6,
+                        "expression": {
+                          "kind": "memberAccess",
+                          "evalType": 9,
+                          "expression": {
+                            "kind": "identifier",
+                            "evalType": 8,
+                            "name": "reversed",
+                            "scope": 3
+                          },
+                          "member": "stops",
+                          "isNullChaining": false
+                        },
+                        "member": "size",
+                        "isNullChaining": false,
+                        "arguments": [],
+                        "overload": ""
+                      }
+                    },
+                    "right": {
+                      "kind": "memberAccess",
+                      "evalType": 1,
+                      "expression": {
+                        "kind": "memberCall",
+                        "evalType": 5,
+                        "expression": {
+                          "kind": "memberAccess",
+                          "evalType": 9,
+                          "expression": {
+                            "kind": "identifier",
+                            "evalType": 8,
+                            "name": "reversed",
+                            "scope": 3
+                          },
+                          "member": "stops",
+                          "isNullChaining": false
+                        },
+                        "member": "first",
+                        "isNullChaining": false,
+                        "arguments": [],
+                        "overload": ""
+                      },
+                      "member": "label",
+                      "isNullChaining": false
+                    }
+                  },
+                  "right": {
+                    "kind": "stringLiteral",
+                    "evalType": 1,
+                    "value": " "
+                  }
+                },
+                "right": {
+                  "kind": "memberCall",
+                  "evalType": 6,
+                  "expression": {
+                    "kind": "memberAccess",
+                    "evalType": 9,
+                    "expression": {
+                      "kind": "identifier",
+                      "evalType": 8,
+                      "name": "route",
+                      "scope": 3
+                    },
+                    "member": "stops",
+                    "isNullChaining": false
+                  },
+                  "member": "size",
+                  "isNullChaining": false,
+                  "arguments": [],
+                  "overload": ""
+                }
+              },
+              "right": {
+                "kind": "memberAccess",
+                "evalType": 1,
+                "expression": {
+                  "kind": "memberCall",
+                  "evalType": 5,
+                  "expression": {
+                    "kind": "memberAccess",
+                    "evalType": 9,
+                    "expression": {
+                      "kind": "identifier",
+                      "evalType": 8,
+                      "name": "route",
+                      "scope": 3
+                    },
+                    "member": "stops",
+                    "isNullChaining": false
+                  },
+                  "member": "first",
+                  "isNullChaining": false,
+                  "arguments": [],
+                  "overload": ""
+                },
+                "member": "label",
+                "isNullChaining": false
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "copiedRouteSharesStops",
+      "parameters": [],
+      "returnType": 6,
+      "body": {
+        "body": [
+          {
+            "kind": "variableDeclaration",
+            "name": "route",
+            "type": 8,
+            "initialValue": {
+              "kind": "functionCall",
+              "evalType": 8,
+              "name": "Route",
+              "arguments": [
+                {
+                  "value": {
+                    "kind": "stringLiteral",
+                    "evalType": 1,
+                    "value": "r"
+                  },
+                  "parameterType": 1
+                },
+                {
+                  "value": {
+                    "kind": "functionCall",
+                    "evalType": 9,
+                    "name": "listOf",
+                    "arguments": [
+                      {
+                        "value": {
+                          "kind": "functionCall",
+                          "evalType": 5,
+                          "name": "Point",
+                          "arguments": [
+                            {
+                              "value": {
+                                "kind": "doubleLiteral",
+                                "evalType": 2,
+                                "value": "1.0"
+                              },
+                              "parameterType": 2
+                            },
+                            {
+                              "value": {
+                                "kind": "stringLiteral",
+                                "evalType": 1,
+                                "value": "a"
+                              },
+                              "parameterType": 1
+                            }
+                          ],
+                          "overload": ""
+                        },
+                        "parameterType": 5
+                      }
+                    ],
+                    "overload": ""
+                  },
+                  "parameterType": 9
+                }
+              ],
+              "overload": ""
+            }
+          },
+          {
+            "kind": "variableDeclaration",
+            "name": "copy",
+            "type": 8,
+            "initialValue": {
+              "kind": "memberCall",
+              "evalType": 8,
+              "expression": {
+                "kind": "identifier",
+                "evalType": 8,
+                "name": "route",
+                "scope": 3
+              },
+              "member": "with",
+              "isNullChaining": false,
+              "arguments": [
+                {
+                  "value": {
+                    "kind": "stringLiteral",
+                    "evalType": 1,
+                    "value": "copy"
+                  },
+                  "parameterType": 1
+                }
+              ],
+              "overload": ""
+            }
+          },
+          {
+            "kind": "expression",
+            "expression": {
+              "kind": "memberCall",
+              "evalType": 1,
+              "expression": {
+                "kind": "memberAccess",
+                "evalType": 9,
+                "expression": {
+                  "kind": "identifier",
+                  "evalType": 8,
+                  "name": "copy",
+                  "scope": 3
+                },
+                "member": "stops",
+                "isNullChaining": false
+              },
+              "member": "add",
+              "isNullChaining": false,
+              "arguments": [
+                {
+                  "value": {
+                    "kind": "functionCall",
+                    "evalType": 5,
+                    "name": "Point",
+                    "arguments": [
+                      {
+                        "value": {
+                          "kind": "doubleLiteral",
+                          "evalType": 2,
+                          "value": "2.0"
+                        },
+                        "parameterType": 2
+                      },
+                      {
+                        "value": {
+                          "kind": "stringLiteral",
+                          "evalType": 1,
+                          "value": "b"
+                        },
+                        "parameterType": 1
+                      }
+                    ],
+                    "overload": ""
+                  },
+                  "parameterType": 5
+                }
+              ],
+              "overload": ""
+            }
+          },
+          {
+            "kind": "return",
+            "value": {
+              "kind": "memberCall",
+              "evalType": 6,
+              "expression": {
+                "kind": "memberAccess",
+                "evalType": 9,
+                "expression": {
+                  "kind": "identifier",
+                  "evalType": 8,
+                  "name": "route",
+                  "scope": 3
+                },
+                "member": "stops",
+                "isNullChaining": false
+              },
+              "member": "size",
+              "isNullChaining": false,
+              "arguments": [],
+              "overload": ""
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "records": []
+}

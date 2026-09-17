@@ -1,0 +1,23 @@
+fun many(p0: int = 0, p1: int = 1, p2: int = 2, p3: int = 3, p4: int = 4, p5: int = 5, p6: int = 6, p7: int = 7, p8: int = 8, p9: int = 9, p10: int = 10, p11: int = 11, p12: int = 12, p13: int = 13, p14: int = 14, p15: int = 15, p16: int = 16, p17: int = 17, p18: int = 18, p19: int = 19, p20: int = 20, p21: int = 21, p22: int = 22, p23: int = 23, p24: int = 24, p25: int = 25, p26: int = 26, p27: int = 27, p28: int = 28, p29: int = 29, p30: int = 30): int {
+    return p0 + p1 + p2 + p3 + p4 + p5 + p6 + p7 + p8 + p9 + p10 + p11 + p12 + p13 + p14 + p15 + p16 + p17 + p18 + p19 + p20 + p21 + p22 + p23 + p24 + p25 + p26 + p27 + p28 + p29 + p30
+}
+
+fun allDefaults(): int {
+    return many()
+}
+
+fun lastGiven(): int {
+    return many(p30 = 1000)
+}
+
+fun firstGiven(): int {
+    return many(-1000, p29 = 0)
+}
+
+record Wide(f0: int = 0, f1: int = 1, f2: int = 2, f3: int = 3, f4: int = 4, f5: int = 5, f6: int = 6, f7: int = 7, f8: int = 8, f9: int = 9, f10: int = 10, f11: int = 11, f12: int = 12, f13: int = 13, f14: int = 14, f15: int = 15, f16: int = 16, f17: int = 17, f18: int = 18, f19: int = 19, f20: int = 20, f21: int = 21, f22: int = 22, f23: int = 23, f24: int = 24, f25: int = 25, f26: int = 26, f27: int = 27, f28: int = 28, f29: int = 29, f30: int = 30)
+
+fun wideRecord(): string {
+    val w = Wide(f30 = 99)
+    val copy = w.with(f0 = 7)
+    return "" + w.f30 + "," + copy.f0 + "," + copy.f30 + "," + w.f0
+}

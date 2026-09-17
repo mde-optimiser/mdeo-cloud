@@ -6,6 +6,7 @@ export * from "./features/type-system/scriptPartialTypeSystem.js";
 export * from "./features/type-system/scriptReturnStatementAccessor.js";
 export * from "./features/type-system/scriptScopeProvider.js";
 export * from "./features/type-system/scriptTypeSystem.js";
+export * from "./features/records.js";
 export * from "./features/scriptActionProvider.js";
 export * from "./features/scriptCompletionProvider.js";
 export * from "./features/scriptDocumentPackageCacheService.js";

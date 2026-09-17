@@ -14,9 +14,12 @@ import {
     findCommonParentType
 } from "@mdeo/language-expression";
 import {
+    expressionTypes,
     ExtensionExpression,
     Function,
     FunctionParameter,
+    type FunctionParametersType,
+    Record,
     LambdaExpression,
     Script,
     type FunctionType,
@@ -25,6 +28,7 @@ import {
     type FunctionFileImportType
 } from "../../grammar/scriptTypes.js";
 import { ScriptReturnStatementAccessor } from "./scriptReturnStatementAccessor.js";
+import { createRecordFunctionType, describeRecordFields, getRecordPackage, RECORD_COPY_METHOD } from "../records.js";
 import { LambdaScope } from "./lambdaScope.js";
 import type { ScriptTypirServices, ScriptTypirSpecifics } from "../../plugin.js";
 import type {
@@ -80,9 +84,12 @@ export class ScriptPartialTypeSystem extends PartialTypeSystem<ScriptTypirSpecif
         this.registerScriptNameConflictsValidationRule();
         this.registerScriptImportCompatibilityValidationRule();
         this.registerFunctionInferenceRule();
+        this.registerRecordInferenceRule();
+        this.registerRecordValidationRule();
         this.registerFunctionParameterInferenceRule();
         this.registerFunctionValidationRule();
         this.registerFunctionDuplicateParametersValidationRule();
+        this.registerParameterDefaultValueValidationRule();
         this.registerLambdaInferenceRule();
         this.registerLambdaValidationRule();
         this.registerExtensionExpressionInferenceRule();
@@ -110,6 +117,18 @@ export class ScriptPartialTypeSystem extends PartialTypeSystem<ScriptTypirSpecif
                 functionNames.add(func.name);
             }
 
+            for (const record of scriptNode.records) {
+                if (functionNames.has(record.name)) {
+                    accept({
+                        languageNode: record,
+                        languageProperty: "name",
+                        message: `Duplicate declaration name '${record.name}'.`,
+                        severity: "error"
+                    });
+                }
+                functionNames.add(record.name);
+            }
+
             for (const fileImport of scriptNode.imports) {
                 for (const namedImport of fileImport.imports) {
                     const importName = namedImport.name ?? namedImport.entity?.ref?.name;
@@ -131,7 +150,21 @@ export class ScriptPartialTypeSystem extends PartialTypeSystem<ScriptTypirSpecif
                         accept({
                             languageNode: namedImport,
                             languageProperty: namedImport.name != undefined ? "name" : "entity",
-                            message: `Name conflict: '${importName}' is already defined as a function.`,
+                            message: `Name conflict: '${importName}' is already defined in this file.`,
+                            severity: "error"
+                        });
+                    }
+
+                    // A record is also a type, which is always referred to by its declared name.
+                    if (
+                        namedImport.name != undefined &&
+                        namedImport.entity?.ref != undefined &&
+                        this.astReflection.isInstance(namedImport.entity.ref, Record)
+                    ) {
+                        accept({
+                            languageNode: namedImport,
+                            languageProperty: "name",
+                            message: `The record '${namedImport.entity.ref.name}' cannot be renamed when it is imported.`,
                             severity: "error"
                         });
                     }
@@ -283,7 +316,8 @@ export class ScriptPartialTypeSystem extends PartialTypeSystem<ScriptTypirSpecif
                     : this.primitives.Any.asNullable;
                 return {
                     name: param.name,
-                    type: paramType.definition
+                    type: paramType.definition,
+                    hasDefault: param.defaultValue != undefined
                 };
             });
 
@@ -299,6 +333,69 @@ export class ScriptPartialTypeSystem extends PartialTypeSystem<ScriptTypirSpecif
                 name: node.name,
                 typeArgs: new Map()
             });
+        });
+    }
+
+    /**
+     * Registers a type inference rule for records.
+     * A record, used as a value, is its constructor: a function taking the fields and returning
+     * a new record.
+     */
+    private registerRecordInferenceRule(): void {
+        this.registerInferenceRule(Record, (node) => {
+            const typePackage = getRecordPackage(AstUtils.getDocument(node).uri.path, node.name);
+            const { fields, fieldType } = describeRecordFields(node, this.typir);
+            return this.typir.factory.CustomFunctions.create({
+                definition: createRecordFunctionType(typePackage, node.name, fields, fieldType, false),
+                name: node.name,
+                typeArgs: new Map()
+            });
+        });
+    }
+
+    /**
+     * Registers validation rules for records.
+     * Field names must be unique, may not be the name of the copy method, and a record may not have
+     * the name of a class or enum of the metamodel it can see.
+     */
+    private registerRecordValidationRule(): void {
+        this.registerValidationRule(Record, (node, accept) => {
+            const fieldNames = new Set<string>();
+            for (const field of node.parameterList?.parameters ?? []) {
+                if (fieldNames.has(field.name)) {
+                    accept({
+                        languageNode: field,
+                        languageProperty: "name",
+                        message: `Duplicate field name '${field.name}'.`,
+                        severity: "error"
+                    });
+                }
+                fieldNames.add(field.name);
+                if (field.name === RECORD_COPY_METHOD) {
+                    accept({
+                        languageNode: field,
+                        languageProperty: "name",
+                        message: `A record field cannot be named '${RECORD_COPY_METHOD}', which is the name of the method that copies a record.`,
+                        severity: "error"
+                    });
+                }
+            }
+
+            const { packageMap } = this.typir.PackageMapCache.getDocumentPackageCache(AstUtils.getDocument(node));
+            const metamodelPackages = [...(packageMap.get("class") ?? []), ...(packageMap.get("enum") ?? [])];
+            if (
+                metamodelPackages.some(
+                    (typePackage) =>
+                        this.typir.TypeDefinitions.getClassTypeIfExisting(node.name, typePackage) != undefined
+                )
+            ) {
+                accept({
+                    languageNode: node,
+                    languageProperty: "name",
+                    message: `Name conflict: '${node.name}' is already defined by the metamodel.`,
+                    severity: "error"
+                });
+            }
         });
     }
 
@@ -392,6 +489,54 @@ export class ScriptPartialTypeSystem extends PartialTypeSystem<ScriptTypirSpecif
                     });
                 }
                 parameterNames.add(param.name);
+            }
+        });
+    }
+
+    /**
+     * Registers a validation rule for default values of parameters.
+     * A default value must be assignable to the parameter's type, and may only refer to the
+     * parameters declared before it.
+     */
+    private registerParameterDefaultValueValidationRule(): void {
+        this.registerValidationRule(FunctionParameter, (node, accept) => {
+            const defaultValue = node.defaultValue;
+            if (defaultValue == undefined) {
+                return;
+            }
+            const valueType = this.inference.inferType(defaultValue);
+            const parameterType = this.inference.inferType(node);
+            if (
+                !Array.isArray(valueType) &&
+                !Array.isArray(parameterType) &&
+                !this.typir.Assignability.isAssignable(valueType, parameterType)
+            ) {
+                accept({
+                    languageNode: defaultValue,
+                    message: `Default value of type '${valueType.getName()}' is not assignable to parameter type '${parameterType.getName()}'.`,
+                    severity: "error"
+                });
+            }
+
+            const parameters = (node.$container as FunctionParametersType).parameters;
+            const ownIndex = parameters.indexOf(node);
+            for (const child of AstUtils.streamAst(defaultValue)) {
+                if (!this.astReflection.isInstance(child, expressionTypes.identifierExpressionType)) {
+                    continue;
+                }
+                const entry = this.typir.ScopeProvider.getScope(child).getEntry(child.name);
+                const referenced = entry?.languageNode;
+                if (referenced == undefined || !this.astReflection.isInstance(referenced, FunctionParameter)) {
+                    continue;
+                }
+                const referencedIndex = parameters.indexOf(referenced);
+                if (referencedIndex >= ownIndex) {
+                    accept({
+                        languageNode: child,
+                        message: `The default value of '${node.name}' can only refer to parameters declared before it.`,
+                        severity: "error"
+                    });
+                }
             }
         });
     }

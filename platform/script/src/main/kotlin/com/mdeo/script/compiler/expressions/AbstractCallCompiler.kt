@@ -5,9 +5,12 @@ import com.mdeo.expression.ast.types.ClassTypeRef
 import com.mdeo.expression.ast.types.LambdaType
 import com.mdeo.expression.ast.types.ReturnType
 import com.mdeo.expression.ast.types.ValueType
+import com.mdeo.script.compiler.util.ASMUtil
 import com.mdeo.script.compiler.util.CoercionUtil
 import com.mdeo.script.compiler.CompilationContext
+import com.mdeo.script.compiler.CompilationException
 import com.mdeo.script.compiler.ExpressionCompiler
+import com.mdeo.script.compiler.registry.function.DefaultsMethod
 import org.objectweb.asm.MethodVisitor
 import org.objectweb.asm.Opcodes
 
@@ -132,6 +135,102 @@ abstract class AbstractCallCompiler : ExpressionCompiler() {
             }
 
             mv.visitInsn(Opcodes.AASTORE)
+        }
+    }
+
+    /**
+     * Reports whether the arguments of a call are not simply one per parameter in order, because
+     * some are passed by name to another position or some parameters are left to their defaults.
+     *
+     * @param arguments The call arguments, in the order they are written.
+     * @param parameterCount The number of parameters of the called signature.
+     * @param hasDefaults Whether the called signature has default values.
+     * @return True when the arguments have to be placed with [compileBoundArguments].
+     */
+    protected fun needsArgumentBinding(
+        arguments: List<TypedCallArgument>,
+        parameterCount: Int,
+        hasDefaults: Boolean
+    ): Boolean =
+        (hasDefaults && arguments.size < parameterCount) ||
+            arguments.withIndex().any { (index, argument) -> argument.parameter != null && argument.parameter != index }
+
+    /**
+     * Compiles call arguments onto the stack in parameter order, whatever order they are written in.
+     *
+     * Arguments are evaluated in the order they are written. When that differs from the parameter
+     * order, each value is kept in a temporary local until all are evaluated. A parameter no
+     * argument is passed to gets a zero placeholder of its JVM type, and its bit is set in the
+     * returned mask, so the caller can invoke the [com.mdeo.script.compiler.registry.function.DefaultsMethod]
+     * companion instead.
+     *
+     * @param arguments The call arguments, in the order they are written.
+     * @param context The compilation context.
+     * @param mv The ASM MethodVisitor for emitting bytecode.
+     * @param signatureParameterTypes The JVM-level parameter types of the called signature.
+     * @return A mask with bit `i` set when parameter `i` received no argument.
+     */
+    protected fun compileBoundArguments(
+        arguments: List<TypedCallArgument>,
+        context: CompilationContext,
+        mv: MethodVisitor,
+        signatureParameterTypes: List<ValueType>
+    ): Int {
+        val parameterCount = signatureParameterTypes.size
+        val parameterOf = arguments.mapIndexed { index, argument -> argument.parameter ?: index }
+        val argumentFor = arrayOfNulls<Int>(parameterCount)
+        parameterOf.forEachIndexed { index, parameter -> argumentFor[parameter] = index }
+        val targetTypes = signatureParameterTypes.map { normalizeSignatureParamType(it, context) }
+
+        val compileArgument = { index: Int ->
+            val argument = arguments[index]
+            val resolvedType = context.getType(argument.parameterType)
+            context.compileExpression(argument.value, mv, resolvedType)
+            CoercionUtil.emitCoercion(resolvedType, targetTypes[parameterOf[index]], mv, context)
+        }
+
+        val inParameterOrder = parameterOf.zipWithNext().all { (first, second) -> first < second }
+        val slots = IntArray(arguments.size)
+        if (!inParameterOrder) {
+            for (index in arguments.indices) {
+                compileArgument(index)
+                val targetType = targetTypes[parameterOf[index]]
+                slots[index] = context.allocateTempSlot(ASMUtil.getSlotsForType(targetType))
+                mv.visitVarInsn(ASMUtil.getStoreOpcode(targetType), slots[index])
+            }
+        }
+
+        var mask = 0
+        for (parameter in 0 until parameterCount) {
+            val index = argumentFor[parameter]
+            when {
+                index == null -> {
+                    if (parameter >= DefaultsMethod.MAX_PARAMETERS) {
+                        throw CompilationException("Parameter ${parameter + 1} is left out, but only the first ${DefaultsMethod.MAX_PARAMETERS} parameters can have default values")
+                    }
+                    emitZeroValue(targetTypes[parameter], mv)
+                    mask = mask or (1 shl parameter)
+                }
+                inParameterOrder -> compileArgument(index)
+                else -> mv.visitVarInsn(ASMUtil.getLoadOpcode(targetTypes[parameter]), slots[index])
+            }
+        }
+        return mask
+    }
+
+    /**
+     * Pushes the zero value of a type: `0` for a primitive, `null` for a reference.
+     *
+     * @param type The type.
+     * @param mv The ASM MethodVisitor for emitting bytecode.
+     */
+    private fun emitZeroValue(type: ReturnType, mv: MethodVisitor) {
+        when (ASMUtil.getTypeDescriptor(type)) {
+            "I", "Z", "B", "S", "C" -> mv.visitInsn(Opcodes.ICONST_0)
+            "J" -> mv.visitInsn(Opcodes.LCONST_0)
+            "F" -> mv.visitInsn(Opcodes.FCONST_0)
+            "D" -> mv.visitInsn(Opcodes.DCONST_0)
+            else -> mv.visitInsn(Opcodes.ACONST_NULL)
         }
     }
 

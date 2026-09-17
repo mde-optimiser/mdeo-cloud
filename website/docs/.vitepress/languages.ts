@@ -225,6 +225,7 @@ const script = createGrammar({
         "from",
         "as",
         "fun",
+        "record",
         "return",
         "if",
         "else",
@@ -233,6 +234,7 @@ const script = createGrammar({
         "break",
         "continue",
         "var",
+        "val",
         "in",
         "is"
     ],

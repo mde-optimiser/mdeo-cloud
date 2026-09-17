@@ -11,13 +11,19 @@ import {
     type ScopeLocalInitialization,
     type MetamodelEnumInfo,
     type MetamodelClassInfo,
-    ReadonlyCollectionTypeFactory
+    ReadonlyCollectionTypeFactory,
+    isCustomLambdaType
 } from "@mdeo/language-expression";
 import type { ScriptTypirServices, ScriptTypirSpecifics } from "../../plugin.js";
 import {
     expressionTypes,
     Function,
+    FunctionParameter,
+    type FunctionParameterType,
+    Record,
+    type RecordType,
     LambdaExpression,
+    ReturnStatement,
     Script,
     statementTypes,
     type FunctionType,
@@ -29,6 +35,7 @@ import { resolveRelativePath, sharedImport } from "@mdeo/language-shared";
 import { getExportedEntitiesByPath } from "@mdeo/language-metamodel";
 
 const { AstUtils } = sharedImport("langium");
+const { InferenceProblem } = sharedImport("typir");
 
 /**
  * The scope provider for the Script language.
@@ -36,13 +43,14 @@ const { AstUtils } = sharedImport("langium");
  */
 export class ScriptScopeProvider extends StatementsScopeProvider<ScriptTypirSpecifics> {
     constructor(typir: ScriptTypirServices) {
-        super(typir, statementTypes, expressionTypes, IterableType);
+        super(typir, statementTypes, expressionTypes, IterableType, [ReturnStatement]);
     }
 
     override isScopeRelevantNode(node: ScriptTypirSpecifics["LanguageType"]): boolean {
         return (
             super.isScopeRelevantNode(node) ||
             this.reflection.isInstance(node, Function) ||
+            this.reflection.isInstance(node, Record) ||
             this.reflection.isInstance(node, Script) ||
             this.reflection.isInstance(node, LambdaExpression)
         );
@@ -52,7 +60,7 @@ export class ScriptScopeProvider extends StatementsScopeProvider<ScriptTypirSpec
         languageNode: ScriptTypirSpecifics["LanguageType"],
         parentScope: BoundScope<ScriptTypirSpecifics> | undefined
     ): Scope<ScriptTypirSpecifics> {
-        if (this.reflection.isInstance(languageNode, Function)) {
+        if (this.reflection.isInstance(languageNode, Function) || this.reflection.isInstance(languageNode, Record)) {
             return this.createScopeForFunctionNode(languageNode, parentScope);
         } else if (this.reflection.isInstance(languageNode, Script)) {
             return this.createScopeForScriptNode(languageNode, parentScope);
@@ -63,15 +71,16 @@ export class ScriptScopeProvider extends StatementsScopeProvider<ScriptTypirSpec
     }
 
     /**
-     * Creates a scope for a function node.
-     * Function scopes include the function's parameters as scope entries.
+     * Creates a scope for a function or record node.
+     * The scope includes the parameters (or fields) as scope entries, which the default values
+     * of later parameters and a function's body can refer to.
      *
-     * @param node The function node to create a scope for
+     * @param node The function or record node to create a scope for
      * @param parentScope The parent scope of this function scope
      * @returns A new scope containing the function's parameters
      */
     private createScopeForFunctionNode(
-        node: FunctionType,
+        node: FunctionType | RecordType,
         parentScope: BoundScope<ScriptTypirSpecifics> | undefined
     ): Scope<ScriptTypirSpecifics> {
         return new DefaultScope<ScriptTypirSpecifics>(
@@ -95,7 +104,7 @@ export class ScriptScopeProvider extends StatementsScopeProvider<ScriptTypirSpec
      * @returns An array of scope entries, one for each function parameter
      */
     private getFunctionScopeEntries(
-        node: FunctionType,
+        node: FunctionType | RecordType,
         scope: Scope<ScriptTypirSpecifics>
     ): ScopeEntry<ScriptTypirSpecifics>[] {
         return node.parameterList.parameters.map((param) => ({
@@ -275,13 +284,13 @@ export class ScriptScopeProvider extends StatementsScopeProvider<ScriptTypirSpec
         scope: Scope<ScriptTypirSpecifics>
     ): ScopeEntry<ScriptTypirSpecifics>[] {
         const entries: ScopeEntry<ScriptTypirSpecifics>[] = [];
-        for (const func of node.functions) {
+        for (const declaration of [...node.functions, ...node.records]) {
             entries.push({
-                name: func.name,
+                name: declaration.name,
                 position: -1,
-                languageNode: func,
+                languageNode: declaration,
                 definingScope: scope,
-                inferType: () => this.inference.inferType(func)
+                inferType: () => this.inference.inferType(declaration)
             });
         }
         for (const importStatement of node.imports) {
@@ -311,9 +320,9 @@ export class ScriptScopeProvider extends StatementsScopeProvider<ScriptTypirSpec
      */
     getScriptLocalInitializations(node: ScriptType): ScopeLocalInitialization[] {
         const initializations: ScopeLocalInitialization[] = [];
-        for (const func of node.functions) {
+        for (const declaration of [...node.functions, ...node.records]) {
             initializations.push({
-                name: func.name,
+                name: declaration.name,
                 position: -1
             });
         }
@@ -345,12 +354,9 @@ export class ScriptScopeProvider extends StatementsScopeProvider<ScriptTypirSpec
         node: LambdaExpressionType,
         parentScope: BoundScope<ScriptTypirSpecifics> | undefined
     ): Scope<ScriptTypirSpecifics> {
-        const lambdaTypeInference = inferLambdaTypeFromContext<ScriptTypirSpecifics>(
-            node,
-            this.typir,
-            expressionTypes,
-            statementTypes
-        );
+        const lambdaTypeInference = this.reflection.isInstance(node.$container, FunctionParameter)
+            ? this.inferLambdaTypeFromParameter(node, node.$container)
+            : inferLambdaTypeFromContext<ScriptTypirSpecifics>(node, this.typir, expressionTypes, statementTypes);
 
         return new LambdaScope(
             parentScope,
@@ -363,6 +369,31 @@ export class ScriptScopeProvider extends StatementsScopeProvider<ScriptTypirSpec
             node,
             lambdaTypeInference
         );
+    }
+
+    /**
+     * Infers the type of a lambda that is the default value of a parameter from the parameter's type.
+     *
+     * @param node The lambda expression node
+     * @param parameter The parameter the lambda is the default value of
+     * @returns The declared lambda type, or an inference problem
+     */
+    private inferLambdaTypeFromParameter(
+        node: LambdaExpressionType,
+        parameter: FunctionParameterType
+    ): LambdaTypeInferenceResult<ScriptTypirSpecifics> {
+        const parameterType = this.inference.inferType(parameter);
+        if (isCustomLambdaType(parameterType)) {
+            return { type: parameterType };
+        }
+        return [
+            {
+                $problem: InferenceProblem,
+                languageNode: node,
+                location: `Parameter '${parameter.name}' is not of a lambda type.`,
+                subProblems: Array.isArray(parameterType) ? parameterType : []
+            }
+        ];
     }
 
     /**

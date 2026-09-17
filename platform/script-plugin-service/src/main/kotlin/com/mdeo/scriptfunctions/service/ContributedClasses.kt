@@ -9,8 +9,9 @@ import com.mdeo.expression.ast.types.ValueType
 const val CONTRIBUTED_CLASS_PACKAGE = "contrib"
 
 /**
- * A record a contribution defines: a deeply immutable value with named fields that scripts read
- * as readonly properties and compare by content.
+ * A record a contribution defines: a value with named fields that scripts construct, read, assign
+ * and compare by content. Every record is sent whole, and a record an operation receives is a copy
+ * of the script's.
  *
  * Declare one with [ScriptContributionBuilder.record], use [type] in signatures, and create values
  * with [of].

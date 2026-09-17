@@ -1,0 +1,99 @@
+{
+  "types": [
+    {
+      "kind": "void"
+    },
+    {
+      "package": "builtin",
+      "type": "string",
+      "isNullable": false,
+      "typeArgs": {}
+    },
+    {
+      "package": "builtin",
+      "type": "double",
+      "isNullable": false,
+      "typeArgs": {}
+    },
+    {
+      "package": "builtin",
+      "type": "boolean",
+      "isNullable": false,
+      "typeArgs": {}
+    },
+    {
+      "package": "builtin",
+      "type": "Any",
+      "isNullable": true
+    },
+    {
+      "package": "record/geo.fn/Point",
+      "type": "Point",
+      "isNullable": false,
+      "typeArgs": {}
+    }
+  ],
+  "imports": [],
+  "functions": [
+    {
+      "name": "origin",
+      "parameters": [],
+      "returnType": 5,
+      "body": {
+        "body": [
+          {
+            "kind": "return",
+            "value": {
+              "kind": "functionCall",
+              "evalType": 5,
+              "name": "Point",
+              "arguments": [
+                {
+                  "value": {
+                    "kind": "doubleLiteral",
+                    "evalType": 2,
+                    "value": "0.0"
+                  },
+                  "parameterType": 2
+                }
+              ],
+              "overload": ""
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "records": [
+    {
+      "name": "Point",
+      "package": "record/geo.fn/Point",
+      "type": 5,
+      "fields": [
+        {
+          "name": "x",
+          "type": 2
+        },
+        {
+          "name": "y",
+          "type": 2,
+          "defaultValue": {
+            "kind": "identifier",
+            "evalType": 2,
+            "name": "x",
+            "scope": 2
+          }
+        },
+        {
+          "name": "label",
+          "type": 1,
+          "defaultValue": {
+            "kind": "stringLiteral",
+            "evalType": 1,
+            "value": ""
+          }
+        }
+      ]
+    }
+  ]
+}

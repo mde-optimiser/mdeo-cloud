@@ -71,13 +71,8 @@ fun main() {
 
         function("shortestTour") {
             parameter("stops", listOfString)
-            implementation { call ->
-                val stops = call.argument<MutableList<String>>(0)
-                val tour = solve(stops)
-                stops.clear()
-                stops.addAll(tour)
-                null
-            }
+            returns(listOfString)
+            implementation { call -> solve(call.argument<List<String>>(0)) }
         }
 
         function("tourLength") {
@@ -99,8 +94,8 @@ fun main() {
 }
 ```
 
-A script in a project that has the plugin enabled now calls `shortestTour(stops)` like any other
-function. `runPluginService` blocks until the process is stopped.
+A script in a project that has the plugin enabled now calls `stops = shortestTour(stops)` like any
+other function. `runPluginService` blocks until the process is stopped.
 
 ## Declaring functions
 
@@ -144,9 +139,9 @@ An operation receives the call and returns the result:
 
 ```kotlin
 implementation { call ->
-    val values = call.argument<MutableList<Double>>(0)
-    values.replaceAll { it / values.sum() }
-    values.size
+    val values = call.argument<List<Double>>(0)
+    val total = values.sum()
+    values.map { it / total }
 }
 ```
 
@@ -157,9 +152,9 @@ Arguments arrive as plain Kotlin values:
 | `int`, `long`, `float`, `double` | `Int`, `Long`, `Float`, `Double` |
 | `boolean`, `string` | `Boolean`, `String` |
 | `null` | `null` |
-| `List`, `Bag` | `MutableList` |
-| `Set`, `OrderedSet` | `MutableSet`, iterating in insertion order |
-| `Map` | `MutableMap`, iterating in insertion order |
+| `List`, `Bag` and their readonly types | `List`, readonly |
+| `Set`, `OrderedSet` and their readonly types | `Set`, readonly, iterating in insertion order |
+| `Map`, `ReadonlyMap` | `Map`, readonly, iterating in insertion order |
 | A metamodel class | `ScriptModelInstance`, readonly |
 | A record of the contribution | `RecordValue` |
 | An opaque class of the contribution | The state behind the handle |
@@ -168,15 +163,12 @@ Return any of these, or `null` for a void function. A returned collection can be
 of the arguments — returning an argument returns that very collection to the script — and it
 becomes the collection type the signature declares.
 
-The rules of the round trip:
+The rules of a call:
 
-- **Change only what the signature lets you change.** A parameter declared as a mutable collection
-  (`List`, `Set`, `Bag`, `OrderedSet`, `Map`) may be changed. Everything else — `ReadonlyList` and
-  the other readonly types, `Any`, scalars — may not, and changing it fails the call.
-- **Only what changed goes back.** After the operation returns, every collection it was given is
-  compared with what it received, and only the differences are sent.
-- **A call takes effect completely or not at all.** An operation that throws fails the call, the
-  script sees the exception's message, and none of the changes is applied.
+- **Arguments are *in*.** Whatever their declared type, the operation gets readonly views of
+  collections and copies of records, and trying to change a collection fails the call. What the
+  operation computes reaches the script through its return value only.
+- **An operation that throws fails the call**, and the script sees the exception's message.
 - **Identity is kept.** The same collection passed twice is the same object twice, and a collection
   that contains itself does so here as well.
 
@@ -213,11 +205,13 @@ val geo = scriptContribution("geo") {
 }
 ```
 
-A **record** is a deeply immutable value with named fields. Scripts read its fields as readonly
-properties, compare records by content, and pass them back; they cannot create or change one. A
-field holds a scalar, a string, a model instance or enum value, a record of the same contribution
-declared before it, or a readonly collection of those. Operations receive and return records as
-`RecordValue`; create one with `point.of(…)`, which checks that every field is given.
+A **record** is a value with named fields. Scripts use it like a record they declare themselves:
+they create one with `Point(2.5, label = "home")`, read and assign its fields, copy it with `with`,
+compare records by content, and pass them to the contribution's functions. A field holds a scalar, a
+string, a model instance or enum value, a record of the same contribution declared before it, or a
+collection of those, and no field may be named `with`. Operations receive and return records as
+`RecordValue`, a copy of the script's record; create one with `point.of(…)`, which checks that every
+field is given.
 
 An **opaque class** is a handle to state that stays on the service, like an index that is expensive
 to build. Return `index.wrap(state)`; when a script passes the handle back, the operation receives

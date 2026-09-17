@@ -9,8 +9,10 @@ import type {
     TypedFunction,
     TypedParameter,
     TypedLambdaExpression,
-    TypedImport
+    TypedImport,
+    TypedRecord
 } from "@mdeo/language-script";
+import { getRecordPackage } from "@mdeo/language-script";
 import type { ScriptType, FunctionType, LambdaExpressionType, FunctionParametersType } from "@mdeo/language-script";
 import { LambdaExpression, statementTypes, expressionTypes } from "@mdeo/language-script";
 import type {
@@ -84,6 +86,22 @@ export class ScriptTypedAstConverter extends StatementTypedAstConverter {
 
         const functions: TypedFunction[] = script.functions.map((func: FunctionType) => this.convertFunction(func));
 
+        const records: TypedRecord[] = script.records.map((record) => {
+            const recordPackage = getRecordPackage(document.uri.path, record.name);
+            return {
+                name: record.name,
+                package: recordPackage,
+                type: this.getTypeIndexForType(
+                    this.typir.TypeDefinitions.resolveCustomClassOrLambdaType({
+                        package: recordPackage,
+                        type: record.name,
+                        isNullable: false
+                    })
+                ),
+                fields: this.convertParameters(record.parameterList)
+            };
+        });
+
         const metamodelPath =
             script.metamodelImport?.file != null
                 ? resolveRelativePath(document, script.metamodelImport.file).path
@@ -93,7 +111,8 @@ export class ScriptTypedAstConverter extends StatementTypedAstConverter {
             types: this.types,
             metamodelPath,
             imports,
-            functions
+            functions,
+            records
         };
     }
 
@@ -123,10 +142,18 @@ export class ScriptTypedAstConverter extends StatementTypedAstConverter {
      * @returns Array of typed parameters
      */
     private convertParameters(paramList: FunctionParametersType): TypedParameter[] {
-        return paramList.parameters.map((param: any) => ({
-            name: param.name,
-            type: this.getTypeIndex(param)
-        }));
+        return paramList.parameters.map((param) =>
+            param.defaultValue != undefined
+                ? {
+                      name: param.name,
+                      type: this.getTypeIndex(param),
+                      defaultValue: this.convertExpression(param.defaultValue)
+                  }
+                : {
+                      name: param.name,
+                      type: this.getTypeIndex(param)
+                  }
+        );
     }
 
     /**

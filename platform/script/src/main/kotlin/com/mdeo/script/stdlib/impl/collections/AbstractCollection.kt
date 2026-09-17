@@ -15,43 +15,20 @@ import java.util.concurrent.ThreadLocalRandom
  */
 abstract class AbstractCollection<T, C : MutableCollection<T>>(
     protected val backing: C
-) : Collection<T>, DeltaTarget {
+) : Collection<T>, HeapCollection {
 
     /**
-     * Mutation counter, see [DeltaTarget.deltaVersion].
+     * Mutation counter, see [HeapCollection.heapVersion].
      */
     @JvmField
     internal var version: Long = 0
 
-    override val deltaVersion: Long get() = version
+    override val heapVersion: Long get() = version
 
-    override fun deltaSnapshot(): List<Any?> = ArrayList<Any?>(backing)
-
-    override fun deltaSplice(index: Int, deleteCount: Int, insert: List<Any?>) {
-        val elements = ArrayList<Any?>(backing)
-        repeat(deleteCount) { elements.removeAt(index) }
-        elements.addAll(index, insert)
-        deltaReplace(elements)
-    }
+    override fun heapSnapshot(): List<Any?> = ArrayList<Any?>(backing)
 
     @Suppress("UNCHECKED_CAST")
-    override fun deltaAdd(values: List<Any?>) {
-        version++
-        for (value in values) backing.add(value as T)
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    override fun deltaRemove(values: List<Any?>) {
-        version++
-        for (value in values) backing.remove(value as T)
-    }
-
-    override fun deltaSetCount(value: Any?, count: Int) {
-        throw UnsupportedOperationException("Only a bag has element counts")
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    override fun deltaReplace(elements: List<Any?>) {
+    override fun heapReplace(elements: List<Any?>) {
         version++
         backing.clear()
         backing.addAll(elements as List<T>)

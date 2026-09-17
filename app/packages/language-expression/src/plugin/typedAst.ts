@@ -423,6 +423,14 @@ export interface TypedCallArgument {
      * at this parameter position. This is the resolved type after generic substitution.
      */
     parameterType: number;
+    /**
+     * Index of the parameter the argument is passed to, set when that is not the argument's own
+     * position, as for a named argument.
+     *
+     * Arguments are listed in the order they are written and evaluated. A called function whose
+     * parameters are not all given an argument uses the default value of each missing one.
+     */
+    parameter?: number;
 }
 
 /**

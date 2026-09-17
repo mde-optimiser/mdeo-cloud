@@ -155,7 +155,8 @@ export interface ScopeLocalInitialization {
  */
 export interface ControlFlowEntry<Specifics extends TypirSpecifics> {
     /**
-     * The scopes which may be entered from this control flow entry.
+     * The scopes which may be entered from this control flow entry, and after which control flow
+     * may continue past it. A branch that always jumps away is not one of them.
      */
     scopes: Scope<Specifics>[];
     /**
@@ -251,25 +252,26 @@ export class DefaultScope<Specifics extends TypirSpecifics> implements Scope<Spe
     }
 
     isEntryInitialized(entry: ScopeEntry<Specifics>, position: number): boolean {
-        const cached = this.initializationLookup.get(entry);
-        if (cached != undefined) {
-            return this.isInitializedAt(position, cached);
+        let cached = this.initializationLookup.get(entry);
+        if (cached != undefined && this.isInitializedAt(position, cached)) {
+            return true;
         }
         if (this.initializeControlFlowEntriesUntil(position)) {
-            const updated = this.initializationLookup.get(entry);
-            if (updated != undefined) {
-                return this.isInitializedAt(position, updated);
+            cached = this.initializationLookup.get(entry);
+            if (cached != undefined && this.isInitializedAt(position, cached)) {
+                return true;
             }
         }
-        if (entry.definingScope === this) {
+        if (cached === false || entry.definingScope === this || this.parent == undefined) {
             return false;
         }
-        if (this.parent != undefined) {
-            const initializedByParent = this.parent.isEntryInitialized(entry);
+        // Not initialized here yet, maybe only further on: it still is if the parent initialized it
+        // before entering this scope.
+        const initializedByParent = this.parent.isEntryInitialized(entry);
+        if (cached == undefined) {
             this.updateInitializationLookup(entry, initializedByParent);
-            return initializedByParent;
         }
-        return false;
+        return initializedByParent;
     }
 
     getEntries(position: number): ScopeEntry<Specifics>[] {

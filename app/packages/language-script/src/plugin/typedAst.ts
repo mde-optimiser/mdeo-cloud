@@ -29,6 +29,36 @@ export interface TypedAst {
      * All top-level functions in the program.
      */
     functions: TypedFunction[];
+
+    /**
+     * All records the program declares.
+     */
+    records: TypedRecord[];
+}
+
+/**
+ * Record declaration.
+ */
+export interface TypedRecord {
+    /**
+     * Name of the record, which is also the name of its constructor.
+     */
+    name: string;
+
+    /**
+     * The type package of the record, as types in the types array refer to it.
+     */
+    package: string;
+
+    /**
+     * Index into the types array for the (non-nullable) record type, which its constructor returns.
+     */
+    type: number;
+
+    /**
+     * The fields of the record in declaration order, with their default values.
+     */
+    fields: TypedParameter[];
 }
 
 /**
@@ -89,6 +119,12 @@ export interface TypedParameter {
      * Index into the types array for the parameter type.
      */
     type: number;
+
+    /**
+     * The value the parameter takes when a call leaves it out. It is evaluated at every such call,
+     * after the arguments, and may refer to the parameters declared before it.
+     */
+    defaultValue?: TypedExpression;
 }
 
 /**

@@ -12,17 +12,17 @@ import com.mdeo.pluginservice.session.SessionContext
  * | `int`, `long`, `float`, `double` | [Int], [Long], [Float], [Double] |
  * | `boolean`, `string` | [Boolean], [String] |
  * | `null` | `null` |
- * | `List`, `Bag` | [MutableList] |
- * | `Set`, `OrderedSet` | [MutableSet], iterating in insertion order |
- * | `Map` | [MutableMap], iterating in insertion order |
+ * | `List`, `Bag` and their readonly types | [List], readonly |
+ * | `Set`, `OrderedSet` and their readonly types | [Set], readonly, iterating in insertion order |
+ * | `Map`, `ReadonlyMap` | [Map], readonly, iterating in insertion order |
  * | a model class | [ScriptModelInstance] |
  *
  * The same collection passed twice is the same object twice, and a collection that contains itself
  * does so here as well.
  *
- * Change the collections the signature declares as mutable, and return the result. Only what
- * actually changed is sent back. Changing a collection declared readonly fails the call, and so
- * does throwing: in both cases the script sees an error and none of the changes is applied.
+ * Every argument is *in*: nothing an operation does to it reaches the script. Collections arrive as
+ * readonly views, and trying to change one fails the call. Throwing fails the call as well; the
+ * script sees the error.
  *
  * Return any of the values above. A returned collection may be a new one or one of the arguments;
  * returning an argument returns that same collection to the script.
@@ -60,7 +60,7 @@ class ScriptFunctionCall(
      * Returns one argument as the type it was declared with.
      *
      * ```kotlin
-     * val stops = call.argument<MutableList<String>>(0)
+     * val stops = call.argument<List<String>>(0)
      * ```
      *
      * @param index The parameter position

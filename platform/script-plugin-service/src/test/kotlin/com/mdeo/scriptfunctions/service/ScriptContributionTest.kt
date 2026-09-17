@@ -143,12 +143,20 @@ class ScriptContributionTest {
     }
 
     @Test
-    fun `records hold only immutable values and signatures only known classes`() {
+    fun `records hold only values scripts can send and signatures only known classes`() {
+        scriptContribution("geo") {
+            record("Good") { field("items", genericClassType("builtin", "List", typeArgs = mapOf("T" to BuiltinTypes.INT))) }
+        }
         assertFailsWith<IllegalArgumentException> {
             scriptContribution("geo") {
-                record("Bad") { field("items", genericClassType("builtin", "List", typeArgs = mapOf("T" to BuiltinTypes.INT))) }
+                record("Bad") { field("items", genericClassType("builtin", "List", typeArgs = mapOf("T" to BuiltinTypes.ANY))) }
             }
         }.also { assertTrue(it.message!!.contains("cannot hold")) }
+        assertFailsWith<IllegalArgumentException> {
+            scriptContribution("geo") {
+                record("Bad") { field("with", BuiltinTypes.INT) }
+            }
+        }.also { assertTrue(it.message!!.contains("copies a record")) }
         assertFailsWith<IllegalArgumentException> {
             scriptContribution("geo") {
                 val index = opaque("Index")

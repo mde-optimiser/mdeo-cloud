@@ -11,7 +11,8 @@ import {
     or,
     STRING,
     treeRewriteAction,
-    type ParserRule
+    type ParserRule,
+    type RuleEntry
 } from "@mdeo/language-common";
 import { LeadingTrailing, manySep } from "@mdeo/language-shared";
 import type { ExpressionConfig } from "./expressionConfig.js";
@@ -54,6 +55,16 @@ const BOOLEAN = createRule("BOOLEAN")
     .as(() => [or("true", "false")]);
 
 /**
+ * Options for the generated expression rules.
+ */
+export interface ExpressionRuleOptions {
+    /**
+     * Whether calls accept named arguments, `f(a, name = b)`.
+     */
+    namedArguments?: boolean;
+}
+
+/**
  * Generates expression-related parser rules based on the provided configuration.
  *
  * This function creates a complete set of parser rules for common programming language
@@ -70,13 +81,15 @@ const BOOLEAN = createRule("BOOLEAN")
  * @param types The generated expression type interfaces to use as return types
  * @param typeRule The type parser rule to use for generic type arguments
  * @param additionalExpressionRules Optional array of custom expression rules to include
+ * @param options Options enabling optional syntax
  * @returns The top-level expression parser rule
  */
 export function generateExpressionRules(
     config: ExpressionConfig,
     types: ExpressionTypes,
     typeRule: ParserRule<BaseTypeType>,
-    additionalExpressionRules: ParserRule<BaseExpressionType>[]
+    additionalExpressionRules: ParserRule<BaseExpressionType>[],
+    options: ExpressionRuleOptions = {}
 ) {
     const stringLiteralExpressionRule = createRule(config.stringLiteralExpressionRuleName)
         .returns(types.stringLiteralExpressionType)
@@ -154,16 +167,24 @@ export function generateExpressionRules(
             ])
         ]);
 
+    const namedArgumentRule = createRule(config.namedArgumentRuleName)
+        .returns(types.namedArgumentType)
+        .as(({ set }) => [set("name", ID), "=", set("value", () => expressionRule)]);
+
+    // Positional and named arguments may be written in any order here; that positional arguments
+    // come first is checked by validation, which can say so, rather than by a parse error.
+    const callArguments = (positional: RuleEntry, named: RuleEntry) =>
+        manySep(options.namedArguments === true ? or(named, positional) : positional, ",", LeadingTrailing.TRAILING);
+
     const callPostfixFragment = createFragmentRule(config.callPostfixFragmentRuleName)
         .returns(types.baseExpressionType)
         .as(() => [
             treeRewriteAction(types.callExpressionType, "expression", "=", ({ set, add }) => [
                 set("genericArgs", callExpressionGenericArgsRule),
                 "(",
-                ...manySep(
+                ...callArguments(
                     add("arguments", () => expressionRule),
-                    ",",
-                    LeadingTrailing.TRAILING
+                    add("namedArguments", namedArgumentRule)
                 ),
                 ")"
             ])
@@ -177,10 +198,9 @@ export function generateExpressionRules(
                 set("member", ID),
                 set("genericArgs", callExpressionGenericArgsRule),
                 "(",
-                ...manySep(
+                ...callArguments(
                     add("arguments", () => expressionRule),
-                    ",",
-                    LeadingTrailing.TRAILING
+                    add("namedArguments", namedArgumentRule)
                 ),
                 ")"
             ])
@@ -299,6 +319,7 @@ export function generateExpressionRules(
         callPostfixFragment,
         memberCallPostfixFragment,
         callExpressionGenericArgsRule,
+        namedArgumentRule,
         unaryExpressionRule,
         typeCastExpressionRule,
         binaryExpressionUpperRule,

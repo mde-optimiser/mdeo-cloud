@@ -1,6 +1,11 @@
 import type { InferenceProblem } from "typir";
 import type { TypirLangiumSpecifics } from "typir-langium";
-import type { CallExpressionType, ExpressionTypes, MemberCallExpressionType } from "../grammar/expressionTypes.js";
+import type {
+    CallExpressionType,
+    ExpressionTypes,
+    MemberCallExpressionType,
+    NamedArgumentType
+} from "../grammar/expressionTypes.js";
 import type {
     AssignmentStatementType,
     StatementTypes,
@@ -93,11 +98,22 @@ export function inferLambdaTypeFromContext<Specifics extends TypirLangiumSpecifi
     }
 
     if (astReflection.isInstance(container, expressionTypes.callExpressionType)) {
-        return inferFromCallExpression(lambdaNode, container, services);
+        return inferFromCallExpression(lambdaNode, container, positionalArgument(lambdaNode), services);
     }
 
     if (astReflection.isInstance(container, expressionTypes.memberCallExpressionType)) {
-        return inferFromMemberCallExpression(lambdaNode, container, services);
+        return inferFromMemberCallExpression(lambdaNode, container, positionalArgument(lambdaNode), services);
+    }
+
+    if (astReflection.isInstance(container, expressionTypes.namedArgumentType)) {
+        const call = container.$container as Specifics["LanguageType"] | undefined;
+        const argument = { name: (container as NamedArgumentType).name };
+        if (call != undefined && astReflection.isInstance(call, expressionTypes.callExpressionType)) {
+            return inferFromCallExpression(lambdaNode, call, argument, services);
+        }
+        if (call != undefined && astReflection.isInstance(call, expressionTypes.memberCallExpressionType)) {
+            return inferFromMemberCallExpression(lambdaNode, call, argument, services);
+        }
     }
 
     return createInferenceProblem(
@@ -105,6 +121,21 @@ export function inferLambdaTypeFromContext<Specifics extends TypirLangiumSpecifi
         lambdaNode,
         "Lambda expression is in an unsupported context for type inference."
     );
+}
+
+/**
+ * Where a lambda is passed in a call: by position, or by name.
+ */
+type ArgumentPlace = { index: number | undefined } | { name: string };
+
+/**
+ * Describes where a lambda that is a positional argument is passed.
+ *
+ * @param lambdaNode The lambda expression node
+ * @returns The lambda's position in the argument list
+ */
+function positionalArgument(lambdaNode: { $containerIndex?: number }): ArgumentPlace {
+    return { index: lambdaNode.$containerIndex };
 }
 
 /**
@@ -182,16 +213,17 @@ function inferFromVariableDeclaration<Specifics extends TypirLangiumSpecifics>(
  *
  * @param lambdaNode The lambda expression node
  * @param callExpressionNode The call expression node
+ * @param place Where the lambda is passed
  * @param services Extended Typir services
  * @returns The inferred lambda type or an inference problem
  */
 function inferFromCallExpression<Specifics extends TypirLangiumSpecifics>(
     lambdaNode: Specifics["LanguageType"],
     callExpressionNode: CallExpressionType,
+    place: ArgumentPlace,
     services: ExpressionTypirServices<Specifics>
 ): LambdaTypeInferenceResult<Specifics> {
-    const argumentIndex = lambdaNode.$containerIndex;
-    if (argumentIndex == undefined) {
+    if ("index" in place && place.index == undefined) {
         return createInferenceProblem(services, lambdaNode, "Cannot determine argument position.");
     }
 
@@ -203,11 +235,11 @@ function inferFromCallExpression<Specifics extends TypirLangiumSpecifics>(
     }
 
     if (isCustomLambdaType(targetType)) {
-        return inferFromLambdaTarget(lambdaNode, argumentIndex, targetType, services);
+        return inferFromLambdaTarget(lambdaNode, place, targetType, services);
     }
 
     if (isCustomFunctionType(targetType)) {
-        return inferFromFunctionTarget(lambdaNode, argumentIndex, targetType, services);
+        return inferFromFunctionTarget(lambdaNode, place, targetType, services);
     }
 
     return createInferenceProblem(
@@ -222,16 +254,17 @@ function inferFromCallExpression<Specifics extends TypirLangiumSpecifics>(
  *
  * @param lambdaNode The lambda expression node
  * @param memberCallExpressionNode The member call expression node
+ * @param place Where the lambda is passed
  * @param services Extended Typir services
  * @return The inferred lambda type or an inference problem
  */
 function inferFromMemberCallExpression<Specifics extends TypirLangiumSpecifics>(
     lambdaNode: Specifics["LanguageType"],
     memberCallExpressionNode: MemberCallExpressionType,
+    place: ArgumentPlace,
     services: ExpressionTypirServices<Specifics>
 ): LambdaTypeInferenceResult<Specifics> {
-    const argumentIndex = lambdaNode.$containerIndex;
-    if (argumentIndex == undefined) {
+    if ("index" in place && place.index == undefined) {
         return createInferenceProblem(services, lambdaNode, "Cannot determine argument position.");
     }
 
@@ -243,7 +276,7 @@ function inferFromMemberCallExpression<Specifics extends TypirLangiumSpecifics>(
     );
 
     if (isCustomFunctionType(targetType)) {
-        return inferFromFunctionTarget(lambdaNode, argumentIndex, targetType, services);
+        return inferFromFunctionTarget(lambdaNode, place, targetType, services);
     }
 
     const propertyTargetType = inferPropertyAccess(
@@ -254,7 +287,7 @@ function inferFromMemberCallExpression<Specifics extends TypirLangiumSpecifics>(
     );
 
     if (isCustomLambdaType(propertyTargetType)) {
-        return inferFromLambdaTarget(lambdaNode, argumentIndex, propertyTargetType, services);
+        return inferFromLambdaTarget(lambdaNode, place, propertyTargetType, services);
     }
 
     if (Array.isArray(propertyTargetType)) {
@@ -272,17 +305,21 @@ function inferFromMemberCallExpression<Specifics extends TypirLangiumSpecifics>(
  * Infers lambda type when the call target is a lambda.
  *
  * @param lambdaNode The lambda expression node
- * @param argumentIndex The position of the lambda in the argument list
+ * @param place Where the lambda is passed
  * @param targetType The lambda type being called
  * @param services Extended Typir services
  * @returns The inferred lambda type or an inference problem
  */
 function inferFromLambdaTarget<Specifics extends TypirLangiumSpecifics>(
     lambdaNode: Specifics["LanguageType"],
-    argumentIndex: number,
+    place: ArgumentPlace,
     targetType: CustomLambdaType,
     services: ExpressionTypirServices<Specifics>
 ): LambdaTypeInferenceResult<Specifics> {
+    if (!("index" in place) || place.index == undefined) {
+        return createInferenceProblem(services, lambdaNode, "Named arguments cannot be used when calling a lambda.");
+    }
+    const argumentIndex = place.index;
     if (argumentIndex >= targetType.details.parameterTypes.length) {
         return createInferenceProblem(
             services,
@@ -312,14 +349,14 @@ function inferFromLambdaTarget<Specifics extends TypirLangiumSpecifics>(
  * This handles the complex case of function overloads and generic type parameters.
  *
  * @param lambdaNode The lambda expression node
- * @param argumentIndex The position of the lambda in the argument list
+ * @param place Where the lambda is passed
  * @param targetType The function type being called
  * @param services Extended Typir services
  * @returns The inferred lambda type or an inference problem
  */
 function inferFromFunctionTarget<Specifics extends TypirLangiumSpecifics>(
     lambdaNode: Specifics["LanguageType"],
-    argumentIndex: number,
+    place: ArgumentPlace,
     targetType: CustomFunctionType,
     services: ExpressionTypirServices<Specifics>
 ): LambdaTypeInferenceResult<Specifics> {
@@ -327,11 +364,19 @@ function inferFromFunctionTarget<Specifics extends TypirLangiumSpecifics>(
     const candidateLambdaTypes: LambdaTypeInferenceResult<Specifics>[] = [];
 
     for (const signature of Object.values(definition.signatures)) {
-        if (argumentIndex >= signature.parameters.length && !signature.isVarArgs) {
-            continue;
+        let paramIndex: number;
+        if ("name" in place) {
+            paramIndex = signature.parameters.findIndex((parameter) => parameter.name === place.name);
+            if (paramIndex < 0 || signature.isVarArgs === true) {
+                continue;
+            }
+        } else {
+            const argumentIndex = place.index!;
+            if (argumentIndex >= signature.parameters.length && !signature.isVarArgs) {
+                continue;
+            }
+            paramIndex = Math.min(argumentIndex, signature.parameters.length - 1);
         }
-
-        const paramIndex = Math.min(argumentIndex, signature.parameters.length - 1);
         const parameterType = signature.parameters[paramIndex]!.type;
 
         if (LambdaType.is(parameterType)) {
@@ -344,7 +389,9 @@ function inferFromFunctionTarget<Specifics extends TypirLangiumSpecifics>(
         return createInferenceProblem(
             services,
             lambdaNode,
-            `No function signature expects a lambda at argument position ${argumentIndex}.`
+            "name" in place
+                ? `No function signature expects a lambda for parameter '${place.name}'.`
+                : `No function signature expects a lambda at argument position ${place.index}.`
         );
     }
 

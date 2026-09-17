@@ -44,7 +44,7 @@ data class TypedPluginClass(
 ) {
     companion object {
         /**
-         * A deeply immutable value with named fields.
+         * A value with named, mutable fields, which scripts can also construct.
          */
         const val KIND_RECORD = "record"
 
@@ -109,7 +109,7 @@ data class TypedPluginFunctionSignature(
  * The compiler emits a stub with the declared descriptor for such a signature: the stub boxes
  * its arguments, hands them to the [dispatcher][com.mdeo.script.runtime.ExternalCallDispatcher]
  * on the script context, and unboxes whatever comes back. Everything about how the call actually
- * reaches the plugin — the session, the encoding, the copy-restore of mutable arguments — lives
+ * reaches the plugin — the session, the encoding, the checking of the answer — lives
  * behind that dispatcher and not in the generated code.
  *
  * @param kind Discriminator, always `external`.

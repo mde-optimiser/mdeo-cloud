@@ -1,7 +1,7 @@
 import type { AstPath, Doc } from "prettier";
 import type { CstNode, LangiumCoreServices } from "langium";
 import type { AstSerializerAdditionalServices, PrintContext, Print } from "@mdeo/language-common";
-import { ID } from "@mdeo/language-common";
+import { ID, STRING } from "@mdeo/language-common";
 import { sharedImport } from "@mdeo/language-shared";
 import { getExpressionPrecedence, Precedence } from "./precedenceHelper.js";
 import type {
@@ -13,6 +13,7 @@ import type {
     CallExpressionType,
     MemberAccessExpressionType,
     MemberCallExpressionType,
+    NamedArgumentType,
     IdentifierExpressionType,
     StringLiteralExpressionType,
     IntLiteralExpressionType,
@@ -50,6 +51,7 @@ export function registerExpressionSerializers(
         printCallExpressionGenericArgs(ctx)
     );
     AstSerializer.registerNodeSerializer(types.callExpressionType, (ctx) => printCallExpression(ctx, types));
+    AstSerializer.registerNodeSerializer(types.namedArgumentType, (ctx) => printNamedArgument(ctx));
     AstSerializer.registerNodeSerializer(types.memberAccessExpressionType, (ctx) =>
         printMemberAccessExpression(ctx, types)
     );
@@ -176,6 +178,30 @@ function printTernaryExpression(context: PrintContext<TernaryExpressionType>, ty
 }
 
 /**
+ * Prints the argument list of a call.
+ *
+ * @param argumentDocs The printed arguments, positional ones first and then named ones
+ * @returns The formatted argument list, including the parentheses
+ */
+function printCallArguments(argumentDocs: Doc[]): Doc {
+    if (argumentDocs.length === 0) {
+        return "()";
+    }
+    return group(["(", indent([softline, join([",", line], argumentDocs)]), softline, ")"]);
+}
+
+/**
+ * Prints a named argument node.
+ *
+ * @param context The print context
+ * @returns The formatted named argument
+ */
+function printNamedArgument(context: PrintContext<NamedArgumentType>): Doc {
+    const { printPrimitive, getPrimitive, ctx, path, print } = context;
+    return [printPrimitive(getPrimitive(ctx, "name"), ID), " = ", path.call(print, "value")];
+}
+
+/**
  * Prints call expression generic arguments node.
  *
  * @param context The print context
@@ -211,11 +237,7 @@ function printCallExpression(context: PrintContext<CallExpressionType>, types: E
         docs.push(path.call(print, "genericArgs"));
     }
 
-    if (ctx.arguments && ctx.arguments.length > 0) {
-        docs.push(group(["(", indent([softline, join([",", line], path.map(print, "arguments"))]), softline, ")"]));
-    } else {
-        docs.push("()");
-    }
+    docs.push(printCallArguments([...path.map(print, "arguments"), ...path.map(print, "namedArguments")]));
 
     return group(docs);
 }
@@ -256,11 +278,7 @@ function printMemberCallExpression(context: PrintContext<MemberCallExpressionTyp
         docs.push(path.call(print, "genericArgs"));
     }
 
-    if (ctx.arguments && ctx.arguments.length > 0) {
-        docs.push(group(["(", indent([softline, join([",", line], path.map(print, "arguments"))]), softline, ")"]));
-    } else {
-        docs.push("()");
-    }
+    docs.push(printCallArguments([...path.map(print, "arguments"), ...path.map(print, "namedArguments")]));
 
     return group(docs);
 }
@@ -324,8 +342,8 @@ function printTypeCheckExpression(context: PrintContext<TypeCheckExpressionType>
  * @returns The formatted string literal expression
  */
 function printStringLiteralExpression(context: PrintContext<StringLiteralExpressionType>): Doc {
-    const { ctx } = context;
-    return `"${ctx.value}"`;
+    const { ctx, printPrimitive, getPrimitive } = context;
+    return printPrimitive(getPrimitive(ctx, "value"), STRING);
 }
 
 /**

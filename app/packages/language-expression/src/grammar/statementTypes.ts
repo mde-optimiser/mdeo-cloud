@@ -53,6 +53,7 @@ export function generateStatementTypes(config: StatementConfig, expressionTypes:
         .extends(baseStatementType)
         .attrs({
             name: String,
+            isReadonly: Boolean,
             type: Optional(baseTypeType),
             initialValue: Optional(baseExpressionType)
         });

@@ -1,0 +1,42 @@
+fun callsOuterLambda(): int {
+    val twice: (int) => int = (v) => v * 2
+    val quad: (int) => int = (v) => twice(twice(v))
+    return quad(3)
+}
+
+fun assertsOuterNonNull(): int {
+    val maybe: int? = 5
+    val read: (int) => int = (v) => v + maybe!!
+    return read(1)
+}
+
+fun checksOuterType(): boolean {
+    val value: Any = "text"
+    val check: (int) => boolean = (v) => value is string
+    return check(0)
+}
+
+fun nestedLambdaCallsOuterLambda(): double {
+    val inc: (int) => int = (v) => v + 1
+    val values = listOf(1, 2, 3)
+    return values.map((it) => inc(it)).sum()
+}
+
+fun lambdaInForIterable(): string {
+    val offset = 10
+    var text = ""
+    for (value in listOf(3, 1, 2).sortedBy((it) => it + offset)) {
+        text = text + value
+    }
+    return text
+}
+
+fun lambdaInNestedForIterable(): int {
+    var total = 0
+    for (outer in listOf(1, 2)) {
+        for (inner in listOf(10, 20).map((it) => it * outer)) {
+            total = total + inner
+        }
+    }
+    return total
+}

@@ -1,5 +1,6 @@
 import type { TypirLangiumSpecifics } from "typir-langium";
-import type { ExpressionTypes } from "../grammar/expressionTypes.js";
+import type { CallExpressionType, ExpressionTypes, MemberCallExpressionType } from "../grammar/expressionTypes.js";
+import type { ValidationProblemAcceptor } from "typir";
 import type { CustomValueType } from "../typir-extensions/kinds/custom-value/custom-value-type.js";
 import { isCustomValueType } from "../typir-extensions/kinds/custom-value/custom-value-type.js";
 import { isCustomFunctionType } from "../typir-extensions/kinds/custom-function/custom-function-type.js";
@@ -167,6 +168,7 @@ export class ExpressionPartialTypeSystem<Specifics extends TypirLangiumSpecifics
                 callableType,
                 node.genericArgs?.typeArguments ?? [],
                 node.arguments,
+                node.namedArguments ?? [],
                 this.typir
             );
             if (Array.isArray(inferResult)) {
@@ -179,6 +181,7 @@ export class ExpressionPartialTypeSystem<Specifics extends TypirLangiumSpecifics
         });
 
         this.registerValidationRule(this.types.memberCallExpressionType, (node, accept) => {
+            this.validateArgumentOrder(node, accept);
             const methodType = inferMethodAccess(node, node.expression, node.member, this.typir);
             if (isCustomFunctionType(methodType)) {
                 validateMethodAccess(node, node.expression, node.member, node.isNullChaining, this.typir).forEach(
@@ -189,6 +192,7 @@ export class ExpressionPartialTypeSystem<Specifics extends TypirLangiumSpecifics
                     methodType,
                     node.genericArgs?.typeArguments ?? [],
                     node.arguments,
+                    node.namedArguments ?? [],
                     this.typir
                 ).forEach(accept);
             } else {
@@ -202,6 +206,7 @@ export class ExpressionPartialTypeSystem<Specifics extends TypirLangiumSpecifics
                         propertyType,
                         node.genericArgs?.typeArguments ?? [],
                         node.arguments,
+                        node.namedArguments ?? [],
                         this.typir
                     ).forEach(accept);
                 } else {
@@ -231,18 +236,61 @@ export class ExpressionPartialTypeSystem<Specifics extends TypirLangiumSpecifics
                     subProblems: []
                 };
             }
-            return inferCall(node, functionType, node.genericArgs?.typeArguments ?? [], node.arguments, this.typir);
+            return inferCall(
+                node,
+                functionType,
+                node.genericArgs?.typeArguments ?? [],
+                node.arguments,
+                node.namedArguments ?? [],
+                this.typir
+            );
         });
 
         this.registerValidationRule(this.types.callExpressionType, (node, accept) => {
+            this.validateArgumentOrder(node, accept);
             const functionType = this.inference.inferType(node.expression);
             if (!isCustomFunctionType(functionType) && !isCustomLambdaType(functionType)) {
                 return;
             }
-            validateCall(node, functionType, node.genericArgs?.typeArguments ?? [], node.arguments, this.typir).forEach(
-                accept
-            );
+            validateCall(
+                node,
+                functionType,
+                node.genericArgs?.typeArguments ?? [],
+                node.arguments,
+                node.namedArguments ?? [],
+                this.typir
+            ).forEach(accept);
         });
+    }
+
+    /**
+     * Validates that no positional argument of a call follows a named one.
+     *
+     * @param node The call or member call expression
+     * @param accept The validation problem acceptor
+     */
+    private validateArgumentOrder(
+        node: CallExpressionType | MemberCallExpressionType,
+        accept: ValidationProblemAcceptor<Specifics>
+    ): void {
+        const namedArguments = node.namedArguments ?? [];
+        if (namedArguments.length === 0) {
+            return;
+        }
+        const firstNamedOffset = Math.min(
+            ...namedArguments.map((argument) => argument.$cstNode?.offset ?? Number.POSITIVE_INFINITY)
+        );
+        for (const argument of node.arguments) {
+            if ((argument.$cstNode?.offset ?? -1) > firstNamedOffset) {
+                accept({
+                    $problem: this.validationProblem,
+                    severity: "error",
+                    languageNode: argument,
+                    message: `Positional arguments cannot follow named arguments.`,
+                    subProblems: []
+                });
+            }
+        }
     }
 
     /**

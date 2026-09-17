@@ -13,43 +13,21 @@ import java.util.concurrent.ThreadLocalRandom
  *
  * @param T the type of elements in this bag
  */
-class BagImpl<T> : Bag<T>, DeltaTarget {
+class BagImpl<T> : Bag<T>, HeapCollection {
 
     private val backing: HashMultiSet<T>
 
     /**
-     * Mutation counter, see [DeltaTarget.deltaVersion].
+     * Mutation counter, see [HeapCollection.heapVersion].
      */
     private var version: Long = 0
 
-    override val deltaVersion: Long get() = version
+    override val heapVersion: Long get() = version
 
-    override fun deltaSnapshot(): List<Any?> = ArrayList<Any?>(backing)
-
-    override fun deltaSplice(index: Int, deleteCount: Int, insert: List<Any?>) {
-        throw UnsupportedOperationException("A bag has no order to splice into")
-    }
+    override fun heapSnapshot(): List<Any?> = ArrayList<Any?>(backing)
 
     @Suppress("UNCHECKED_CAST")
-    override fun deltaAdd(values: List<Any?>) {
-        version++
-        for (value in values) backing.add(value as T)
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    override fun deltaRemove(values: List<Any?>) {
-        version++
-        for (value in values) backing.remove(value as T, 1)
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    override fun deltaSetCount(value: Any?, count: Int) {
-        version++
-        backing.setCount(value as T, count)
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    override fun deltaReplace(elements: List<Any?>) {
+    override fun heapReplace(elements: List<Any?>) {
         version++
         backing.clear()
         for (element in elements) backing.add(element as T)

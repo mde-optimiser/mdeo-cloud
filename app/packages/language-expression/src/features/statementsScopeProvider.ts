@@ -9,8 +9,15 @@ import {
     type ScopeLocalInitialization
 } from "../typir-extensions/scope/scope.js";
 import type { ExpressionTypirServices } from "../type-system/services.js";
-import type { ForStatementType, StatementsScopeType, StatementTypes } from "../grammar/statementTypes.js";
-import type { AstReflection } from "@mdeo/language-common";
+import type {
+    BaseStatementType,
+    ForStatementType,
+    IfStatementType,
+    StatementsScopeType,
+    StatementTypes
+} from "../grammar/statementTypes.js";
+import type { AstReflection, Interface } from "@mdeo/language-common";
+import type { AstNode } from "langium";
 import type { TypeInferenceCollector } from "typir";
 import type { ExpressionTypes, IdentifierExpressionType } from "../grammar/expressionTypes.js";
 import type { ClassType } from "../typir-extensions/config/type.js";
@@ -38,12 +45,15 @@ export class StatementsScopeProvider<Specifics extends TypirLangiumSpecifics> ex
      * @param statementTypes Type definitions for statement AST nodes.
      * @param expressionTypes Type definitions for expression AST nodes.
      * @param iterableType The class type used for iterable collections in for-loops.
+     * @param jumpStatementTypes Statements of the language besides `break` and `continue` that
+     * leave a block, such as `return`
      */
     constructor(
         typir: ExpressionTypirServices<Specifics>,
         protected readonly statementTypes: StatementTypes,
         protected readonly expressionTypes: ExpressionTypes,
-        protected iterableType: ClassType
+        protected iterableType: ClassType,
+        protected readonly jumpStatementTypes: Interface<AstNode>[] = []
     ) {
         super(typir);
         this.reflection = typir.langium.LangiumServices.AstReflection;
@@ -151,7 +161,8 @@ export class StatementsScopeProvider<Specifics extends TypirLangiumSpecifics> ex
                     name: statement.name,
                     position: i,
                     definingScope: scope,
-                    inferType: () => this.inference.inferType(statement)
+                    inferType: () => this.inference.inferType(statement),
+                    readonly: statement.isReadonly
                 });
             }
         }
@@ -163,7 +174,8 @@ export class StatementsScopeProvider<Specifics extends TypirLangiumSpecifics> ex
      *
      * Identifies control flow statements (if/else-if/else, while, do-while, for)
      * and creates entries that track their nested scopes and completeness.
-     * Control flow completeness affects variable initialization analysis.
+     * Control flow completeness affects variable initialization analysis. A branch of an `if` that
+     * always jumps away never reaches the statement after the `if`, so it is left out.
      *
      * @param node The statements block AST node.
      * @returns An array of control flow entries for statements with branching or loops.
@@ -173,13 +185,13 @@ export class StatementsScopeProvider<Specifics extends TypirLangiumSpecifics> ex
         for (let i = 0; i < node.statements.length; i++) {
             const statement = node.statements[i];
             if (this.reflection.isInstance(statement, this.statementTypes.ifStatementType)) {
-                const scopes: Scope<Specifics>[] = [this.getScope(statement.thenBlock).scope];
-                for (const elseIf of statement.elseIfs) {
-                    scopes.push(this.getScope(elseIf.thenBlock).scope);
-                }
+                const blocks = [statement.thenBlock, ...statement.elseIfs.map((elseIf) => elseIf.thenBlock)];
                 if (statement.elseBlock != undefined) {
-                    scopes.push(this.getScope(statement.elseBlock).scope);
+                    blocks.push(statement.elseBlock);
                 }
+                const scopes: Scope<Specifics>[] = blocks
+                    .filter((block) => !this.alwaysJumps(block))
+                    .map((block) => this.getScope(block).scope);
                 controlFlowEntries.push({
                     position: i,
                     scopes,
@@ -197,6 +209,43 @@ export class StatementsScopeProvider<Specifics extends TypirLangiumSpecifics> ex
             }
         }
         return controlFlowEntries;
+    }
+
+    /**
+     * Reports whether a block never completes normally: it contains a jump statement, or an `if`
+     * with an `else` all of whose branches always jump.
+     *
+     * @param node The statements block AST node.
+     * @returns True when control flow never reaches the end of the block.
+     */
+    protected alwaysJumps(node: StatementsScopeType): boolean {
+        return node.statements.some((statement) => this.isAlwaysJumpingStatement(statement));
+    }
+
+    /**
+     * Reports whether a statement never completes normally.
+     *
+     * @param statement The statement.
+     * @returns True for jump statements, and for an `if` with an `else` all of whose branches always jump.
+     */
+    private isAlwaysJumpingStatement(statement: BaseStatementType): boolean {
+        if (
+            this.reflection.isInstance(statement, this.statementTypes.breakStatementType) ||
+            this.reflection.isInstance(statement, this.statementTypes.continueStatementType) ||
+            this.jumpStatementTypes.some((type) => this.reflection.isInstance(statement, type))
+        ) {
+            return true;
+        }
+        if (this.reflection.isInstance(statement, this.statementTypes.ifStatementType)) {
+            const ifStatement = statement as IfStatementType;
+            return (
+                ifStatement.elseBlock != undefined &&
+                this.alwaysJumps(ifStatement.thenBlock) &&
+                ifStatement.elseIfs.every((elseIf) => this.alwaysJumps(elseIf.thenBlock)) &&
+                this.alwaysJumps(ifStatement.elseBlock)
+            );
+        }
+        return false;
     }
 
     /**

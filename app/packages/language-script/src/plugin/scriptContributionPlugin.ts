@@ -64,10 +64,10 @@ export namespace ScriptContributionPlugin {
 export type ContributedClass = ContributedRecord | ContributedOpaqueClass;
 
 /**
- * A deeply immutable value with named fields, sent whole between the script and the service.
+ * A value with named fields, sent whole between the script and the service.
  *
- * Scripts read its fields as readonly properties and compare records by their content. They
- * cannot create records; only the contribution's functions return them.
+ * Scripts use it like a record they declare themselves: they create one by calling its name like a
+ * function, read and assign its fields, copy it with `with`, and compare records by their content.
  */
 export interface ContributedRecord {
     /**
@@ -76,7 +76,7 @@ export interface ContributedRecord {
     kind: "record";
     /**
      * The fields, in order. A field holds a scalar, a string, a model instance or enum value, a
-     * record of the same contribution, or a readonly collection of those.
+     * record of the same contribution, or a collection of those. No field may be named `with`.
      */
     fields: ContributedRecordField[];
 }
@@ -141,9 +141,8 @@ export interface ContributedFunction {
  * function is answered by the service of the plugin that shipped the contribution, over the
  * `script-functions` [session](/develop/sessions) that contribution declares.
  *
- * The contract is copy-restore: arguments are sent, the service may change what it was given,
- * and only what actually changed comes back. Models are readonly on this path and can never be
- * edited through it.
+ * Every argument is *in*: arguments are sent, the service computes a return value from them, and
+ * nothing it does to what it was given reaches the script. Models are readonly on this path too.
  */
 export interface ExternalImplementation {
     /**

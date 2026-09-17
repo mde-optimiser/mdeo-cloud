@@ -20,9 +20,9 @@ import {
     GenericTypeRef,
     LambdaType,
     type ClassType,
-    type Property,
     type ReturnType
 } from "@mdeo/language-expression";
+import { createRecordClassType, RECORD_COPY_METHOD } from "../features/records.js";
 
 /**
  * Protocol an external implementation is answered over.
@@ -86,18 +86,42 @@ export function resolvePlugins(
         }
     }
 
+    const functions = resolveFunctions(plugins);
+    const classes = resolveClasses(plugins);
+    const recordNames = new Set<string>();
+    for (const contributed of classes) {
+        if (contributed.declaration.kind !== "record") {
+            continue;
+        }
+        // A record's constructor is a global function named like the record.
+        if (functions.has(contributed.name) || recordNames.has(contributed.name)) {
+            throw new Error(
+                `Record '${contributed.name}' of contribution '${contributed.contributionId}' has the name of ` +
+                    `another contributed function or record.`
+            );
+        }
+        recordNames.add(contributed.name);
+    }
+
     return {
-        functions: resolveFunctions(plugins),
+        functions,
         expressions: expressions,
         rules: extensionRules,
-        classes: resolveClasses(plugins)
+        classes
     };
 }
 
 /**
- * Collection types a record field may hold: readonly ones only, because a record is immutable.
+ * Collection types a record field may hold.
  */
-const READONLY_COLLECTION_TYPES = new Set([
+const COLLECTION_TYPES = new Set([
+    "Collection",
+    "OrderedCollection",
+    "List",
+    "Set",
+    "OrderedSet",
+    "Bag",
+    "Map",
     "ReadonlyCollection",
     "ReadonlyOrderedCollection",
     "ReadonlyList",
@@ -126,26 +150,38 @@ function resolveClasses(plugins: ScriptContributionPlugin[]): ResolvedContribute
         const classes = plugin.classes ?? {};
         const typePackage = ContributedClass.packageOf(plugin.id);
         for (const [name, declaration] of Object.entries(classes)) {
-            const properties: Record<string, Property> = {};
+            let classType: ClassType;
             if (declaration.kind === "record") {
                 for (const field of declaration.fields) {
                     if (!isRecordFieldType(field.type, plugin)) {
                         throw new Error(
                             `Field '${field.name}' of record '${name}' in contribution '${plugin.id}' has a type a ` +
                                 `record cannot hold. Use scalars, strings, model instances, enum values, records of ` +
-                                `the same contribution, or readonly collections of those.`
+                                `the same contribution, or collections of those.`
                         );
                     }
-                    properties[field.name] = { name: field.name, isProperty: true, readonly: true, type: field.type };
+                    if (field.name === RECORD_COPY_METHOD) {
+                        throw new Error(
+                            `Field '${field.name}' of record '${name}' in contribution '${plugin.id}' has the name of ` +
+                                `the method that copies a record.`
+                        );
+                    }
                 }
+                classType = createRecordClassType(
+                    name,
+                    typePackage,
+                    declaration.fields.map((field) => ({ name: field.name, hasDefault: false })),
+                    (index) => declaration.fields[index]!.type
+                );
+            } else {
+                classType = {
+                    name,
+                    package: typePackage,
+                    properties: {},
+                    methods: {},
+                    superTypes: [{ package: "builtin", type: "Any" }]
+                };
             }
-            const classType: ClassType = {
-                name,
-                package: typePackage,
-                properties,
-                methods: {},
-                superTypes: [{ package: "builtin", type: "Any" }]
-            };
             resolved.push({ contributionId: plugin.id, name, declaration, classType });
         }
         validateClassReferences(plugin);
@@ -168,7 +204,7 @@ function isRecordFieldType(type: ReturnType, plugin: ScriptContributionPlugin): 
         if (SCALAR_TYPES.has(type.type)) {
             return true;
         }
-        if (!READONLY_COLLECTION_TYPES.has(type.type)) {
+        if (!COLLECTION_TYPES.has(type.type)) {
             return false;
         }
         return Object.values(type.typeArgs ?? {}).every((arg) => isRecordFieldType(arg, plugin));
@@ -187,6 +223,17 @@ function isRecordFieldType(type: ReturnType, plugin: ScriptContributionPlugin): 
  * @throws Error naming the first reference that does not resolve
  */
 function validateClassReferences(plugin: ScriptContributionPlugin): void {
+    for (const [functionName, contributedFunction] of Object.entries(plugin.functions)) {
+        for (const signature of Object.values(contributedFunction.signatures)) {
+            const defaulted = signature.signature.parameters.find((parameter) => parameter.hasDefault === true);
+            if (defaulted != undefined) {
+                throw new Error(
+                    `Parameter '${defaulted.name}' of function '${functionName}' in contribution '${plugin.id}' ` +
+                        `declares a default, but contributed functions cannot have default values.`
+                );
+            }
+        }
+    }
     const check = (type: ReturnType, where: string): void => {
         if (GenericTypeRef.is(type) || !ClassTypeRef.is(type)) {
             if (LambdaType.is(type)) {

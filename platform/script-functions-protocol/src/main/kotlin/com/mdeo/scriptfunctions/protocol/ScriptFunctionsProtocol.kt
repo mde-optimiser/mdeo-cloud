@@ -21,12 +21,11 @@ import kotlinx.serialization.encodeToByteArray
  *
  * ## Semantics
  *
- * A call is copy-restore. The client sends the arguments together with every collection they
- * reach, each under an id it keeps for the whole session, so aliasing and cycles survive the trip.
- * The service may change the collections it was given as *inout* — mutable collection types —
- * and answers with per-object deltas for only those that changed. Collections given as *in* —
- * readonly types, anything reached through `Any` — must come back untouched; a delta against one
- * rejects the whole result before anything is applied.
+ * Every argument is *in*. The client sends the arguments together with every collection they
+ * reach, each under an id it keeps for the whole session, so aliasing and cycles survive the trip
+ * and a collection the service already holds at its current version is not sent again. The
+ * service must not change what it was given; it answers with a return value, which may refer to
+ * the collections it was given and to new ones it creates.
  */
 object ScriptFunctionsProtocol {
     /**
@@ -153,7 +152,6 @@ sealed class ServiceMessage {
      *
      * @param callId The call being answered.
      * @param objects Collections the service created, under negative ids of its own choosing.
-     * @param deltas Changes to inout collections, in the order they must be applied.
      * @param value The return value; [WireValue.Null] for a void operation.
      */
     @Serializable
@@ -161,12 +159,11 @@ sealed class ServiceMessage {
     data class Result(
         val callId: Long,
         val objects: List<HeapObject> = emptyList(),
-        val deltas: List<Delta> = emptyList(),
         val value: WireValue = WireValue.Null
     ) : ServiceMessage()
 
     /**
-     * A call that failed on the service. Nothing it may have changed is applied.
+     * A call that failed on the service.
      *
      * @param callId The call being answered.
      * @param message What went wrong, as the operation reported it.
@@ -212,7 +209,6 @@ enum class HeapKind {
  *        ids the service assigns to collections it creates are negative.
  * @param kind What kind of collection it is.
  * @param version The collection's mutation counter when it was sent.
- * @param mutable Whether the service may change it (inout) or must leave it alone (in).
  * @param elements The elements, for every kind but a map; null when the content is omitted
  *        because the service already holds this id at this version.
  * @param entries The entries of a map, as alternating keys and values; null when omitted.
@@ -222,7 +218,6 @@ data class HeapObject(
     val id: Long,
     val kind: HeapKind,
     val version: Long = 0,
-    val mutable: Boolean = false,
     val elements: List<WireValue>? = null,
     val entries: List<WireValue>? = null
 )
@@ -246,13 +241,12 @@ sealed class WireValue {
     @Serializable @SerialName("ref") data class Ref(val id: Long) : WireValue()
 
     /**
-     * An instance of the call's model, by its name. Instances are readonly: nothing can change
-     * one, and no delta can address one.
+     * An instance of the call's model, by its name. Instances are readonly.
      */
     @Serializable @SerialName("instance") data class InstanceValue(val name: String) : WireValue()
 
     /**
-     * A record the contribution defines, sent whole. Records are immutable and compared by content.
+     * A record the contribution defines, sent whole. Records are compared by content.
      *
      * @param className The record's name, as the contribution declares it.
      * @param fields Every field of the record, by name.
@@ -394,56 +388,3 @@ data class WireInstance(
     val attributes: Map<String, List<WireValue>> = emptyMap(),
     val references: Map<String, List<String>> = emptyMap()
 )
-
-/**
- * One change to one inout collection.
- */
-@Serializable
-sealed class Delta {
-    /**
-     * The collection the change applies to.
-     */
-    abstract val id: Long
-
-    /**
-     * Replaces [deleteCount] elements at [index] with [insert]. Lists and ordered sets.
-     */
-    @Serializable @SerialName("splice")
-    data class Splice(override val id: Long, val index: Int, val deleteCount: Int, val insert: List<WireValue>) : Delta()
-
-    /**
-     * Adds each value. Sets, ordered sets (appended) and bags (one occurrence each).
-     */
-    @Serializable @SerialName("add")
-    data class Add(override val id: Long, val values: List<WireValue>) : Delta()
-
-    /**
-     * Removes each value. Sets, ordered sets and bags (one occurrence each).
-     */
-    @Serializable @SerialName("remove")
-    data class Remove(override val id: Long, val values: List<WireValue>) : Delta()
-
-    /**
-     * Sets how often a value occurs in a bag.
-     */
-    @Serializable @SerialName("count")
-    data class Count(override val id: Long, val value: WireValue, val count: Int) : Delta()
-
-    /**
-     * Associates a value with a key in a map.
-     */
-    @Serializable @SerialName("put")
-    data class Put(override val id: Long, val key: WireValue, val value: WireValue) : Delta()
-
-    /**
-     * Removes a key from a map.
-     */
-    @Serializable @SerialName("removeKey")
-    data class RemoveKey(override val id: Long, val key: WireValue) : Delta()
-
-    /**
-     * Replaces the whole content of any collection. For a map, [elements] alternates keys and values.
-     */
-    @Serializable @SerialName("replace")
-    data class Replace(override val id: Long, val elements: List<WireValue>) : Delta()
-}

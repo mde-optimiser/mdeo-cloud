@@ -1,17 +1,20 @@
 package com.mdeo.script.runtime
 
 /**
- * Base class of every record a contribution defines.
+ * Base class of every record, whether a script declares it or a contribution defines it.
  *
  * The compiler generates one final subclass per record, so a script's type checks tell records
- * apart, and reads fields through [field] in declaration order. Records are deeply immutable and
- * equal when they are of the same record and their fields are equal.
+ * apart, and reads and writes fields through [field] and [set] in declaration order. Fields are
+ * mutable. Two records are equal when they are of the same record and their fields are equal, so a
+ * record that is changed while it is an element of a set or a key of a map is not found there again.
  *
- * @param recordType Identifies the record as `contrib/<contribution>.<name>`
- * @param values The field values, in declaration order
+ * @param recordType Identifies the record as `<package>.<name>`
+ * @param fieldNames The field names, in declaration order
+ * @param values The field values, in declaration order, boxed
  */
 abstract class ScriptRecord(
     val recordType: String,
+    private val fieldNames: Array<String>,
     private val values: Array<Any?>
 ) {
     /**
@@ -27,12 +30,40 @@ abstract class ScriptRecord(
      */
     fun fields(): List<Any?> = values.toList()
 
+    /**
+     * A copy of the field values, in declaration order, to construct a copy of the record from.
+     */
+    fun copyValues(): Array<Any?> = values.copyOf()
+
+    /**
+     * Returns a new record of the same record type with the same field values. Field values are
+     * not copied themselves: a collection field of the copy is the collection of the original.
+     */
+    abstract fun copy(): ScriptRecord
+
     override fun equals(other: Any?): Boolean =
         other is ScriptRecord && other.javaClass == javaClass && values.contentEquals(other.values)
 
     override fun hashCode(): Int = 31 * recordType.hashCode() + values.contentHashCode()
 
-    override fun toString(): String = "${recordType.substringAfterLast('.')}(${values.joinToString(", ")})"
+    override fun toString(): String =
+        "${recordType.substringAfterLast('.')}(${fieldNames.indices.joinToString(", ") { "${fieldNames[it]}=${values[it]}" }})"
+
+    companion object {
+        /**
+         * Sets one field of a record.
+         *
+         * Takes the record and the value in the order a script's assignment leaves them on the stack.
+         *
+         * @param record The record
+         * @param value The new value, boxed
+         * @param index The field's position in the record's declaration
+         */
+        @JvmStatic
+        fun set(record: Any?, value: Any?, index: Int) {
+            (record as ScriptRecord).values[index] = value
+        }
+    }
 }
 
 /**

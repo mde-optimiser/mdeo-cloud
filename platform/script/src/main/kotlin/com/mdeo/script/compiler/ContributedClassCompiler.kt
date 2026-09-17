@@ -4,12 +4,9 @@ import com.mdeo.expression.ast.types.ClassTypeRef
 import com.mdeo.expression.ast.types.ReturnType
 import com.mdeo.script.ast.TypedPluginAst
 import com.mdeo.script.ast.TypedPluginClass
-import com.mdeo.script.compiler.registry.type.PropertyDefinition
 import com.mdeo.script.compiler.registry.type.TypeDefinitionImpl
 import com.mdeo.script.compiler.registry.type.TypeRegistry
-import com.mdeo.script.compiler.util.ASMUtil
 import org.objectweb.asm.ClassWriter
-import org.objectweb.asm.MethodVisitor
 import org.objectweb.asm.Opcodes
 
 /**
@@ -41,12 +38,11 @@ data class ContributedClassSpec(
  * the compiler.
  *
  * Each gets a final class of its own, extending [com.mdeo.script.runtime.ScriptRecord] or
- * [com.mdeo.script.runtime.ScriptOpaque], so a script's `is` and `as` tell them apart. A record's
- * fields are readonly properties that read the field by position; an opaque class has no members.
+ * [com.mdeo.script.runtime.ScriptOpaque], so a script's `is` and `as` tell them apart. A record is
+ * built by [RecordClasses], like the records scripts declare; an opaque class has no members.
  */
 internal object ContributedClassCompiler {
 
-    private const val RECORD_BASE = "com/mdeo/script/runtime/ScriptRecord"
     private const val OPAQUE_BASE = "com/mdeo/script/runtime/ScriptOpaque"
 
     /**
@@ -94,8 +90,8 @@ internal object ContributedClassCompiler {
                 extends = listOf(ClassTypeRef("builtin", "Any", false)),
                 jvmClassName = spec.jvmClassName
             )
-            spec.fieldNames.forEachIndexed { index, fieldName ->
-                definition.addProperty(RecordFieldPropertyDefinition(fieldName, index, spec.fieldTypes[index], spec.jvmClassName))
+            if (spec.kind == TypedPluginClass.KIND_RECORD) {
+                RecordClasses.addMembers(definition, spec.fieldNames, spec.fieldTypes)
             }
             registry.register(definition)
         }
@@ -122,54 +118,23 @@ internal object ContributedClassCompiler {
     }
 
     private fun generate(spec: ContributedClassSpec): ByteArray {
-        val isRecord = spec.kind == TypedPluginClass.KIND_RECORD
-        val base = if (isRecord) RECORD_BASE else OPAQUE_BASE
+        if (spec.kind == TypedPluginClass.KIND_RECORD) {
+            return RecordClasses.generate(spec.jvmClassName, spec.typeId, spec.fieldNames)
+        }
         val cw = ClassWriter(ClassWriter.COMPUTE_FRAMES)
-        cw.visit(Opcodes.V11, Opcodes.ACC_PUBLIC or Opcodes.ACC_FINAL or Opcodes.ACC_SUPER, spec.jvmClassName, null, base, null)
+        cw.visit(Opcodes.V11, Opcodes.ACC_PUBLIC or Opcodes.ACC_FINAL or Opcodes.ACC_SUPER, spec.jvmClassName, null, OPAQUE_BASE, null)
 
-        val descriptor = if (isRecord) "([Ljava/lang/Object;)V" else "(J)V"
-        val mv = cw.visitMethod(Opcodes.ACC_PUBLIC, "<init>", descriptor, null, null)
+        val mv = cw.visitMethod(Opcodes.ACC_PUBLIC, "<init>", "(J)V", null, null)
         mv.visitCode()
         mv.visitVarInsn(Opcodes.ALOAD, 0)
         mv.visitLdcInsn(spec.typeId)
-        if (isRecord) {
-            mv.visitVarInsn(Opcodes.ALOAD, 1)
-            mv.visitMethodInsn(Opcodes.INVOKESPECIAL, base, "<init>", "(Ljava/lang/String;[Ljava/lang/Object;)V", false)
-        } else {
-            mv.visitVarInsn(Opcodes.LLOAD, 1)
-            mv.visitMethodInsn(Opcodes.INVOKESPECIAL, base, "<init>", "(Ljava/lang/String;J)V", false)
-        }
+        mv.visitVarInsn(Opcodes.LLOAD, 1)
+        mv.visitMethodInsn(Opcodes.INVOKESPECIAL, OPAQUE_BASE, "<init>", "(Ljava/lang/String;J)V", false)
         mv.visitInsn(Opcodes.RETURN)
         mv.visitMaxs(0, 0)
         mv.visitEnd()
 
         cw.visitEnd()
         return cw.toByteArray()
-    }
-
-    /**
-     * A record field, read by position and converted to its declared type.
-     */
-    private class RecordFieldPropertyDefinition(
-        override val name: String,
-        private val index: Int,
-        private val type: ReturnType,
-        override val ownerClass: String
-    ) : PropertyDefinition {
-        override val descriptor: String = ASMUtil.getTypeDescriptor(type)
-        override val isStatic: Boolean = false
-        override val isInterface: Boolean = false
-        override val getterName: String = "field"
-
-        override fun emitAccess(mv: MethodVisitor) {
-            mv.visitTypeInsn(Opcodes.CHECKCAST, RECORD_BASE)
-            mv.visitLdcInsn(index)
-            mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, RECORD_BASE, "field", "(I)Ljava/lang/Object;", false)
-            ASMUtil.emitUnboxOrCast(type, mv)
-        }
-
-        override fun emitSet(mv: MethodVisitor, valueDescriptor: String) {
-            throw UnsupportedOperationException("Field '$name' of a record is read-only")
-        }
     }
 }

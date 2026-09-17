@@ -19,7 +19,6 @@ import com.mdeo.script.ast.ExternalImplementation
 import com.mdeo.script.compiler.ExternalCallSpec
 import com.mdeo.script.stdlib.impl.collections.ListImpl
 import com.mdeo.scriptfunctions.protocol.ClientMessage
-import com.mdeo.scriptfunctions.protocol.Delta
 import com.mdeo.scriptfunctions.protocol.ServiceMessage
 import com.mdeo.scriptfunctions.protocol.WireValue
 import com.mdeo.scriptfunctions.service.ScriptFunctionCall
@@ -200,30 +199,19 @@ class ScriptFunctionsModelTest {
         assertEquals(1, loopback.received.count { it is ClientMessage.ModelPut }, "instances need the model")
     }
 
-    @Suppress("UNCHECKED_CAST")
     @Test
-    fun `a result referring to an instance outside the model is rejected and nothing is applied`() {
-        val fill: (ScriptFunctionCall) -> Any? = { call ->
-            (call.arguments[0] as MutableList<Any?>).add(call.model!!.instances.getValue("a"))
-            null
-        }
+    fun `a result referring to an instance outside the model is rejected`() {
+        val first: (ScriptFunctionCall) -> Any? = { call -> call.model!!.instances.getValue("a") }
         val loopback = Loopback(
-            mapOf("fill" to fill),
+            mapOf("first" to first),
             rewriteAnswer = { answer ->
-                if (answer is ServiceMessage.Result) {
-                    answer.copy(deltas = answer.deltas.map { delta ->
-                        if (delta is Delta.Splice) delta.copy(insert = listOf(WireValue.InstanceValue("ghost"))) else delta
-                    })
-                } else answer
+                if (answer is ServiceMessage.Result) answer.copy(value = WireValue.InstanceValue("ghost")) else answer
             }
         )
-        val listOfAny = ClassTypeRef("builtin", "List", false, mapOf("T" to any))
-        val client = ScriptFunctionsClient(loopback, mapOf("fill" to spec("fill", any, true, listOfAny)))
-        val list = ListImpl<Any?>()
+        val client = ScriptFunctionsClient(loopback, mapOf("first" to spec("first", any, true)))
 
-        val error = assertFailsWith<ExternalCallException> { client.call("fill", arrayOf(list), model(), javaClass.classLoader) }
+        val error = assertFailsWith<ExternalCallException> { client.call("first", arrayOf(), model(), javaClass.classLoader) }
         assertTrue(error.message!!.contains("ghost"))
-        assertEquals(0, list.size())
     }
 
     @Test

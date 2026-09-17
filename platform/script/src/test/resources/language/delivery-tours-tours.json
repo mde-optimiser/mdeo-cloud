@@ -1,0 +1,624 @@
+{
+  "types": [
+    {
+      "kind": "void"
+    },
+    {
+      "package": "builtin",
+      "type": "string",
+      "isNullable": false,
+      "typeArgs": {}
+    },
+    {
+      "package": "builtin",
+      "type": "double",
+      "isNullable": false,
+      "typeArgs": {}
+    },
+    {
+      "package": "builtin",
+      "type": "boolean",
+      "isNullable": false,
+      "typeArgs": {}
+    },
+    {
+      "package": "builtin",
+      "type": "Any",
+      "isNullable": true
+    },
+    {
+      "package": "record/tours.fn/Tour",
+      "type": "Tour",
+      "isNullable": false,
+      "typeArgs": {}
+    },
+    {
+      "package": "builtin",
+      "type": "int",
+      "isNullable": false,
+      "typeArgs": {}
+    },
+    {
+      "package": "record/geometry.fn/Point",
+      "type": "Point",
+      "isNullable": false,
+      "typeArgs": {}
+    },
+    {
+      "package": "record/geometry.fn/Stop",
+      "type": "Stop",
+      "isNullable": false,
+      "typeArgs": {}
+    },
+    {
+      "package": "builtin",
+      "type": "List",
+      "isNullable": false,
+      "typeArgs": {
+        "T": {
+          "package": "record/geometry.fn/Stop",
+          "type": "Stop",
+          "isNullable": false,
+          "typeArgs": {}
+        }
+      }
+    }
+  ],
+  "imports": [
+    {
+      "name": "Point",
+      "ref": "Point",
+      "uri": "/geometry.fn"
+    },
+    {
+      "name": "Stop",
+      "ref": "Stop",
+      "uri": "/geometry.fn"
+    },
+    {
+      "name": "distance",
+      "ref": "distance",
+      "uri": "/geometry.fn"
+    }
+  ],
+  "functions": [
+    {
+      "name": "visit",
+      "parameters": [
+        {
+          "name": "tour",
+          "type": 5
+        },
+        {
+          "name": "name",
+          "type": 1
+        },
+        {
+          "name": "x",
+          "type": 2
+        },
+        {
+          "name": "y",
+          "type": 2,
+          "defaultValue": {
+            "kind": "doubleLiteral",
+            "evalType": 2,
+            "value": "0.0"
+          }
+        },
+        {
+          "name": "minutes",
+          "type": 6,
+          "defaultValue": {
+            "kind": "intLiteral",
+            "evalType": 6,
+            "value": "15"
+          }
+        }
+      ],
+      "returnType": 5,
+      "body": {
+        "body": [
+          {
+            "kind": "expression",
+            "expression": {
+              "kind": "memberCall",
+              "evalType": 1,
+              "expression": {
+                "kind": "memberAccess",
+                "evalType": 9,
+                "expression": {
+                  "kind": "identifier",
+                  "evalType": 5,
+                  "name": "tour",
+                  "scope": 2
+                },
+                "member": "stops",
+                "isNullChaining": false
+              },
+              "member": "add",
+              "isNullChaining": false,
+              "arguments": [
+                {
+                  "value": {
+                    "kind": "functionCall",
+                    "evalType": 8,
+                    "name": "Stop",
+                    "arguments": [
+                      {
+                        "value": {
+                          "kind": "identifier",
+                          "evalType": 1,
+                          "name": "name",
+                          "scope": 2
+                        },
+                        "parameterType": 1
+                      },
+                      {
+                        "value": {
+                          "kind": "functionCall",
+                          "evalType": 7,
+                          "name": "Point",
+                          "arguments": [
+                            {
+                              "value": {
+                                "kind": "identifier",
+                                "evalType": 2,
+                                "name": "x",
+                                "scope": 2
+                              },
+                              "parameterType": 2
+                            },
+                            {
+                              "value": {
+                                "kind": "identifier",
+                                "evalType": 2,
+                                "name": "y",
+                                "scope": 2
+                              },
+                              "parameterType": 2
+                            }
+                          ],
+                          "overload": ""
+                        },
+                        "parameterType": 7
+                      },
+                      {
+                        "value": {
+                          "kind": "identifier",
+                          "evalType": 6,
+                          "name": "minutes",
+                          "scope": 2
+                        },
+                        "parameterType": 6
+                      }
+                    ],
+                    "overload": ""
+                  },
+                  "parameterType": 8
+                }
+              ],
+              "overload": ""
+            }
+          },
+          {
+            "kind": "return",
+            "value": {
+              "kind": "identifier",
+              "evalType": 5,
+              "name": "tour",
+              "scope": 2
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "length",
+      "parameters": [
+        {
+          "name": "tour",
+          "type": 5
+        },
+        {
+          "name": "toEnd",
+          "type": 3,
+          "defaultValue": {
+            "kind": "booleanLiteral",
+            "evalType": 3,
+            "value": true
+          }
+        }
+      ],
+      "returnType": 2,
+      "body": {
+        "body": [
+          {
+            "kind": "variableDeclaration",
+            "name": "total",
+            "type": 2,
+            "initialValue": {
+              "kind": "doubleLiteral",
+              "evalType": 2,
+              "value": "0.0"
+            }
+          },
+          {
+            "kind": "variableDeclaration",
+            "name": "here",
+            "type": 7,
+            "initialValue": {
+              "kind": "memberAccess",
+              "evalType": 7,
+              "expression": {
+                "kind": "identifier",
+                "evalType": 5,
+                "name": "tour",
+                "scope": 2
+              },
+              "member": "depot",
+              "isNullChaining": false
+            }
+          },
+          {
+            "kind": "for",
+            "variableName": "stop",
+            "variableType": 8,
+            "iterable": {
+              "kind": "memberAccess",
+              "evalType": 9,
+              "expression": {
+                "kind": "identifier",
+                "evalType": 5,
+                "name": "tour",
+                "scope": 2
+              },
+              "member": "stops",
+              "isNullChaining": false
+            },
+            "body": [
+              {
+                "kind": "assignment",
+                "left": {
+                  "kind": "identifier",
+                  "evalType": 2,
+                  "name": "total",
+                  "scope": 3
+                },
+                "right": {
+                  "kind": "binary",
+                  "evalType": 2,
+                  "operator": "+",
+                  "left": {
+                    "kind": "identifier",
+                    "evalType": 2,
+                    "name": "total",
+                    "scope": 3
+                  },
+                  "right": {
+                    "kind": "functionCall",
+                    "evalType": 2,
+                    "name": "distance",
+                    "arguments": [
+                      {
+                        "value": {
+                          "kind": "identifier",
+                          "evalType": 7,
+                          "name": "here",
+                          "scope": 3
+                        },
+                        "parameterType": 7
+                      },
+                      {
+                        "value": {
+                          "kind": "memberAccess",
+                          "evalType": 7,
+                          "expression": {
+                            "kind": "identifier",
+                            "evalType": 8,
+                            "name": "stop",
+                            "scope": 4
+                          },
+                          "member": "location",
+                          "isNullChaining": false
+                        },
+                        "parameterType": 7
+                      }
+                    ],
+                    "overload": ""
+                  }
+                }
+              },
+              {
+                "kind": "assignment",
+                "left": {
+                  "kind": "identifier",
+                  "evalType": 7,
+                  "name": "here",
+                  "scope": 3
+                },
+                "right": {
+                  "kind": "memberAccess",
+                  "evalType": 7,
+                  "expression": {
+                    "kind": "identifier",
+                    "evalType": 8,
+                    "name": "stop",
+                    "scope": 4
+                  },
+                  "member": "location",
+                  "isNullChaining": false
+                }
+              }
+            ]
+          },
+          {
+            "kind": "if",
+            "condition": {
+              "kind": "identifier",
+              "evalType": 3,
+              "name": "toEnd",
+              "scope": 2
+            },
+            "thenBlock": [
+              {
+                "kind": "assignment",
+                "left": {
+                  "kind": "identifier",
+                  "evalType": 2,
+                  "name": "total",
+                  "scope": 3
+                },
+                "right": {
+                  "kind": "binary",
+                  "evalType": 2,
+                  "operator": "+",
+                  "left": {
+                    "kind": "identifier",
+                    "evalType": 2,
+                    "name": "total",
+                    "scope": 3
+                  },
+                  "right": {
+                    "kind": "functionCall",
+                    "evalType": 2,
+                    "name": "distance",
+                    "arguments": [
+                      {
+                        "value": {
+                          "kind": "identifier",
+                          "evalType": 7,
+                          "name": "here",
+                          "scope": 3
+                        },
+                        "parameterType": 7
+                      },
+                      {
+                        "value": {
+                          "kind": "memberAccess",
+                          "evalType": 7,
+                          "expression": {
+                            "kind": "identifier",
+                            "evalType": 5,
+                            "name": "tour",
+                            "scope": 2
+                          },
+                          "member": "end",
+                          "isNullChaining": false
+                        },
+                        "parameterType": 7
+                      }
+                    ],
+                    "overload": ""
+                  }
+                }
+              }
+            ],
+            "elseIfs": []
+          },
+          {
+            "kind": "return",
+            "value": {
+              "kind": "identifier",
+              "evalType": 2,
+              "name": "total",
+              "scope": 3
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "duration",
+      "parameters": [
+        {
+          "name": "tour",
+          "type": 5
+        },
+        {
+          "name": "speed",
+          "type": 2,
+          "defaultValue": {
+            "kind": "doubleLiteral",
+            "evalType": 2,
+            "value": "40.0"
+          }
+        },
+        {
+          "name": "toEnd",
+          "type": 3,
+          "defaultValue": {
+            "kind": "booleanLiteral",
+            "evalType": 3,
+            "value": true
+          }
+        }
+      ],
+      "returnType": 2,
+      "body": {
+        "body": [
+          {
+            "kind": "variableDeclaration",
+            "name": "delivering",
+            "type": 6,
+            "initialValue": {
+              "kind": "intLiteral",
+              "evalType": 6,
+              "value": "0"
+            }
+          },
+          {
+            "kind": "for",
+            "variableName": "stop",
+            "variableType": 8,
+            "iterable": {
+              "kind": "memberAccess",
+              "evalType": 9,
+              "expression": {
+                "kind": "identifier",
+                "evalType": 5,
+                "name": "tour",
+                "scope": 2
+              },
+              "member": "stops",
+              "isNullChaining": false
+            },
+            "body": [
+              {
+                "kind": "assignment",
+                "left": {
+                  "kind": "identifier",
+                  "evalType": 6,
+                  "name": "delivering",
+                  "scope": 3
+                },
+                "right": {
+                  "kind": "binary",
+                  "evalType": 6,
+                  "operator": "+",
+                  "left": {
+                    "kind": "identifier",
+                    "evalType": 6,
+                    "name": "delivering",
+                    "scope": 3
+                  },
+                  "right": {
+                    "kind": "memberAccess",
+                    "evalType": 6,
+                    "expression": {
+                      "kind": "identifier",
+                      "evalType": 8,
+                      "name": "stop",
+                      "scope": 4
+                    },
+                    "member": "minutes",
+                    "isNullChaining": false
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "kind": "return",
+            "value": {
+              "kind": "binary",
+              "evalType": 2,
+              "operator": "+",
+              "left": {
+                "kind": "binary",
+                "evalType": 2,
+                "operator": "*",
+                "left": {
+                  "kind": "binary",
+                  "evalType": 2,
+                  "operator": "/",
+                  "left": {
+                    "kind": "functionCall",
+                    "evalType": 2,
+                    "name": "length",
+                    "arguments": [
+                      {
+                        "value": {
+                          "kind": "identifier",
+                          "evalType": 5,
+                          "name": "tour",
+                          "scope": 2
+                        },
+                        "parameterType": 5
+                      },
+                      {
+                        "value": {
+                          "kind": "identifier",
+                          "evalType": 3,
+                          "name": "toEnd",
+                          "scope": 2
+                        },
+                        "parameterType": 3
+                      }
+                    ],
+                    "overload": ""
+                  },
+                  "right": {
+                    "kind": "identifier",
+                    "evalType": 2,
+                    "name": "speed",
+                    "scope": 2
+                  }
+                },
+                "right": {
+                  "kind": "doubleLiteral",
+                  "evalType": 2,
+                  "value": "60.0"
+                }
+              },
+              "right": {
+                "kind": "identifier",
+                "evalType": 6,
+                "name": "delivering",
+                "scope": 3
+              }
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "records": [
+    {
+      "name": "Tour",
+      "package": "record/tours.fn/Tour",
+      "type": 5,
+      "fields": [
+        {
+          "name": "name",
+          "type": 1
+        },
+        {
+          "name": "depot",
+          "type": 7
+        },
+        {
+          "name": "stops",
+          "type": 9,
+          "defaultValue": {
+            "kind": "functionCall",
+            "evalType": 9,
+            "name": "emptyList",
+            "arguments": [],
+            "overload": ""
+          }
+        },
+        {
+          "name": "end",
+          "type": 7,
+          "defaultValue": {
+            "kind": "identifier",
+            "evalType": 7,
+            "name": "depot",
+            "scope": 2
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -149,7 +149,8 @@ export const ScriptBaseType = typeTypes.baseTypeType;
  */
 export const FunctionParameter = createInterface("ScriptFunctionParameter").attrs({
     name: String,
-    type: ScriptBaseType
+    type: ScriptBaseType,
+    defaultValue: Optional(BaseExpression)
 });
 
 /**
@@ -175,6 +176,29 @@ export const Function = createInterface("ScriptFunction").attrs({
 export type FunctionType = ASTType<typeof Function>;
 
 /**
+ * Record type: a data structure with named, mutable fields, declared like a constructor.
+ */
+export const Record = createInterface("ScriptRecord").attrs({
+    name: String,
+    parameterList: FunctionParameters
+});
+
+/**
+ * Type representing a Record AST node.
+ */
+export type RecordType = ASTType<typeof Record>;
+
+/**
+ * Union of the declarations another script file can import.
+ */
+export const Importable = createType("ScriptImportable").types(Function, Record);
+
+/**
+ * Type representing an Importable AST node.
+ */
+export type ImportableType = ASTType<typeof Importable>;
+
+/**
  * Type representing a FunctionParameters AST node.
  */
 export type FunctionParametersType = ASTType<typeof FunctionParameters>;
@@ -185,9 +209,9 @@ export type FunctionParametersType = ASTType<typeof FunctionParameters>;
 export type FunctionParameterType = ASTType<typeof FunctionParameter>;
 
 /**
- * File scoping configuration for functions.
+ * File scoping configuration for functions and records.
  */
-export const scriptFileScopingConfig = new FileScopingConfig<FunctionType>("ScriptFunction", Function);
+export const scriptFileScopingConfig = new FileScopingConfig<ImportableType>("ScriptFunction", Importable);
 
 /**
  * Import types for functions.
@@ -233,7 +257,8 @@ export type MetamodelFileImportType = ASTType<typeof MetamodelFileImport>;
 export const Script = createInterface("Script").attrs({
     metamodelImport: Optional(MetamodelFileImport),
     imports: [FunctionFileImport],
-    functions: [Function]
+    functions: [Function],
+    records: [Record]
 });
 
 /**

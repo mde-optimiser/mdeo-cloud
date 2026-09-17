@@ -1,0 +1,7 @@
+record Size(width: double, height: double = width)
+
+record Box(name: string, size: Size = Size(1.0), area: double = size.width * size.height)
+
+fun unit(): Box {
+    return Box("unit")
+}

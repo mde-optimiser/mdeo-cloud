@@ -35,13 +35,11 @@ class PluginServiceEndToEndTest {
     private val contribution = scriptContribution("stats") {
         function("normalize") {
             parameter("values", listOfDouble)
-            returns(double)
+            returns(listOfDouble)
             implementation { call ->
-                @Suppress("UNCHECKED_CAST")
-                val values = call.argument<MutableList<Double>>(0)
+                val values = call.argument<List<Double>>(0)
                 val total = values.sum()
-                values.replaceAll { it / total }
-                total
+                values.map { it / total }
             }
         }
         function("fail") {
@@ -74,7 +72,7 @@ class PluginServiceEndToEndTest {
     )
 
     private fun dispatcher(token: String) = SessionDispatcher(
-        mapOf("normalize" to spec("normalize", double, listOfDouble), "fail" to spec("fail", double))
+        mapOf("normalize" to spec("normalize", listOfDouble, listOfDouble), "fail" to spec("fail", double))
     ) { contributionId, session ->
         val target = PluginTarget.of(PluginTargetKind.CONTRIBUTION, contributionId)
         SessionConnection(
@@ -87,17 +85,18 @@ class PluginServiceEndToEndTest {
     }
 
     @Test
-    fun `a call changes the argument and returns a double`() {
+    fun `a call returns a new list and leaves the argument as it was`() {
         dispatcher("run-token").use { dispatcher ->
             val values = ListImpl(listOf(1.0, 3.0))
-            val total = dispatcher.call("normalize", arrayOf(values), null, javaClass.classLoader)
+            val normalized = dispatcher.call("normalize", arrayOf(values), null, javaClass.classLoader) as ListImpl<*>
 
-            assertEquals(4.0, total)
-            assertEquals(listOf(0.25, 0.75), values.deltaSnapshot())
+            assertEquals(listOf(0.25, 0.75), normalized.heapSnapshot())
+            assertEquals(listOf(1.0, 3.0), values.heapSnapshot())
 
             // A second call on the same session reuses what the service holds.
-            values.add(0.0)
-            assertEquals(1.0, dispatcher.call("normalize", arrayOf(values), null, javaClass.classLoader))
+            values.add(4.0)
+            val again = dispatcher.call("normalize", arrayOf(values), null, javaClass.classLoader) as ListImpl<*>
+            assertEquals(listOf(0.125, 0.375, 0.5), again.heapSnapshot())
         }
     }
 

@@ -562,7 +562,8 @@ export abstract class TypedAstMerger {
     protected remapCallArgument(arg: TypedCallArgument, mapping: Map<number, number>): TypedCallArgument {
         return {
             value: this.remapExpression(arg.value, mapping),
-            parameterType: mapping.get(arg.parameterType)!
+            parameterType: mapping.get(arg.parameterType)!,
+            ...(arg.parameter != undefined ? { parameter: arg.parameter } : {})
         };
     }
 

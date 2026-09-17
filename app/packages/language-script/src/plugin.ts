@@ -113,7 +113,7 @@ export const scriptPluginProvider: LangiumLanguagePluginProvider<ScriptServices>
                             ScopeProvider: (services) => new ScriptScopeProvider(services as ScriptTypirServices),
                             ResolvedContributionPlugins: () => resolvedPlugins,
                             PackageMapCache: (): DocumentPackageCacheService =>
-                                new ScriptDocumentPackageCacheService(langiumSharedServices)
+                                new ScriptDocumentPackageCacheService(langiumSharedServices, resolvedPlugins)
                         }
                     ) as ScriptTypirServices;
                 },

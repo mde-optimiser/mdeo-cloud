@@ -70,15 +70,24 @@ class FunctionCallCompiler : AbstractCallCompiler() {
             emitContextLoad(context, mv)
         }
 
-        compileArgumentsWithCoercion(
-            functionCall.arguments,
-            context,
-            mv,
-            signatureParameterTypes = signature.parameterTypes,
-            varArgsStartIndex = if (signature.isVarArgs) signature.parameterTypes.size else null
-        )
-        
-        signature.emitInvocation(mv)
+        if (!signature.isVarArgs && needsArgumentBinding(functionCall.arguments, signature.parameterTypes.size, signature.hasDefaults)) {
+            val leftOut = compileBoundArguments(functionCall.arguments, context, mv, signature.parameterTypes)
+            if (leftOut != 0) {
+                mv.visitLdcInsn(leftOut)
+                signature.emitDefaultsInvocation(mv)
+            } else {
+                signature.emitInvocation(mv)
+            }
+        } else {
+            compileArgumentsWithCoercion(
+                functionCall.arguments,
+                context,
+                mv,
+                signatureParameterTypes = signature.parameterTypes,
+                varArgsStartIndex = if (signature.isVarArgs) signature.parameterTypes.size else null
+            )
+            signature.emitInvocation(mv)
+        }
         
         val expectedReturnType = context.getType(functionCall.evalType)
         emitReturnTypeCoercion(expectedReturnType, signature.returnType, mv)

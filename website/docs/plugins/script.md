@@ -22,8 +22,8 @@ constraint functions of an optimisation, but scripts can also be run on their ow
 
 ### The script language
 
-A `.fn` file optionally names a metamodel, may import functions from other script files, and defines
-functions.
+A `.fn` file optionally names a metamodel, may import functions and records from other script files,
+and defines functions and records.
 
 <<< @/../samples/task-allocation/objectives.fn{fn}
 
@@ -37,10 +37,85 @@ fun name(parameter: Type, other: Type): ReturnType {
 
 The return type may be omitted for a function that returns nothing, or written as `void`.
 
-Functions from another file are imported by name, optionally renamed:
+A parameter can have a **default value**, used when a call leaves the parameter out. It may refer to
+the parameters declared before it:
+
+```fn
+fun scale(value: double, factor: double = 2.0, offset: double = factor / 2): double {
+    return value * factor + offset
+}
+```
+
+Arguments are passed **by position or by name**. Named arguments come after positional ones, may
+be in any order, and are evaluated in the order they are written:
+
+```fn
+scale(1.0)                          // factor = 2.0, offset = 1.0
+scale(1.0, offset = 0.0)
+scale(offset = 0.0, value = 1.0)
+```
+
+Named arguments work for every function and method, with the parameter names their signatures
+declare, except for functions taking a variable number of arguments, such as `listOf`, and lambdas.
+
+Functions and records from another file are imported by name. A function can be renamed; a record
+cannot, because its name is also the name of its type:
 
 ```fn
 import { unassignedEffort, maxOverload as overload } from "./objectives.fn"
+```
+
+#### Records
+
+A **record** is a data structure with named fields, declared like a constructor. Fields can have
+default values, like parameters:
+
+```fn
+record Point(x: double, y: double = 0.0, label: string = "")
+```
+
+A record is created by calling its name, with positional or named arguments. Its fields are read
+and assigned like properties, and `with` copies it with some fields changed:
+
+```fn
+val p = Point(1.0, label = "start")
+p.y = 2.0
+val q = p.with(x = 3.0)             // Point(x=3.0, y=2.0, label=start)
+```
+
+- Records are compared by content with `==`, and by identity with `===`. Two records are equal
+  when they are of the same record and all their fields are equal, so equal records are one element
+  of a set. Changing a record that is an element of a set or a key of a map does not move it there.
+- `with` copies only the record itself: a list field of the copy is the same list as the original's.
+- A record can be used as a type anywhere a type is expected, including `Point?`, and checked with
+  `is` and `as`.
+- A field cannot be named `with`, and a record cannot have the name of a function of its file or of
+  a class or enum of the metamodel.
+
+Contributions can define records of their own, which scripts use the same way.
+
+<<< @/../samples/language-tour/records.fn{fn}
+
+A larger example spreads records and functions over three files that import each other. It uses
+default values that refer to earlier fields, named arguments to imported and renamed functions,
+`with`, `val`, record equality in a set, and `?.` on an optional record field:
+
+::: code-group
+
+<<< @/../samples/delivery-tours/geometry.fn{fn} [geometry.fn]
+
+<<< @/../samples/delivery-tours/tours.fn{fn} [tours.fn]
+
+<<< @/../samples/delivery-tours/planning.fn{fn} [planning.fn]
+
+:::
+
+`plan()` reports the three tours, shortest first:
+
+```text
+west (empty): 0.0 km, 0.0 min, longest stop none
+south: 10.0 km, 40.0 min, longest stop harbour
+north: 20.0 km, 100.0 min, late, longest stop market
 ```
 
 #### Reaching the model
@@ -62,7 +137,7 @@ for (task in Task.all()) {
 | Numbers | `int`, `long`, `float`, `double` |
 | Other primitives | `string`, `boolean` |
 | Collections | `Collection<T>`, `List<T>`, `Set<T>`, `Bag<T>`, `OrderedSet<T>`, `Iterable<T>` |
-| Domain | Every class and enum of the imported metamodel |
+| Domain | Every class and enum of the imported metamodel, and every record the file declares or imports |
 | Lambdas | `(A, B) => R` |
 | Top type | `Any` |
 
@@ -72,8 +147,23 @@ A `?` suffix makes a type nullable: `Shape?`, `(Int) => Int?`.
 
 <<< @/../samples/language-tour/expressions.fn{fn}
 
-Statements are `var` declarations, assignments, `if` / `else if` / `else`, `while`, `for … in`,
+Statements are variable declarations, assignments, `if` / `else if` / `else`, `while`, `for … in`,
 `break`, `continue` and `return`. Statements are separated by line breaks, not semicolons.
+
+A variable is declared with `var`, which can be assigned again, or `val`, which cannot. A `val`
+without an initial value must be assigned exactly once before it is read, as in Kotlin: on each
+branch that does not end in `return`, `break` or `continue`, but not in a loop or a lambda.
+
+```fn
+var count = 0
+count = count + 1
+val limit: int
+if (strict) {
+    limit = 10
+} else {
+    limit = 100
+}
+```
 
 Operators, from tightest to loosest binding:
 
@@ -133,7 +223,8 @@ The script language is itself extensible. A plugin can register a
 [script contribution plugin](/develop/script-contributions) that adds:
 
 - **functions** — extra entries in the global scope, with signatures and an implementation given as a
-  typed AST;
+  typed AST, or answered by the plugin's own service;
+- **records and opaque classes** — values its functions exchange with scripts;
 - **expressions** — new syntax, backed by a grammar rule and implemented by a function.
 
 Nothing in the bundled set uses this yet, but it is the supported way to grow the standard library

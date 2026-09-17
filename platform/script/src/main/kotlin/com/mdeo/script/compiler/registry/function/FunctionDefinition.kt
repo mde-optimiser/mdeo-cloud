@@ -99,6 +99,8 @@ class FunctionDefinitionImpl(
  * @param ownerClass The JVM internal class name owning this function.
  * @param jvmMethodName The actual JVM method name to invoke (may differ from [name] when
  *   artificial names like `fn0`, `fn1` are assigned during compilation).
+ * @param hasDefaults Whether some parameters have default values, so the function has a
+ *   [DefaultsMethod] companion.
  * @return A FunctionDefinition with a single overload.
  */
 fun createSimpleFileFunction(
@@ -106,7 +108,8 @@ fun createSimpleFileFunction(
     parameters: List<FunctionParameter>,
     returnType: ReturnType,
     ownerClass: String,
-    jvmMethodName: String = name
+    jvmMethodName: String = name,
+    hasDefaults: Boolean = false
 ): FunctionDefinition {
     val impl = FunctionDefinitionImpl(name, ownerClass)
     
@@ -123,7 +126,8 @@ fun createSimpleFileFunction(
         jvmMethodName = jvmMethodName,
         isVarArgs = false,
         parameterTypes = paramTypes,
-        returnType = returnType
+        returnType = returnType,
+        hasDefaults = hasDefaults
     )
     
     impl.addOverload(signature)

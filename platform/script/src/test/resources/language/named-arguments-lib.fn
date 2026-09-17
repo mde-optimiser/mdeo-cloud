@@ -1,0 +1,9 @@
+record Money(amount: long, currency: string = "EUR")
+
+fun price(amount: long, currency: string = "EUR", discount: long = amount / 10L): Money {
+    return Money(amount - discount, currency)
+}
+
+fun greet(name: string, greeting: string = "Hello", punctuation: string = "!"): string {
+    return greeting + ", " + name + punctuation
+}

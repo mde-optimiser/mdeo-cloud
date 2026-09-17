@@ -1,0 +1,45 @@
+import { Point, Stop, distance } from "./geometry.fn"
+
+// A default value may use the fields declared before it: a tour returns to its depot unless it is
+// told to end somewhere else.
+record Tour(
+    name: string,
+    depot: Point,
+    stops: List<Stop> = emptyList<Stop>(),
+    end: Point = depot
+)
+
+// Adds a stop to a tour. Parameters with a default value can be left out.
+fun visit(
+    tour: Tour,
+    name: string,
+    x: double,
+    y: double = 0.0,
+    minutes: int = 15
+): Tour {
+    tour.stops.add(Stop(name, Point(x, y), minutes))
+    return tour
+}
+
+// Length of a tour in kilometres, with or without the way from the last stop to its end.
+fun length(tour: Tour, toEnd: boolean = true): double {
+    var total = 0.0
+    var here = tour.depot
+    for (stop in tour.stops) {
+        total = total + distance(here, stop.location)
+        here = stop.location
+    }
+    if (toEnd) {
+        total = total + distance(here, tour.end)
+    }
+    return total
+}
+
+// Driving and delivery time in minutes, at an average speed in km/h.
+fun duration(tour: Tour, speed: double = 40.0, toEnd: boolean = true): double {
+    var delivering = 0
+    for (stop in tour.stops) {
+        delivering = delivering + stop.minutes
+    }
+    return length(tour, toEnd) / speed * 60.0 + delivering
+}

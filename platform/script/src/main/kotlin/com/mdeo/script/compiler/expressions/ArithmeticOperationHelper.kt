@@ -200,7 +200,8 @@ object ArithmeticOperationHelper {
      */
     private fun appendToStringBuilder(type: ReturnType, mv: MethodVisitor) {
         val descriptor = when {
-            type is ClassTypeRef && type.`package` == "builtin" -> when (type.type) {
+            // A nullable primitive is boxed on the stack, so it is appended as an object.
+            type is ClassTypeRef && type.`package` == "builtin" && !type.isNullable -> when (type.type) {
                 "int" -> "(I)Ljava/lang/StringBuilder;"
                 "long" -> "(J)Ljava/lang/StringBuilder;"
                 "float" -> "(F)Ljava/lang/StringBuilder;"

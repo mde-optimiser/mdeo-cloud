@@ -21,6 +21,39 @@ import { sharedImport } from "@mdeo/language-shared";
 const { InferenceProblem: InferenceProblemConstant, isSubTypeEdge, isConversionEdge } = sharedImport("typir");
 
 /**
+ * A named argument of a call, `name = value`.
+ *
+ * @template Specifics Language-specific types extending TypirSpecifics
+ */
+export type NamedArgumentNode<Specifics extends TypirSpecifics> = Specifics["LanguageType"] & {
+    /**
+     * The name of the parameter the argument is passed to
+     */
+    name: string;
+    /**
+     * The argument expression
+     */
+    value: Specifics["LanguageType"];
+};
+
+/**
+ * An argument of a call together with the parameter it is passed to.
+ *
+ * @template Specifics Language-specific types extending TypirSpecifics
+ */
+interface BoundArgument<Specifics extends TypirSpecifics> {
+    /**
+     * The argument expression
+     */
+    node: Specifics["LanguageType"];
+    /**
+     * The index of the parameter the argument is passed to. For a positional argument this is its
+     * position, which may lie beyond the declared parameters for varargs or a surplus argument.
+     */
+    parameterIndex: number;
+}
+
+/**
  * Result of validating a function signature against provided arguments.
  *
  * @template TProblem The type of problems/errors to collect
@@ -46,6 +79,14 @@ interface FunctionSignatureValidationResult<TProblem> {
      * The generic resolver used for this signature, needed for score calculation
      */
     genericResolver: GenericResolver<any>;
+    /**
+     * The arguments with the parameters they are passed to, positional ones first
+     */
+    arguments: BoundArgument<any>[];
+    /**
+     * How many parameters are left out and take their default value
+     */
+    defaultsUsed: number;
 }
 
 /**
@@ -113,13 +154,20 @@ export abstract class CallValidationHelper<Specifics extends TypirSpecifics, TPr
     resolvedParameterTypes: (CustomValueType | undefined)[] = [];
 
     /**
+     * For every argument, positional ones first and then named ones, the index of the parameter it
+     * is passed to in the chosen signature. Populated alongside {@link chosenOverloadName}.
+     */
+    argumentParameterIndices: number[] = [];
+
+    /**
      * Creates a new call validation helper.
      * Automatically validates the call during construction.
      *
      * @param languageNode The AST node representing the entire call expression
      * @param functionType The type of the function (must be a function type or lambda type)
      * @param genericArgumentsNodes AST nodes for explicit generic type arguments
-     * @param argumentNodes AST nodes for the call arguments
+     * @param argumentNodes AST nodes for the positional call arguments
+     * @param namedArgumentNodes AST nodes for the named call arguments
      * @param services Extended Typir services for type operations
      * @param isInferenceMode Whether this is used for type inference (vs validation)
      */
@@ -128,6 +176,7 @@ export abstract class CallValidationHelper<Specifics extends TypirSpecifics, TPr
         functionType: CustomFunctionType | CustomLambdaType,
         private readonly genericArgumentsNodes: Specifics["LanguageType"][],
         private readonly argumentNodes: Specifics["LanguageType"][],
+        private readonly namedArgumentNodes: NamedArgumentNode<Specifics>[],
         readonly services: ExtendedTypirServices<Specifics>,
         private readonly isInferenceMode: boolean
     ) {
@@ -183,6 +232,9 @@ export abstract class CallValidationHelper<Specifics extends TypirSpecifics, TPr
                 this.inferredReturnType = resolvedReturnType;
                 this.chosenOverloadName = signatureName;
                 this.resolvedParameterTypes = this.resolveSignatureParameterTypes(signature, genericResolver);
+                this.argumentParameterIndices = this.bindArguments(signature, []).arguments.map(
+                    (argument) => argument.parameterIndex
+                );
                 return true;
             }
         }
@@ -232,10 +284,9 @@ export abstract class CallValidationHelper<Specifics extends TypirSpecifics, TPr
         );
         const errors: TProblem[] = [];
 
-        const args = this.argumentNodes.map((argNode) => this.services.Inference.inferType(argNode));
-        this.validateSignatureArguments(args, signature, genericResolver, errors);
-
-        this.validateRequiredParameters(args.length, signature, errors);
+        const binding = this.bindArguments(signature, errors);
+        const args = binding.arguments.map((argument) => this.services.Inference.inferType(argument.node));
+        this.validateSignatureArguments(args, binding.arguments, signature, genericResolver, errors);
 
         const resolvedReturnType = genericResolver.resolveType(signature.returnType);
         if (Array.isArray(resolvedReturnType)) {
@@ -249,8 +300,75 @@ export abstract class CallValidationHelper<Specifics extends TypirSpecifics, TPr
             signature,
             errors,
             returnType: Array.isArray(resolvedReturnType) ? undefined : resolvedReturnType,
-            genericResolver
+            genericResolver,
+            arguments: binding.arguments,
+            defaultsUsed: binding.defaultsUsed
         };
+    }
+
+    /**
+     * Binds the arguments of the call to the parameters of a signature.
+     *
+     * Positional arguments bind by position, named arguments by name. Reports a named argument
+     * that names no parameter or a parameter that already has a value, named arguments to a
+     * varargs signature, and parameters without a default that receive no value.
+     *
+     * @param signature The signature to bind to
+     * @param errors Array to collect binding errors
+     * @returns The bound arguments, positional ones first, and how many parameters take their default
+     */
+    private bindArguments(
+        signature: FunctionSignature,
+        errors: TProblem[]
+    ): { arguments: BoundArgument<Specifics>[]; defaultsUsed: number } {
+        const bound: BoundArgument<Specifics>[] = this.argumentNodes.map((node, index) => ({
+            node,
+            parameterIndex: index
+        }));
+        const parameters = signature.parameters;
+        const isVarArgs = signature.isVarArgs === true;
+        const assigned = new Set<number>();
+        for (let i = 0; i < Math.min(this.argumentNodes.length, parameters.length); i++) {
+            assigned.add(i);
+        }
+
+        if (this.namedArgumentNodes.length > 0 && isVarArgs) {
+            errors.push(
+                this.createError(
+                    this.languageNode,
+                    `Named arguments cannot be used with a function taking a variable number of arguments.`
+                )
+            );
+        }
+        for (const namedArgument of this.namedArgumentNodes) {
+            const index = parameters.findIndex((parameter) => parameter.name === namedArgument.name);
+            if (index < 0) {
+                errors.push(this.createError(namedArgument, `No parameter named '${namedArgument.name}'.`));
+                continue;
+            }
+            if (assigned.has(index)) {
+                errors.push(this.createError(namedArgument, `Parameter '${namedArgument.name}' already has a value.`));
+                continue;
+            }
+            assigned.add(index);
+            bound.push({ node: namedArgument.value, parameterIndex: index });
+        }
+
+        let defaultsUsed = 0;
+        const requiredParameterCount = parameters.length - (isVarArgs ? 1 : 0);
+        for (let i = 0; i < requiredParameterCount; i++) {
+            if (assigned.has(i)) {
+                continue;
+            }
+            if (parameters[i]!.hasDefault === true) {
+                defaultsUsed++;
+            } else {
+                errors.push(
+                    this.createError(this.languageNode, `No value passed for parameter '${parameters[i]!.name}'.`)
+                );
+            }
+        }
+        return { arguments: bound, defaultsUsed };
     }
 
     /**
@@ -260,31 +378,26 @@ export abstract class CallValidationHelper<Specifics extends TypirSpecifics, TPr
      * - Subtype relationships have cost 1 per edge
      * - Conversions have cost 2 per edge
      *
-     * @param args The inferred types of the arguments
-     * @param signature The signature being validated
-     * @param genericResolver The generic type resolver
+     * @param result The validation result of the signature, with its bound arguments
      * @returns The total cost/score for this signature match
      */
-    private calculateSignatureScore(
-        args: (Type | InferenceProblem<Specifics>[])[],
-        signature: FunctionSignature,
-        genericResolver: GenericResolver<Specifics>
-    ): number {
+    private calculateSignatureScore(result: FunctionSignatureValidationResult<TProblem>): number {
+        const { signature, genericResolver } = result;
         let totalScore = 0;
 
-        for (let i = 0; i < args.length; i++) {
-            const argType = args[i];
+        for (const argument of result.arguments) {
+            const argType = this.services.Inference.inferType(argument.node);
             if (Array.isArray(argType) || !isCustomValueType(argType)) {
                 continue;
             }
 
-            if (i >= signature.parameters.length) {
+            if (argument.parameterIndex >= signature.parameters.length) {
                 if (signature.isVarArgs !== true) {
                     continue;
                 }
             }
 
-            const paramIndex = Math.min(i, signature.parameters.length - 1);
+            const paramIndex = Math.min(argument.parameterIndex, signature.parameters.length - 1);
             const paramType = signature.parameters[paramIndex]!.type;
             const declaredType = genericResolver.resolveType(paramType);
             if (Array.isArray(declaredType)) {
@@ -312,51 +425,35 @@ export abstract class CallValidationHelper<Specifics extends TypirSpecifics, TPr
      * Validates that all provided arguments match the signature's parameters.
      *
      * @param args The inferred types of the arguments
+     * @param boundArguments The arguments with the parameters they are passed to, in the order of args
      * @param signature The signature being validated
      * @param genericResolver The generic type resolver
      * @param errors Array to collect validation errors
      */
     private validateSignatureArguments(
         args: (Type | InferenceProblem<Specifics>[])[],
+        boundArguments: BoundArgument<Specifics>[],
         signature: FunctionSignature,
         genericResolver: GenericResolver<Specifics>,
         errors: TProblem[]
     ): void {
         for (let i = 0; i < args.length; i++) {
             const argType = args[i];
+            const { node, parameterIndex } = boundArguments[i]!;
             if (Array.isArray(argType)) {
-                errors.push(this.createError(this.argumentNodes[i], `Argument type could not be determined.`, argType));
+                errors.push(this.createError(node, `Argument type could not be determined.`, argType));
             } else if (!isCustomValueType(argType)) {
-                errors.push(this.createError(this.argumentNodes[i], `Argument type is not a valid type.`));
-            } else if (i >= signature.parameters.length && signature.isVarArgs !== true) {
-                errors.push(this.createError(this.argumentNodes[i], `Too many arguments provided for function call.`));
-            } else if (!genericResolver.checkAndUpdateArgumentType(i, argType)) {
+                errors.push(this.createError(node, `Argument type is not a valid type.`));
+            } else if (parameterIndex >= signature.parameters.length && signature.isVarArgs !== true) {
+                errors.push(this.createError(node, `Too many arguments provided for function call.`));
+            } else if (!genericResolver.checkAndUpdateArgumentType(parameterIndex, argType)) {
                 errors.push(
                     this.createError(
-                        this.argumentNodes[i],
+                        node,
                         `Argument type '${argType.getName()}' is not compatible with parameter type.`
                     )
                 );
             }
-        }
-    }
-
-    /**
-     * Validates that all required parameters have been provided.
-     *
-     * @param argsLength Number of arguments provided
-     * @param signature The signature being validated
-     * @param errors Array to collect validation errors
-     */
-    private validateRequiredParameters(argsLength: number, signature: FunctionSignature, errors: TProblem[]): void {
-        const requiredParamCount = signature.parameters.length - (signature.isVarArgs === true ? 1 : 0);
-        for (let i = argsLength; i < requiredParamCount; i++) {
-            errors.push(
-                this.createError(
-                    this.languageNode,
-                    `Not enough arguments provided for function call. Expected at least ${requiredParamCount} but got ${argsLength}.`
-                )
-            );
         }
     }
 
@@ -377,12 +474,7 @@ export abstract class CallValidationHelper<Specifics extends TypirSpecifics, TPr
         }
 
         if (validResults.length === 1) {
-            this.inferredReturnType = validResults[0]!.returnType;
-            this.chosenOverloadName = validResults[0]!.signatureName;
-            this.resolvedParameterTypes = this.resolveSignatureParameterTypes(
-                validResults[0]!.signature,
-                validResults[0]!.genericResolver
-            );
+            this.choose(validResults[0]!);
             return;
         }
 
@@ -419,32 +511,39 @@ export abstract class CallValidationHelper<Specifics extends TypirSpecifics, TPr
      * @param validResults All valid signature results
      */
     private handleMultipleValidSignatures(validResults: FunctionSignatureValidationResult<TProblem>[]): void {
-        const args = this.argumentNodes.map((argNode) => this.services.Inference.inferType(argNode));
-
         const resultsWithScores = validResults.map((result) => ({
             result,
-            score: this.calculateSignatureScore(args, result.signature, result.genericResolver)
+            score: this.calculateSignatureScore(result)
         }));
 
-        resultsWithScores.sort((a, b) => a.score - b.score);
+        // Cheaper conversions win; between equally cheap signatures, the one that leaves fewer
+        // parameters to their defaults does.
+        resultsWithScores.sort((a, b) => a.score - b.score || a.result.defaultsUsed - b.result.defaultsUsed);
 
-        const bestScore = resultsWithScores[0]!.score;
+        const best = resultsWithScores[0]!;
         const bestScoringResults = resultsWithScores
-            .filter((item) => item.score === bestScore)
+            .filter((item) => item.score === best.score && item.result.defaultsUsed === best.result.defaultsUsed)
             .map((item) => item.result);
 
         if (bestScoringResults.length === 1) {
-            this.inferredReturnType = bestScoringResults[0]!.returnType;
-            this.chosenOverloadName = bestScoringResults[0]!.signatureName;
-            this.resolvedParameterTypes = this.resolveSignatureParameterTypes(
-                bestScoringResults[0]!.signature,
-                bestScoringResults[0]!.genericResolver
-            );
+            this.choose(bestScoringResults[0]!);
             return;
         }
 
         this.reportAmbiguousSignatures();
         this.tryInferReturnTypeFromBestResults(bestScoringResults);
+    }
+
+    /**
+     * Records a signature as the one the call resolves to.
+     *
+     * @param result The validation result of the chosen signature
+     */
+    private choose(result: FunctionSignatureValidationResult<TProblem>): void {
+        this.inferredReturnType = result.returnType;
+        this.chosenOverloadName = result.signatureName;
+        this.resolvedParameterTypes = this.resolveSignatureParameterTypes(result.signature, result.genericResolver);
+        this.argumentParameterIndices = result.arguments.map((argument) => argument.parameterIndex);
     }
 
     /**
@@ -485,6 +584,11 @@ export abstract class CallValidationHelper<Specifics extends TypirSpecifics, TPr
         this.resolvedParameterTypes = type.details.parameterTypes.filter(isCustomValueType);
 
         const args = this.argumentNodes.map((argNode) => this.services.Inference.inferType(argNode));
+        this.argumentParameterIndices = args.map((_, index) => index);
+
+        for (const namedArgument of this.namedArgumentNodes) {
+            this.errors.push(this.createError(namedArgument, `Named arguments cannot be used when calling a lambda.`));
+        }
 
         for (let i = 0; i < args.length; i++) {
             const argType = args[i];

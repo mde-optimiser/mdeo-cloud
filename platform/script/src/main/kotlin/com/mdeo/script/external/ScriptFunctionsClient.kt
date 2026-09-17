@@ -15,24 +15,21 @@ import com.mdeo.scriptfunctions.protocol.ServiceMessage
 import com.mdeo.scriptfunctions.protocol.HeapKind
 import com.mdeo.scriptfunctions.protocol.HeapObject
 import com.mdeo.scriptfunctions.protocol.WireValue
-import com.mdeo.scriptfunctions.protocol.Delta
 import com.mdeo.expression.ast.types.ClassTypeRef
 import com.mdeo.expression.ast.types.ReturnType
 import com.mdeo.script.compiler.ExternalCallSpec
 import com.mdeo.script.runtime.ExternalCallDispatcher
 import com.mdeo.script.stdlib.impl.collections.BagImpl
-import com.mdeo.script.stdlib.impl.collections.DeltaTarget
+import com.mdeo.script.stdlib.impl.collections.HeapCollection
 import com.mdeo.script.stdlib.impl.collections.ListImpl
-import com.mdeo.script.stdlib.impl.collections.MapDeltaTarget
+import com.mdeo.script.stdlib.impl.collections.HeapMap
 import com.mdeo.script.stdlib.impl.collections.MapImpl
 import com.mdeo.script.stdlib.impl.collections.OrderedSetImpl
 import com.mdeo.script.stdlib.impl.collections.SetImpl
 
 /**
- * Raised when a call to an external function cannot be completed.
- *
- * Whatever the reason — the service reported a failure, or its answer broke the contract — no
- * change from that call has been applied.
+ * Raised when a call to an external function cannot be completed, because the service reported a
+ * failure or its answer broke the contract.
  *
  * @param message What went wrong
  */
@@ -42,12 +39,10 @@ class ExternalCallException(message: String) : RuntimeException(message)
  * The execution side of the `script-functions` protocol.
  *
  * Installed as the [ExternalCallDispatcher] of a script context, it turns each call a compiled
- * stub makes into one [ClientMessage.Call], waits for the answer, checks it, and applies it.
+ * stub makes into one [ClientMessage.Call], waits for the answer, checks it, and returns its value.
  *
- * Checking comes strictly before applying. Every delta is validated against the state it will be
- * applied to — that it targets a collection sent as inout in this very call, that its kind fits,
- * that its indices are in range as the deltas before it leave them — and a single violation
- * rejects the whole result. A call therefore either takes effect completely or not at all.
+ * Every argument is *in*: the service never changes what the script holds. The answer is checked
+ * as a whole before any collection it creates is built, and a single violation rejects it.
  *
  * Calls are serialized: one session carries one conversation at a time.
  *
@@ -123,7 +118,7 @@ class ScriptFunctionsClient(
             val preparedFor = transport.connection
             val encoder = HeapEncoder(model)
             val args = arguments.mapIndexed { index, argument ->
-                encoder.encode(argument, spec.parameterTypes.getOrElse(index) { ParameterModes.any }, spec.functionName)
+                encoder.encode(argument, spec.parameterTypes.getOrElse(index) { DeclaredTypes.any }, spec.functionName)
             }
 
             val needsModel = spec.model == ExternalImplementation.MODEL_READONLY || encoder.usesInstances
@@ -161,8 +156,8 @@ class ScriptFunctionsClient(
             }
             when (answer) {
                 is ServiceMessage.Failure -> {
-                    // Whatever the service did to its copies before failing is not ours; it has
-                    // to be sent everything again next time.
+                    // A failed call may not have taken in everything it was sent, so it is all
+                    // sent again next time.
                     encoder.sent.keys.forEach { serviceVersions.remove(it) }
                     val lostState = answer.code == ServiceMessage.Failure.UNKNOWN_OBJECT ||
                             answer.code == ServiceMessage.Failure.UNKNOWN_MODEL
@@ -268,10 +263,9 @@ class ScriptFunctionsClient(
         var usesInstances = false
 
         /**
-         * The collections of this call by id, and whether any path reached them as inout.
+         * The collections of this call by id, with the type each was first reached as.
          */
         val sent = LinkedHashMap<Long, Any>()
-        val mutableIds = HashSet<Long>()
         val declaredTypes = HashMap<Long, ReturnType>()
 
         fun encode(value: Any?, declared: ReturnType, functionName: String): WireValue = when (value) {
@@ -316,24 +310,19 @@ class ScriptFunctionsClient(
                 usesInstances = true
                 WireValue.InstanceValue(name)
             }
-            is DeltaTarget, is MapDeltaTarget -> {
+            is HeapCollection, is HeapMap -> {
                 val id = registry.idFor(value)
-                val inout = ParameterModes.isInout(declared)
-                if (inout) {
-                    mutableIds += id
-                    declaredTypes[id] = declared
-                }
                 if (id !in sent) {
                     sent[id] = value
                     declaredTypes[id] = declared
-                    if (value is MapDeltaTarget) {
-                        for ((k, v) in value.deltaEntries()) {
-                            encode(k, ParameterModes.keyType(declared), functionName)
-                            encode(v, ParameterModes.valueType(declared), functionName)
+                    if (value is HeapMap) {
+                        for ((k, v) in value.heapEntries()) {
+                            encode(k, DeclaredTypes.keyType(declared), functionName)
+                            encode(v, DeclaredTypes.valueType(declared), functionName)
                         }
                     } else {
-                        for (element in (value as DeltaTarget).deltaSnapshot()) {
-                            encode(element, ParameterModes.elementType(declared), functionName)
+                        for (element in (value as HeapCollection).heapSnapshot()) {
+                            encode(element, DeclaredTypes.elementType(declared), functionName)
                         }
                     }
                 }
@@ -354,19 +343,19 @@ class ScriptFunctionsClient(
             val known = serviceVersions[id] == version
             val declared = declaredTypes.getValue(id)
             when (value) {
-                is MapDeltaTarget -> HeapObject(
-                    id, HeapKind.MAP, version, id in mutableIds,
-                    entries = if (known) null else value.deltaEntries().flatMap { (k, v) ->
+                is HeapMap -> HeapObject(
+                    id, HeapKind.MAP, version,
+                    entries = if (known) null else value.heapEntries().flatMap { (k, v) ->
                         listOf(
-                            encode(k, ParameterModes.keyType(declared), ""),
-                            encode(v, ParameterModes.valueType(declared), "")
+                            encode(k, DeclaredTypes.keyType(declared), ""),
+                            encode(v, DeclaredTypes.valueType(declared), "")
                         )
                     }
                 )
                 else -> HeapObject(
-                    id, kindOf(value), version, id in mutableIds,
-                    elements = if (known) null else (value as DeltaTarget).deltaSnapshot()
-                        .map { encode(it, ParameterModes.elementType(declared), "") }
+                    id, kindOf(value), version,
+                    elements = if (known) null else (value as HeapCollection).heapSnapshot()
+                        .map { encode(it, DeclaredTypes.elementType(declared), "") }
                 )
             }
         }.also { objects -> objects.forEach { serviceVersions[it.id] = it.version } }
@@ -391,52 +380,6 @@ class ScriptFunctionsClient(
                 if (obj.id >= 0) reject("created a collection under non-negative id ${obj.id}")
                 if (registry.objectOf(obj.id) != null) reject("reused id ${obj.id} for a new collection")
                 (obj.elements.orEmpty() + obj.entries.orEmpty()).forEach { checkValue(it, newIds) }
-            }
-
-            val sizes = HashMap<Long, Int>()
-            for (delta in result.deltas) {
-                val target = encoder.sent[delta.id] ?: reject("changed collection ${delta.id}, which was not part of this call")
-                if (delta.id !in encoder.mutableIds) {
-                    reject("changed collection ${delta.id}, which was passed as readonly")
-                }
-                val size = sizes.getOrPut(delta.id) { sizeOf(target) }
-                val kind = kindOf(target)
-                when (delta) {
-                    is Delta.Splice -> {
-                        if (kind != HeapKind.LIST && kind != HeapKind.ORDERED_SET) reject("spliced a $kind")
-                        if (delta.index < 0 || delta.deleteCount < 0 || delta.index + delta.deleteCount > size) {
-                            reject("spliced ${delta.deleteCount} at ${delta.index} into a collection of size $size")
-                        }
-                        delta.insert.forEach { checkValue(it, newIds) }
-                        sizes[delta.id] = size - delta.deleteCount + delta.insert.size
-                    }
-                    is Delta.Add -> {
-                        if (kind == HeapKind.LIST || kind == HeapKind.MAP) reject("added to a $kind without an index or key")
-                        delta.values.forEach { checkValue(it, newIds) }
-                    }
-                    is Delta.Remove -> {
-                        if (kind == HeapKind.LIST || kind == HeapKind.MAP) reject("removed from a $kind without an index or key")
-                        delta.values.forEach { checkValue(it, newIds) }
-                    }
-                    is Delta.Count -> {
-                        if (kind != HeapKind.BAG) reject("set a count on a $kind")
-                        if (delta.count < 0) reject("set a negative count")
-                        checkValue(delta.value, newIds)
-                    }
-                    is Delta.Put -> {
-                        if (kind != HeapKind.MAP) reject("put into a $kind")
-                        checkValue(delta.key, newIds); checkValue(delta.value, newIds)
-                    }
-                    is Delta.RemoveKey -> {
-                        if (kind != HeapKind.MAP) reject("removed a key from a $kind")
-                        checkValue(delta.key, newIds)
-                    }
-                    is Delta.Replace -> {
-                        if (kind == HeapKind.MAP && delta.elements.size % 2 != 0) reject("replaced a map with an odd entry list")
-                        delta.elements.forEach { checkValue(it, newIds) }
-                        sizes[delta.id] = if (kind == HeapKind.MAP) delta.elements.size / 2 else delta.elements.size
-                    }
-                }
             }
             checkValue(result.value, newIds)
         }
@@ -470,7 +413,7 @@ class ScriptFunctionsClient(
             )
 
         /**
-         * Applies a validated result and returns the call's value.
+         * Builds the collections of a validated result and returns the call's value.
          */
         fun apply(result: ServiceMessage.Result): Any? {
             for (obj in result.objects) {
@@ -479,66 +422,23 @@ class ScriptFunctionsClient(
             }
             for (obj in result.objects) {
                 val instance = created.getValue(obj.id)
-                if (instance is MapDeltaTarget) {
-                    instance.deltaReplace(obj.entries.orEmpty().chunked(2).map { (k, v) -> decode(k, null) to decode(v, null) })
+                if (instance is HeapMap) {
+                    instance.heapReplace(obj.entries.orEmpty().chunked(2).map { (k, v) -> decode(k, null) to decode(v, null) })
                 } else {
-                    (instance as DeltaTarget).deltaReplace(obj.elements.orEmpty().map { decode(it, null) })
+                    (instance as HeapCollection).heapReplace(obj.elements.orEmpty().map { decode(it, null) })
                 }
-            }
-
-            // Validation catches every broken delta it can see coming; a delta that still fails to
-            // apply rolls back the ones before it, so the script never sees half a result.
-            val changed = result.deltas.map { it.id }.toSet()
-            val before = changed.associateWith { contentOf(encoder.sent.getValue(it)) }
-            try {
-                applyDeltas(result)
-            } catch (e: RuntimeException) {
-                for ((id, content) in before) restore(encoder.sent.getValue(id), content)
-                changed.forEach { serviceVersions.remove(it) }
-                throw ExternalCallException(
-                    "External function '${spec.functionName}' returned changes that could not be applied, " +
-                            "so none were: ${e.message}"
-                )
             }
 
             val reshaped = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Any, Boolean>())
             val value = conform(decode(result.value, spec.returnType), spec.returnType, reshaped)
 
-            // After applying, what the execution holds is exactly what the service holds, except for
-            // collections rebuilt as their declared kind: those are sent in full next time.
-            for (id in changed) serviceVersions[id] = versionOf(encoder.sent.getValue(id))
+            // What the execution holds is exactly what the service holds, except for collections
+            // rebuilt as their declared kind: those are sent in full next time.
             for ((id, instance) in created) {
                 registry.register(instance, id)
                 if (instance !in reshaped) serviceVersions[id] = versionOf(instance)
             }
             return value
-        }
-
-        private fun applyDeltas(result: ServiceMessage.Result) {
-            for (delta in result.deltas) {
-                val target = encoder.sent.getValue(delta.id)
-                val declared = encoder.declaredTypes.getValue(delta.id)
-                val element = ParameterModes.elementType(declared)
-                when (delta) {
-                    is Delta.Splice -> (target as DeltaTarget).deltaSplice(delta.index, delta.deleteCount, delta.insert.map { decode(it, element) })
-                    is Delta.Add -> (target as DeltaTarget).deltaAdd(delta.values.map { decode(it, element) })
-                    is Delta.Remove -> (target as DeltaTarget).deltaRemove(delta.values.map { decode(it, element) })
-                    is Delta.Count -> (target as DeltaTarget).deltaSetCount(decode(delta.value, element), delta.count)
-                    is Delta.Put -> (target as MapDeltaTarget).deltaPut(
-                        decode(delta.key, ParameterModes.keyType(declared)),
-                        decode(delta.value, ParameterModes.valueType(declared))
-                    )
-                    is Delta.RemoveKey -> (target as MapDeltaTarget).deltaRemoveKey(decode(delta.key, ParameterModes.keyType(declared)))
-                    is Delta.Replace -> if (target is MapDeltaTarget) {
-                        target.deltaReplace(delta.elements.chunked(2).map { (k, v) ->
-                            decode(k, ParameterModes.keyType(declared)) to decode(v, ParameterModes.valueType(declared))
-                        })
-                    } else {
-                        (target as DeltaTarget).deltaReplace(delta.elements.map { decode(it, element) })
-                    }
-                }
-            }
-
         }
 
         /**
@@ -554,26 +454,26 @@ class ScriptFunctionsClient(
          * @return The value, as its declared kind
          */
         private fun conform(value: Any?, declared: ReturnType, reshaped: MutableSet<Any>): Any? {
-            if (value !is DeltaTarget && value !is MapDeltaTarget) return value
+            if (value !is HeapCollection && value !is HeapMap) return value
             if (created.values.none { it === value } || value in reshaped) return value
             // Marked before descending, so a collection that contains itself is visited once.
             reshaped += value
 
             var contentChanged = false
-            if (value is MapDeltaTarget) {
-                val entries = value.deltaEntries()
+            if (value is HeapMap) {
+                val entries = value.heapEntries()
                 val conformed = entries.map { (k, v) ->
-                    conform(k, ParameterModes.keyType(declared), reshaped) to conform(v, ParameterModes.valueType(declared), reshaped)
+                    conform(k, DeclaredTypes.keyType(declared), reshaped) to conform(v, DeclaredTypes.valueType(declared), reshaped)
                 }
                 if (conformed.indices.any { conformed[it].first !== entries[it].first || conformed[it].second !== entries[it].second }) {
-                    value.deltaReplace(conformed)
+                    value.heapReplace(conformed)
                     contentChanged = true
                 }
             } else {
-                val elements = (value as DeltaTarget).deltaSnapshot()
-                val conformed = elements.map { conform(it, ParameterModes.elementType(declared), reshaped) }
+                val elements = (value as HeapCollection).heapSnapshot()
+                val conformed = elements.map { conform(it, DeclaredTypes.elementType(declared), reshaped) }
                 if (conformed.indices.any { conformed[it] !== elements[it] }) {
-                    value.deltaReplace(conformed)
+                    value.heapReplace(conformed)
                     contentChanged = true
                 }
             }
@@ -621,28 +521,12 @@ class ScriptFunctionsClient(
         private const val MAX_RECONNECTS_PER_CALL = 3
 
         private fun versionOf(value: Any): Long = when (value) {
-            is MapDeltaTarget -> value.deltaVersion
-            else -> (value as DeltaTarget).deltaVersion
-        }
-
-        private fun contentOf(value: Any): Any = when (value) {
-            is MapDeltaTarget -> value.deltaEntries()
-            else -> (value as DeltaTarget).deltaSnapshot()
-        }
-
-        @Suppress("UNCHECKED_CAST")
-        private fun restore(value: Any, content: Any) = when (value) {
-            is MapDeltaTarget -> value.deltaReplace(content as List<Pair<Any?, Any?>>)
-            else -> (value as DeltaTarget).deltaReplace(content as List<Any?>)
-        }
-
-        private fun sizeOf(value: Any): Int = when (value) {
-            is MapDeltaTarget -> value.deltaEntries().size
-            else -> (value as DeltaTarget).deltaSnapshot().size
+            is HeapMap -> value.heapVersion
+            else -> (value as HeapCollection).heapVersion
         }
 
         private fun kindOf(value: Any): HeapKind = when (value) {
-            is MapDeltaTarget -> HeapKind.MAP
+            is HeapMap -> HeapKind.MAP
             is BagImpl<*> -> HeapKind.BAG
             is OrderedSetImpl<*> -> HeapKind.ORDERED_SET
             is SetImpl<*> -> HeapKind.SET
@@ -678,8 +562,8 @@ class ScriptFunctionsClient(
          * service created it as a different kind — a service returning an array for a `Set`.
          */
         private fun convertToDeclared(value: Any?, declared: ReturnType): Any? {
-            if (value !is DeltaTarget || declared !is ClassTypeRef || declared.`package` != "builtin") return value
-            val elements = value.deltaSnapshot()
+            if (value !is HeapCollection || declared !is ClassTypeRef || declared.`package` != "builtin") return value
+            val elements = value.heapSnapshot()
             val wanted: Any = when (declared.type) {
                 "List", "ReadonlyList", "OrderedCollection", "ReadonlyOrderedCollection" ->
                     if (value is ListImpl<*>) return value else ListImpl(elements)

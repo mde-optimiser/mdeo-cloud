@@ -16,15 +16,11 @@ import java.util.ArrayDeque
  * CBOR, answered by [ScriptFunctionsServiceSession], and the answers encoded back.
  *
  * @param operations The operations this service answers, by name
- * @param claimEverythingMutable Whether to tell the service every collection was sent as mutable,
- *        so that it lets an operation change a readonly argument. Tests use this to check that the
- *        client rejects such a result on its own.
  * @param rewriteAnswer Changes each answer before it is sent, to test what the client does with a
  *        service that breaks the contract
  */
 class Loopback(
     operations: Map<String, (ScriptFunctionCall) -> Any?>,
-    private val claimEverythingMutable: Boolean = false,
     private val rewriteAnswer: (ServiceMessage) -> ServiceMessage = { it }
 ) : ScriptFunctionsTransport {
 
@@ -32,8 +28,8 @@ class Loopback(
         /**
          * A loopback whose operations only look at their arguments.
          */
-        fun ofArguments(operations: Map<String, (List<Any?>) -> Any?>, claimEverythingMutable: Boolean = false) =
-            Loopback(operations.mapValues { (_, op) -> { call: ScriptFunctionCall -> op(call.arguments) } }, claimEverythingMutable)
+        fun ofArguments(operations: Map<String, (List<Any?>) -> Any?>) =
+            Loopback(operations.mapValues { (_, op) -> { call: ScriptFunctionCall -> op(call.arguments) } })
     }
 
     /**
@@ -73,12 +69,7 @@ class Loopback(
             connection++
         }
         received += decoded
-        val handed = if (claimEverythingMutable && decoded is ClientMessage.Call) {
-            decoded.copy(objects = decoded.objects.map { it.copy(mutable = true) })
-        } else {
-            decoded
-        }
-        val answer = runBlocking { service.handle(handed) }?.let(rewriteAnswer) ?: return
+        val answer = runBlocking { service.handle(decoded) }?.let(rewriteAnswer) ?: return
         answered += answer
         outbox.add(ScriptFunctionsProtocol.encodeService(answer))
     }

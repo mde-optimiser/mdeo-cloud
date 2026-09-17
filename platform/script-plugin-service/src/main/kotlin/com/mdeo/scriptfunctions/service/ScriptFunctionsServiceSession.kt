@@ -2,20 +2,21 @@ package com.mdeo.scriptfunctions.service
 
 import com.mdeo.pluginservice.session.SessionContext
 import com.mdeo.scriptfunctions.protocol.ClientMessage
-import com.mdeo.scriptfunctions.protocol.Delta
 import com.mdeo.scriptfunctions.protocol.HeapKind
 import com.mdeo.scriptfunctions.protocol.HeapObject
 import com.mdeo.scriptfunctions.protocol.ServiceMessage
 import com.mdeo.scriptfunctions.protocol.WireValue
 import kotlinx.coroutines.CancellationException
+import java.util.Collections
 import java.util.IdentityHashMap
 
 /**
  * The service side of one `script-functions` session, independent of any connection.
  *
  * It holds the collections the execution has sent, under the ids the execution gave them, and
- * answers each call: it materializes the arguments, runs the operation, diffs every collection it
- * was given against what it received, and answers with deltas for only those that changed.
+ * answers each call: it materializes the arguments, runs the operation and sends back what it
+ * returns. Operations receive every collection as a readonly view, because every argument of an
+ * external function is *in*: an operation that tries to change one fails the call.
  *
  * [ScriptFunctionService] runs one of these per connection. Use it directly to answer the protocol
  * over something other than a platform session, as tests do.
@@ -29,7 +30,19 @@ class ScriptFunctionsServiceSession(
     private val operations: Map<String, ScriptFunctionOperation>,
     private val session: SessionContext? = null
 ) {
+    /**
+     * The collections by id, as the content they were last sent with is filled into.
+     */
     private val objects = HashMap<Long, Any>()
+
+    /**
+     * The readonly view operations receive of each collection, by id.
+     */
+    private val views = HashMap<Long, Any>()
+
+    /**
+     * The id of every collection and of every view of one, by identity.
+     */
     private val ids = IdentityHashMap<Any, Long>()
     private var nextNewId = -1L
 
@@ -91,6 +104,7 @@ class ScriptFunctionsServiceSession(
 
     private fun dropModel() {
         objects.clear()
+        views.clear()
         ids.clear()
         handles.clear()
         handleIds.clear()
@@ -100,12 +114,10 @@ class ScriptFunctionsServiceSession(
 
     private fun forget(id: Long) {
         objects.remove(id)?.let { ids.remove(it) }
+        views.remove(id)?.let { ids.remove(it) }
     }
 
     private suspend fun call(call: ClientMessage.Call): ServiceMessage {
-        // The copies are kept even when the operation changed them before failing: other held
-        // collections may contain them, and the execution sends their content again with the next
-        // call, which refills them in place.
         fun failure(message: String, code: String? = null): ServiceMessage =
             ServiceMessage.Failure(call.callId, message, code)
 
@@ -136,8 +148,7 @@ class ScriptFunctionsServiceSession(
                     HeapKind.SET, HeapKind.ORDERED_SET -> LinkedHashSet<Any?>()
                     HeapKind.MAP -> LinkedHashMap<Any?, Any?>()
                 }
-                objects[obj.id] = instance
-                ids[instance] = obj.id
+                hold(obj.id, instance)
             }
         }
         try {
@@ -145,8 +156,6 @@ class ScriptFunctionsServiceSession(
         } catch (e: IllegalArgumentException) {
             return failure(e.message ?: "Malformed call")
         }
-
-        val before = call.objects.associate { it.id to snapshot(objects.getValue(it.id)) }
 
         val operation = operations[call.operation]
             ?: return failure("Unknown operation '${call.operation}'")
@@ -156,30 +165,42 @@ class ScriptFunctionsServiceSession(
             operation.invoke(ScriptFunctionCall(call.operation, arguments, session, callModel))
         } catch (e: CancellationException) {
             throw e
+        } catch (e: UnsupportedOperationException) {
+            return failure(
+                "Operation '${call.operation}' failed: ${e.message ?: e.toString()}. " +
+                        "Arguments of external functions are readonly; copy a collection to change it."
+            )
         } catch (e: Exception) {
             return failure(e.message ?: e.toString())
         }
 
         val created = mutableListOf<HeapObject>()
         return try {
-            val deltas = mutableListOf<Delta>()
-            for (obj in call.objects) {
-                val was = before.getValue(obj.id)
-                val now = snapshot(objects.getValue(obj.id))
-                if (sameSnapshot(was, now)) continue
-                if (!obj.mutable) {
-                    return failure(
-                        "Operation '${call.operation}' changed a collection it was given as readonly"
-                    )
-                }
-                deltas += diff(obj.id, obj.kind, was, now) { encode(it, created) }
-            }
             val value = encode(returned, created)
-            ServiceMessage.Result(call.callId, created, deltas, value)
+            ServiceMessage.Result(call.callId, created, value)
         } catch (e: UnsupportedValueException) {
             created.forEach { forget(it.id) }
             failure("Operation '${call.operation}' ${e.message}")
         }
+    }
+
+    /**
+     * Holds a collection under an id, together with the readonly view operations receive of it.
+     *
+     * @param id The id
+     * @param instance The collection
+     */
+    private fun hold(id: Long, instance: Any) {
+        val view: Any = when (instance) {
+            is Map<*, *> -> Collections.unmodifiableMap(instance)
+            is Set<*> -> Collections.unmodifiableSet(instance)
+            is List<*> -> Collections.unmodifiableList(instance)
+            else -> Collections.unmodifiableCollection(instance as Collection<*>)
+        }
+        objects[id] = instance
+        views[id] = view
+        ids[instance] = id
+        ids[view] = id
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -207,7 +228,7 @@ class ScriptFunctionsServiceSession(
         is WireValue.FloatValue -> value.value
         is WireValue.DoubleValue -> value.value
         is WireValue.StringValue -> value.value
-        is WireValue.Ref -> objects[value.id]
+        is WireValue.Ref -> views[value.id]
             ?: throw IllegalArgumentException("Collection ${value.id} is referenced but was not sent")
         is WireValue.InstanceValue -> model?.instances?.get(value.name)
             ?: throw IllegalArgumentException("Instance '${value.name}' is not part of the model")
@@ -265,7 +286,16 @@ class ScriptFunctionsServiceSession(
         // connection's service chose; a new id must not collide with one of those.
         while (nextNewId in objects) nextNewId--
         val id = nextNewId--
-        objects[id] = value
+        // The collection is held as a copy the execution's later sends can be filled into, since
+        // the operation's own may be immutable; returning the original again still finds the id.
+        hold(
+            id,
+            when (value) {
+                is Map<*, *> -> LinkedHashMap(value)
+                is Set<*> -> LinkedHashSet(value)
+                else -> ArrayList(value as Collection<*>)
+            }
+        )
         ids[value] = id
         val kind = when (value) {
             is Map<*, *> -> HeapKind.MAP
@@ -283,82 +313,4 @@ class ScriptFunctionsServiceSession(
     }
 
     private class UnsupportedValueException(message: String) : RuntimeException(message)
-
-    private companion object {
-        /**
-         * Collections are compared by identity, everything else by value: a list replaced by an
-         * equal list is a change, `1` replaced by `1L` is one as well.
-         */
-        fun key(value: Any?): Any? = if (value is Collection<*> || value is Map<*, *>) Identity(value) else value
-
-        fun snapshot(instance: Any): List<Any?> = when (instance) {
-            is Map<*, *> -> instance.entries.flatMap { listOf(it.key, it.value) }
-            else -> ArrayList(instance as Collection<*>)
-        }
-
-        fun sameSnapshot(a: List<Any?>, b: List<Any?>): Boolean =
-            a.size == b.size && a.indices.all { key(a[it]) == key(b[it]) }
-
-        fun diff(id: Long, kind: HeapKind, was: List<Any?>, now: List<Any?>, enc: (Any?) -> WireValue): List<Delta> =
-            when (kind) {
-                HeapKind.LIST -> {
-                    var prefix = 0
-                    while (prefix < was.size && prefix < now.size && key(was[prefix]) == key(now[prefix])) prefix++
-                    var suffix = 0
-                    while (suffix < was.size - prefix && suffix < now.size - prefix &&
-                        key(was[was.size - 1 - suffix]) == key(now[now.size - 1 - suffix])
-                    ) suffix++
-                    listOf(
-                        Delta.Splice(id, prefix, was.size - prefix - suffix, now.subList(prefix, now.size - suffix).map(enc))
-                    )
-                }
-                HeapKind.SET -> {
-                    val wasKeys = was.mapTo(HashSet(), ::key)
-                    val nowKeys = now.mapTo(HashSet(), ::key)
-                    membership(id, was.filter { key(it) !in nowKeys }, now.filter { key(it) !in wasKeys }, enc)
-                }
-                HeapKind.ORDERED_SET -> {
-                    val wasKeys = was.mapTo(HashSet(), ::key)
-                    val nowKeys = now.mapTo(HashSet(), ::key)
-                    val kept = was.filter { key(it) in nowKeys }
-                    if (kept.indices.any { key(kept[it]) != key(now[it]) }) {
-                        listOf(Delta.Replace(id, now.map(enc)))
-                    } else {
-                        membership(id, was.filter { key(it) !in nowKeys }, now.drop(kept.size).filter { key(it) !in wasKeys }, enc)
-                    }
-                }
-                HeapKind.BAG -> {
-                    val before = LinkedHashMap<Any?, Pair<Any?, Int>>()
-                    was.forEach { v -> before.merge(key(v), v to 1) { a, _ -> a.first to a.second + 1 } }
-                    val after = LinkedHashMap<Any?, Pair<Any?, Int>>()
-                    now.forEach { v -> after.merge(key(v), v to 1) { a, _ -> a.first to a.second + 1 } }
-                    (before.keys + after.keys).mapNotNull { k ->
-                        val count = after[k]?.second ?: 0
-                        if ((before[k]?.second ?: 0) == count) null
-                        else Delta.Count(id, enc((after[k] ?: before.getValue(k)).first), count)
-                    }
-                }
-                HeapKind.MAP -> {
-                    val before = LinkedHashMap<Any?, Pair<Any?, Any?>>()
-                    for (i in was.indices step 2) before[key(was[i])] = was[i] to was[i + 1]
-                    val after = LinkedHashMap<Any?, Pair<Any?, Any?>>()
-                    for (i in now.indices step 2) after[key(now[i])] = now[i] to now[i + 1]
-                    val removed = before.filterKeys { it !in after }.values.map { Delta.RemoveKey(id, enc(it.first)) }
-                    val put = after.filter { (k, entry) -> before[k]?.let { key(it.second) == key(entry.second) } != true }
-                        .values.map { Delta.Put(id, enc(it.first), enc(it.second)) }
-                    removed + put
-                }
-            }
-
-        fun membership(id: Long, removed: List<Any?>, added: List<Any?>, enc: (Any?) -> WireValue): List<Delta> =
-            listOfNotNull(
-                removed.takeIf { it.isNotEmpty() }?.let { Delta.Remove(id, it.map(enc)) },
-                added.takeIf { it.isNotEmpty() }?.let { Delta.Add(id, it.map(enc)) }
-            )
-    }
-
-    private class Identity(val value: Any?) {
-        override fun equals(other: Any?) = other is Identity && other.value === value
-        override fun hashCode() = System.identityHashCode(value)
-    }
 }

@@ -1,0 +1,2518 @@
+{
+  "types": [
+    {
+      "kind": "void"
+    },
+    {
+      "package": "builtin",
+      "type": "string",
+      "isNullable": false,
+      "typeArgs": {}
+    },
+    {
+      "package": "builtin",
+      "type": "double",
+      "isNullable": false,
+      "typeArgs": {}
+    },
+    {
+      "package": "builtin",
+      "type": "boolean",
+      "isNullable": false,
+      "typeArgs": {}
+    },
+    {
+      "package": "builtin",
+      "type": "Any",
+      "isNullable": true
+    },
+    {
+      "package": "builtin",
+      "type": "List",
+      "isNullable": false,
+      "typeArgs": {
+        "T": {
+          "package": "builtin",
+          "type": "string",
+          "isNullable": false,
+          "typeArgs": {}
+        }
+      }
+    },
+    {
+      "package": "builtin",
+      "type": "long",
+      "isNullable": false,
+      "typeArgs": {}
+    },
+    {
+      "package": "record/lib.fn/Money",
+      "type": "Money",
+      "isNullable": false,
+      "typeArgs": {}
+    },
+    {
+      "package": "builtin",
+      "type": "int",
+      "isNullable": false,
+      "typeArgs": {}
+    },
+    {
+      "package": "builtin",
+      "type": "List",
+      "isNullable": false,
+      "typeArgs": {
+        "T": {
+          "package": "builtin",
+          "type": "int",
+          "isNullable": false,
+          "typeArgs": {}
+        }
+      }
+    },
+    {
+      "isNullable": false,
+      "parameters": [
+        {
+          "name": "param0",
+          "type": {
+            "package": "builtin",
+            "type": "int",
+            "isNullable": false,
+            "typeArgs": {}
+          }
+        }
+      ],
+      "returnType": {
+        "package": "builtin",
+        "type": "boolean",
+        "isNullable": false,
+        "typeArgs": {}
+      }
+    },
+    {
+      "package": "builtin",
+      "type": "List",
+      "isNullable": false,
+      "typeArgs": {
+        "T": {
+          "package": "record/lib.fn/Money",
+          "type": "Money",
+          "isNullable": false,
+          "typeArgs": {}
+        }
+      }
+    },
+    {
+      "package": "builtin",
+      "type": "ReadonlyOrderedCollection",
+      "isNullable": false,
+      "typeArgs": {
+        "T": {
+          "package": "record/lib.fn/Money",
+          "type": "Money",
+          "isNullable": false,
+          "typeArgs": {}
+        }
+      }
+    },
+    {
+      "isNullable": false,
+      "parameters": [
+        {
+          "name": "param0",
+          "type": {
+            "package": "record/lib.fn/Money",
+            "type": "Money",
+            "isNullable": false,
+            "typeArgs": {}
+          }
+        }
+      ],
+      "returnType": {
+        "package": "builtin",
+        "type": "long",
+        "isNullable": false,
+        "typeArgs": {}
+      }
+    },
+    {
+      "package": "builtin",
+      "type": "double",
+      "isNullable": true,
+      "typeArgs": {}
+    },
+    {
+      "package": "builtin",
+      "type": "string",
+      "isNullable": true,
+      "typeArgs": {}
+    },
+    {
+      "isNullable": false,
+      "parameters": [
+        {
+          "name": "param0",
+          "type": {
+            "package": "builtin",
+            "type": "string",
+            "isNullable": false,
+            "typeArgs": {}
+          }
+        }
+      ],
+      "returnType": {
+        "package": "builtin",
+        "type": "string",
+        "isNullable": false,
+        "typeArgs": {}
+      }
+    },
+    {
+      "isNullable": false,
+      "parameters": [
+        {
+          "name": "param0",
+          "type": {
+            "package": "builtin",
+            "type": "int",
+            "isNullable": false,
+            "typeArgs": {}
+          }
+        }
+      ],
+      "returnType": {
+        "package": "builtin",
+        "type": "int",
+        "isNullable": false,
+        "typeArgs": {}
+      }
+    }
+  ],
+  "imports": [
+    {
+      "name": "Money",
+      "ref": "Money",
+      "uri": "/lib.fn"
+    },
+    {
+      "name": "price",
+      "ref": "price",
+      "uri": "/lib.fn"
+    },
+    {
+      "name": "salute",
+      "ref": "greet",
+      "uri": "/lib.fn"
+    }
+  ],
+  "functions": [
+    {
+      "name": "note",
+      "parameters": [
+        {
+          "name": "log",
+          "type": 5
+        },
+        {
+          "name": "entry",
+          "type": 1
+        }
+      ],
+      "returnType": 1,
+      "body": {
+        "body": [
+          {
+            "kind": "expression",
+            "expression": {
+              "kind": "memberCall",
+              "evalType": 1,
+              "expression": {
+                "kind": "identifier",
+                "evalType": 5,
+                "name": "log",
+                "scope": 2
+              },
+              "member": "add",
+              "isNullChaining": false,
+              "arguments": [
+                {
+                  "value": {
+                    "kind": "identifier",
+                    "evalType": 1,
+                    "name": "entry",
+                    "scope": 2
+                  },
+                  "parameterType": 1
+                }
+              ],
+              "overload": ""
+            }
+          },
+          {
+            "kind": "return",
+            "value": {
+              "kind": "identifier",
+              "evalType": 1,
+              "name": "entry",
+              "scope": 2
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "imported",
+      "parameters": [],
+      "returnType": 1,
+      "body": {
+        "body": [
+          {
+            "kind": "return",
+            "value": {
+              "kind": "binary",
+              "evalType": 1,
+              "operator": "+",
+              "left": {
+                "kind": "binary",
+                "evalType": 1,
+                "operator": "+",
+                "left": {
+                  "kind": "binary",
+                  "evalType": 1,
+                  "operator": "+",
+                  "left": {
+                    "kind": "binary",
+                    "evalType": 1,
+                    "operator": "+",
+                    "left": {
+                      "kind": "functionCall",
+                      "evalType": 1,
+                      "name": "salute",
+                      "arguments": [
+                        {
+                          "value": {
+                            "kind": "stringLiteral",
+                            "evalType": 1,
+                            "value": "Ada"
+                          },
+                          "parameterType": 1
+                        }
+                      ],
+                      "overload": ""
+                    },
+                    "right": {
+                      "kind": "stringLiteral",
+                      "evalType": 1,
+                      "value": " "
+                    }
+                  },
+                  "right": {
+                    "kind": "functionCall",
+                    "evalType": 1,
+                    "name": "salute",
+                    "arguments": [
+                      {
+                        "value": {
+                          "kind": "stringLiteral",
+                          "evalType": 1,
+                          "value": "?"
+                        },
+                        "parameterType": 1,
+                        "parameter": 2
+                      },
+                      {
+                        "value": {
+                          "kind": "stringLiteral",
+                          "evalType": 1,
+                          "value": "Bob"
+                        },
+                        "parameterType": 1,
+                        "parameter": 0
+                      }
+                    ],
+                    "overload": ""
+                  }
+                },
+                "right": {
+                  "kind": "stringLiteral",
+                  "evalType": 1,
+                  "value": " "
+                }
+              },
+              "right": {
+                "kind": "functionCall",
+                "evalType": 1,
+                "name": "salute",
+                "arguments": [
+                  {
+                    "value": {
+                      "kind": "stringLiteral",
+                      "evalType": 1,
+                      "value": "Cy"
+                    },
+                    "parameterType": 1
+                  },
+                  {
+                    "value": {
+                      "kind": "stringLiteral",
+                      "evalType": 1,
+                      "value": "Hi"
+                    },
+                    "parameterType": 1
+                  }
+                ],
+                "overload": ""
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "importedDefaultsSeeParameters",
+      "parameters": [],
+      "returnType": 1,
+      "body": {
+        "body": [
+          {
+            "kind": "return",
+            "value": {
+              "kind": "binary",
+              "evalType": 1,
+              "operator": "+",
+              "left": {
+                "kind": "binary",
+                "evalType": 1,
+                "operator": "+",
+                "left": {
+                  "kind": "binary",
+                  "evalType": 1,
+                  "operator": "+",
+                  "left": {
+                    "kind": "binary",
+                    "evalType": 1,
+                    "operator": "+",
+                    "left": {
+                      "kind": "binary",
+                      "evalType": 1,
+                      "operator": "+",
+                      "left": {
+                        "kind": "stringLiteral",
+                        "evalType": 1,
+                        "value": ""
+                      },
+                      "right": {
+                        "kind": "functionCall",
+                        "evalType": 7,
+                        "name": "price",
+                        "arguments": [
+                          {
+                            "value": {
+                              "kind": "longLiteral",
+                              "evalType": 6,
+                              "value": "100"
+                            },
+                            "parameterType": 6
+                          }
+                        ],
+                        "overload": ""
+                      }
+                    },
+                    "right": {
+                      "kind": "stringLiteral",
+                      "evalType": 1,
+                      "value": " "
+                    }
+                  },
+                  "right": {
+                    "kind": "functionCall",
+                    "evalType": 7,
+                    "name": "price",
+                    "arguments": [
+                      {
+                        "value": {
+                          "kind": "stringLiteral",
+                          "evalType": 1,
+                          "value": "USD"
+                        },
+                        "parameterType": 1,
+                        "parameter": 1
+                      },
+                      {
+                        "value": {
+                          "kind": "longLiteral",
+                          "evalType": 6,
+                          "value": "50"
+                        },
+                        "parameterType": 6,
+                        "parameter": 0
+                      }
+                    ],
+                    "overload": ""
+                  }
+                },
+                "right": {
+                  "kind": "stringLiteral",
+                  "evalType": 1,
+                  "value": " "
+                }
+              },
+              "right": {
+                "kind": "functionCall",
+                "evalType": 7,
+                "name": "price",
+                "arguments": [
+                  {
+                    "value": {
+                      "kind": "longLiteral",
+                      "evalType": 6,
+                      "value": "20"
+                    },
+                    "parameterType": 6
+                  },
+                  {
+                    "value": {
+                      "kind": "longLiteral",
+                      "evalType": 6,
+                      "value": "0"
+                    },
+                    "parameterType": 6,
+                    "parameter": 2
+                  }
+                ],
+                "overload": ""
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "overloadsByName",
+      "parameters": [],
+      "returnType": 1,
+      "body": {
+        "body": [
+          {
+            "kind": "variableDeclaration",
+            "name": "s",
+            "type": 1,
+            "initialValue": {
+              "kind": "stringLiteral",
+              "evalType": 1,
+              "value": "abcdef"
+            }
+          },
+          {
+            "kind": "return",
+            "value": {
+              "kind": "binary",
+              "evalType": 1,
+              "operator": "+",
+              "left": {
+                "kind": "binary",
+                "evalType": 1,
+                "operator": "+",
+                "left": {
+                  "kind": "binary",
+                  "evalType": 1,
+                  "operator": "+",
+                  "left": {
+                    "kind": "binary",
+                    "evalType": 1,
+                    "operator": "+",
+                    "left": {
+                      "kind": "memberCall",
+                      "evalType": 1,
+                      "expression": {
+                        "kind": "identifier",
+                        "evalType": 1,
+                        "name": "s",
+                        "scope": 3
+                      },
+                      "member": "substring",
+                      "isNullChaining": false,
+                      "arguments": [
+                        {
+                          "value": {
+                            "kind": "intLiteral",
+                            "evalType": 8,
+                            "value": "4"
+                          },
+                          "parameterType": 8
+                        }
+                      ],
+                      "overload": "1"
+                    },
+                    "right": {
+                      "kind": "stringLiteral",
+                      "evalType": 1,
+                      "value": "|"
+                    }
+                  },
+                  "right": {
+                    "kind": "memberCall",
+                    "evalType": 1,
+                    "expression": {
+                      "kind": "identifier",
+                      "evalType": 1,
+                      "name": "s",
+                      "scope": 3
+                    },
+                    "member": "substring",
+                    "isNullChaining": false,
+                    "arguments": [
+                      {
+                        "value": {
+                          "kind": "intLiteral",
+                          "evalType": 8,
+                          "value": "3"
+                        },
+                        "parameterType": 8,
+                        "parameter": 1
+                      },
+                      {
+                        "value": {
+                          "kind": "intLiteral",
+                          "evalType": 8,
+                          "value": "1"
+                        },
+                        "parameterType": 8,
+                        "parameter": 0
+                      }
+                    ],
+                    "overload": "2"
+                  }
+                },
+                "right": {
+                  "kind": "stringLiteral",
+                  "evalType": 1,
+                  "value": "|"
+                }
+              },
+              "right": {
+                "kind": "memberCall",
+                "evalType": 1,
+                "expression": {
+                  "kind": "identifier",
+                  "evalType": 1,
+                  "name": "s",
+                  "scope": 3
+                },
+                "member": "substring",
+                "isNullChaining": false,
+                "arguments": [
+                  {
+                    "value": {
+                      "kind": "intLiteral",
+                      "evalType": 8,
+                      "value": "2"
+                    },
+                    "parameterType": 8
+                  },
+                  {
+                    "value": {
+                      "kind": "intLiteral",
+                      "evalType": 8,
+                      "value": "4"
+                    },
+                    "parameterType": 8
+                  }
+                ],
+                "overload": "2"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "namedLambdaArgument",
+      "parameters": [],
+      "returnType": 3,
+      "body": {
+        "body": [
+          {
+            "kind": "variableDeclaration",
+            "name": "values",
+            "type": 9,
+            "initialValue": {
+              "kind": "functionCall",
+              "evalType": 9,
+              "name": "listOf",
+              "arguments": [
+                {
+                  "value": {
+                    "kind": "intLiteral",
+                    "evalType": 8,
+                    "value": "1"
+                  },
+                  "parameterType": 8
+                },
+                {
+                  "value": {
+                    "kind": "intLiteral",
+                    "evalType": 8,
+                    "value": "2"
+                  },
+                  "parameterType": 8
+                },
+                {
+                  "value": {
+                    "kind": "intLiteral",
+                    "evalType": 8,
+                    "value": "3"
+                  },
+                  "parameterType": 8
+                },
+                {
+                  "value": {
+                    "kind": "intLiteral",
+                    "evalType": 8,
+                    "value": "4"
+                  },
+                  "parameterType": 8
+                }
+              ],
+              "overload": ""
+            }
+          },
+          {
+            "kind": "return",
+            "value": {
+              "kind": "binary",
+              "evalType": 3,
+              "operator": "&&",
+              "left": {
+                "kind": "memberCall",
+                "evalType": 3,
+                "expression": {
+                  "kind": "identifier",
+                  "evalType": 9,
+                  "name": "values",
+                  "scope": 3
+                },
+                "member": "nMatch",
+                "isNullChaining": false,
+                "arguments": [
+                  {
+                    "value": {
+                      "kind": "intLiteral",
+                      "evalType": 8,
+                      "value": "2"
+                    },
+                    "parameterType": 8,
+                    "parameter": 1
+                  },
+                  {
+                    "value": {
+                      "kind": "lambda",
+                      "evalType": 10,
+                      "parameters": [
+                        "it"
+                      ],
+                      "body": {
+                        "body": [
+                          {
+                            "kind": "return",
+                            "value": {
+                              "kind": "binary",
+                              "evalType": 3,
+                              "operator": ">",
+                              "left": {
+                                "kind": "identifier",
+                                "evalType": 8,
+                                "name": "it",
+                                "scope": 4
+                              },
+                              "right": {
+                                "kind": "intLiteral",
+                                "evalType": 8,
+                                "value": "2"
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "hasBlockBody": false
+                    },
+                    "parameterType": 10,
+                    "parameter": 0
+                  }
+                ],
+                "overload": ""
+              },
+              "right": {
+                "kind": "unary",
+                "evalType": 3,
+                "operator": "!",
+                "expression": {
+                  "kind": "memberCall",
+                  "evalType": 3,
+                  "expression": {
+                    "kind": "identifier",
+                    "evalType": 9,
+                    "name": "values",
+                    "scope": 3
+                  },
+                  "member": "nMatch",
+                  "isNullChaining": false,
+                  "arguments": [
+                    {
+                      "value": {
+                        "kind": "intLiteral",
+                        "evalType": 8,
+                        "value": "3"
+                      },
+                      "parameterType": 8,
+                      "parameter": 1
+                    },
+                    {
+                      "value": {
+                        "kind": "lambda",
+                        "evalType": 10,
+                        "parameters": [
+                          "it"
+                        ],
+                        "body": {
+                          "body": [
+                            {
+                              "kind": "return",
+                              "value": {
+                                "kind": "binary",
+                                "evalType": 3,
+                                "operator": ">",
+                                "left": {
+                                  "kind": "identifier",
+                                  "evalType": 8,
+                                  "name": "it",
+                                  "scope": 4
+                                },
+                                "right": {
+                                  "kind": "intLiteral",
+                                  "evalType": 8,
+                                  "value": "2"
+                                }
+                              }
+                            }
+                          ]
+                        },
+                        "hasBlockBody": false
+                      },
+                      "parameterType": 10,
+                      "parameter": 0
+                    }
+                  ],
+                  "overload": ""
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "namedLambdaOnRecords",
+      "parameters": [],
+      "returnType": 1,
+      "body": {
+        "body": [
+          {
+            "kind": "variableDeclaration",
+            "name": "moneys",
+            "type": 11,
+            "initialValue": {
+              "kind": "functionCall",
+              "evalType": 11,
+              "name": "listOf",
+              "arguments": [
+                {
+                  "value": {
+                    "kind": "functionCall",
+                    "evalType": 7,
+                    "name": "Money",
+                    "arguments": [
+                      {
+                        "value": {
+                          "kind": "longLiteral",
+                          "evalType": 6,
+                          "value": "3"
+                        },
+                        "parameterType": 6
+                      }
+                    ],
+                    "overload": ""
+                  },
+                  "parameterType": 7
+                },
+                {
+                  "value": {
+                    "kind": "functionCall",
+                    "evalType": 7,
+                    "name": "Money",
+                    "arguments": [
+                      {
+                        "value": {
+                          "kind": "longLiteral",
+                          "evalType": 6,
+                          "value": "1"
+                        },
+                        "parameterType": 6
+                      },
+                      {
+                        "value": {
+                          "kind": "stringLiteral",
+                          "evalType": 1,
+                          "value": "USD"
+                        },
+                        "parameterType": 1
+                      }
+                    ],
+                    "overload": ""
+                  },
+                  "parameterType": 7
+                },
+                {
+                  "value": {
+                    "kind": "functionCall",
+                    "evalType": 7,
+                    "name": "Money",
+                    "arguments": [
+                      {
+                        "value": {
+                          "kind": "longLiteral",
+                          "evalType": 6,
+                          "value": "2"
+                        },
+                        "parameterType": 6
+                      }
+                    ],
+                    "overload": ""
+                  },
+                  "parameterType": 7
+                }
+              ],
+              "overload": ""
+            }
+          },
+          {
+            "kind": "variableDeclaration",
+            "name": "sorted",
+            "type": 12,
+            "initialValue": {
+              "kind": "memberCall",
+              "evalType": 12,
+              "expression": {
+                "kind": "identifier",
+                "evalType": 11,
+                "name": "moneys",
+                "scope": 3
+              },
+              "member": "sortedBy",
+              "isNullChaining": false,
+              "arguments": [
+                {
+                  "value": {
+                    "kind": "lambda",
+                    "evalType": 13,
+                    "parameters": [
+                      "it"
+                    ],
+                    "body": {
+                      "body": [
+                        {
+                          "kind": "return",
+                          "value": {
+                            "kind": "memberAccess",
+                            "evalType": 6,
+                            "expression": {
+                              "kind": "identifier",
+                              "evalType": 7,
+                              "name": "it",
+                              "scope": 4
+                            },
+                            "member": "amount",
+                            "isNullChaining": false
+                          }
+                        }
+                      ]
+                    },
+                    "hasBlockBody": false
+                  },
+                  "parameterType": 13
+                }
+              ],
+              "overload": ""
+            }
+          },
+          {
+            "kind": "variableDeclaration",
+            "name": "text",
+            "type": 1,
+            "initialValue": {
+              "kind": "stringLiteral",
+              "evalType": 1,
+              "value": ""
+            }
+          },
+          {
+            "kind": "for",
+            "variableName": "m",
+            "variableType": 7,
+            "iterable": {
+              "kind": "identifier",
+              "evalType": 12,
+              "name": "sorted",
+              "scope": 3
+            },
+            "body": [
+              {
+                "kind": "assignment",
+                "left": {
+                  "kind": "identifier",
+                  "evalType": 1,
+                  "name": "text",
+                  "scope": 3
+                },
+                "right": {
+                  "kind": "binary",
+                  "evalType": 1,
+                  "operator": "+",
+                  "left": {
+                    "kind": "binary",
+                    "evalType": 1,
+                    "operator": "+",
+                    "left": {
+                      "kind": "identifier",
+                      "evalType": 1,
+                      "name": "text",
+                      "scope": 3
+                    },
+                    "right": {
+                      "kind": "memberAccess",
+                      "evalType": 6,
+                      "expression": {
+                        "kind": "identifier",
+                        "evalType": 7,
+                        "name": "m",
+                        "scope": 4
+                      },
+                      "member": "amount",
+                      "isNullChaining": false
+                    }
+                  },
+                  "right": {
+                    "kind": "memberAccess",
+                    "evalType": 1,
+                    "expression": {
+                      "kind": "identifier",
+                      "evalType": 7,
+                      "name": "m",
+                      "scope": 4
+                    },
+                    "member": "currency",
+                    "isNullChaining": false
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "kind": "return",
+            "value": {
+              "kind": "identifier",
+              "evalType": 1,
+              "name": "text",
+              "scope": 3
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "counted",
+      "parameters": [
+        {
+          "name": "log",
+          "type": 5
+        },
+        {
+          "name": "a",
+          "type": 1,
+          "defaultValue": {
+            "kind": "functionCall",
+            "evalType": 1,
+            "name": "note",
+            "arguments": [
+              {
+                "value": {
+                  "kind": "identifier",
+                  "evalType": 5,
+                  "name": "log",
+                  "scope": 2
+                },
+                "parameterType": 5
+              },
+              {
+                "value": {
+                  "kind": "stringLiteral",
+                  "evalType": 1,
+                  "value": "a"
+                },
+                "parameterType": 1
+              }
+            ],
+            "overload": ""
+          }
+        },
+        {
+          "name": "b",
+          "type": 1,
+          "defaultValue": {
+            "kind": "functionCall",
+            "evalType": 1,
+            "name": "note",
+            "arguments": [
+              {
+                "value": {
+                  "kind": "identifier",
+                  "evalType": 5,
+                  "name": "log",
+                  "scope": 2
+                },
+                "parameterType": 5
+              },
+              {
+                "value": {
+                  "kind": "stringLiteral",
+                  "evalType": 1,
+                  "value": "b"
+                },
+                "parameterType": 1
+              }
+            ],
+            "overload": ""
+          }
+        }
+      ],
+      "returnType": 1,
+      "body": {
+        "body": [
+          {
+            "kind": "return",
+            "value": {
+              "kind": "binary",
+              "evalType": 1,
+              "operator": "+",
+              "left": {
+                "kind": "identifier",
+                "evalType": 1,
+                "name": "a",
+                "scope": 2
+              },
+              "right": {
+                "kind": "identifier",
+                "evalType": 1,
+                "name": "b",
+                "scope": 2
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "defaultsOnlyRunWhenLeftOut",
+      "parameters": [],
+      "returnType": 1,
+      "body": {
+        "body": [
+          {
+            "kind": "variableDeclaration",
+            "name": "log",
+            "type": 5,
+            "initialValue": {
+              "kind": "functionCall",
+              "evalType": 5,
+              "name": "emptyList",
+              "arguments": [],
+              "overload": ""
+            }
+          },
+          {
+            "kind": "variableDeclaration",
+            "name": "first",
+            "type": 1,
+            "initialValue": {
+              "kind": "functionCall",
+              "evalType": 1,
+              "name": "counted",
+              "arguments": [
+                {
+                  "value": {
+                    "kind": "identifier",
+                    "evalType": 5,
+                    "name": "log",
+                    "scope": 3
+                  },
+                  "parameterType": 5
+                },
+                {
+                  "value": {
+                    "kind": "stringLiteral",
+                    "evalType": 1,
+                    "value": "B"
+                  },
+                  "parameterType": 1,
+                  "parameter": 2
+                }
+              ],
+              "overload": ""
+            }
+          },
+          {
+            "kind": "variableDeclaration",
+            "name": "second",
+            "type": 1,
+            "initialValue": {
+              "kind": "functionCall",
+              "evalType": 1,
+              "name": "counted",
+              "arguments": [
+                {
+                  "value": {
+                    "kind": "identifier",
+                    "evalType": 5,
+                    "name": "log",
+                    "scope": 3
+                  },
+                  "parameterType": 5
+                }
+              ],
+              "overload": ""
+            }
+          },
+          {
+            "kind": "return",
+            "value": {
+              "kind": "binary",
+              "evalType": 1,
+              "operator": "+",
+              "left": {
+                "kind": "binary",
+                "evalType": 1,
+                "operator": "+",
+                "left": {
+                  "kind": "binary",
+                  "evalType": 1,
+                  "operator": "+",
+                  "left": {
+                    "kind": "identifier",
+                    "evalType": 1,
+                    "name": "first",
+                    "scope": 3
+                  },
+                  "right": {
+                    "kind": "identifier",
+                    "evalType": 1,
+                    "name": "second",
+                    "scope": 3
+                  }
+                },
+                "right": {
+                  "kind": "stringLiteral",
+                  "evalType": 1,
+                  "value": ":"
+                }
+              },
+              "right": {
+                "kind": "memberCall",
+                "evalType": 8,
+                "expression": {
+                  "kind": "identifier",
+                  "evalType": 5,
+                  "name": "log",
+                  "scope": 3
+                },
+                "member": "size",
+                "isNullChaining": false,
+                "arguments": [],
+                "overload": ""
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "sumTo",
+      "parameters": [
+        {
+          "name": "n",
+          "type": 8
+        },
+        {
+          "name": "acc",
+          "type": 8,
+          "defaultValue": {
+            "kind": "intLiteral",
+            "evalType": 8,
+            "value": "0"
+          }
+        }
+      ],
+      "returnType": 8,
+      "body": {
+        "body": [
+          {
+            "kind": "if",
+            "condition": {
+              "kind": "binary",
+              "evalType": 3,
+              "operator": "==",
+              "left": {
+                "kind": "identifier",
+                "evalType": 8,
+                "name": "n",
+                "scope": 2
+              },
+              "right": {
+                "kind": "intLiteral",
+                "evalType": 8,
+                "value": "0"
+              }
+            },
+            "thenBlock": [
+              {
+                "kind": "return",
+                "value": {
+                  "kind": "identifier",
+                  "evalType": 8,
+                  "name": "acc",
+                  "scope": 2
+                }
+              }
+            ],
+            "elseIfs": []
+          },
+          {
+            "kind": "return",
+            "value": {
+              "kind": "functionCall",
+              "evalType": 8,
+              "name": "sumTo",
+              "arguments": [
+                {
+                  "value": {
+                    "kind": "binary",
+                    "evalType": 8,
+                    "operator": "-",
+                    "left": {
+                      "kind": "identifier",
+                      "evalType": 8,
+                      "name": "n",
+                      "scope": 2
+                    },
+                    "right": {
+                      "kind": "intLiteral",
+                      "evalType": 8,
+                      "value": "1"
+                    }
+                  },
+                  "parameterType": 8
+                },
+                {
+                  "value": {
+                    "kind": "binary",
+                    "evalType": 8,
+                    "operator": "+",
+                    "left": {
+                      "kind": "identifier",
+                      "evalType": 8,
+                      "name": "acc",
+                      "scope": 2
+                    },
+                    "right": {
+                      "kind": "identifier",
+                      "evalType": 8,
+                      "name": "n",
+                      "scope": 2
+                    }
+                  },
+                  "parameterType": 8
+                }
+              ],
+              "overload": ""
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "recursion",
+      "parameters": [],
+      "returnType": 8,
+      "body": {
+        "body": [
+          {
+            "kind": "return",
+            "value": {
+              "kind": "functionCall",
+              "evalType": 8,
+              "name": "sumTo",
+              "arguments": [
+                {
+                  "value": {
+                    "kind": "intLiteral",
+                    "evalType": 8,
+                    "value": "10"
+                  },
+                  "parameterType": 8
+                }
+              ],
+              "overload": ""
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "widen",
+      "parameters": [
+        {
+          "name": "a",
+          "type": 2
+        },
+        {
+          "name": "b",
+          "type": 6,
+          "defaultValue": {
+            "kind": "longLiteral",
+            "evalType": 6,
+            "value": "1"
+          }
+        },
+        {
+          "name": "c",
+          "type": 14,
+          "defaultValue": {
+            "kind": "nullLiteral",
+            "evalType": 4
+          }
+        }
+      ],
+      "returnType": 1,
+      "body": {
+        "body": [
+          {
+            "kind": "return",
+            "value": {
+              "kind": "binary",
+              "evalType": 1,
+              "operator": "+",
+              "left": {
+                "kind": "binary",
+                "evalType": 1,
+                "operator": "+",
+                "left": {
+                  "kind": "binary",
+                  "evalType": 1,
+                  "operator": "+",
+                  "left": {
+                    "kind": "binary",
+                    "evalType": 1,
+                    "operator": "+",
+                    "left": {
+                      "kind": "binary",
+                      "evalType": 1,
+                      "operator": "+",
+                      "left": {
+                        "kind": "stringLiteral",
+                        "evalType": 1,
+                        "value": ""
+                      },
+                      "right": {
+                        "kind": "identifier",
+                        "evalType": 2,
+                        "name": "a",
+                        "scope": 2
+                      }
+                    },
+                    "right": {
+                      "kind": "stringLiteral",
+                      "evalType": 1,
+                      "value": "/"
+                    }
+                  },
+                  "right": {
+                    "kind": "identifier",
+                    "evalType": 6,
+                    "name": "b",
+                    "scope": 2
+                  }
+                },
+                "right": {
+                  "kind": "stringLiteral",
+                  "evalType": 1,
+                  "value": "/"
+                }
+              },
+              "right": {
+                "kind": "identifier",
+                "evalType": 14,
+                "name": "c",
+                "scope": 2
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "wideAndNullableOutOfOrder",
+      "parameters": [],
+      "returnType": 1,
+      "body": {
+        "body": [
+          {
+            "kind": "return",
+            "value": {
+              "kind": "binary",
+              "evalType": 1,
+              "operator": "+",
+              "left": {
+                "kind": "binary",
+                "evalType": 1,
+                "operator": "+",
+                "left": {
+                  "kind": "binary",
+                  "evalType": 1,
+                  "operator": "+",
+                  "left": {
+                    "kind": "binary",
+                    "evalType": 1,
+                    "operator": "+",
+                    "left": {
+                      "kind": "functionCall",
+                      "evalType": 1,
+                      "name": "widen",
+                      "arguments": [
+                        {
+                          "value": {
+                            "kind": "longLiteral",
+                            "evalType": 6,
+                            "value": "2"
+                          },
+                          "parameterType": 6,
+                          "parameter": 1
+                        },
+                        {
+                          "value": {
+                            "kind": "doubleLiteral",
+                            "evalType": 2,
+                            "value": "3.0"
+                          },
+                          "parameterType": 2,
+                          "parameter": 0
+                        }
+                      ],
+                      "overload": ""
+                    },
+                    "right": {
+                      "kind": "stringLiteral",
+                      "evalType": 1,
+                      "value": " "
+                    }
+                  },
+                  "right": {
+                    "kind": "functionCall",
+                    "evalType": 1,
+                    "name": "widen",
+                    "arguments": [
+                      {
+                        "value": {
+                          "kind": "doubleLiteral",
+                          "evalType": 2,
+                          "value": "4.0"
+                        },
+                        "parameterType": 14,
+                        "parameter": 2
+                      },
+                      {
+                        "value": {
+                          "kind": "doubleLiteral",
+                          "evalType": 2,
+                          "value": "1.5"
+                        },
+                        "parameterType": 2,
+                        "parameter": 0
+                      }
+                    ],
+                    "overload": ""
+                  }
+                },
+                "right": {
+                  "kind": "stringLiteral",
+                  "evalType": 1,
+                  "value": " "
+                }
+              },
+              "right": {
+                "kind": "functionCall",
+                "evalType": 1,
+                "name": "widen",
+                "arguments": [
+                  {
+                    "value": {
+                      "kind": "doubleLiteral",
+                      "evalType": 2,
+                      "value": "1.0"
+                    },
+                    "parameterType": 2
+                  },
+                  {
+                    "value": {
+                      "kind": "nullLiteral",
+                      "evalType": 4
+                    },
+                    "parameterType": 14,
+                    "parameter": 2
+                  }
+                ],
+                "overload": ""
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "label",
+      "parameters": [
+        {
+          "name": "prefix",
+          "type": 15,
+          "defaultValue": {
+            "kind": "nullLiteral",
+            "evalType": 4
+          }
+        },
+        {
+          "name": "value",
+          "type": 8,
+          "defaultValue": {
+            "kind": "intLiteral",
+            "evalType": 8,
+            "value": "0"
+          }
+        }
+      ],
+      "returnType": 1,
+      "body": {
+        "body": [
+          {
+            "kind": "return",
+            "value": {
+              "kind": "binary",
+              "evalType": 1,
+              "operator": "+",
+              "left": {
+                "kind": "binary",
+                "evalType": 1,
+                "operator": "??",
+                "left": {
+                  "kind": "identifier",
+                  "evalType": 15,
+                  "name": "prefix",
+                  "scope": 2
+                },
+                "right": {
+                  "kind": "stringLiteral",
+                  "evalType": 1,
+                  "value": "none"
+                }
+              },
+              "right": {
+                "kind": "identifier",
+                "evalType": 8,
+                "name": "value",
+                "scope": 2
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "nulls",
+      "parameters": [],
+      "returnType": 1,
+      "body": {
+        "body": [
+          {
+            "kind": "return",
+            "value": {
+              "kind": "binary",
+              "evalType": 1,
+              "operator": "+",
+              "left": {
+                "kind": "binary",
+                "evalType": 1,
+                "operator": "+",
+                "left": {
+                  "kind": "functionCall",
+                  "evalType": 1,
+                  "name": "label",
+                  "arguments": [
+                    {
+                      "value": {
+                        "kind": "nullLiteral",
+                        "evalType": 4
+                      },
+                      "parameterType": 15
+                    },
+                    {
+                      "value": {
+                        "kind": "intLiteral",
+                        "evalType": 8,
+                        "value": "1"
+                      },
+                      "parameterType": 8
+                    }
+                  ],
+                  "overload": ""
+                },
+                "right": {
+                  "kind": "functionCall",
+                  "evalType": 1,
+                  "name": "label",
+                  "arguments": [
+                    {
+                      "value": {
+                        "kind": "intLiteral",
+                        "evalType": 8,
+                        "value": "2"
+                      },
+                      "parameterType": 8,
+                      "parameter": 1
+                    }
+                  ],
+                  "overload": ""
+                }
+              },
+              "right": {
+                "kind": "functionCall",
+                "evalType": 1,
+                "name": "label",
+                "arguments": [
+                  {
+                    "value": {
+                      "kind": "stringLiteral",
+                      "evalType": 1,
+                      "value": "p"
+                    },
+                    "parameterType": 15
+                  }
+                ],
+                "overload": ""
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "insideLambda",
+      "parameters": [],
+      "returnType": 1,
+      "body": {
+        "body": [
+          {
+            "kind": "variableDeclaration",
+            "name": "suffix",
+            "type": 1,
+            "initialValue": {
+              "kind": "stringLiteral",
+              "evalType": 1,
+              "value": "!"
+            }
+          },
+          {
+            "kind": "variableDeclaration",
+            "name": "make",
+            "type": 16,
+            "initialValue": {
+              "kind": "lambda",
+              "evalType": 16,
+              "parameters": [
+                "name"
+              ],
+              "body": {
+                "body": [
+                  {
+                    "kind": "return",
+                    "value": {
+                      "kind": "functionCall",
+                      "evalType": 1,
+                      "name": "salute",
+                      "arguments": [
+                        {
+                          "value": {
+                            "kind": "identifier",
+                            "evalType": 1,
+                            "name": "name",
+                            "scope": 4
+                          },
+                          "parameterType": 1
+                        },
+                        {
+                          "value": {
+                            "kind": "identifier",
+                            "evalType": 1,
+                            "name": "suffix",
+                            "scope": 3
+                          },
+                          "parameterType": 1,
+                          "parameter": 2
+                        }
+                      ],
+                      "overload": ""
+                    }
+                  }
+                ]
+              },
+              "hasBlockBody": false
+            }
+          },
+          {
+            "kind": "return",
+            "value": {
+              "kind": "call",
+              "evalType": 1,
+              "expression": {
+                "kind": "identifier",
+                "evalType": 16,
+                "name": "make",
+                "scope": 3
+              },
+              "arguments": [
+                {
+                  "value": {
+                    "kind": "stringLiteral",
+                    "evalType": 1,
+                    "value": "Eve"
+                  },
+                  "parameterType": 1
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "compose",
+      "parameters": [
+        {
+          "name": "value",
+          "type": 8
+        },
+        {
+          "name": "first",
+          "type": 17,
+          "defaultValue": {
+            "kind": "lambda",
+            "evalType": 17,
+            "parameters": [
+              "v"
+            ],
+            "body": {
+              "body": [
+                {
+                  "kind": "return",
+                  "value": {
+                    "kind": "binary",
+                    "evalType": 8,
+                    "operator": "+",
+                    "left": {
+                      "kind": "identifier",
+                      "evalType": 8,
+                      "name": "v",
+                      "scope": 3
+                    },
+                    "right": {
+                      "kind": "intLiteral",
+                      "evalType": 8,
+                      "value": "1"
+                    }
+                  }
+                }
+              ]
+            },
+            "hasBlockBody": false
+          }
+        },
+        {
+          "name": "second",
+          "type": 17,
+          "defaultValue": {
+            "kind": "lambda",
+            "evalType": 17,
+            "parameters": [
+              "v"
+            ],
+            "body": {
+              "body": [
+                {
+                  "kind": "return",
+                  "value": {
+                    "kind": "call",
+                    "evalType": 8,
+                    "expression": {
+                      "kind": "identifier",
+                      "evalType": 17,
+                      "name": "first",
+                      "scope": 2
+                    },
+                    "arguments": [
+                      {
+                        "value": {
+                          "kind": "call",
+                          "evalType": 8,
+                          "expression": {
+                            "kind": "identifier",
+                            "evalType": 17,
+                            "name": "first",
+                            "scope": 2
+                          },
+                          "arguments": [
+                            {
+                              "value": {
+                                "kind": "identifier",
+                                "evalType": 8,
+                                "name": "v",
+                                "scope": 3
+                              },
+                              "parameterType": 8
+                            }
+                          ]
+                        },
+                        "parameterType": 8
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            "hasBlockBody": false
+          }
+        }
+      ],
+      "returnType": 8,
+      "body": {
+        "body": [
+          {
+            "kind": "return",
+            "value": {
+              "kind": "call",
+              "evalType": 8,
+              "expression": {
+                "kind": "identifier",
+                "evalType": 17,
+                "name": "second",
+                "scope": 2
+              },
+              "arguments": [
+                {
+                  "value": {
+                    "kind": "identifier",
+                    "evalType": 8,
+                    "name": "value",
+                    "scope": 2
+                  },
+                  "parameterType": 8
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "defaultLambdaUsesEarlierLambda",
+      "parameters": [],
+      "returnType": 8,
+      "body": {
+        "body": [
+          {
+            "kind": "return",
+            "value": {
+              "kind": "binary",
+              "evalType": 8,
+              "operator": "+",
+              "left": {
+                "kind": "binary",
+                "evalType": 8,
+                "operator": "*",
+                "left": {
+                  "kind": "functionCall",
+                  "evalType": 8,
+                  "name": "compose",
+                  "arguments": [
+                    {
+                      "value": {
+                        "kind": "intLiteral",
+                        "evalType": 8,
+                        "value": "1"
+                      },
+                      "parameterType": 8
+                    }
+                  ],
+                  "overload": ""
+                },
+                "right": {
+                  "kind": "intLiteral",
+                  "evalType": 8,
+                  "value": "100"
+                }
+              },
+              "right": {
+                "kind": "functionCall",
+                "evalType": 8,
+                "name": "compose",
+                "arguments": [
+                  {
+                    "value": {
+                      "kind": "intLiteral",
+                      "evalType": 8,
+                      "value": "1"
+                    },
+                    "parameterType": 8
+                  },
+                  {
+                    "value": {
+                      "kind": "lambda",
+                      "evalType": 17,
+                      "parameters": [
+                        "v"
+                      ],
+                      "body": {
+                        "body": [
+                          {
+                            "kind": "return",
+                            "value": {
+                              "kind": "binary",
+                              "evalType": 8,
+                              "operator": "*",
+                              "left": {
+                                "kind": "identifier",
+                                "evalType": 8,
+                                "name": "v",
+                                "scope": 4
+                              },
+                              "right": {
+                                "kind": "intLiteral",
+                                "evalType": 8,
+                                "value": "3"
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "hasBlockBody": false
+                    },
+                    "parameterType": 17
+                  }
+                ],
+                "overload": ""
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "pick",
+      "parameters": [
+        {
+          "name": "a",
+          "type": 8
+        },
+        {
+          "name": "b",
+          "type": 8,
+          "defaultValue": {
+            "kind": "intLiteral",
+            "evalType": 8,
+            "value": "20"
+          }
+        },
+        {
+          "name": "c",
+          "type": 8,
+          "defaultValue": {
+            "kind": "intLiteral",
+            "evalType": 8,
+            "value": "30"
+          }
+        },
+        {
+          "name": "d",
+          "type": 8,
+          "defaultValue": {
+            "kind": "intLiteral",
+            "evalType": 8,
+            "value": "40"
+          }
+        }
+      ],
+      "returnType": 1,
+      "body": {
+        "body": [
+          {
+            "kind": "return",
+            "value": {
+              "kind": "binary",
+              "evalType": 1,
+              "operator": "+",
+              "left": {
+                "kind": "binary",
+                "evalType": 1,
+                "operator": "+",
+                "left": {
+                  "kind": "binary",
+                  "evalType": 1,
+                  "operator": "+",
+                  "left": {
+                    "kind": "binary",
+                    "evalType": 1,
+                    "operator": "+",
+                    "left": {
+                      "kind": "binary",
+                      "evalType": 1,
+                      "operator": "+",
+                      "left": {
+                        "kind": "binary",
+                        "evalType": 1,
+                        "operator": "+",
+                        "left": {
+                          "kind": "binary",
+                          "evalType": 1,
+                          "operator": "+",
+                          "left": {
+                            "kind": "stringLiteral",
+                            "evalType": 1,
+                            "value": ""
+                          },
+                          "right": {
+                            "kind": "identifier",
+                            "evalType": 8,
+                            "name": "a",
+                            "scope": 2
+                          }
+                        },
+                        "right": {
+                          "kind": "stringLiteral",
+                          "evalType": 1,
+                          "value": ","
+                        }
+                      },
+                      "right": {
+                        "kind": "identifier",
+                        "evalType": 8,
+                        "name": "b",
+                        "scope": 2
+                      }
+                    },
+                    "right": {
+                      "kind": "stringLiteral",
+                      "evalType": 1,
+                      "value": ","
+                    }
+                  },
+                  "right": {
+                    "kind": "identifier",
+                    "evalType": 8,
+                    "name": "c",
+                    "scope": 2
+                  }
+                },
+                "right": {
+                  "kind": "stringLiteral",
+                  "evalType": 1,
+                  "value": ","
+                }
+              },
+              "right": {
+                "kind": "identifier",
+                "evalType": 8,
+                "name": "d",
+                "scope": 2
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "skipsMiddleParameters",
+      "parameters": [],
+      "returnType": 1,
+      "body": {
+        "body": [
+          {
+            "kind": "return",
+            "value": {
+              "kind": "binary",
+              "evalType": 1,
+              "operator": "+",
+              "left": {
+                "kind": "binary",
+                "evalType": 1,
+                "operator": "+",
+                "left": {
+                  "kind": "binary",
+                  "evalType": 1,
+                  "operator": "+",
+                  "left": {
+                    "kind": "binary",
+                    "evalType": 1,
+                    "operator": "+",
+                    "left": {
+                      "kind": "functionCall",
+                      "evalType": 1,
+                      "name": "pick",
+                      "arguments": [
+                        {
+                          "value": {
+                            "kind": "intLiteral",
+                            "evalType": 8,
+                            "value": "1"
+                          },
+                          "parameterType": 8
+                        },
+                        {
+                          "value": {
+                            "kind": "intLiteral",
+                            "evalType": 8,
+                            "value": "4"
+                          },
+                          "parameterType": 8,
+                          "parameter": 3
+                        }
+                      ],
+                      "overload": ""
+                    },
+                    "right": {
+                      "kind": "stringLiteral",
+                      "evalType": 1,
+                      "value": ";"
+                    }
+                  },
+                  "right": {
+                    "kind": "functionCall",
+                    "evalType": 1,
+                    "name": "pick",
+                    "arguments": [
+                      {
+                        "value": {
+                          "kind": "intLiteral",
+                          "evalType": 8,
+                          "value": "3"
+                        },
+                        "parameterType": 8,
+                        "parameter": 2
+                      },
+                      {
+                        "value": {
+                          "kind": "intLiteral",
+                          "evalType": 8,
+                          "value": "1"
+                        },
+                        "parameterType": 8,
+                        "parameter": 0
+                      }
+                    ],
+                    "overload": ""
+                  }
+                },
+                "right": {
+                  "kind": "stringLiteral",
+                  "evalType": 1,
+                  "value": ";"
+                }
+              },
+              "right": {
+                "kind": "functionCall",
+                "evalType": 1,
+                "name": "pick",
+                "arguments": [
+                  {
+                    "value": {
+                      "kind": "intLiteral",
+                      "evalType": 8,
+                      "value": "1"
+                    },
+                    "parameterType": 8
+                  },
+                  {
+                    "value": {
+                      "kind": "intLiteral",
+                      "evalType": 8,
+                      "value": "2"
+                    },
+                    "parameterType": 8
+                  },
+                  {
+                    "value": {
+                      "kind": "intLiteral",
+                      "evalType": 8,
+                      "value": "4"
+                    },
+                    "parameterType": 8,
+                    "parameter": 3
+                  },
+                  {
+                    "value": {
+                      "kind": "intLiteral",
+                      "evalType": 8,
+                      "value": "3"
+                    },
+                    "parameterType": 8,
+                    "parameter": 2
+                  }
+                ],
+                "overload": ""
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "argumentOrder",
+      "parameters": [],
+      "returnType": 1,
+      "body": {
+        "body": [
+          {
+            "kind": "variableDeclaration",
+            "name": "log",
+            "type": 5,
+            "initialValue": {
+              "kind": "functionCall",
+              "evalType": 5,
+              "name": "emptyList",
+              "arguments": [],
+              "overload": ""
+            }
+          },
+          {
+            "kind": "variableDeclaration",
+            "name": "result",
+            "type": 1,
+            "initialValue": {
+              "kind": "functionCall",
+              "evalType": 1,
+              "name": "pick",
+              "arguments": [
+                {
+                  "value": {
+                    "kind": "memberCall",
+                    "evalType": 8,
+                    "expression": {
+                      "kind": "functionCall",
+                      "evalType": 1,
+                      "name": "note",
+                      "arguments": [
+                        {
+                          "value": {
+                            "kind": "identifier",
+                            "evalType": 5,
+                            "name": "log",
+                            "scope": 3
+                          },
+                          "parameterType": 5
+                        },
+                        {
+                          "value": {
+                            "kind": "stringLiteral",
+                            "evalType": 1,
+                            "value": "d"
+                          },
+                          "parameterType": 1
+                        }
+                      ],
+                      "overload": ""
+                    },
+                    "member": "length",
+                    "isNullChaining": false,
+                    "arguments": [],
+                    "overload": ""
+                  },
+                  "parameterType": 8,
+                  "parameter": 3
+                },
+                {
+                  "value": {
+                    "kind": "memberCall",
+                    "evalType": 8,
+                    "expression": {
+                      "kind": "functionCall",
+                      "evalType": 1,
+                      "name": "note",
+                      "arguments": [
+                        {
+                          "value": {
+                            "kind": "identifier",
+                            "evalType": 5,
+                            "name": "log",
+                            "scope": 3
+                          },
+                          "parameterType": 5
+                        },
+                        {
+                          "value": {
+                            "kind": "stringLiteral",
+                            "evalType": 1,
+                            "value": "a"
+                          },
+                          "parameterType": 1
+                        }
+                      ],
+                      "overload": ""
+                    },
+                    "member": "length",
+                    "isNullChaining": false,
+                    "arguments": [],
+                    "overload": ""
+                  },
+                  "parameterType": 8,
+                  "parameter": 0
+                },
+                {
+                  "value": {
+                    "kind": "memberCall",
+                    "evalType": 8,
+                    "expression": {
+                      "kind": "functionCall",
+                      "evalType": 1,
+                      "name": "note",
+                      "arguments": [
+                        {
+                          "value": {
+                            "kind": "identifier",
+                            "evalType": 5,
+                            "name": "log",
+                            "scope": 3
+                          },
+                          "parameterType": 5
+                        },
+                        {
+                          "value": {
+                            "kind": "stringLiteral",
+                            "evalType": 1,
+                            "value": "cc"
+                          },
+                          "parameterType": 1
+                        }
+                      ],
+                      "overload": ""
+                    },
+                    "member": "length",
+                    "isNullChaining": false,
+                    "arguments": [],
+                    "overload": ""
+                  },
+                  "parameterType": 8
+                }
+              ],
+              "overload": ""
+            }
+          },
+          {
+            "kind": "variableDeclaration",
+            "name": "text",
+            "type": 1,
+            "initialValue": {
+              "kind": "stringLiteral",
+              "evalType": 1,
+              "value": ""
+            }
+          },
+          {
+            "kind": "for",
+            "variableName": "entry",
+            "variableType": 1,
+            "iterable": {
+              "kind": "identifier",
+              "evalType": 5,
+              "name": "log",
+              "scope": 3
+            },
+            "body": [
+              {
+                "kind": "assignment",
+                "left": {
+                  "kind": "identifier",
+                  "evalType": 1,
+                  "name": "text",
+                  "scope": 3
+                },
+                "right": {
+                  "kind": "binary",
+                  "evalType": 1,
+                  "operator": "+",
+                  "left": {
+                    "kind": "identifier",
+                    "evalType": 1,
+                    "name": "text",
+                    "scope": 3
+                  },
+                  "right": {
+                    "kind": "identifier",
+                    "evalType": 1,
+                    "name": "entry",
+                    "scope": 4
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "kind": "return",
+            "value": {
+              "kind": "binary",
+              "evalType": 1,
+              "operator": "+",
+              "left": {
+                "kind": "binary",
+                "evalType": 1,
+                "operator": "+",
+                "left": {
+                  "kind": "identifier",
+                  "evalType": 1,
+                  "name": "text",
+                  "scope": 3
+                },
+                "right": {
+                  "kind": "stringLiteral",
+                  "evalType": 1,
+                  "value": ":"
+                }
+              },
+              "right": {
+                "kind": "identifier",
+                "evalType": 1,
+                "name": "result",
+                "scope": 3
+              }
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "records": []
+}

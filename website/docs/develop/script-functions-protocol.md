@@ -17,17 +17,17 @@ The **client** is the execution running the script. The **service** is the plugi
 client sends calls, one at a time, and waits for each answer before it sends the next call. The
 service never sends anything that is not an answer.
 
-A call is **copy-restore**. The client copies the arguments to the service, including every
-collection they reach. The service may change the collections it was allowed to change, and it
-answers with the changes. The client checks the whole answer and applies it, or rejects it and
-applies nothing.
+Every argument is **in**. The client copies the arguments to the service, including every
+collection they reach. The service must not change what it was given; it answers with a return
+value, which may refer to the collections it was given and to new ones it creates. The client
+checks the whole answer before it uses it.
 
 ## Encoding
 
 Every WebSocket binary frame carries exactly one message, encoded as one [CBOR](https://cbor.io)
 data item.
 
-A polymorphic value — a message, a wire value, a delta — is a two-element array: its type name,
+A polymorphic value — a message or a wire value — is a two-element array: its type name,
 then a map of its fields.
 
 ```
@@ -61,8 +61,8 @@ A `WireValue` is one of:
 | `record` | `className`, `fields` | A record the contribution defines, sent whole: `fields` maps every field name to its `WireValue` |
 | `handle` | `className`, `id` | A handle to state the service keeps, of an opaque class the contribution defines |
 
-Records are immutable values. Their fields hold scalars, strings, instances, other records, and
-readonly collections (as `ref`s into the heap). Handles are ids the service chooses; the same state
+Records are sent whole, as copies. Their fields hold scalars, strings, instances, other records,
+and collections (as `ref`s into the heap). Handles are ids the service chooses; the same state
 must go out under the same id every time.
 
 The type name says what the script sees. A service must send back the number type it received,
@@ -79,7 +79,6 @@ list can contain itself.
 | `id` | integer | — | The collection's id for the whole session |
 | `kind` | `list` \| `set` \| `orderedSet` \| `bag` \| `map` | — | What kind of collection it is |
 | `version` | integer | `0` | The client's mutation counter for it |
-| `mutable` | boolean | `false` | Whether the service may change it |
 | `elements` | `WireValue[]` \| null | `null` | The elements, for every kind but `map` |
 | `entries` | `WireValue[]` \| null | `null` | A map's entries, as alternating keys and values |
 
@@ -98,9 +97,10 @@ is sending, the client leaves `elements` and `entries` out (both `null`). The se
 holds. A service that does not hold that id answers with the `unknown-object` failure, and the
 client sends the call once more, this time with all content.
 
-**Mutability comes from the signature.** A collection is `mutable` when some argument reaches it
-through a mutable collection type: `List`, `Set`, `OrderedSet`, `Bag` or `Map`. Everything else is
-readonly, including anything reached through `Any` and every map key.
+**Collections are readonly to the service.** Whatever the signature declares, the service must
+not change a collection it holds for the client: the client would send it by id later, assuming the
+service still holds what it sent. A service answers a call whose operation tried to change one with
+a `failure`.
 
 ## Client messages
 
@@ -211,8 +211,7 @@ A `WireInstance`:
 | `attributes` | map of string to `WireValue[]` | Attribute values. A single-valued attribute has at most one value, an unset one none. Enum values are `string`s naming the entry |
 | `references` | map of string to string[] | Names of the referenced instances, by association end |
 
-Models are readonly. No delta can address an instance, because instances are not on the heap. A
-collection that contains instances can be changed like any other.
+Models are readonly.
 
 ### `release`
 
@@ -231,10 +230,7 @@ The service may forget them. There is no answer.
 | --- | --- | --- | --- |
 | `callId` | integer | — | The call being answered |
 | `objects` | `HeapObject[]` | `[]` | Collections the service created, under negative ids, with their content |
-| `deltas` | `Delta[]` | `[]` | Changes to mutable collections of this call, in the order they apply |
 | `value` | `WireValue` | `null` | The return value |
-
-A collection the call sent that did not change produces no delta.
 
 ### `failure`
 
@@ -248,36 +244,15 @@ On `unknown-object` or `unknown-model` the service has lost what the client thou
 after a reconnect. The client sends the metamodel and the model again if the call needs one, and
 sends the call once more with every collection in full.
 
-After a failure, the client assumes the service's copies of that call's collections are stale and
-sends them in full next time. A service keeps them: another collection it holds may contain one, and
-the next call refills it in place.
-
-## Deltas
-
-Each delta names the collection it changes with `id`.
-
-| Type name | Fields | Applies to | Meaning |
-| --- | --- | --- | --- |
-| `splice` | `index`, `deleteCount`, `insert` | `list`, `orderedSet` | Replace `deleteCount` elements at `index` with `insert` |
-| `add` | `values` | `set`, `orderedSet`, `bag` | Add each value; appended to an ordered set, one occurrence each to a bag |
-| `remove` | `values` | `set`, `orderedSet`, `bag` | Remove each value; one occurrence each from a bag |
-| `count` | `value`, `count` | `bag` | Set how often `value` occurs |
-| `put` | `key`, `value` | `map` | Associate `value` with `key` |
-| `removeKey` | `key` | `map` | Remove `key` |
-| `replace` | `elements` | any | Replace the whole content; for a map, alternating keys and values |
-
-Values in deltas match collection elements by value for scalars and by id for `ref`.
+After a failure, the client does not rely on the service having taken in that call's collections,
+and sends them in full next time. A service keeps them: another collection it holds may contain one,
+and the next call refills it in place.
 
 ## What the client rejects
 
-The client checks a whole `result` before applying anything. Any of these rejects it, and the
-script sees an error with nothing changed:
+The client checks a whole `result` before it builds anything from it. Any of these rejects it, and
+the script sees an error:
 
-- a delta against a collection that was not part of this call, or was sent readonly;
-- a delta that does not fit the collection's kind;
-- a `splice` whose `index` and `deleteCount` fall outside the collection, as the deltas before it
-  leave it;
-- a negative `count`, or a map `replace` with an odd number of values;
 - a created collection with a non-negative id, or with an id already in use;
 - a `ref` to a collection that is neither in this call, nor created in this result, nor held from
   an earlier call;
@@ -285,19 +260,15 @@ script sees an error with nothing changed:
 - a `record` the contribution does not define, or whose fields are not exactly the declared ones;
 - a `handle` of a class the contribution does not define as opaque.
 
-A service should also refuse, with a `failure`, any call whose operation changed a readonly
-collection. The client would reject that result anyway, but a failure makes clear whose mistake it
-was.
-
 ## Example
 
-A call passing a mutable `List<double>` holding `2.0`, and `null`:
+A call passing a `List<double>` holding `2.0`, and `null`:
 
 ```
 ["call", {
   "callId": 1,
   "operation": "op",
-  "objects": [{ "id": 1, "kind": "list", "version": 3, "mutable": true,
+  "objects": [{ "id": 1, "kind": "list", "version": 3,
                 "elements": [["double", { "value": 2.0 }]], "entries": null }],
   "args": [["ref", { "id": 1 }], ["null", {}]],
   "modelId": null
@@ -308,15 +279,16 @@ The same message as the reference implementation writes it:
 
 ```
 9f6463616c6cbf6663616c6c496401696f7065726174696f6e626f70676f626a656374739fbf62696401646b696e64646c69
-73746776657273696f6e03676d757461626c65f568656c656d656e74739f9f66646f75626c65bf6576616c7565fb40000000
-00000000ffffff67656e7472696573f6ffff64617267739f9f63726566bf62696401ffff9f646e756c6cbfffffff676d6f64
-656c4964f6ffff
+73746776657273696f6e0368656c656d656e74739f9f66646f75626c65bf6576616c7565fb4000000000000000ffffff6765
+6e7472696573f6ffff64617267739f9f63726566bf62696401ffff9f646e756c6cbfffffff676d6f64656c4964f6ffff
 ```
 
-A service that removed the element answers:
+A service that returns a new list holding `1.0` answers:
 
 ```
-["result", { "callId": 1, "deltas": [["splice", { "id": 1, "index": 0, "deleteCount": 1, "insert": [] }]] }]
+["result", { "callId": 1,
+             "objects": [{ "id": -1, "kind": "list", "elements": [["double", { "value": 1.0 }]] }],
+             "value": ["ref", { "id": -1 }] }]
 ```
 
 ## Versioning

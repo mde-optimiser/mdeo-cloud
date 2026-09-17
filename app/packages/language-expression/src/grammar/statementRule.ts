@@ -95,8 +95,8 @@ export function generateStatementRules(
 
     const variableDeclarationStatementRule = createRule(config.variableDeclarationStatementRuleName)
         .returns(types.variableDeclarationStatementType)
-        .as(({ set }) => [
-            "var",
+        .as(({ set, flag }) => [
+            or(flag("isReadonly", "val"), "var"),
             set("name", ID),
             or(
                 group(":", set("type", typeRule), optional("=", set("initialValue", expressionRule))),

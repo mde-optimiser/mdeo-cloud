@@ -172,14 +172,9 @@ class ScriptFunctionDeclaration internal constructor(
  * val routing = scriptContribution("routing") {
  *     description = "Route planning"
  *     function("shortestTour") {
- *         parameter("stops", genericClassType("builtin", "List", typeArgs = mapOf("T" to BuiltinTypes.STRING)))
- *         implementation { call ->
- *             val stops = call.argument<MutableList<String>>(0)
- *             val tour = solve(stops)
- *             stops.clear()
- *             stops.addAll(tour)
- *             null
- *         }
+ *         parameter("stops", genericClassType("builtin", "ReadonlyList", typeArgs = mapOf("T" to BuiltinTypes.STRING)))
+ *         returns(genericClassType("builtin", "List", typeArgs = mapOf("T" to BuiltinTypes.STRING)))
+ *         implementation { call -> solve(call.argument<List<String>>(0)) }
  *     }
  * }
  * ```
@@ -220,10 +215,12 @@ class ScriptContributionBuilder internal constructor(private val id: String) {
     private val classPackage = "$CONTRIBUTED_CLASS_PACKAGE/$id"
 
     /**
-     * Declares a record: a deeply immutable value with named fields, sent whole.
+     * Declares a record: a value with named fields, sent whole.
      *
-     * A field holds a scalar, a string, a model instance or enum value, a record of this
-     * contribution declared before it, or a readonly collection of those.
+     * Scripts construct records, read and assign their fields and copy them with `with`, like the
+     * records they declare themselves. A field holds a scalar, a string, a model instance or enum
+     * value, a record of this contribution declared before it, or a collection of those. No field
+     * may be named `with`.
      *
      * ```kotlin
      * val point = record("Point") {
@@ -242,7 +239,10 @@ class ScriptContributionBuilder internal constructor(private val id: String) {
         for ((fieldName, fieldType) in fields) {
             require(isRecordFieldType(fieldType)) {
                 "Field '$fieldName' of record '$name' has a type a record cannot hold. Use scalars, strings, " +
-                        "model instances, enum values, records of the same contribution, or readonly collections of those."
+                        "model instances, enum values, records of the same contribution, or collections of those."
+            }
+            require(fieldName != RECORD_COPY_METHOD) {
+                "Field '$fieldName' of record '$name' has the name of the method that copies a record"
             }
         }
         return RecordType(name, ClassTypeRef(classPackage, name, false), fields).also { records[name] = it }
@@ -268,7 +268,7 @@ class ScriptContributionBuilder internal constructor(private val id: String) {
         return when {
             type.`package` == "builtin" -> when (type.type) {
                 in SCALAR_TYPES -> true
-                in READONLY_COLLECTION_TYPES -> type.typeArgs.orEmpty().values.all(::isRecordFieldType)
+                in COLLECTION_TYPES -> type.typeArgs.orEmpty().values.all(::isRecordFieldType)
                 else -> false
             }
             type.`package` == classPackage -> type.type in records
@@ -319,10 +319,16 @@ class ScriptContributionBuilder internal constructor(private val id: String) {
 
     private companion object {
         val SCALAR_TYPES = setOf("int", "long", "float", "double", "boolean", "string")
-        val READONLY_COLLECTION_TYPES = setOf(
+        val COLLECTION_TYPES = setOf(
+            "Collection", "OrderedCollection", "List", "Set", "OrderedSet", "Bag", "Map",
             "ReadonlyCollection", "ReadonlyOrderedCollection", "ReadonlyList", "ReadonlySet",
             "ReadonlyOrderedSet", "ReadonlyBag", "ReadonlyMap"
         )
+
+        /**
+         * The method every record has that copies it, which no field may shadow.
+         */
+        const val RECORD_COPY_METHOD = "with"
     }
 }
 
@@ -375,8 +381,7 @@ class ScriptFunctionBuilder internal constructor(private val name: String, priva
      * Declares the next parameter.
      *
      * @param name The parameter name
-     * @param type Its type. A mutable collection type lets the operation change the argument;
-     *        anything else is readonly.
+     * @param type Its type. Every argument is readonly to the operation, whatever its type.
      */
     fun parameter(name: String, type: ValueType) {
         parameters += name to type
