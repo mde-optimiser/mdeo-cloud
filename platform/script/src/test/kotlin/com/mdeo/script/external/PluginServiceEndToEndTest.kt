@@ -112,7 +112,12 @@ class PluginServiceEndToEndTest {
     @Test
     fun `a refused token fails the call`() {
         dispatcher("forged").use { dispatcher ->
-            assertFailsWith<ExternalCallException> { dispatcher.call("normalize", arrayOf(ListImpl(listOf(1.0))), null, javaClass.classLoader) }
+            val error = assertFailsWith<ExternalCallException> {
+                dispatcher.call("normalize", arrayOf(ListImpl(listOf(1.0))), null, javaClass.classLoader)
+            }
+            // The plugin's close code and reason are what tells the author why.
+            assertTrue(error.message!!.contains("4401"), error.message)
+            assertTrue(error.message!!.contains("Missing or invalid token"), error.message)
         }
     }
 }

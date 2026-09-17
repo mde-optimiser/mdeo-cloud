@@ -36,14 +36,16 @@ data class SessionConnection(
  * depends on what the two sides are saying to each other. What they are saying is a protocol
  * the plugin defines, and this client neither parses nor correlates nor retries any of it.
  *
- * A reconnect therefore restores the transport, not the conversation: [onReconnect] is where
- * the owner re-establishes whatever protocol state the new connection starts without.
+ * A reconnect therefore restores the transport, not the conversation. [connectionNumber] changes
+ * with every reconnect, which is how the owner learns that the peer starts without whatever state
+ * the previous connection built up, and has to re-establish it with its next message.
+ *
+ * When the peer ends the session, [onClosed] receives its close code and reason.
  *
  * @param resolve Produces a fresh [SessionConnection] for each dial. A reconnect needs a new
  *        token, so this must stay reachable for as long as the session may need to come back.
  * @param versions Protocol versions this side can speak, most preferred first
  * @param onMessage Called for every message the peer sends, on the client's own scope
- * @param onReconnect Called after the transport comes back, before any queued send goes out
  * @param onClosed Called once when the session ends for good, with the reason
  * @param maxReconnectAttempts How many times a dropped connection is redialled before giving up
  * @param httpClient WebSocket-capable client to dial with; a private one is created if omitted
@@ -52,7 +54,6 @@ class SessionClient(
     private val resolve: suspend () -> SessionConnection,
     private val versions: List<Int>,
     private val onMessage: suspend (ByteArray) -> Unit,
-    private val onReconnect: suspend (SessionClient) -> Unit = {},
     private val onClosed: (String) -> Unit = {},
     private val maxReconnectAttempts: Int = DEFAULT_MAX_RECONNECT_ATTEMPTS,
     httpClient: HttpClient? = null
@@ -75,6 +76,23 @@ class SessionClient(
          * How many times a dropped connection is redialled by default.
          */
         const val DEFAULT_MAX_RECONNECT_ATTEMPTS = 3
+
+        /**
+         * How long to wait for the peer's close frame once its messages ended.
+         */
+        private const val CLOSE_REASON_WAIT_MILLIS = 1_000L
+
+        /**
+         * Describes how the peer ended a session.
+         *
+         * @param reason The close frame it sent, if any
+         * @return The code and reason, or a note that it sent none
+         */
+        fun describeClose(reason: CloseReason?): String = when {
+            reason == null -> "Closed by the peer without a close frame"
+            reason.message.isBlank() -> "Closed by the peer with code ${reason.code}"
+            else -> "Closed by the peer with code ${reason.code}: ${reason.message}"
+        }
 
         /**
          * Delay before the first redial; doubled for each further attempt.
@@ -189,6 +207,7 @@ class SessionClient(
             )
 
         val opened = CompletableDeferred<Unit>()
+        var peerClose: CloseReason? = null
         val reader = scope.launch {
             try {
                 client.webSocket(
@@ -207,11 +226,15 @@ class SessionClient(
                             onMessage(frame.data)
                         }
                     }
+                    // The close code and reason are the only thing a peer can say about why it
+                    // refused or ended the session, so they go to the owner as they are.
+                    peerClose = withTimeoutOrNull(CLOSE_REASON_WAIT_MILLIS) { closeReason.await() }
                 }
                 session = null
                 if (!closing) {
-                    logger.info("Session to ${resolved.url} closed by the peer")
-                    onClosed("Closed by the peer")
+                    val described = describeClose(peerClose)
+                    logger.info("Session to ${resolved.url} closed by the peer: $described")
+                    onClosed(described)
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -241,7 +264,7 @@ class SessionClient(
     }
 
     /**
-     * Brings the transport back after it dropped, and lets the owner restore its own state.
+     * Brings the transport back after it dropped.
      *
      * @return The reopened session
      */
@@ -251,7 +274,6 @@ class SessionClient(
         }
         connect(attempt = 0)
         val live = session ?: throw SessionException("Session did not come back")
-        onReconnect(this)
         return live
     }
 

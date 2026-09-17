@@ -166,8 +166,10 @@ being accepted the moment the run ends.
 
 From Kotlin, `SessionResolver` makes that call and caches the answer for the run, refetching the
 token as it nears its expiry. `SessionClient` dials the endpoint, keeps it alive, and reconnects
-when it drops — a reconnect restores the *transport*, not the conversation, so
-`onReconnect` is where a protocol re-establishes whatever state the new connection starts without.
+when it drops, up to three times with a growing delay. A reconnect restores the *transport*, not the
+conversation: `connectionNumber` changes with every reconnect, which tells a protocol to
+re-establish whatever state the new connection starts without. When the plugin ends or refuses a
+session, `onClosed` receives its close code and reason.
 
 ## The session endpoint
 
