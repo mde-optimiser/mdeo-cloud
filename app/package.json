@@ -13,6 +13,7 @@
         "build:packages": "tsc -b tsconfig.build.json",
         "build:workbench": "npm run -w @mdeo/workbench build",
         "build:css": "npm run -w @mdeo/editor-metamodel build:css && npm run -w @mdeo/editor-model build:css && npm run -w @mdeo/editor-model-transformation build:css",
+        "test": "npm run build:packages && npm run test --workspaces --if-present",
         "watch": "tsc -b tsconfig.build.json --watch",
         "dev": "npm run -w @mdeo/workbench dev",
         "format": "prettier --write .",

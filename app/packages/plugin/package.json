@@ -11,6 +11,9 @@
     "publishConfig": {
         "access": "public"
     },
+    "scripts": {
+        "test": "tsc -p test/tsconfig.json && node --test \"test/*.test.ts\""
+    },
     "exports": {
         ".": {
             "types": "./dist/index.d.ts",
