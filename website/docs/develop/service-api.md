@@ -83,10 +83,14 @@ handler needs to do its work:
 | Reading, cancelling or deleting an execution | the one `plugin:execution:*` scope, `files:read`, `file-data:read`, `plugin:request:send` |
 | Session | `plugin:session:connect`, plus `session:contributions:read` for a `lang:` target |
 
-A service forwards the token it was called with and never mints one of its own. That is how the
-config plugin passes an execution on to the contribution plugin that runs it: the run token reaches
-the contribution plugin through `plugin:request:send`, and that plugin's execution service accepts it
-through `plugin:execution:start`.
+A service never mints a token of its own. A plugin request sent through the backend reaches the
+target plugin with a new plugin request token, which can read the project and nothing else, whatever
+the caller's token may do. A caller that hands its work over sets `X-Mdeo-Delegate-Token: true`
+(`sendPluginRequest(…, { delegate: true })`), and the backend then forwards the caller's own token
+instead. That is how the config plugin passes an execution on to the contribution plugin that runs
+it: the run token reaches the contribution plugin, and that plugin's execution service accepts it
+through `plugin:execution:start`. Delegating trusts the target plugin with everything the token
+grants, so delegate only the work the token was issued for.
 
 ## `GET /`
 

@@ -4,6 +4,21 @@ import type { DirectoryEntry } from "./types.js";
 import type { FileDependency, DataDependency, FileDataResult } from "../handler/types.js";
 
 /**
+ * Header asking the backend to hand the caller's own token to the plugin a request goes to.
+ */
+export const DELEGATE_TOKEN_HEADER = "x-mdeo-delegate-token";
+
+/**
+ * How a plugin request is sent.
+ */
+export interface PluginRequestOptions {
+    /**
+     * Whether the target plugin gets this request's own token instead of a read-only one.
+     */
+    delegate?: boolean;
+}
+
+/**
  * Tracked requests made during a file data computation
  */
 export type TrackedRequests = Pick<FileDataResult, "fileDependencies" | "dataDependencies">;
@@ -95,12 +110,17 @@ export interface ServerApi {
      * The backend forwards the request to the appropriate plugin service.
      * Contribution plugins are automatically determined server-side.
      *
+     * The target plugin gets a token that only reads the project and sends further plugin requests,
+     * unless `delegate` is set: then it gets this request's own token, with everything that token may
+     * do. Delegate only to hand over work the token was issued for, such as starting an execution.
+     *
      * @param languageId The language ID of the target plugin
      * @param key The request handler key
      * @param body The request body to forward
+     * @param options Whether to hand this request's token to the target plugin
      * @returns The response data from the plugin request handler
      */
-    sendPluginRequest(languageId: string, key: string, body: unknown): Promise<unknown>;
+    sendPluginRequest(languageId: string, key: string, body: unknown, options?: PluginRequestOptions): Promise<unknown>;
 
     /**
      * Updates execution metadata in the backend.
@@ -435,12 +455,21 @@ export class HttpServerApi implements ServerApi {
         return this.fileDataCache.get(key) ?? new Map();
     }
 
-    async sendPluginRequest(languageId: string, key: string, body: any): Promise<unknown> {
+    async sendPluginRequest(
+        languageId: string,
+        key: string,
+        body: unknown,
+        options?: PluginRequestOptions
+    ): Promise<unknown> {
         const encodedLanguageId = encodeURIComponent(languageId);
         const encodedKey = encodeURIComponent(key);
+        const headers: Record<string, string> = { ...(this.getAuthHeaders() as Record<string, string>) };
+        if (options?.delegate) {
+            headers[DELEGATE_TOKEN_HEADER] = "true";
+        }
         const response = await fetch(`${this.projectBackendUrl}/request/${encodedLanguageId}/${encodedKey}`, {
             method: "POST",
-            headers: this.getAuthHeaders(),
+            headers,
             signal: this.signal,
             body: JSON.stringify(body)
         });

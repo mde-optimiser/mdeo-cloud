@@ -20,6 +20,25 @@ import java.util.*
  * @param services injected dependencies required by this service.
  */
 class LanguagePluginRequestService(services: InjectedServices) : BaseService(), InjectedServices by services {
+    companion object {
+        /**
+         * Header a caller sets to `true` to hand its own token to the plugin, instead of the
+         * read-only plugin request token the plugin gets otherwise.
+         */
+        const val DELEGATE_TOKEN_HEADER = "X-Mdeo-Delegate-Token"
+
+        /**
+         * The caller's token, when the caller hands its work to the plugin; null otherwise, and the
+         * plugin then gets a plugin request token that can only read the project.
+         *
+         * @param authorization The caller's `Authorization` header
+         * @param delegate The caller's [DELEGATE_TOKEN_HEADER]
+         * @return The token to forward, or null to mint a read-only one
+         */
+        fun delegatedToken(authorization: String?, delegate: String?): String? =
+            authorization?.takeIf { delegate == "true" && it.startsWith("Bearer ") }?.removePrefix("Bearer ")
+    }
+
     private val logger = LoggerFactory.getLogger(LanguagePluginRequestService::class.java)
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -35,10 +54,9 @@ class LanguagePluginRequestService(services: InjectedServices) : BaseService(), 
      *
      * This method locates the appropriate plugin for the language, prepares a JWT,
      * and forwards the provided JSON body to the plugin endpoint. When a
-     * [callerJwt] is supplied (service-to-service calls) it is forwarded directly
-     * so that its full scope set (e.g. plugin:execution:start) reaches the plugin.
-     * For browser-session calls where no [callerJwt] is available a fresh
-     * plugin request token is generated instead.
+     * [callerJwt] is supplied — a plugin delegating its work with [DELEGATE_TOKEN_HEADER] — it is
+     * forwarded as it is, so that its full scope set (e.g. plugin:execution:start) reaches the
+     * plugin. Every other request gets a fresh plugin request token instead.
      *
      * Contribution plugin metadata is included in the request payload.
      *
@@ -46,7 +64,7 @@ class LanguagePluginRequestService(services: InjectedServices) : BaseService(), 
      * @param languageId the identifier of the language whose plugin should handle the request.
      * @param key the plugin route key to call.
      * @param body the JSON payload to forward to the plugin.
-     * @param callerJwt optional JWT from the caller to forward directly (preserves scopes).
+     * @param callerJwt the caller's JWT, when the caller delegates its work to the plugin.
      * @return an [ApiResult] containing the plugin response data on success or an error on failure.
      */
     suspend fun executeRequest(

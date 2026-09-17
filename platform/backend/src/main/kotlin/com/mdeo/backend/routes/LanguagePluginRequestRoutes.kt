@@ -54,10 +54,10 @@ fun Route.languagePluginRequestRoutes(
                     call.respondError(HttpStatusCode.Forbidden, "Token missing required scope")
                     return@post
                 }
-                val authHeader = call.request.headers[HttpHeaders.Authorization]
-                if (authHeader != null && authHeader.startsWith("Bearer ")) {
-                    callerJwt = authHeader.substring(7)
-                }
+                callerJwt = LanguagePluginRequestService.delegatedToken(
+                    call.request.headers[HttpHeaders.Authorization],
+                    call.request.headers[LanguagePluginRequestService.DELEGATE_TOKEN_HEADER]
+                )
             } else {
                 call.respondError(HttpStatusCode.Unauthorized, "Authentication required")
                 return@post
