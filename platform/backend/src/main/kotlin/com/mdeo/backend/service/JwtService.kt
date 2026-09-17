@@ -105,23 +105,34 @@ class JwtService(services: InjectedServices) : BaseService(), InjectedServices b
     }
     
     /**
-     * Generates the token a language plugin request is sent with when the caller is a user.
+     * Generates the token a language plugin request is sent with, unless its caller delegates.
      *
      * The handler may read the project's files and file data, and may pass the request on to
      * another plugin through the backend.
      *
+     * A request made while computing file data keeps naming that computation, and is bound to it
+     * like the computation's own token. The name is what lets a nested request for data that is
+     * already being computed further up compute it instead of waiting for itself.
+     *
      * @param projectId The UUID of the project to grant access to
+     * @param computationId The file data computation the request is made for, if any
      * @return The generated JWT token string
      */
-    fun generatePluginRequestToken(projectId: UUID): String {
+    fun generatePluginRequestToken(projectId: UUID, computationId: UUID? = null): String {
         val now = Instant.now()
         val expiration = now.plusSeconds(jwtConfig.expirationSeconds)
-        
+
         return JWT.create()
             .withIssuer(jwtConfig.issuer)
             .withIssuedAt(Date.from(now))
             .withExpiresAt(Date.from(expiration))
             .withClaim(CLAIM_PROJECT_ID, projectId.toString())
+            .apply {
+                if (computationId != null) {
+                    withClaim(CLAIM_COMPUTATION_ID, computationId.toString())
+                    withClaim(CLAIM_BINDING, BINDING_FILE_DATA_COMPUTATION)
+                }
+            }
             .withArrayClaim(CLAIM_SCOPE, arrayOf(Scopes.FILES_READ, Scopes.FILE_DATA_READ, Scopes.PLUGIN_REQUEST_SEND))
             .sign(algorithm)
     }

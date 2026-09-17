@@ -65,6 +65,8 @@ class LanguagePluginRequestService(services: InjectedServices) : BaseService(), 
      * @param key the plugin route key to call.
      * @param body the JSON payload to forward to the plugin.
      * @param callerJwt the caller's JWT, when the caller delegates its work to the plugin.
+     * @param deadline how long the caller is still willing to wait, if it said so.
+     * @param callerComputationId the file data computation the caller works for, if any.
      * @return an [ApiResult] containing the plugin response data on success or an error on failure.
      */
     suspend fun executeRequest(
@@ -73,7 +75,8 @@ class LanguagePluginRequestService(services: InjectedServices) : BaseService(), 
         key: String,
         body: JsonElement,
         callerJwt: String? = null,
-        deadline: CallerDeadline? = null
+        deadline: CallerDeadline? = null,
+        callerComputationId: UUID? = null
     ): ApiResult<LanguagePluginResponse> {
         val pluginInfo = pluginService.findPluginByLanguage(projectId, languageId)
             ?: return languagePluginRequestFailure(
@@ -91,7 +94,7 @@ class LanguagePluginRequestService(services: InjectedServices) : BaseService(), 
         val contributions = ContributionSet(pluginService.getContributionPluginsForLanguage(projectId, languageId))
 
         return try {
-            val token = callerJwt ?: jwtService.generatePluginRequestToken(projectId)
+            val token = callerJwt ?: jwtService.generatePluginRequestToken(projectId, callerComputationId)
 
             val responseData = callPlugin(
                 pluginId,

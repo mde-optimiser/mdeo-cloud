@@ -44,6 +44,15 @@ class TokenScopesTest {
     }
 
     @Test
+    fun `a plugin request made while computing file data stays bound to that computation`() {
+        val computation = UUID.randomUUID()
+        val token = jwtService.getVerifier().verify(jwtService.generatePluginRequestToken(project, computation))
+        assertEquals(computation.toString(), token.getClaim(JwtService.CLAIM_COMPUTATION_ID).asString())
+        assertEquals(JwtService.BINDING_FILE_DATA_COMPUTATION, token.getClaim(JwtService.CLAIM_BINDING).asString())
+        assertEquals(setOf(Scopes.PLUGIN_REQUEST_SEND, Scopes.FILES_READ, Scopes.FILE_DATA_READ), scopesOf(token.token))
+    }
+
+    @Test
     fun `a file data computation may compute, read the project and ask other plugins`() {
         assertEquals(
             setOf(Scopes.PLUGIN_FILE_DATA_COMPUTE, Scopes.FILES_READ, Scopes.FILE_DATA_READ, Scopes.PLUGIN_REQUEST_SEND),

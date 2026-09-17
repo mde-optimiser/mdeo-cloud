@@ -88,7 +88,9 @@ fun Route.languagePluginRequestRoutes(
                 key,
                 body,
                 callerJwt,
-                CallerDeadline.fromHeader(call.request.headers[CallerDeadline.HEADER])
+                CallerDeadline.fromHeader(call.request.headers[CallerDeadline.HEADER]),
+                jwtPrincipal?.payload?.getClaim(JwtService.CLAIM_COMPUTATION_ID)?.asString()
+                    ?.let { runCatching { UUID.fromString(it) }.getOrNull() }
             )
 
             call.respondApiResult(result)

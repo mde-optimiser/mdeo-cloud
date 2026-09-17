@@ -77,7 +77,7 @@ handler needs to do its work:
 
 | Token | Scopes |
 | --- | --- |
-| Plugin request from the workbench | `plugin:request:send`, `files:read`, `file-data:read` |
+| Plugin request, from the workbench or a plugin that does not delegate | `plugin:request:send`, `files:read`, `file-data:read`; bound to the caller's file data computation when it has one |
 | File data computation | `plugin:file-data:compute`, `files:read`, `file-data:read`, `plugin:request:send` |
 | Execution run, kept by the execution for its lifetime | `plugin:execution:start`, `files:read`, `file-data:read`, `plugin:request:send`, `session:open`, `execution:write` |
 | Reading, cancelling or deleting an execution | the one `plugin:execution:*` scope, `files:read`, `file-data:read`, `plugin:request:send` |
