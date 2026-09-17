@@ -1,7 +1,8 @@
 # Local development
 
-Two ways to run the platform while working on it: everything in Docker, or the frontend and plugin
-services on the host with the backend in Docker.
+Three ways to run the platform while working on it: everything in Docker, the frontend and plugin
+services on the host with the backend in Docker, or everything on the host in one tmux session with
+[`tools/run-dev.sh`](#everything-on-the-host-with-tools-run-dev-sh).
 
 ## Everything in Docker
 
@@ -88,8 +89,50 @@ any shorter path it starts with: `/plugin/model-transformation` and `/plugin/mod
 The proxy also injects the `Cross-Origin-Opener-Policy` and `Cross-Origin-Embedder-Policy` headers the
 workbench needs, which is why plugin services should be reached through it rather than directly.
 
-There is a tmux helper in `tools/run-dev.sh` that starts the whole set of watchers in one session, and
-`tools/stop-dev.sh` to tear it down.
+## Everything on the host with `tools/run-dev.sh`
+
+Starts the whole stack in one tmux session: the databases in Docker, every watcher and plugin
+service, the backend, both execution services and three federated optimizer nodes. Needs Docker,
+Node, a JDK and tmux 3.2 or newer.
+
+```bash
+tools/run-dev.sh
+```
+
+Before any pane is created, the script runs these steps in order and stops at the first failure:
+
+1. Stops a previous dev session.
+2. Stops the containers from `infra/docker-compose-dev.yaml` except the databases (they are stopped,
+   not removed). With `restart: unless-stopped`, a stack once started with `up --build` comes back
+   on every boot and holds the ports the host services need.
+3. Checks that ports 4242, 3000–3008 and 8080–8085 are free.
+4. Starts the four PostgreSQL containers.
+5. Runs `npm ci` in `app/`.
+6. Builds the TypeScript packages and all JVM services once, with a single Gradle build.
+
+| Option | Effect |
+| --- | --- |
+| `--no-install` | Skip `npm ci` |
+| `--no-build` | Skip the TypeScript and Gradle builds |
+| `--fresh` | Stop the Gradle daemons and delete `platform/.gradle` first. Use this when Gradle reports empty jars or unresolved references on a clean tree |
+| `--no-attach` | Create the session without attaching to it |
+
+Set `MDEO_JAVA_OPTS` (for example `-Xmx1g`) to pass extra options to every JVM service.
+
+The session is called `mdeo-dev`. It has a `core` window with `npm run watch`, the workbench dev
+server and the backend, plus one window per plugin with its watchers, its service and its execution
+services: `script-execution` under `script`, `model-transformation-execution` under
+`model-transformation`, and the three optimizer nodes under `config-mdeo`. The status bar is at the
+top; switch windows by clicking them or with `Ctrl-b n` / `Ctrl-b p`.
+
+The TypeScript panes pick up changes on their own. Gradle has no watch mode, and running several
+Gradle builds at once makes them conflict over the shared modules, so the JVM services are only
+rebuilt on request. Click **rebuild JVM** in the status bar, press `Ctrl-b B`, or run
+`tools/rebuild-jvm.sh`. This stops all JVM services, runs one Gradle build and starts them again. If
+the build fails, the services stay stopped and the rebuild window keeps the error open.
+
+`tools/stop-dev.sh` closes the session. `tools/stop-dev.sh --all` also stops the Docker containers
+and the Gradle daemon.
 
 ## Which watcher does what
 
