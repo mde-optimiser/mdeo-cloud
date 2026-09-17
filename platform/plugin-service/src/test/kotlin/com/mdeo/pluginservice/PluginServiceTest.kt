@@ -5,6 +5,7 @@ import com.mdeo.pluginservice.session.SessionCloseCodes
 import com.mdeo.pluginservice.session.SessionPeer
 import com.mdeo.pluginservice.session.SessionTokenClaims
 import com.mdeo.pluginservice.session.SessionTokenVerifier
+import com.mdeo.pluginservice.session.closeReason
 import com.mdeo.pluginservice.session.negotiateVersion
 import com.mdeo.common.transport.installDeflate
 import io.ktor.client.*
@@ -156,14 +157,15 @@ class PluginServiceTest {
     }
 
     @Test
-    fun `a token in the query works too`() = service {
-        val client = createClient { install(WebSockets) }
-        var answer: ByteArray? = null
-        client.webSocket("/ws/sessions/contrib/echoes/echo?token=good") {
-            send(Frame.Binary(true, byteArrayOf(7)))
-            answer = (incoming.receive() as Frame.Binary).readBytes()
-        }
-        assertEquals(listOf<Byte>(2, 7), answer!!.toList())
+    fun `a token in the query is not read`() = service {
+        assertEquals(SessionCloseCodes.UNAUTHORIZED, closeCodeOf("/ws/sessions/contrib/echoes/echo?token=good", null))
+    }
+
+    @Test
+    fun `a long close reason is cut to fit a close frame`() {
+        val reason = closeReason(SessionCloseCodes.NOT_FOUND, "é".repeat(200))
+        assertTrue(reason.message.toByteArray(Charsets.UTF_8).size <= 123)
+        assertTrue(reason.message.isNotEmpty())
     }
 
     @Test

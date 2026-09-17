@@ -38,7 +38,7 @@ fun Route.sessionEndpoint(
 
         val target = PluginTarget.parseOrNull("$kind:$targetId")
         if (target == null) {
-            refuse(SessionCloseCodes.NOT_FOUND, "Not a session address: $kind/$targetId/$sessionName")
+            refuse(SessionCloseCodes.NOT_FOUND, "Not a session address")
             return@webSocket
         }
         val label = "$target/$sessionName"
@@ -46,14 +46,13 @@ fun Route.sessionEndpoint(
         val token = call.request.headers[HttpHeaders.Authorization]
             ?.takeIf { it.startsWith("Bearer ") }
             ?.removePrefix("Bearer ")
-            ?: call.request.queryParameters["token"]
         val claims = token?.let { verifier.verify(it) }
         if (token == null || claims == null) {
             refuse(SessionCloseCodes.UNAUTHORIZED, "Missing or invalid token")
             return@webSocket
         }
         if (Scopes.PLUGIN_SESSION_CONNECT !in claims.scopes) {
-            refuse(SessionCloseCodes.UNAUTHORIZED, "Token missing $Scopes.PLUGIN_SESSION_CONNECT scope")
+            refuse(SessionCloseCodes.UNAUTHORIZED, "Token missing ${Scopes.PLUGIN_SESSION_CONNECT} scope")
             return@webSocket
         }
         // The token names the one session it opens, so a token issued for one target cannot be
@@ -139,7 +138,7 @@ private class OpenSession(
 ) : SessionContext {
     override suspend fun send(data: ByteArray) = socket.send(Frame.Binary(true, data))
 
-    override suspend fun close(reason: String) = socket.close(CloseReason(CloseReason.Codes.NORMAL, reason))
+    override suspend fun close(reason: String) = socket.close(closeReason(CloseReason.Codes.NORMAL.code, reason))
 }
 
 /**
@@ -162,5 +161,22 @@ internal fun negotiateVersion(requested: List<String>, declared: List<Int>): Int
 
 private suspend fun DefaultWebSocketServerSession.refuse(code: Short, reason: String) {
     logger.warn("Refusing session: $reason")
-    close(CloseReason(code, reason))
+    close(closeReason(code, reason))
+}
+
+/**
+ * The most bytes a close frame's reason may take: a control frame carries at most 125 bytes, two
+ * of which are the code.
+ */
+private const val MAX_CLOSE_REASON_BYTES = 123
+
+/**
+ * A close reason cut on a character boundary to what a close frame can carry.
+ */
+internal fun closeReason(code: Short, reason: String): CloseReason {
+    var fitted = reason
+    while (fitted.toByteArray(Charsets.UTF_8).size > MAX_CLOSE_REASON_BYTES) {
+        fitted = fitted.dropLast(1)
+    }
+    return CloseReason(code, fitted)
 }

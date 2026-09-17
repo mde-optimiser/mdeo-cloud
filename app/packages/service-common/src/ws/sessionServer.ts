@@ -242,7 +242,12 @@ export function attachSessionServer(server: Server, deps: SessionServerDeps): We
             matches: (path) => path.startsWith(SESSION_WS_PATH_PREFIX),
             handle: (request, socket, head) => {
                 wss.handleUpgrade(request, socket, head, (ws) => {
-                    void openSession(ws, request, deps);
+                    openSession(ws, request, deps).catch((error: unknown) => {
+                        deps.log.error(
+                            `Session setup failed: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`
+                        );
+                        ws.terminate();
+                    });
                 });
             }
         },
@@ -291,14 +296,14 @@ async function openSession(socket: WebSocket, request: IncomingMessage, deps: Se
     const url = new URL(request.url ?? "", "http://localhost");
     const address = parseSessionPath(url.pathname);
     if (!address) {
-        refuse(socket, SessionCloseCodes.NotFound, `Not a session address: ${url.pathname}`, deps);
+        refuse(socket, SessionCloseCodes.NotFound, "Not a session address", deps);
         return;
     }
 
     const targetAddress = `${address.target.kind}:${address.target.id}`;
     const label = `${targetAddress}/${address.sessionName}`;
 
-    const token = readToken(request, url);
+    const token = readToken(request);
     let claims: JwtClaims;
     try {
         claims = await deps.jwtAuth.verifyToken(token);
@@ -374,11 +379,14 @@ async function openSession(socket: WebSocket, request: IncomingMessage, deps: Se
             );
             return;
         }
-        if (socket.readyState !== socket.OPEN) {
-            // The caller gave up while the contribution plugins were being fetched.
+    }
+
+    if (socket.readyState !== socket.OPEN) {
+        // The caller gave up while its token was checked or the contribution plugins were fetched.
+        if (instance) {
             deps.releaseLanguageInstance(address.target.id, instance);
-            return;
         }
+        return;
     }
 
     const serverApi = instance ? instance.services.shared.ServerApi : deps.createServerApi(token!, projectId);
@@ -409,7 +417,7 @@ async function openSession(socket: WebSocket, request: IncomingMessage, deps: Se
             }
         },
         close: (reason) => {
-            socket.close(1000, reason ?? "Closed by handler");
+            closeSocket(socket, 1000, reason ?? "Closed by handler");
         }
     };
 
@@ -425,9 +433,13 @@ async function openSession(socket: WebSocket, request: IncomingMessage, deps: Se
 
     let lastPong = Date.now();
     const keepalive = setInterval(() => {
+        if (socket.readyState === socket.CLOSED) {
+            clearInterval(keepalive);
+            return;
+        }
         if (Date.now() - lastPong > PONG_TIMEOUT_MS) {
             deps.log.warn(`Session ${label} stopped answering keepalives; closing`);
-            socket.close(SessionCloseCodes.Unresponsive, "No keepalive response");
+            closeSocket(socket, SessionCloseCodes.Unresponsive, "No keepalive response");
             socket.terminate();
             return;
         }
@@ -496,21 +508,17 @@ function negotiateVersion(url: URL, declared: SessionType): number | undefined {
 }
 
 /**
- * Reads the bearer token of a connection.
+ * Reads the bearer token of a connection from its `Authorization` header.
  *
- * The header is the normal place for it. The query parameter exists because a WebSocket opened
- * from a browser cannot set headers, and a session endpoint should not be unusable from one.
+ * Only the header is read: sessions are dialed by services, which can set it, and a token in the
+ * query string would end up in the access logs of every proxy on the way.
  *
  * @param request The upgrade request
- * @param url The parsed request URL
  * @returns The raw token, or undefined when the request carries none
  */
-function readToken(request: IncomingMessage, url: URL): string | undefined {
+function readToken(request: IncomingMessage): string | undefined {
     const header = request.headers.authorization;
-    if (header?.startsWith("Bearer ")) {
-        return header.substring(7);
-    }
-    return url.searchParams.get("token") ?? undefined;
+    return header?.startsWith("Bearer ") ? header.substring(7) : undefined;
 }
 
 /**
@@ -543,5 +551,25 @@ function toBytes(raw: unknown, isBinary: boolean): Uint8Array {
  */
 function refuse(socket: WebSocket, code: number, reason: string, deps: SessionServerDeps): void {
     deps.log.warn(`Refusing session: ${reason}`);
-    socket.close(code, reason);
+    closeSocket(socket, code, reason);
+}
+
+/**
+ * The most bytes a close frame's reason may take; a longer one makes `ws` throw.
+ */
+const MAX_CLOSE_REASON_BYTES = 123;
+
+/**
+ * Closes a connection with a reason cut to what a close frame can carry.
+ *
+ * @param socket The connection to close
+ * @param code The close code
+ * @param reason Why; shortened on a character boundary when it does not fit
+ */
+function closeSocket(socket: WebSocket, code: number, reason: string): void {
+    let fitted = reason;
+    while (Buffer.byteLength(fitted, "utf-8") > MAX_CLOSE_REASON_BYTES) {
+        fitted = fitted.slice(0, -1);
+    }
+    socket.close(code, fitted);
 }

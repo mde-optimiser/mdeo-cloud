@@ -175,8 +175,8 @@ when it drops — a reconnect restores the *transport*, not the conversation, so
 GET /ws/sessions/:kind/:targetId/:name        (WebSocket upgrade)
 ```
 
-The token goes in `Authorization: Bearer`, or in a `token` query parameter for callers that
-cannot set headers. A service implementing this endpoint itself verifies the token as an RS256 JWT
+The token goes in `Authorization: Bearer`; a token in the query string is not read, so it never
+lands in a proxy's access log. A service implementing this endpoint itself verifies the token as an RS256 JWT
 against the keys at `<BACKEND_API_URL>/.well-known/jwks.json`, requires the configured issuer, and
 accepts it only when its `scope` contains `plugin:session:connect`, its `target` and `session` claims name
 exactly the addressed target and session, and it carries `projectId` and `executionId`. The caller lists the versions it can speak in `?v=2,1`, most preferred first,
