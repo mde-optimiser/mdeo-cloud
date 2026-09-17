@@ -109,7 +109,7 @@ private fun Route.cancelExecutionRoute(
             call.respond(HttpStatusCode.NoContent)
         } catch (e: Exception) {
             logger.error("Failed to cancel execution", e)
-            call.respondInternalError(e.message ?: "Internal error")
+            call.respondInternalError()
         }
     }
 }
@@ -143,7 +143,7 @@ private fun Route.deleteExecutionRoute(
             call.respond(HttpStatusCode.NoContent)
         } catch (e: Exception) {
             logger.error("Failed to delete execution", e)
-            call.respondInternalError(e.message ?: "Internal error")
+            call.respondInternalError()
         }
     }
 }
@@ -181,7 +181,7 @@ private fun Route.getSummaryRoute(
             }
         } catch (e: Exception) {
             logger.error("Failed to get summary", e)
-            call.respondInternalError(e.message ?: "Internal error")
+            call.respondInternalError()
         }
     }
 }
@@ -221,7 +221,7 @@ private fun Route.getFileTreeRoute(
             }
         } catch (e: Exception) {
             logger.error("Failed to get file tree", e)
-            call.respondInternalError(e.message ?: "Internal error")
+            call.respondInternalError()
         }
     }
 }
@@ -265,7 +265,7 @@ private fun Route.getFileContentsRoute(
             }
         } catch (e: Exception) {
             logger.error("Failed to get file contents", e)
-            call.respondInternalError(e.message ?: "Internal error")
+            call.respondInternalError()
         }
     }
 }

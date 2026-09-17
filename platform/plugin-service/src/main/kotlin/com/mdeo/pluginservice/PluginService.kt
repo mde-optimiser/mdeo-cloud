@@ -10,7 +10,9 @@ import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.engine.*
 import io.ktor.server.netty.*
+import io.ktor.server.plugins.*
 import io.ktor.server.plugins.statuspages.*
+import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.websocket.*
@@ -64,9 +66,13 @@ fun Application.pluginService(
     // A route that fails answers in the platform's error shape, like every other service.
     if (pluginOrNull(StatusPages) == null) {
         install(StatusPages) {
+            exception<BadRequestException> { call, _ ->
+                call.respondError(HttpStatusCode.BadRequest, "The request could not be read")
+            }
             exception<Throwable> { call, cause ->
                 logger.error("Unhandled exception", cause)
-                call.respondError(HttpStatusCode.InternalServerError, cause.message ?: "Internal server error")
+                // The message of an exception nobody handled is for the log, not for the caller.
+                call.respondError(HttpStatusCode.InternalServerError, "Internal server error")
             }
         }
     }
@@ -81,6 +87,12 @@ fun Application.pluginService(
             call.respondText(manifest, ContentType.Application.Json)
         }
         sessionEndpoint(definition.sessions, verifier)
+        // Matched only when no other route is, so an unknown route answers in the error shape too.
+        route("{...}") {
+            handle {
+                call.respondError(HttpStatusCode.NotFound, "Route ${call.request.httpMethod.value} ${call.request.path()} not found")
+            }
+        }
     }
 }
 

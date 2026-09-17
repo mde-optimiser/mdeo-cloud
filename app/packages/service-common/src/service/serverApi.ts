@@ -38,29 +38,30 @@ export interface FileData {
 }
 
 /**
- * Maximum number of characters of a failed response body included in an error message.
+ * Maximum number of characters of a reported error message included in an error message.
  */
-const MAX_ERROR_BODY_LENGTH = 500;
+const MAX_ERROR_MESSAGE_LENGTH = 500;
 
 /**
  * Describes a failed response for use in an error message.
  *
- * The body is included because the backend reports why a call failed in it, and without it a
- * failure deep in a computation is reduced to a bare status code that says nothing about its cause.
+ * The message the backend reported is included because without it a failure deep in a computation
+ * is reduced to a bare status code that says nothing about its cause.
  *
  * @param response The failed response
- * @returns The status, status text and (truncated) body of the response
+ * @returns The status, status text and (truncated) reported message of the response
  */
 async function describeFailedResponse(response: Response): Promise<string> {
-    let body: string;
+    let message: unknown;
     try {
-        body = (await response.text()).trim();
+        const body = (await response.json()) as { error?: { message?: unknown } };
+        message = body?.error?.message;
     } catch {
-        body = "";
+        message = undefined;
     }
-    const truncated = body.length > MAX_ERROR_BODY_LENGTH ? `${body.slice(0, MAX_ERROR_BODY_LENGTH)}...` : body;
-    return truncated.length > 0
-        ? `${response.status} ${response.statusText}: ${truncated}`
+    // Only a message the other side meant to report is passed on, never its raw body.
+    return typeof message === "string" && message.length > 0
+        ? `${response.status} ${response.statusText}: ${message.slice(0, MAX_ERROR_MESSAGE_LENGTH)}`
         : `${response.status} ${response.statusText}`;
 }
 

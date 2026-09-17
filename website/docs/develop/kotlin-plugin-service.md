@@ -289,7 +289,9 @@ embeddedServer(Netty, port = config.port, host = config.host) {
 }.start(wait = true)
 ```
 
-A route that throws is answered with `500` in the platform's [error shape](/develop/service-api#errors).
+A route that throws is answered with `500` in the platform's [error shape](/develop/service-api#errors),
+with a generic message; the exception itself only goes to the log. An unknown route answers `404` and
+an unreadable body `400`, in the same shape.
 Report an expected failure yourself with `call.respondError(HttpStatusCode.NotFound, "No such thing")`.
 
 ## Deployment

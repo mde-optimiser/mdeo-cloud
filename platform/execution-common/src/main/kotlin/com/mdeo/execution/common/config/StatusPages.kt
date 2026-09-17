@@ -17,7 +17,8 @@ fun Application.configureStatusPages() {
     install(StatusPages) {
         exception<Throwable> { call, cause ->
             logger.error("Unhandled exception", cause)
-            call.respondError(HttpStatusCode.InternalServerError, cause.message ?: "Internal server error")
+            // The message of an exception nobody handled is for the log, not for the caller.
+            call.respondError(HttpStatusCode.InternalServerError, "Internal server error")
         }
     }
 }

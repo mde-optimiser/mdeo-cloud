@@ -115,9 +115,11 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
     fastify.setErrorHandler((error: { statusCode?: number; message?: string }, request, reply) => {
         const status = error.statusCode != undefined && error.statusCode >= 400 ? error.statusCode : 500;
         if (status >= 500) {
+            // What went wrong inside is for the log; the caller learns only that it did.
             request.log.error(error);
+            return reply.status(status).send(errorResponse(status, "Internal error"));
         }
-        return reply.status(status).send(errorResponse(status, error.message ?? "Internal error"));
+        return reply.status(status).send(errorResponse(status, error.message ?? "Request failed"));
     });
 
     if (config.serveStatic !== false) {

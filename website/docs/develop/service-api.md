@@ -46,7 +46,14 @@ for people and may change; branch on the code.
 `errorResponse(status, message, code?)` from `@mdeo/plugin` builds the body in TypeScript, and
 `call.respondError(status, message, code?)` from the Kotlin `common` module answers with it. A
 service built on `@mdeo/service-common` or the Kotlin plugin service module answers unknown routes,
-unreadable bodies and uncaught handler errors in this shape too. [Sessions](/develop/sessions) are
+unreadable bodies and uncaught handler errors in this shape too.
+
+A `5xx` answer says only that something went wrong inside; what went wrong is logged. A `4xx`
+message, and the message an execution handler fails with, are shown to the user as they are, so they
+must not carry internal detail such as addresses or stack traces. When the backend passes a failure
+on, it passes on only the message of an answer in this shape, never the raw body.
+
+[Sessions](/develop/sessions) are
 the exception: what travels on them is a protocol the plugin defines, and they are refused with
 WebSocket close codes.
 

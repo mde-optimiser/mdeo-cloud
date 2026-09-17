@@ -2,6 +2,7 @@ package com.mdeo.backend.service
 
 import com.mdeo.common.model.*
 import com.mdeo.common.transport.CompressedResponses
+import com.mdeo.common.transport.describeErrorResponse
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -192,7 +193,7 @@ class LanguagePluginRequestService(services: InjectedServices) : BaseService(), 
             pluginService.observeManifestFingerprint(pluginId, response)
 
             if (response.statusCode() != 200) {
-                throw RuntimeException("Plugin returned status ${response.statusCode()}: ${response.body()}")
+                throw RuntimeException("Plugin returned ${describeErrorResponse(response.statusCode(), response.body())}")
             }
 
             json.decodeFromString<LanguagePluginResponse>(response.body()).data

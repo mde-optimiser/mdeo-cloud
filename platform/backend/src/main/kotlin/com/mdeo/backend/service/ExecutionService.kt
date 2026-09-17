@@ -2,6 +2,7 @@ package com.mdeo.backend.service
 
 import com.mdeo.common.auth.Scopes
 import com.mdeo.common.transport.CompressedResponses
+import com.mdeo.common.transport.describeErrorResponse
 import com.mdeo.common.model.ExecutionState
 import com.mdeo.backend.database.ExecutionsTable
 import com.mdeo.backend.database.FilesTable
@@ -946,7 +947,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
             pluginService.observeManifestFingerprint(pluginId, response)
 
             if (response.statusCode() != 200 && response.statusCode() != 201) {
-                throw RuntimeException("Plugin returned status ${response.statusCode()}: ${response.body()}")
+                throw RuntimeException("Plugin returned ${describeErrorResponse(response.statusCode(), response.body())}")
             }
 
             json.decodeFromString<CreateExecutionResponse>(response.body())
@@ -1004,7 +1005,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
             val response = httpClient.send(request, CompressedResponses.ofString())
 
             if (response.statusCode() != 200) {
-                throw RuntimeException("Plugin returned status ${response.statusCode()}: ${response.body()}")
+                throw RuntimeException("Plugin returned ${describeErrorResponse(response.statusCode(), response.body())}")
             }
 
             json.decodeFromString<ExecutionFileTreeResponse>(response.body()).files
@@ -1062,7 +1063,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
             val response = httpClient.send(request, CompressedResponses.ofString())
 
             if (response.statusCode() != 200) {
-                throw RuntimeException("Plugin returned status ${response.statusCode()}: ${response.body()}")
+                throw RuntimeException("Plugin returned ${describeErrorResponse(response.statusCode(), response.body())}")
             }
 
             json.decodeFromString<ExecutionSummaryResponse>(response.body()).summary
@@ -1185,7 +1186,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
             val response = httpClient.send(request, CompressedResponses.ofString())
 
             if (response.statusCode() != 200 && response.statusCode() != 204) {
-                throw RuntimeException("Plugin returned status ${response.statusCode()}: ${response.body()}")
+                throw RuntimeException("Plugin returned ${describeErrorResponse(response.statusCode(), response.body())}")
             }
         }
     }
@@ -1257,7 +1258,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
             }
 
             if (response.statusCode() != 200 && response.statusCode() != 204) {
-                throw RuntimeException("Plugin returned status ${response.statusCode()}: ${response.body()}")
+                throw RuntimeException("Plugin returned ${describeErrorResponse(response.statusCode(), response.body())}")
             }
         }
     }

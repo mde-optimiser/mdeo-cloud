@@ -1,6 +1,7 @@
 package com.mdeo.backend.service
 
 import com.mdeo.common.transport.CompressedResponses
+import com.mdeo.common.transport.describeErrorResponse
 import com.mdeo.backend.database.DataDependenciesTable
 import com.mdeo.backend.database.FileDependenciesTable
 import com.mdeo.backend.database.FileDataComputationsTable
@@ -397,7 +398,7 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
             val responseText = String(response.body(), Charsets.UTF_8)
 
             if (response.statusCode() != 200) {
-                throw RuntimeException("Plugin returned status ${response.statusCode()}: $responseText")
+                throw RuntimeException("Plugin returned ${describeErrorResponse(response.statusCode(), responseText)}")
             }
 
             PluginComputation(

@@ -7,6 +7,9 @@ import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.response.*
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
 
 /**
  * Encoded without content negotiation, so services that do not install it answer errors alike.
@@ -57,4 +60,21 @@ suspend fun ApplicationCall.respondError(status: HttpStatusCode, error: ApiError
         ContentType.Application.Json,
         status
     )
+}
+
+/**
+ * What another service's error response says, fit to pass on: the message of an answer in the
+ * platform's error shape, or just its status. The raw body is never included, so nothing a service
+ * did not mean to report — a stack trace, an internal address — travels further.
+ *
+ * @param status The HTTP status of the response
+ * @param body The response body
+ * @return A description of the failure
+ */
+fun describeErrorResponse(status: Int, body: String): String {
+    val message = runCatching {
+        val error = errorJson.parseToJsonElement(body).jsonObject["error"] as? JsonObject
+        (error?.get("message") as? JsonPrimitive)?.takeIf { it.isString }?.content
+    }.getOrNull()
+    return if (message.isNullOrBlank()) "status $status" else "status $status: $message"
 }

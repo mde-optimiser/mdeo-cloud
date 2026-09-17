@@ -9,6 +9,7 @@ import com.mdeo.pluginservice.session.closeReason
 import com.mdeo.pluginservice.session.negotiateVersion
 import com.mdeo.common.transport.MAX_SERVICE_WEBSOCKET_MESSAGE_BYTES
 import com.mdeo.common.transport.installDeflate
+import com.mdeo.common.transport.respondError
 import io.ktor.client.*
 import io.ktor.client.engine.cio.*
 import io.ktor.client.plugins.websocket.*
@@ -113,13 +114,24 @@ class PluginServiceTest {
     fun `a failing route answers in the platform's error shape`() = testApplication {
         application {
             pluginService(definition, verifier)
-            routing { get("/fails") { error("broken on purpose") } }
+            routing {
+                get("/fails") { error("broken on purpose at jdbc://internal-host") }
+                get("/missing") { call.respondError(HttpStatusCode.NotFound, "No such thing") }
+            }
         }
-        val response = client.get("/fails")
-        assertEquals(HttpStatusCode.InternalServerError, response.status)
-        val error = Json.parseToJsonElement(response.bodyAsText()).jsonObject["error"]!!.jsonObject
-        assertEquals("Internal", error["code"]!!.jsonPrimitive.content)
-        assertEquals("broken on purpose", error["message"]!!.jsonPrimitive.content)
+        fun errorOf(body: String) = Json.parseToJsonElement(body).jsonObject["error"]!!.jsonObject
+
+        val failed = client.get("/fails")
+        assertEquals(HttpStatusCode.InternalServerError, failed.status)
+        assertEquals("Internal", errorOf(failed.bodyAsText())["code"]!!.jsonPrimitive.content)
+        assertEquals("Internal server error", errorOf(failed.bodyAsText())["message"]!!.jsonPrimitive.content)
+
+        val unknown = client.get("/no-such-route")
+        assertEquals(HttpStatusCode.NotFound, unknown.status)
+        assertEquals("NotFound", errorOf(unknown.bodyAsText())["code"]!!.jsonPrimitive.content)
+
+        val missing = client.get("/missing")
+        assertEquals("No such thing", errorOf(missing.bodyAsText())["message"]!!.jsonPrimitive.content)
     }
 
     @Test
