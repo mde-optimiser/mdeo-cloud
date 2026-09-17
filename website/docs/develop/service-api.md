@@ -258,6 +258,7 @@ one connection *is* one conversation.
 | `JWT_ISSUER` | `mdeo-platform` | Expected issuer of incoming tokens |
 | `MAX_LANGIUM_INSTANCES` | `5` | Size of the Langium instance pool |
 | `MAX_SESSION_INSTANCES` | `2` | How many pool instances open sessions may hold at once |
+| `MAX_SESSIONS` | `64` | How many sessions may be open at once, on every target together |
 | `LANGIUM_ACQUIRE_TIMEOUT_MS` | `30000` | How long a request waits for a free instance before failing |
 | `MAX_REQUEST_BODY_BYTES` | 64 MiB | Upper bound on a request body; file contents travel in the body |
 | `SERVICE_VERSION` | — | When set, static assets are served under `/static/<version>/` |

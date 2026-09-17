@@ -9,6 +9,7 @@ import io.ktor.server.websocket.*
 import io.ktor.websocket.*
 import kotlinx.coroutines.CancellationException
 import org.slf4j.LoggerFactory
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Path every session endpoint lives under, followed by `<kind>/<targetId>/<name>`.
@@ -26,11 +27,15 @@ private val logger = LoggerFactory.getLogger("com.mdeo.pluginservice.session")
  *
  * @param sessions What this service serves, keyed by target address and then by session name
  * @param verifier Verifies the token of each connection
+ * @param maxSessions How many sessions may be open at once. Every open session keeps what its
+ *        execution sent, so an unbounded number of them is an unbounded amount of memory.
  */
 fun Route.sessionEndpoint(
     sessions: Map<String, Map<String, ServedSession>>,
-    verifier: SessionTokenVerifier
+    verifier: SessionTokenVerifier,
+    maxSessions: Int = Int.MAX_VALUE
 ) {
+    val open = AtomicInteger()
     webSocket("$SESSION_PATH_PREFIX/{kind}/{targetId}/{name}") {
         val kind = call.parameters["kind"].orEmpty()
         val targetId = call.parameters["targetId"].orEmpty()
@@ -87,11 +92,18 @@ fun Route.sessionEndpoint(
             return@webSocket
         }
 
+        if (open.incrementAndGet() > maxSessions) {
+            open.decrementAndGet()
+            refuse(SessionCloseCodes.UNAVAILABLE, "All $maxSessions sessions of this service are in use")
+            return@webSocket
+        }
+
         val context = OpenSession(this, projectId, executionId, target, sessionName, version, token)
 
         val peer = try {
             served.handler.open(context)
         } catch (e: Exception) {
+            open.decrementAndGet()
             logger.error("Session $label failed to open", e)
             refuse(SessionCloseCodes.UNAVAILABLE, "Session could not be opened")
             return@webSocket
@@ -115,6 +127,7 @@ fun Route.sessionEndpoint(
             endReason = "Connection dropped"
             throw e
         } finally {
+            open.decrementAndGet()
             try {
                 peer.onClose(endReason)
             } catch (e: Exception) {

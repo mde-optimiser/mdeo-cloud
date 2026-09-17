@@ -199,7 +199,7 @@ A connection that never becomes a session is closed with a code and a reason:
 | `4401` | Token missing, invalid, or issued for a different target or session |
 | `4404` | This service serves no such target or session |
 | `4409` | No version both sides can speak |
-| `4503` | No capacity to hold another session |
+| `4503` | No capacity to hold another session: `MAX_SESSIONS` (default 64) are open, or no Langium instance is free for a `lang:` session |
 | `4408` | The peer stopped answering keepalives (TypeScript services; Kotlin services close an unresponsive connection through Ktor's own timeout) |
 
 Everything a plugin itself closes a session with is its own business.
@@ -264,7 +264,9 @@ plugin service needs such a block, or has to be registered with an absolute URL 
 nodes can reach.
 
 A message may be at most 512 MiB once inflated, on both stacks. A session token is valid for
-`JWT_EXPIRATION_SECONDS` and only while its execution runs; `SessionResolver` fetches a new one
+`JWT_EXPIRATION_SECONDS`, at most five minutes, and only while its execution runs. A plugin service
+cannot tell that a run ended, so the short lifetime is what keeps a leaked token from opening
+sessions later. It is only needed to open a connection; `SessionResolver` fetches a new one
 before a reconnect needs it.
 
 ## See also

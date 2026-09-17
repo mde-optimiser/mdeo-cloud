@@ -276,6 +276,7 @@ working on a different model.
 | `HOST` | `0.0.0.0` | Host to bind to |
 | `BACKEND_API_URL` | `http://localhost:8080/api` | The backend API. Session tokens are verified against the keys it publishes at `/.well-known/jwks.json` |
 | `JWT_ISSUER` | `mdeo-platform` | The issuer every accepted token must name |
+| `MAX_SESSIONS` | `64` | How many sessions may be open at once; another is refused with `4503` |
 
 Pass a `PluginServiceConfig` instead to set them in code.
 

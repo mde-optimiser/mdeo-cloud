@@ -62,6 +62,18 @@ const PONG_TIMEOUT_MS = 90_000;
 const MAX_PAYLOAD_BYTES = 512 * 1024 * 1024;
 
 /**
+ * How many sessions may be open at once when the service does not say.
+ */
+export const DEFAULT_MAX_SESSIONS = 64;
+
+/**
+ * The sessions currently open on one server.
+ */
+interface OpenSessionCount {
+    value: number;
+}
+
+/**
  * What a handler is given when a session opens.
  *
  * The platform owns everything here: who is calling, what was negotiated, how to write to the
@@ -206,6 +218,12 @@ export interface SessionServerDeps {
      * @param project The owning project
      */
     createServerApi(jwt: string, project: string): HttpServerApi;
+
+    /**
+     * How many sessions may be open at once, on every target together. Every open session keeps
+     * what its execution sent, so an unbounded number of them is an unbounded amount of memory.
+     */
+    maxSessions?: number;
     /**
      * Where to report what goes wrong.
      */
@@ -235,6 +253,7 @@ export function attachSessionServer(server: Server, deps: SessionServerDeps): We
     });
 
     const log: UpgradeLog = deps.log;
+    const openSessions: OpenSessionCount = { value: 0 };
 
     registerUpgradeRoute(
         server,
@@ -242,7 +261,7 @@ export function attachSessionServer(server: Server, deps: SessionServerDeps): We
             matches: (path) => path.startsWith(SESSION_WS_PATH_PREFIX),
             handle: (request, socket, head) => {
                 wss.handleUpgrade(request, socket, head, (ws) => {
-                    openSession(ws, request, deps).catch((error: unknown) => {
+                    openSession(ws, request, deps, openSessions).catch((error: unknown) => {
                         deps.log.error(
                             `Session setup failed: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`
                         );
@@ -292,7 +311,12 @@ function parseSessionPath(path: string): SessionAddress | undefined {
  * resolve, because the author of a contribution reads these at execution start and has to be
  * able to tell a missing declaration from a version they cannot speak.
  */
-async function openSession(socket: WebSocket, request: IncomingMessage, deps: SessionServerDeps): Promise<void> {
+async function openSession(
+    socket: WebSocket,
+    request: IncomingMessage,
+    deps: SessionServerDeps,
+    openSessions: OpenSessionCount
+): Promise<void> {
     const url = new URL(request.url ?? "", "http://localhost");
     const address = parseSessionPath(url.pathname);
     if (!address) {
@@ -362,6 +386,21 @@ async function openSession(socket: WebSocket, request: IncomingMessage, deps: Se
         return;
     }
 
+    const maxSessions = deps.maxSessions ?? DEFAULT_MAX_SESSIONS;
+    if (openSessions.value >= maxSessions) {
+        refuse(socket, SessionCloseCodes.Unavailable, `All ${maxSessions} sessions of this service are in use`, deps);
+        return;
+    }
+    // Counted from here, so the check above sees sessions that are still being opened.
+    openSessions.value++;
+    let slotHeld = true;
+    const releaseSlot = (): void => {
+        if (slotHeld) {
+            slotHeld = false;
+            openSessions.value--;
+        }
+    };
+
     let instance: LangiumInstance<any> | undefined = undefined;
     if (address.target.kind === "lang") {
         try {
@@ -371,6 +410,7 @@ async function openSession(socket: WebSocket, request: IncomingMessage, deps: Se
                 projectId
             );
         } catch (error) {
+            releaseSlot();
             refuse(
                 socket,
                 SessionCloseCodes.Unavailable,
@@ -383,6 +423,7 @@ async function openSession(socket: WebSocket, request: IncomingMessage, deps: Se
 
     if (socket.readyState !== socket.OPEN) {
         // The caller gave up while its token was checked or the contribution plugins were fetched.
+        releaseSlot();
         if (instance) {
             deps.releaseLanguageInstance(address.target.id, instance);
         }
@@ -397,6 +438,7 @@ async function openSession(socket: WebSocket, request: IncomingMessage, deps: Se
             return;
         }
         closed = true;
+        releaseSlot();
         if (instance) {
             deps.releaseLanguageInstance(address.target.id, instance);
         }

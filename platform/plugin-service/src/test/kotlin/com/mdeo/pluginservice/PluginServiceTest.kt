@@ -182,6 +182,32 @@ class PluginServiceTest {
     }
 
     @Test
+    fun `a session beyond the limit is refused until one closes`() = testApplication {
+        application { pluginService(definition, verifier, maxSessions = 1) }
+        val client = createClient { install(WebSockets) }
+        val bearer: io.ktor.client.request.HttpRequestBuilder.() -> Unit = { header(HttpHeaders.Authorization, "Bearer good") }
+
+        client.webSocket("/ws/sessions/contrib/echoes/echo", request = bearer) {
+            send(Frame.Binary(true, byteArrayOf(1)))
+            incoming.receive()
+            // While this one is open, a second is refused.
+            assertEquals(SessionCloseCodes.UNAVAILABLE, closeCodeOf("/ws/sessions/contrib/echoes/echo", "good"))
+            close(CloseReason(CloseReason.Codes.NORMAL, "done"))
+        }
+
+        var answered = false
+        repeat(50) {
+            if (answered) return@repeat
+            client.webSocket("/ws/sessions/contrib/echoes/echo", request = bearer) {
+                send(Frame.Binary(true, byteArrayOf(2)))
+                answered = incoming.receiveCatching().getOrNull() is Frame.Binary
+            }
+            if (!answered) kotlinx.coroutines.delay(20)
+        }
+        assertTrue(answered, "a slot frees once the first session closed")
+    }
+
+    @Test
     fun `a missing, invalid, unscoped or misdirected token is refused`() = service {
         assertEquals(SessionCloseCodes.UNAUTHORIZED, closeCodeOf("/ws/sessions/contrib/echoes/echo", null))
         assertEquals(SessionCloseCodes.UNAUTHORIZED, closeCodeOf("/ws/sessions/contrib/echoes/echo", "forged"))

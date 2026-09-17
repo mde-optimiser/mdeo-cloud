@@ -70,6 +70,13 @@ class JwtService(services: InjectedServices) : BaseService(), InjectedServices b
          * [CLAIM_COMPUTATION_ID] is still running.
          */
         const val BINDING_FILE_DATA_COMPUTATION = "file-data-computation"
+
+        /**
+         * Longest a session token is accepted. It is only needed to open a connection, and a plugin
+         * service cannot tell that the execution it names has ended, so a short lifetime is what
+         * keeps a leaked token from opening sessions long after the run. A reconnect fetches a new one.
+         */
+        const val MAX_SESSION_TOKEN_TTL_SECONDS = 300L
     }
     
     /**
@@ -293,9 +300,9 @@ class JwtService(services: InjectedServices) : BaseService(), InjectedServices b
     /**
      * Lifetime of a session connect token, in seconds.
      *
-     * @return The configured general token lifetime
+     * @return The general token lifetime, at most [MAX_SESSION_TOKEN_TTL_SECONDS]
      */
-    fun sessionConnectTokenTtlSeconds(): Long = jwtConfig.expirationSeconds
+    fun sessionConnectTokenTtlSeconds(): Long = minOf(jwtConfig.expirationSeconds, MAX_SESSION_TOKEN_TTL_SECONDS)
 
     /**
      * Gets a JWT verifier for validating tokens.

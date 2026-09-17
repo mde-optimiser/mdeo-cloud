@@ -28,7 +28,8 @@ function readInteger(name: string, fallback: number, minimum: number): number {
  * Parses configuration from environment variables with defaults.
  *
  * @returns Configuration object with port, host, backendApiUrl, jwtIssuer, the Langium pool
- *   settings (instance count, session budget and acquisition timeout) and maxRequestBodyBytes
+ *   settings (instance count, session budget and acquisition timeout), the session limit and
+ *   maxRequestBodyBytes
  */
 export function parseServiceConfigFromEnv(): {
     port: number;
@@ -37,6 +38,7 @@ export function parseServiceConfigFromEnv(): {
     jwtIssuer: string;
     maxLangiumInstances: number;
     maxSessionInstances: number;
+    maxSessions: number;
     langiumAcquireTimeoutMs: number;
     maxRequestBodyBytes: number;
     version?: string;
@@ -47,6 +49,7 @@ export function parseServiceConfigFromEnv(): {
     const jwtIssuer = process.env.JWT_ISSUER ?? "mdeo-platform";
     const maxLangiumInstances = readInteger("MAX_LANGIUM_INSTANCES", 5, 1);
     const maxSessionInstances = readInteger("MAX_SESSION_INSTANCES", 2, 0);
+    const maxSessions = readInteger("MAX_SESSIONS", 64, 1);
     const langiumAcquireTimeoutMs = readInteger("LANGIUM_ACQUIRE_TIMEOUT_MS", 30000, 1);
     const maxRequestBodyBytes = readInteger("MAX_REQUEST_BODY_BYTES", DEFAULT_MAX_REQUEST_BODY_BYTES, 1);
     const version = process.env.SERVICE_VERSION?.trim();
@@ -58,6 +61,7 @@ export function parseServiceConfigFromEnv(): {
         jwtIssuer,
         maxLangiumInstances,
         maxSessionInstances,
+        maxSessions,
         langiumAcquireTimeoutMs,
         maxRequestBodyBytes,
         version: version && version.length > 0 ? version : undefined

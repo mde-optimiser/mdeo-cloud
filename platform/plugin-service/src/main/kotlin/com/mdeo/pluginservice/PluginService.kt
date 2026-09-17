@@ -52,10 +52,12 @@ private val logger = LoggerFactory.getLogger("com.mdeo.pluginservice.PluginServi
  *
  * @param definition What the plugin offers
  * @param verifier Verifies session tokens; by default against the backend's published keys
+ * @param maxSessions How many sessions may be open at once
  */
 fun Application.pluginService(
     definition: PluginDefinition,
-    verifier: SessionTokenVerifier
+    verifier: SessionTokenVerifier,
+    maxSessions: Int = PluginServiceConfig.DEFAULT_MAX_SESSIONS
 ) {
     val manifest = definition.manifest().toString()
     val fingerprint = MessageDigest.getInstance("SHA-256").digest(manifest.toByteArray())
@@ -86,7 +88,7 @@ fun Application.pluginService(
         get("/") {
             call.respondText(manifest, ContentType.Application.Json)
         }
-        sessionEndpoint(definition.sessions, verifier)
+        sessionEndpoint(definition.sessions, verifier, maxSessions)
         // Matched only when no other route is, so an unknown route answers in the error shape too.
         route("{...}") {
             handle {
@@ -134,7 +136,7 @@ fun runPluginService(
 ): EmbeddedServer<NettyApplicationEngine, NettyApplicationEngine.Configuration> {
     val verifier = JwksSessionTokenVerifier(config.backendApiUrl, config.jwtIssuer)
     val server = embeddedServer(Netty, port = config.port, host = config.host) {
-        pluginService(definition, verifier)
+        pluginService(definition, verifier, config.maxSessions)
     }
     return server.start(wait = wait)
 }

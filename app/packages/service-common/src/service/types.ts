@@ -126,6 +126,11 @@ export interface ServiceConfig<T = object> {
     maxSessionInstances?: number;
 
     /**
+     * Maximum number of sessions open at once, on every target together (default 64).
+     */
+    maxSessions?: number;
+
+    /**
      * How long a request may wait for a free Langium instance before failing, in milliseconds.
      */
     langiumAcquireTimeoutMs?: number;

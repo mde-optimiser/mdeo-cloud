@@ -861,6 +861,7 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
             releaseLanguageInstance: (languageId, instance) => {
                 languageHandlers.get(languageId)?.pool.releaseFromSession(instance);
             },
+            maxSessions: config.maxSessions,
             createServerApi: (jwt, project) => {
                 const serverApi = new HttpServerApi(config.backendApiUrl);
                 serverApi.setContext(jwt, project);
