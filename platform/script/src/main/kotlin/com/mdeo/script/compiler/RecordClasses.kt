@@ -1,5 +1,6 @@
 package com.mdeo.script.compiler
 
+import com.mdeo.scriptfunctions.protocol.ContributionNames
 import com.mdeo.expression.ast.types.ClassTypeRef
 import com.mdeo.expression.ast.types.ReturnType
 import com.mdeo.expression.ast.types.ValueType
@@ -30,7 +31,7 @@ internal object RecordClasses {
     /**
      * Name of the method that copies a record with some fields changed.
      */
-    const val RECORD_COPY_METHOD = "with"
+    const val RECORD_COPY_METHOD = ContributionNames.RECORD_COPY_METHOD
 
     private const val FIELD_NAMES = "FIELD_NAMES"
 
@@ -40,11 +41,11 @@ internal object RecordClasses {
      * It has a constructor taking the field values as an `Object[]`, and implements `copy()`.
      *
      * @param jvmClassName Internal name of the class
-     * @param typeId The type the class stands for, `<package>.<name>`
+     * @param recordName The record's name, as scripts see it
      * @param fieldNames The field names, in declaration order
      * @return The bytecode
      */
-    fun generate(jvmClassName: String, typeId: String, fieldNames: List<String>): ByteArray {
+    fun generate(jvmClassName: String, recordName: String, fieldNames: List<String>): ByteArray {
         val cw = ClassWriter(ClassWriter.COMPUTE_FRAMES)
         cw.visit(
             Opcodes.V11,
@@ -80,7 +81,7 @@ internal object RecordClasses {
         val init = cw.visitMethod(Opcodes.ACC_PUBLIC, "<init>", "([Ljava/lang/Object;)V", null, null)
         init.visitCode()
         init.visitVarInsn(Opcodes.ALOAD, 0)
-        init.visitLdcInsn(typeId)
+        init.visitLdcInsn(recordName)
         init.visitFieldInsn(Opcodes.GETSTATIC, jvmClassName, FIELD_NAMES, "[Ljava/lang/String;")
         init.visitVarInsn(Opcodes.ALOAD, 1)
         init.visitMethodInsn(

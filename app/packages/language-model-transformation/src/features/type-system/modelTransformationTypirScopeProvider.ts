@@ -168,7 +168,6 @@ export class ModelTransformationTypirScopeProvider extends BaseScopeProvider<
                 ...this.getStatementsScopeEntries(node, scope),
                 ...this.getEnumContainerScopeEntries(enumInfos, scope)
             ],
-            () => [],
             [...this.getStatementsScopeInitializations(node), ...this.getEnumContainerInitializations(enumInfos)],
             node
         );
@@ -317,7 +316,6 @@ export class ModelTransformationTypirScopeProvider extends BaseScopeProvider<
         return new DefaultScope<TypirLangiumSpecifics>(
             parentScope,
             (scope) => this.getStatementsScopeEntries(node, scope),
-            () => [],
             this.getStatementsScopeInitializations(node),
             node
         );
@@ -338,7 +336,6 @@ export class ModelTransformationTypirScopeProvider extends BaseScopeProvider<
         return new DefaultScope<TypirLangiumSpecifics>(
             parentScope,
             (scope) => this.collectPatternEntriesFromPattern(node.pattern, scope),
-            () => [],
             this.collectPatternInitializationsFromPattern(node.pattern),
             node
         );
@@ -359,7 +356,6 @@ export class ModelTransformationTypirScopeProvider extends BaseScopeProvider<
         return new DefaultScope<TypirLangiumSpecifics>(
             parentScope,
             (scope) => this.collectPatternEntriesFromPattern(node.pattern, scope),
-            () => [],
             this.collectPatternInitializationsFromPattern(node.pattern),
             node
         );
@@ -380,7 +376,6 @@ export class ModelTransformationTypirScopeProvider extends BaseScopeProvider<
         return new DefaultScope<TypirLangiumSpecifics>(
             parentScope,
             (scope) => this.collectPatternEntriesFromPattern(node.pattern, scope),
-            () => [],
             this.collectPatternInitializationsFromPattern(node.pattern),
             node
         );
@@ -413,7 +408,6 @@ export class ModelTransformationTypirScopeProvider extends BaseScopeProvider<
                 (node.elements ?? [])
                     .filter((element) => this.reflection.isInstance(element, PatternObjectInstance))
                     .map((element) => this.createObjectInstanceEntry(element as PatternObjectInstanceType, -1, scope)),
-            () => [],
             (node.elements ?? [])
                 .filter((element) => this.reflection.isInstance(element, PatternObjectInstance))
                 .map((element) => ({ name: (element as PatternObjectInstanceType).name, position: -1 })),
@@ -443,7 +437,6 @@ export class ModelTransformationTypirScopeProvider extends BaseScopeProvider<
         return new ModelTransformationLambdaScope(
             parentScope,
             (scope) => this.getLambdaScopeEntries(node, scope, lambdaTypeInference),
-            () => [],
             node.parameterList.parameters.map((param) => ({
                 name: param.name,
                 position: -1
@@ -617,12 +610,6 @@ export class ModelTransformationTypirScopeProvider extends BaseScopeProvider<
         parentScope: BoundScope<TypirLangiumSpecifics> | undefined,
         languageNode: TypirLangiumSpecifics["LanguageType"]
     ): Scope<TypirLangiumSpecifics> {
-        return new DefaultScope<TypirLangiumSpecifics>(
-            parentScope,
-            () => [],
-            () => [],
-            [],
-            languageNode
-        );
+        return new DefaultScope<TypirLangiumSpecifics>(parentScope, () => [], [], languageNode);
     }
 }

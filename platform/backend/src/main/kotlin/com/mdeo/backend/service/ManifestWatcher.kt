@@ -23,7 +23,7 @@ class ManifestWatcher(
     private val recorded: (UUID) -> String?,
     private val refresh: suspend (UUID) -> Unit,
     private val scope: CoroutineScope,
-    private val cooldownMillis: Long = 60_000,
+    private val cooldownMillis: Long,
     private val clock: () -> Long = System::currentTimeMillis
 ) {
     private val refreshing: MutableSet<UUID> = ConcurrentHashMap.newKeySet()

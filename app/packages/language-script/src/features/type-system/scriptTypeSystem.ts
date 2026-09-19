@@ -33,14 +33,7 @@ import {
     getClassContainerPackage,
     getEnumContainerPackage
 } from "@mdeo/language-expression";
-import {
-    expressionTypes,
-    statementTypes,
-    typeTypes,
-    ReturnStatement,
-    Script,
-    type ScriptType
-} from "../../grammar/scriptTypes.js";
+import { expressionTypes, statementTypes, typeTypes, Script, type ScriptType } from "../../grammar/scriptTypes.js";
 import { ScriptPartialTypeSystem } from "./scriptPartialTypeSystem.js";
 import type { ContributedRecord, ResolvedScriptContributionPlugins } from "../../plugin/scriptContributionPlugin.js";
 import type { ScriptTypirServices, ScriptTypirSpecifics } from "../../plugin.js";
@@ -111,7 +104,7 @@ export class ScriptTypeSystem extends ExpressionTypeSystem<ScriptTypirSpecifics>
                                       contributed.name,
                                       contributed.declaration.fields.map((field) => ({
                                           name: field.name,
-                                          hasDefault: false
+                                          hasDefault: field.defaultValue != undefined
                                       })),
                                       (index) => (contributed.declaration as ContributedRecord).fields[index]!.type,
                                       false
@@ -132,7 +125,7 @@ export class ScriptTypeSystem extends ExpressionTypeSystem<ScriptTypirSpecifics>
             this.primitiveTypes,
             this.nullablePrimitiveTypes,
             this.defaultTypeConfig.Iterable,
-            [ReturnStatement]
+            typir.ControlFlow
         );
         statementPartialTypeSystem.registerRules();
 

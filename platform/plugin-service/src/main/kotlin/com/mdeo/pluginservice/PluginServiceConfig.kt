@@ -33,15 +33,40 @@ data class PluginServiceConfig(
          *
          * @param environment Where to read from; the process environment unless a test says otherwise
          * @return The configuration
+         * @throws IllegalArgumentException when a numeric variable is set to something else than a
+         *         whole number in its range
          */
         fun fromEnvironment(environment: Map<String, String> = System.getenv()): PluginServiceConfig {
             return PluginServiceConfig(
-                port = environment["PORT"]?.toIntOrNull() ?: DEFAULT_PORT,
+                port = readInteger(environment, "PORT", DEFAULT_PORT, minimum = 0),
                 host = environment["HOST"] ?: DEFAULT_HOST,
                 backendApiUrl = environment["BACKEND_API_URL"] ?: DEFAULT_BACKEND_API_URL,
                 jwtIssuer = environment["JWT_ISSUER"] ?: DEFAULT_JWT_ISSUER,
-                maxSessions = environment["MAX_SESSIONS"]?.toIntOrNull()?.takeIf { it > 0 } ?: DEFAULT_MAX_SESSIONS
+                maxSessions = readInteger(environment, "MAX_SESSIONS", DEFAULT_MAX_SESSIONS, minimum = 1)
             )
+        }
+
+        /**
+         * Reads a whole number from the environment.
+         *
+         * A value that is not one, or is below the minimum, is a configuration mistake. It is
+         * refused at startup rather than replaced by the default, which would hide the mistake.
+         *
+         * @param environment Where to read from
+         * @param name The variable
+         * @param fallback The value when the variable is not set
+         * @param minimum The smallest accepted value
+         * @return The value
+         * @throws IllegalArgumentException when the variable is set to something else
+         */
+        private fun readInteger(environment: Map<String, String>, name: String, fallback: Int, minimum: Int): Int {
+            val raw = environment[name]?.trim()
+            if (raw.isNullOrEmpty()) return fallback
+            val value = raw.toIntOrNull()
+            require(value != null && value >= minimum) {
+                "$name must be a whole number of at least $minimum, but is '$raw'"
+            }
+            return value
         }
     }
 }

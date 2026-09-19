@@ -28,4 +28,12 @@ interface ScriptFunctionsTransport {
      * reconnected, which tells the client that the service lost everything it held.
      */
     val connection: Long get() = 0
+
+    /**
+     * How many times the transport redials a dropped connection before it gives up. A call is sent
+     * again at most this often because the connection changed under it, so a connection that keeps
+     * coming back and dropping cannot hold a call forever. Zero for a transport that never
+     * reconnects.
+     */
+    val maxReconnects: Int get() = 0
 }

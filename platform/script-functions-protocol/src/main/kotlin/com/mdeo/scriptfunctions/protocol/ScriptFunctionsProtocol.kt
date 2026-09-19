@@ -262,6 +262,16 @@ sealed class WireValue {
      */
     @Serializable @SerialName("handle")
     data class HandleValue(val className: String, val id: Long) : WireValue()
+
+    /**
+     * An entry of an enum of the script's metamodel. Unlike an instance, it needs no model: the
+     * enum and entry name are the whole value.
+     *
+     * @param enumName The enum's name, as the metamodel declares it.
+     * @param entry The entry's name.
+     */
+    @Serializable @SerialName("enum")
+    data class EnumValue(val enumName: String, val entry: String) : WireValue()
 }
 
 /**

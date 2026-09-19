@@ -573,29 +573,23 @@ class NamedArgumentCompilerTest {
     }
 
     @Test
-    fun `all 31 parameters that can have a default take it`() {
-        assertEquals((0..30).sum(), helper.compileAndInvoke(manyDefaults(31) { emptyList() }))
+    fun `every parameter of a function with more than one mask takes its default`() {
+        assertEquals((0..69).sum(), helper.compileAndInvoke(manyDefaults(70) { emptyList() }))
     }
 
     @Test
-    fun `the 31st parameter is given by name and the others take their defaults`() {
-        assertEquals((0..29).sum() + 1000, helper.compileAndInvoke(manyDefaults(31) { listOf(named(intLiteral(1000, intType()), 30)) }))
-    }
-
-    @Test
-    fun `a function with more parameters keeps the arguments given after the 31st`() {
-        // many(p32 = 1000, p31 = 500, p30 = 400)
-        val ast = manyDefaults(33) {
+    fun `parameters on the edges of the masks are left out or given by name`() {
+        // many(p31 = 1000, p32 = 2000, p64 = 3000): bit 31 of the first mask, bit 0 of the second,
+        // bit 0 of the third
+        val ast = manyDefaults(70) {
             val int = intType()
-            listOf(named(intLiteral(1000, int), 32), named(intLiteral(500, int), 31), named(intLiteral(400, int), 30))
+            listOf(named(intLiteral(1000, int), 31), named(intLiteral(2000, int), 32), named(intLiteral(3000, int), 64))
         }
-        assertEquals((0..29).sum() + 400 + 500 + 1000, helper.compileAndInvoke(ast))
+        assertEquals((0..69).sum() - 31 - 32 - 64 + 1000 + 2000 + 3000, helper.compileAndInvoke(ast))
     }
 
     @Test
-    fun `leaving out a parameter after the 31st is refused`() {
-        val ast = manyDefaults(33) { listOf(named(intLiteral(1, intType()), 31)) }
-        val error = assertThrows<CompilationException> { helper.compileAndInvoke(ast) }
-        assertTrue("Parameter 33" in error.message!!, error.message)
+    fun `a function with exactly 32 parameters needs a single mask`() {
+        assertEquals((0..30).sum() + 7, helper.compileAndInvoke(manyDefaults(32) { listOf(named(intLiteral(7, intType()), 31)) }))
     }
 }

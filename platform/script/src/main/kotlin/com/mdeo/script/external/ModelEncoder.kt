@@ -12,12 +12,11 @@ import com.mdeo.scriptfunctions.protocol.WireEnum
 import com.mdeo.scriptfunctions.protocol.WireInstance
 import com.mdeo.scriptfunctions.protocol.WireMetamodel
 import com.mdeo.scriptfunctions.protocol.WireModel
+import com.mdeo.scriptfunctions.protocol.WireScalars
 import com.mdeo.scriptfunctions.protocol.WireValue
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.encodeToByteArray
-import java.lang.reflect.Method
 import java.security.MessageDigest
-import java.util.concurrent.ConcurrentHashMap
 
 /**
  * A model as it is uploaded, and the digest that identifies its content.
@@ -46,8 +45,6 @@ internal class EncodedMetamodel(val wire: WireMetamodel, val digest: String)
  * set, above all — is sorted, so equal content encodes to equal bytes.
  */
 internal object ModelEncoder {
-
-    private val entryGetters = ConcurrentHashMap<Class<*>, Method>()
 
     /**
      * Encodes a model.
@@ -130,19 +127,10 @@ internal object ModelEncoder {
     private fun digest(bytes: ByteArray): String =
         MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
 
-    private fun scalar(value: Any?): WireValue = when (value) {
-        null -> WireValue.Null
-        is Boolean -> WireValue.Bool(value)
-        is Int -> WireValue.IntValue(value)
-        is Long -> WireValue.LongValue(value)
-        is Float -> WireValue.FloatValue(value)
-        is Double -> WireValue.DoubleValue(value)
-        is String -> WireValue.StringValue(value)
-        // Generated enum values name their entry through getEntry().
-        else -> WireValue.StringValue(
-            runCatching {
-                entryGetters.getOrPut(value.javaClass) { value.javaClass.getMethod("getEntry") }.invoke(value) as String
-            }.getOrElse { value.toString() }
-        )
-    }
+    /**
+     * Encodes an attribute value. Enum values are sent as the entry's name: the attribute says
+     * which enum it is.
+     */
+    private fun scalar(value: Any?): WireValue =
+        WireScalars.encode(value) ?: WireValue.StringValue(value?.let(EnumValues::entryOf) ?: value.toString())
 }

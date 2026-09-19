@@ -1,7 +1,14 @@
 import type { IncomingMessage, Server } from "node:http";
-import { COMPRESSION_THRESHOLD_BYTES } from "../util/compression.js";
+import { COMPRESSION_THRESHOLD_BYTES, MAX_SERVICE_WEBSOCKET_MESSAGE_BYTES } from "../util/compression.js";
 import { WebSocketServer, type WebSocket } from "ws";
-import { parsePluginTarget, Scopes, type PluginTarget, type SessionType } from "@mdeo/plugin";
+import {
+    formatPluginTarget,
+    pluginTargetOf,
+    PluginTargetKind,
+    Scopes,
+    type PluginTarget,
+    type SessionType
+} from "@mdeo/plugin";
 import type { JwtAuthMiddleware, JwtClaims } from "../auth/jwtAuth.js";
 import type { LangiumInstance } from "../langium/langiumInstance.js";
 import type { HttpServerApi } from "../service/serverApi.js";
@@ -55,11 +62,6 @@ const PING_INTERVAL_MS = 30_000;
  * How long a peer may go without answering a keepalive before the session is closed.
  */
 const PONG_TIMEOUT_MS = 90_000;
-
-/**
- * Largest message accepted on a session.
- */
-const MAX_PAYLOAD_BYTES = 512 * 1024 * 1024;
 
 /**
  * How many sessions may be open at once when the service does not say.
@@ -248,7 +250,7 @@ export interface SessionServerDeps {
 export function attachSessionServer(server: Server, deps: SessionServerDeps): WebSocketServer {
     const wss = new WebSocketServer({
         noServer: true,
-        maxPayload: MAX_PAYLOAD_BYTES,
+        maxPayload: MAX_SERVICE_WEBSOCKET_MESSAGE_BYTES,
         perMessageDeflate: { threshold: COMPRESSION_THRESHOLD_BYTES }
     });
 
@@ -297,11 +299,8 @@ function parseSessionPath(path: string): SessionAddress | undefined {
         return undefined;
     }
     const [kind, targetId, sessionName] = segments;
-    try {
-        return { target: parsePluginTarget(`${kind}:${targetId}`), sessionName };
-    } catch {
-        return undefined;
-    }
+    const target = pluginTargetOf(kind, targetId);
+    return target ? { target, sessionName } : undefined;
 }
 
 /**
@@ -324,7 +323,7 @@ async function openSession(
         return;
     }
 
-    const targetAddress = `${address.target.kind}:${address.target.id}`;
+    const targetAddress = formatPluginTarget(address.target);
     const label = `${targetAddress}/${address.sessionName}`;
 
     const token = readToken(request);
@@ -402,7 +401,7 @@ async function openSession(
     };
 
     let instance: LangiumInstance<any> | undefined = undefined;
-    if (address.target.kind === "lang") {
+    if (address.target.kind === PluginTargetKind.LANGUAGE) {
         try {
             instance = await deps.acquireLanguageInstance(
                 { languageId: address.target.id, sessionName: address.sessionName },

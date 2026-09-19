@@ -1,6 +1,7 @@
 package com.mdeo.script.external
 
 import com.mdeo.expression.ast.types.ClassTypeRef
+import com.mdeo.script.ast.TypeKey
 import com.mdeo.script.compiler.CompilationInput
 import com.mdeo.script.compiler.ScriptCompiler
 import com.mdeo.script.compiler.binaryExpr
@@ -107,7 +108,7 @@ class ContributedClassesTest {
         dropBeforeCall: Int? = null
     ): Pair<Any?, Loopback> {
         val loopback = Loopback(operations).also { it.dropBeforeCall = dropBeforeCall }
-        val client = ScriptFunctionsClient(loopback, program.externalCalls, program.contributedClasses)
+        val client = ScriptFunctionsClient(loopback, program.externalCalls, program.contributedClasses.values)
         val context = SimpleScriptContext(System.out, null, client)
         return ExecutionEnvironment(program).invoke(scriptPath, function, context, *args) to loopback
     }
@@ -177,8 +178,8 @@ class ContributedClassesTest {
 
     @Test
     fun `generated classes keep records and handles apart`() {
-        val point = program.contributedClasses.getValue("contrib/geo.Point")
-        val index = program.contributedClasses.getValue("contrib/geo.Index")
+        val point = program.contributedClasses.getValue(TypeKey("contrib/geo", "Point"))
+        val index = program.contributedClasses.getValue(TypeKey("contrib/geo", "Index"))
         val loader = ExecutionEnvironment(program).classLoader
         assertTrue(ScriptRecord::class.java.isAssignableFrom(loader.loadClass(point.jvmClassName.replace('/', '.'))))
         assertTrue(ScriptOpaque::class.java.isAssignableFrom(loader.loadClass(index.jvmClassName.replace('/', '.'))))

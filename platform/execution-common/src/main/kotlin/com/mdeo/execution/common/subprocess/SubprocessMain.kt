@@ -15,7 +15,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * enters a command-processing loop until a [SubprocessMessage.Quit] or EOF is received.
  */
 abstract class SubprocessMain {
-    private lateinit var output: DataOutputStream
+    private lateinit var output: MessageWriter
     private lateinit var input: DataInputStream
 
     private val channelIdCounter = AtomicInteger(0)
@@ -27,7 +27,7 @@ abstract class SubprocessMain {
      * @param args Command-line arguments passed to the subprocess.
      */
     fun run(args: Array<String>) {
-        output = DataOutputStream(BufferedOutputStream(System.out))
+        output = MessageWriter(DataOutputStream(BufferedOutputStream(System.out)))
         input = DataInputStream(BufferedInputStream(System.`in`))
 
         val originalOut = System.out
@@ -41,9 +41,7 @@ abstract class SubprocessMain {
                 // Ignore errors in the timeout hook — we are about to halt anyway
             }
             try {
-                synchronized(output) {
-                    SubprocessMessage.write(output, SubprocessMessage.Timeout(timeoutId))
-                }
+                output.write(SubprocessMessage.Timeout(timeoutId))
             } catch (_: Exception) {
                 // Pipe may be broken — proceed to halt
             }
@@ -52,13 +50,13 @@ abstract class SubprocessMain {
 
         try {
             initialize(args)
-            SubprocessMessage.write(output, SubprocessMessage.Ready)
+            output.write(SubprocessMessage.Ready)
 
             commandLoop()
         } catch (e: Exception) {
             try {
-                SubprocessMessage.write(
-                    output, SubprocessMessage.Error(
+                output.write(
+                    SubprocessMessage.Error(
                         id = 0,
                         message = "Subprocess initialization failed: ${e.message}"
                     )
@@ -147,9 +145,7 @@ abstract class SubprocessMain {
      * @param text The text to write.
      */
     protected fun writeStdout(text: String) {
-        synchronized(output) {
-            SubprocessMessage.write(output, SubprocessMessage.Stdout(text))
-        }
+        output.write(SubprocessMessage.Stdout(text))
     }
 
     /**
@@ -159,9 +155,7 @@ abstract class SubprocessMain {
      */
     protected fun sendChannelMessage(payload: ByteArray) {
         val id = channelIdCounter.incrementAndGet()
-        synchronized(output) {
-            SubprocessMessage.write(output, SubprocessMessage.Channel(id, payload))
-        }
+        output.write(SubprocessMessage.Channel(id, payload))
     }
 
     private fun commandLoop() {
@@ -174,18 +168,14 @@ abstract class SubprocessMain {
                     val commandThread = Thread {
                         try {
                             val result = handleCommand(message.payload)
-                            synchronized(output) {
-                                SubprocessMessage.write(output, SubprocessMessage.Result(commandId, result))
-                            }
+                            output.write(SubprocessMessage.Result(commandId, result))
                         } catch (e: Throwable) {
-                            synchronized(output) {
-                                SubprocessMessage.write(
-                                    output, SubprocessMessage.Error(
-                                        id = commandId,
-                                        message = e.message ?: "Unknown error"
-                                    )
+                            output.write(
+                                SubprocessMessage.Error(
+                                    id = commandId,
+                                    message = e.message ?: "Unknown error"
                                 )
-                            }
+                            )
                         }
                     }
                     commandThread.isDaemon = true
@@ -214,7 +204,7 @@ abstract class SubprocessMain {
      * frames to the parent process, line by line.
      */
     private class ForwardingOutputStream(
-        private val protocol: DataOutputStream
+        private val protocol: MessageWriter
     ) : OutputStream() {
         private val buffer = ByteArrayOutputStream()
 
@@ -244,9 +234,7 @@ abstract class SubprocessMain {
             if (buffer.size() > 0) {
                 val text = buffer.toString(Charsets.UTF_8.name())
                 buffer.reset()
-                synchronized(protocol) {
-                    SubprocessMessage.write(protocol, SubprocessMessage.Stdout(text))
-                }
+                protocol.write(SubprocessMessage.Stdout(text))
             }
         }
     }

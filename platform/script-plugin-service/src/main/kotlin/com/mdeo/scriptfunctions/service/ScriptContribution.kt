@@ -2,7 +2,6 @@ package com.mdeo.scriptfunctions.service
 
 import com.mdeo.common.model.SessionType
 import com.mdeo.expression.ast.types.ClassTypeRef
-import com.mdeo.expression.ast.types.LambdaType
 import com.mdeo.expression.ast.types.ReturnType
 import com.mdeo.expression.ast.types.ReturnTypeSerializer
 import com.mdeo.expression.ast.types.ValueType
@@ -10,6 +9,7 @@ import com.mdeo.expression.ast.types.ValueTypeSerializer
 import com.mdeo.expression.ast.types.VoidType
 import com.mdeo.pluginservice.Contribution
 import com.mdeo.pluginservice.ServedSession
+import com.mdeo.scriptfunctions.protocol.ContributionNames
 import com.mdeo.scriptfunctions.protocol.ScriptFunctionsProtocol
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -52,10 +52,10 @@ class ScriptContribution internal constructor(
     override val id: String,
     override val description: String,
     val sessionName: String,
-    private val sessionDescription: String?,
     val functions: Map<String, List<ScriptFunctionDeclaration>>,
     val records: Map<String, RecordType> = emptyMap(),
-    val opaqueClasses: Map<String, OpaqueType> = emptyMap()
+    val opaqueClasses: Map<String, OpaqueType> = emptyMap(),
+    private val fieldDefaults: Map<String, Map<String, Any?>> = emptyMap()
 ) : Contribution {
 
     override val languageId: String = SCRIPT_LANGUAGE_ID
@@ -68,20 +68,20 @@ class ScriptContribution internal constructor(
 
     override val sessions: Map<String, ServedSession> = mapOf(
         sessionName to ServedSession(
-            SessionType(ScriptFunctionsProtocol.NAME, listOf(ScriptFunctionsProtocol.VERSION), sessionDescription),
+            SessionType(ScriptFunctionsProtocol.NAME, listOf(ScriptFunctionsProtocol.VERSION)),
             ScriptFunctionService(operations)
         )
     )
 
     override fun payload(): JsonObject = buildJsonObject {
+        val types = PayloadTypes()
         put("type", SCRIPT_CONTRIBUTION_TYPE)
-        putJsonArray("types") {}
         putJsonObject("functions") {
             for ((name, overloads) in functions) {
                 putJsonObject(name) {
                     putJsonObject("signatures") {
                         for (overload in overloads) {
-                            put(overload.overload, overload.toJson())
+                            put(overload.overload, overload.toJson(types))
                         }
                     }
                 }
@@ -94,10 +94,14 @@ class ScriptContribution internal constructor(
                     putJsonObject(record.name) {
                         put("kind", "record")
                         putJsonArray("fields") {
+                            val defaults = fieldDefaults[record.name].orEmpty()
                             for ((fieldName, fieldType) in record.fields) {
                                 add(buildJsonObject {
                                     put("name", fieldName)
                                     put("type", typeJson.encodeToJsonElement(ValueTypeSerializer, fieldType))
+                                    if (fieldName in defaults) {
+                                        put("defaultValue", defaultValueJson(defaults[fieldName], fieldType, types))
+                                    }
                                 })
                             }
                         }
@@ -108,6 +112,8 @@ class ScriptContribution internal constructor(
                 }
             }
         }
+        // Written last, once every default value has added the types it refers to.
+        put("types", types.toJson())
     }
 
     private companion object {
@@ -121,9 +127,9 @@ class ScriptContribution internal constructor(
  * @property name The function name scripts call
  * @property overload The signature key; empty for a function with a single signature
  * @property parameters The parameters, by name and type
+ * @property defaultValues The constant default values of the parameters that have one, by name
  * @property returnType The return type
  * @property generics Names of the generic type parameters the signature uses
- * @property isVarArgs Whether the last parameter takes any number of arguments
  * @property operation The operation name sent over the session
  * @property readsModel Whether every call is sent the model the script runs on
  * @property implementation What answers a call
@@ -132,14 +138,14 @@ class ScriptFunctionDeclaration internal constructor(
     val name: String,
     val overload: String,
     val parameters: List<Pair<String, ValueType>>,
+    val defaultValues: Map<String, Any?>,
     val returnType: ReturnType,
     val generics: List<String>,
-    val isVarArgs: Boolean,
     val operation: String,
     val readsModel: Boolean,
     val implementation: ScriptFunctionOperation
 ) {
-    internal fun toJson(): JsonObject = buildJsonObject {
+    internal fun toJson(types: PayloadTypes): JsonObject = buildJsonObject {
         putJsonObject("signature") {
             putJsonArray("parameters") {
                 for ((parameterName, type) in parameters) {
@@ -151,12 +157,20 @@ class ScriptFunctionDeclaration internal constructor(
             }
             put("returnType", typeJson.encodeToJsonElement(ReturnTypeSerializer, returnType))
             if (generics.isNotEmpty()) putJsonArray("generics") { generics.forEach { add(JsonPrimitive(it)) } }
-            if (isVarArgs) put("isVarArgs", true)
         }
         putJsonObject("implementation") {
             put("kind", "external")
             put("operation", operation)
             if (readsModel) put("model", "readonly")
+        }
+        if (defaultValues.isNotEmpty()) {
+            putJsonObject("defaultValues") {
+                for ((parameterName, type) in parameters) {
+                    if (parameterName in defaultValues) {
+                        put(parameterName, defaultValueJson(defaultValues[parameterName], type, types))
+                    }
+                }
+            }
         }
     }
 
@@ -200,14 +214,10 @@ class ScriptContributionBuilder internal constructor(private val id: String) {
      */
     var sessionName: String = DEFAULT_SCRIPT_FUNCTIONS_SESSION
 
-    /**
-     * What the session is for, shown in the plugin details view.
-     */
-    var sessionDescription: String? = null
-
     private val functions = LinkedHashMap<String, MutableList<ScriptFunctionDeclaration>>()
     private val records = LinkedHashMap<String, RecordType>()
     private val opaqueClasses = LinkedHashMap<String, OpaqueType>()
+    private val fieldDefaults = LinkedHashMap<String, Map<String, Any?>>()
 
     /**
      * The package this contribution's classes are referred to by.
@@ -235,13 +245,11 @@ class ScriptContributionBuilder internal constructor(private val id: String) {
      */
     fun record(name: String, init: RecordBuilder.() -> Unit): RecordType {
         requireNewClassName(name)
-        val fields = RecordBuilder().apply(init).fields.toList()
-        for ((fieldName, fieldType) in fields) {
-            require(isRecordFieldType(fieldType)) {
-                "Field '$fieldName' of record '$name' has a type a record cannot hold. Use scalars, strings, " +
-                        "model instances, enum values, records of the same contribution, or collections of those."
-            }
-            require(fieldName != RECORD_COPY_METHOD) {
+        val builder = RecordBuilder().apply(init)
+        val fields = builder.fields.toList()
+        fieldDefaults[name] = builder.defaults.toMap()
+        for ((fieldName, _) in fields) {
+            require(fieldName != ContributionNames.RECORD_COPY_METHOD) {
                 "Field '$fieldName' of record '$name' has the name of the method that copies a record"
             }
         }
@@ -263,20 +271,6 @@ class ScriptContributionBuilder internal constructor(private val id: String) {
         require(name !in records && name !in opaqueClasses) { "Contribution '$id' declares class '$name' twice" }
     }
 
-    private fun isRecordFieldType(type: ValueType): Boolean {
-        if (type !is ClassTypeRef) return false
-        return when {
-            type.`package` == "builtin" -> when (type.type) {
-                in SCALAR_TYPES -> true
-                in COLLECTION_TYPES -> type.typeArgs.orEmpty().values.all(::isRecordFieldType)
-                else -> false
-            }
-            type.`package` == classPackage -> type.type in records
-            type.`package`.startsWith("$CONTRIBUTED_CLASS_PACKAGE/") -> false
-            else -> type.`package`.startsWith("class/") || type.`package`.startsWith("enum/")
-        }
-    }
-
     /**
      * Declares one signature of a function. Declare the same name again with another [overload]
      * key to add an overload.
@@ -296,39 +290,27 @@ class ScriptContributionBuilder internal constructor(private val id: String) {
 
     internal fun build(): ScriptContribution {
         val all = functions.values.flatten()
+        // Checked once everything is declared, so a record may name one declared after it.
+        val rule = ContributionTypeRule(id, records.keys + opaqueClasses.keys)
         for (declaration in all) {
-            val types = declaration.parameters.map { it.second } + declaration.returnType
-            types.forEach { checkClassReference(it, "Function '${declaration.name}'") }
+            val generics = declaration.generics.toSet()
+            for ((parameterName, parameterType) in declaration.parameters) {
+                rule.check(parameterType, "Parameter '$parameterName' of function '${declaration.name}'", isParameter = true, generics)
+            }
+            if (declaration.returnType !is VoidType) {
+                rule.check(declaration.returnType, "The result of function '${declaration.name}'", isParameter = false, generics)
+            }
+        }
+        for (record in records.values) {
+            for ((fieldName, fieldType) in record.fields) {
+                rule.check(fieldType, "Field '$fieldName' of record '${record.name}'", isParameter = false, emptySet())
+            }
         }
         val duplicate = all.groupBy { it.operation }.entries.firstOrNull { it.value.size > 1 }
         require(duplicate == null) {
             "Operation '${duplicate!!.key}' of contribution '$id' implements more than one signature"
         }
-        return ScriptContribution(id, description, sessionName, sessionDescription, functions, records, opaqueClasses)
-    }
-
-    private fun checkClassReference(type: com.mdeo.expression.ast.types.ReturnType, where: String) {
-        if (type !is ClassTypeRef) return
-        if (type.`package`.startsWith("$CONTRIBUTED_CLASS_PACKAGE/")) {
-            require(type.`package` == classPackage && (type.type in records || type.type in opaqueClasses)) {
-                "$where of contribution '$id' refers to class '${type.type}' of '${type.`package`}', which the contribution does not define"
-            }
-        }
-        type.typeArgs.orEmpty().values.forEach { checkClassReference(it, where) }
-    }
-
-    private companion object {
-        val SCALAR_TYPES = setOf("int", "long", "float", "double", "boolean", "string")
-        val COLLECTION_TYPES = setOf(
-            "Collection", "OrderedCollection", "List", "Set", "OrderedSet", "Bag", "Map",
-            "ReadonlyCollection", "ReadonlyOrderedCollection", "ReadonlyList", "ReadonlySet",
-            "ReadonlyOrderedSet", "ReadonlyBag", "ReadonlyMap"
-        )
-
-        /**
-         * The method every record has that copies it, which no field may shadow.
-         */
-        const val RECORD_COPY_METHOD = "with"
+        return ScriptContribution(id, description, sessionName, functions, records, opaqueClasses, fieldDefaults)
     }
 }
 
@@ -337,6 +319,7 @@ class ScriptContributionBuilder internal constructor(private val id: String) {
  */
 class RecordBuilder internal constructor() {
     internal val fields = LinkedHashMap<String, ValueType>()
+    internal val defaults = LinkedHashMap<String, Any?>()
 
     /**
      * Declares the next field.
@@ -348,6 +331,20 @@ class RecordBuilder internal constructor() {
         require(name !in fields) { "Field '$name' is declared twice" }
         fields[name] = type
     }
+
+    /**
+     * Declares the next field, which a script's constructor call may leave out.
+     *
+     * @param name The field name, as scripts read it
+     * @param type Its type
+     * @param default The value it takes when left out: an `Int`, `Long`, `Float`, `Double`,
+     *        `Boolean` or `String` matching [type], or `null` for a nullable type
+     */
+    fun field(name: String, type: ValueType, default: Any?) {
+        requireDefaultFits(default, type, "Field '$name'")
+        field(name, type)
+        defaults[name] = default
+    }
 }
 
 /**
@@ -355,14 +352,10 @@ class RecordBuilder internal constructor() {
  */
 class ScriptFunctionBuilder internal constructor(private val name: String, private val overload: String) {
     private val parameters = mutableListOf<Pair<String, ValueType>>()
+    private val defaultValues = LinkedHashMap<String, Any?>()
     private var returnType: ReturnType = VoidType()
     private val generics = mutableListOf<String>()
     private var implementation: ScriptFunctionOperation? = null
-
-    /**
-     * Whether the last parameter takes any number of arguments.
-     */
-    var isVarArgs: Boolean = false
 
     /**
      * The operation name sent over the session. Defaults to the function name, followed by
@@ -385,6 +378,21 @@ class ScriptFunctionBuilder internal constructor(private val name: String, priva
      */
     fun parameter(name: String, type: ValueType) {
         parameters += name to type
+    }
+
+    /**
+     * Declares the next parameter, which a call may leave out. The script evaluates the default,
+     * so the operation is always sent every argument.
+     *
+     * @param name The parameter name
+     * @param type Its type
+     * @param default The value it takes when left out: an `Int`, `Long`, `Float`, `Double`,
+     *        `Boolean` or `String` matching [type], or `null` for a nullable type
+     */
+    fun parameter(name: String, type: ValueType, default: Any?) {
+        requireDefaultFits(default, type, "Parameter '$name' of function '${this.name}'")
+        parameter(name, type)
+        defaultValues[name] = default
     }
 
     /**
@@ -417,17 +425,6 @@ class ScriptFunctionBuilder internal constructor(private val name: String, priva
     internal fun build(): ScriptFunctionDeclaration {
         val label = if (overload.isEmpty()) "Function '$name'" else "Signature '$overload' of function '$name'"
         val implementation = requireNotNull(implementation) { "$label has no implementation" }
-        // A lambda is code inside the execution process, which cannot be sent.
-        parameters.firstOrNull { containsLambda(it.second) }?.let {
-            throw IllegalArgumentException("$label takes a lambda in parameter '${it.first}', which cannot be sent to a service")
-        }
-        require(!containsLambda(returnType)) { "$label returns a lambda, which cannot be sent from a service" }
-        return ScriptFunctionDeclaration(name, overload, parameters.toList(), returnType, generics.toList(), isVarArgs, operation, readsModel, implementation)
-    }
-
-    private fun containsLambda(type: ReturnType): Boolean = when (type) {
-        is LambdaType -> true
-        is ClassTypeRef -> type.typeArgs.orEmpty().values.any(::containsLambda)
-        else -> false
+        return ScriptFunctionDeclaration(name, overload, parameters.toList(), defaultValues.toMap(), returnType, generics.toList(), operation, readsModel, implementation)
     }
 }

@@ -1,5 +1,10 @@
 import type { TypirLangiumSpecifics } from "typir-langium";
-import type { CallExpressionType, ExpressionTypes, MemberCallExpressionType } from "../grammar/expressionTypes.js";
+import type {
+    CallExpressionType,
+    ExpressionTypes,
+    IdentifierExpressionType,
+    MemberCallExpressionType
+} from "../grammar/expressionTypes.js";
 import type { ValidationProblemAcceptor } from "typir";
 import type { CustomValueType } from "../typir-extensions/kinds/custom-value/custom-value-type.js";
 import { isCustomValueType } from "../typir-extensions/kinds/custom-value/custom-value-type.js";
@@ -107,7 +112,7 @@ export class ExpressionPartialTypeSystem<Specifics extends TypirLangiumSpecifics
                 return;
             }
 
-            if (!scope.isEntryInitialized(entry)) {
+            if (!this.isAssignmentTarget(node) && !scope.isEntryInitialized(entry)) {
                 accept({
                     $problem: this.validationProblem,
                     severity: "error",
@@ -117,6 +122,21 @@ export class ExpressionPartialTypeSystem<Specifics extends TypirLangiumSpecifics
                 });
             }
         });
+    }
+
+    /**
+     * Reports whether an identifier is the variable an assignment writes, which is not a read.
+     * Binary expressions have a `left` too, but only an assignment is a statement.
+     *
+     * @param node The identifier
+     * @returns True for the left-hand side of an assignment
+     */
+    private isAssignmentTarget(node: IdentifierExpressionType): boolean {
+        return (
+            node.$containerProperty === "left" &&
+            node.$container != undefined &&
+            !this.astReflection.isInstance(node.$container, this.types.baseExpressionType)
+        );
     }
 
     /**

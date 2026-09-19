@@ -1,6 +1,6 @@
 import { ErrorCodes, Scopes } from "@mdeo/plugin";
 import type { Server } from "node:http";
-import { COMPRESSION_THRESHOLD_BYTES } from "../util/compression.js";
+import { COMPRESSION_THRESHOLD_BYTES, MAX_SERVICE_WEBSOCKET_MESSAGE_BYTES } from "../util/compression.js";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { JwtAuthMiddleware } from "../auth/jwtAuth.js";
 import { registerUpgradeRoute } from "./upgradeRouter.js";
@@ -16,12 +16,6 @@ import {
     type ExecutionWsMessage,
     type ExecutionWsRequest
 } from "./protocol.js";
-
-/**
- * Largest message accepted on the execution endpoint. Result files are sent whole, and a
- * large model can be tens of megabytes.
- */
-const MAX_PAYLOAD_BYTES = 512 * 1024 * 1024;
 
 /**
  * Everything needed to serve execution requests for one language.
@@ -84,7 +78,7 @@ export interface ExecutionWsServerDeps {
 export function attachExecutionWebSocketServer(server: Server, deps: ExecutionWsServerDeps): WebSocketServer {
     const wss = new WebSocketServer({
         noServer: true,
-        maxPayload: MAX_PAYLOAD_BYTES,
+        maxPayload: MAX_SERVICE_WEBSOCKET_MESSAGE_BYTES,
         perMessageDeflate: { threshold: COMPRESSION_THRESHOLD_BYTES }
     });
 

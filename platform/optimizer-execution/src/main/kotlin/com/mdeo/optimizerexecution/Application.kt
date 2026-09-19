@@ -55,14 +55,15 @@ fun Application.module(appConfig: AppConfig) {
     val orchestratorRegistry = OrchestratorRegistry()
     val workerService = WorkerService(
         appConfig.workerThreads, appConfig.scriptTimeoutMs, appConfig.transformationTimeoutMs, appConfig.serverPort,
-        backendApiUrl = appConfig.backendApiUrl
+        backendApiUrl = appConfig.backendApiUrl,
+        sessionConnectTimeoutMillis = appConfig.sessionConnectTimeoutMillis
     )
     val executionService = OptimizerExecutionService(apiClient, this, appConfig, orchestratorRegistry, workerService)
 
     monitor.subscribe(ApplicationStopped) {
         runBlocking { workerService.close() }
         databaseFactory.close()
-        apiClient.close()
+        apiClient.closeAll()
     }
 
     install(CallLogging) { level = Level.INFO }

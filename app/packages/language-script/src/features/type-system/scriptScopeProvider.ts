@@ -23,7 +23,6 @@ import {
     Record,
     type RecordType,
     LambdaExpression,
-    ReturnStatement,
     Script,
     statementTypes,
     type FunctionType,
@@ -43,7 +42,7 @@ const { InferenceProblem } = sharedImport("typir");
  */
 export class ScriptScopeProvider extends StatementsScopeProvider<ScriptTypirSpecifics> {
     constructor(typir: ScriptTypirServices) {
-        super(typir, statementTypes, expressionTypes, IterableType, [ReturnStatement]);
+        super(typir, statementTypes, expressionTypes, IterableType, typir.ControlFlow);
     }
 
     override isScopeRelevantNode(node: ScriptTypirSpecifics["LanguageType"]): boolean {
@@ -86,7 +85,6 @@ export class ScriptScopeProvider extends StatementsScopeProvider<ScriptTypirSpec
         return new DefaultScope<ScriptTypirSpecifics>(
             parentScope,
             (scope) => this.getFunctionScopeEntries(node, scope),
-            () => [],
             node.parameterList.parameters.map((param) => ({
                 name: param.name,
                 position: -1
@@ -137,7 +135,6 @@ export class ScriptScopeProvider extends StatementsScopeProvider<ScriptTypirSpec
                 ...this.getEnumContainerScopeEntries(enumInfos, scope),
                 ...this.getClassContainerScopeEntries(classInfos, scope)
             ],
-            () => [],
             [
                 ...this.getScriptLocalInitializations(node),
                 ...this.getEnumContainerInitializations(enumInfos),
@@ -361,7 +358,6 @@ export class ScriptScopeProvider extends StatementsScopeProvider<ScriptTypirSpec
         return new LambdaScope(
             parentScope,
             (scope) => this.getLambdaScopeEntries(node, scope, lambdaTypeInference),
-            () => [],
             node.parameterList.parameters.map((param) => ({
                 name: param.name,
                 position: -1

@@ -84,7 +84,7 @@ const icon = convertIcon(Network);
 | `icon` | icon node | ✅ | Icon shown for files of this language |
 | `isGenerated` | boolean | ✅ | Marks a language whose files the platform produces rather than the user |
 | `documentationUrl` | string | — | Documentation for the language. The workbench shows a question mark next to the editor title actions which opens it in a new tab; omit it and no such button appears |
-| `sessions` | object | — | [Sessions](/develop/sessions) this language accepts, keyed by session name. Callers reach them at `lang:<id>` |
+| `sessions` | object | — | [Sessions](/develop/sessions) this language accepts, keyed by session name. Callers reach them at `lang:<id>`, so a language that declares sessions needs an id an address can carry, or the manifest is refused with `PluginManifestInvalid` |
 
 ### Relative paths and versioning
 
@@ -154,7 +154,7 @@ extended, which type-guards on a `type` discriminator:
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `id` | string | Contribution id, unique **within a project**. This is the address callers write as `contrib:<id>`; a plugin whose id is already taken is refused with `PluginContributionIdConflict` |
+| `id` | string | Contribution id, unique **within a project**. This is the address callers write as `contrib:<id>`; a plugin whose id is already taken is refused with `PluginContributionIdConflict`. An id that is not letters, digits, `_`, `.` and `-` starting with a letter or digit, or one declared twice in the manifest, makes the backend refuse the manifest with `PluginManifestInvalid` |
 | `sessions` | object | [Sessions](/develop/sessions) this contribution accepts, keyed by session name |
 
 The discriminators of the bundled languages:

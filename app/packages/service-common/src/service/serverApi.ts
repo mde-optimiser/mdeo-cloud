@@ -133,11 +133,6 @@ export interface ServerApi {
 }
 
 /**
- * Most file data entries one batch request asks for; the backend refuses larger batches.
- */
-const MAX_FILE_DATA_BATCH_SIZE = 256;
-
-/**
  * One file data request waiting to be sent.
  */
 interface PendingFileData {
@@ -306,7 +301,7 @@ export class HttpServerApi implements ServerApi {
         if (cached != undefined) {
             return cached;
         }
-        const id = `${key}\u0000${path}`;
+        const id = JSON.stringify([key, path]);
         const inFlight = this.fileDataInFlight.get(id);
         if (inFlight != undefined) {
             return inFlight;
@@ -339,31 +334,44 @@ export class HttpServerApi implements ServerApi {
             await this.settle(pending[0], () => this.fetchFileData(pending[0].path, pending[0].key));
             return;
         }
-        for (let start = 0; start < pending.length; start += MAX_FILE_DATA_BATCH_SIZE) {
-            const chunk = pending.slice(start, start + MAX_FILE_DATA_BATCH_SIZE);
+        // The backend answers as many entries as it takes in one batch, in request order; the rest
+        // are asked for again, so how many that is stays the backend's decision.
+        let remaining = pending;
+        while (remaining.length > 0) {
             let results: FileDataBatchResult[] | undefined;
             try {
-                results = await this.fetchFileDataBatch(chunk);
+                results = await this.fetchFileDataBatch(remaining);
             } catch (error) {
-                chunk.forEach((entry) => entry.reject(error));
-                continue;
+                remaining.forEach((entry) => entry.reject(error));
+                return;
             }
             if (results == undefined) {
                 // A backend without the batch endpoint gets the requests one by one.
                 await Promise.all(
-                    chunk.map((entry) => this.settle(entry, () => this.fetchFileData(entry.path, entry.key)))
+                    remaining.map((entry) => this.settle(entry, () => this.fetchFileData(entry.path, entry.key)))
                 );
-                continue;
+                return;
             }
-            chunk.forEach((entry, index) => {
-                const result = results![index];
-                if (result == undefined || "error" in result) {
-                    const reason = result == undefined ? "no answer" : `${result.error.code}: ${result.error.message}`;
-                    entry.reject(new Error(`Failed to get file data ${entry.path}:${entry.key}: ${reason}`));
+            if (results.length === 0 || results.length > remaining.length) {
+                const error = new Error(
+                    `Failed to get file data: the backend answered ${results.length} of ${remaining.length} entries`
+                );
+                remaining.forEach((entry) => entry.reject(error));
+                return;
+            }
+            results.forEach((result, index) => {
+                const entry = remaining[index];
+                if ("error" in result) {
+                    entry.reject(
+                        new Error(
+                            `Failed to get file data ${entry.path}:${entry.key}: ${result.error.code}: ${result.error.message}`
+                        )
+                    );
                 } else {
                     entry.resolve(this.remember(entry.path, entry.key, result));
                 }
             });
+            remaining = remaining.slice(results.length);
         }
     }
 
@@ -394,7 +402,8 @@ export class HttpServerApi implements ServerApi {
     /**
      * Asks for several file data entries in one request.
      *
-     * @returns The answers in request order, or undefined when the backend has no batch endpoint
+     * @returns The answers to the first entries, in request order, or undefined when the backend has
+     *          no batch endpoint
      */
     private async fetchFileDataBatch(entries: PendingFileData[]): Promise<FileDataBatchResult[] | undefined> {
         const response = await fetch(`${this.projectBackendUrl}/file-data-batch`, {

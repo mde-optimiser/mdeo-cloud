@@ -4,6 +4,7 @@ import com.mdeo.expression.ast.types.ClassTypeRef
 import com.mdeo.expression.ast.types.ReturnType
 import com.mdeo.script.ast.TypedPluginAst
 import com.mdeo.script.ast.TypedPluginClass
+import com.mdeo.script.ast.TypeKey
 import com.mdeo.script.compiler.registry.type.TypeDefinitionImpl
 import com.mdeo.script.compiler.registry.type.TypeRegistry
 import org.objectweb.asm.ClassWriter
@@ -28,9 +29,14 @@ data class ContributedClassSpec(
     val fieldTypes: List<ReturnType> = emptyList()
 ) {
     /**
-     * The type the script refers to the class by, `contrib/<contribution>.<name>`.
+     * The type package scripts refer to the class in, `contrib/<contribution>`.
      */
-    val typeId: String get() = "${TypedPluginClass.PACKAGE_PREFIX}/$contribution.$name"
+    val typePackage: String get() = "${TypedPluginClass.PACKAGE_PREFIX}/$contribution"
+
+    /**
+     * The type the script refers to the class by.
+     */
+    val key: TypeKey get() = TypeKey(typePackage, name)
 }
 
 /**
@@ -49,9 +55,9 @@ internal object ContributedClassCompiler {
      * Builds the specs of every class a plugin AST defines.
      *
      * @param pluginAst The plugin AST
-     * @return The specs, keyed by [ContributedClassSpec.typeId]
+     * @return The specs, keyed by [ContributedClassSpec.key]
      */
-    fun specs(pluginAst: TypedPluginAst?): Map<String, ContributedClassSpec> =
+    fun specs(pluginAst: TypedPluginAst?): Map<TypeKey, ContributedClassSpec> =
         pluginAst?.classes.orEmpty().associate { contributed ->
             val spec = ContributedClassSpec(
                 contribution = contributed.contribution,
@@ -61,7 +67,7 @@ internal object ContributedClassCompiler {
                 fieldNames = contributed.fields.map { it.name },
                 fieldTypes = contributed.fields.map { pluginAst!!.types[it.type] }
             )
-            spec.typeId to spec
+            spec.key to spec
         }
 
     /**
@@ -85,7 +91,7 @@ internal object ContributedClassCompiler {
         val registry = TypeRegistry(parent = parent)
         for (spec in specs) {
             val definition = TypeDefinitionImpl(
-                typePackage = "${TypedPluginClass.PACKAGE_PREFIX}/${spec.contribution}",
+                typePackage = spec.typePackage,
                 typeName = spec.name,
                 extends = listOf(ClassTypeRef("builtin", "Any", false)),
                 jvmClassName = spec.jvmClassName
@@ -119,7 +125,7 @@ internal object ContributedClassCompiler {
 
     private fun generate(spec: ContributedClassSpec): ByteArray {
         if (spec.kind == TypedPluginClass.KIND_RECORD) {
-            return RecordClasses.generate(spec.jvmClassName, spec.typeId, spec.fieldNames)
+            return RecordClasses.generate(spec.jvmClassName, spec.name, spec.fieldNames)
         }
         val cw = ClassWriter(ClassWriter.COMPUTE_FRAMES)
         cw.visit(Opcodes.V11, Opcodes.ACC_PUBLIC or Opcodes.ACC_FINAL or Opcodes.ACC_SUPER, spec.jvmClassName, null, OPAQUE_BASE, null)
@@ -127,7 +133,7 @@ internal object ContributedClassCompiler {
         val mv = cw.visitMethod(Opcodes.ACC_PUBLIC, "<init>", "(J)V", null, null)
         mv.visitCode()
         mv.visitVarInsn(Opcodes.ALOAD, 0)
-        mv.visitLdcInsn(spec.typeId)
+        mv.visitLdcInsn(spec.name)
         mv.visitVarInsn(Opcodes.LLOAD, 1)
         mv.visitMethodInsn(Opcodes.INVOKESPECIAL, OPAQUE_BASE, "<init>", "(Ljava/lang/String;J)V", false)
         mv.visitInsn(Opcodes.RETURN)

@@ -260,7 +260,7 @@ class ContributedRecordsTest {
     private val program = ScriptCompiler().compile(CompilationInput(mapOf(scriptPath to script), plugin))
 
     private fun run(operations: Map<String, (ScriptFunctionCall) -> Any?>, function: String): Any? {
-        val client = ScriptFunctionsClient(Loopback(operations), program.externalCalls, program.contributedClasses)
+        val client = ScriptFunctionsClient(Loopback(operations), program.externalCalls, program.contributedClasses.values)
         return ExecutionEnvironment(program).invoke(scriptPath, function, SimpleScriptContext(System.out, null, client))
     }
 

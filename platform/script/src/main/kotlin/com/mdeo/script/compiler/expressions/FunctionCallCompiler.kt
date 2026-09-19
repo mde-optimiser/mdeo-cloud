@@ -71,9 +71,9 @@ class FunctionCallCompiler : AbstractCallCompiler() {
         }
 
         if (!signature.isVarArgs && needsArgumentBinding(functionCall.arguments, signature.parameterTypes.size, signature.hasDefaults)) {
-            val leftOut = compileBoundArguments(functionCall.arguments, context, mv, signature.parameterTypes)
-            if (leftOut != 0) {
-                mv.visitLdcInsn(leftOut)
+            val masks = compileBoundArguments(functionCall.arguments, context, mv, signature.parameterTypes)
+            if (masks.any { it != 0 }) {
+                masks.forEach { mv.visitLdcInsn(it) }
                 signature.emitDefaultsInvocation(mv)
             } else {
                 signature.emitInvocation(mv)

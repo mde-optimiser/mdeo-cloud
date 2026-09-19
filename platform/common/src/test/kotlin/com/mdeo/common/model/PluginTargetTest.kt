@@ -54,6 +54,14 @@ class PluginTargetTest {
     }
 
     @Test
+    fun `builds a target from its parts as they arrive in separate segments`() {
+        assertEquals(PluginTarget(PluginTargetKind.CONTRIBUTION, "geo"), PluginTarget.ofOrNull("contrib", "geo"))
+        assertNull(PluginTarget.ofOrNull("other", "geo"))
+        assertNull(PluginTarget.ofOrNull("lang", "a:b"))
+        assertNull(PluginTarget.ofOrNull(PluginTargetKind.LANGUAGE, ""))
+    }
+
+    @Test
     fun `refuses an unusable id at construction`() {
         assertFailsWith<IllegalArgumentException> { PluginTarget.of(PluginTargetKind.LANGUAGE, "with space") }
     }

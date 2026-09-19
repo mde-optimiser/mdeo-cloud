@@ -164,8 +164,8 @@ reads started together — a `Promise.all` over several files — reach the back
 `POST /api/projects/{projectId}/file-data-batch` request with `{"requests": [{"path", "key"}]}`. The
 backend computes the entries concurrently and answers `{"results": [...]}` in request order, each
 either `{"data", "version"}` or `{"error": {"code", "message"}}`, so one failing entry does not fail the others.
-A batch holds at most 256 entries; a larger one is refused with `400`, and `serverApi` splits its
-reads accordingly.
+The backend answers at most 256 entries per request, the first ones; `serverApi` asks again for the
+rest.
 
 Responses:
 
@@ -259,9 +259,13 @@ one connection *is* one conversation.
 | `MAX_LANGIUM_INSTANCES` | `5` | Size of the Langium instance pool |
 | `MAX_SESSION_INSTANCES` | `2` | How many pool instances open sessions may hold at once |
 | `MAX_SESSIONS` | `64` | How many sessions may be open at once, on every target together |
+| `MAX_CONTRIBUTION_SETS` | `64` | How many contribution sets the service remembers by hash; a forgotten set is sent again |
 | `LANGIUM_ACQUIRE_TIMEOUT_MS` | `30000` | How long a request waits for a free instance before failing |
 | `MAX_REQUEST_BODY_BYTES` | 64 MiB | Upper bound on a request body; file contents travel in the body |
 | `SERVICE_VERSION` | — | When set, static assets are served under `/static/<version>/` |
+
+A numeric variable set to something that is not a whole number in its range stops the service at
+startup.
 
 Language-specific variables are read by the plugin itself — for example
 `SCRIPT_EXECUTION_SERVICE_URL` and `MODEL_TRANSFORMATION_EXECUTION_SERVICE_URL`.

@@ -2,6 +2,7 @@ package com.mdeo.backend.routes
 
 import com.mdeo.common.auth.Scopes
 import com.mdeo.common.transport.respondError
+import com.mdeo.backend.config.FileDataConfig
 import com.mdeo.backend.plugins.*
 import com.mdeo.backend.service.CallerDeadline
 import com.mdeo.backend.service.FileDataService
@@ -27,15 +28,10 @@ import kotlinx.serialization.json.Json
 import java.util.*
 
 /**
- * Most entries one batch request may ask for.
+ * Most entries one batch request is answered for. A caller that asks for more is answered for the
+ * first ones and asks again for the rest, so only the backend knows this number.
  */
 const val MAX_FILE_DATA_BATCH_SIZE = 256
-
-/**
- * Most entries of one batch request that are looked up at the same time. Each one may wait on the
- * database and on a plugin, so a full batch must not take that many threads at once.
- */
-const val MAX_CONCURRENT_BATCH_ENTRIES = 16
 
 private val batchLogger = LoggerFactory.getLogger("com.mdeo.backend.routes.FileDataBatch")
 
@@ -62,11 +58,13 @@ data class FileDataBatchRequest(val requests: List<FileDataBatchEntry>)
  * @param fileDataService Service for file data computation
  * @param projectService Service for project access validation
  * @param jwtService Service for JWT operations
+ * @param fileDataConfig How many batch entries are looked up at the same time
  */
 fun Route.fileDataRoutes(
     fileDataService: FileDataService,
     projectService: ProjectService,
-    jwtService: JwtService
+    jwtService: JwtService,
+    fileDataConfig: FileDataConfig
 ) {
     route("/api/projects/{projectId}/file-data/{key}") {
         /**
@@ -117,7 +115,8 @@ fun Route.fileDataRoutes(
          * Gets computed file data for several files and keys in one request.
          *
          * Entries are computed concurrently, exactly as if each had been requested on its own, and
-         * answered in request order. Each answer is either `{"data": …, "version": …}` or
+         * answered in request order. Only the first [MAX_FILE_DATA_BATCH_SIZE] entries are answered;
+         * the caller asks again for the rest. Each answer is either `{"data": …, "version": …}` or
          * `{"error": {"code": …, "message": …}}`; one failing entry does not fail the others.
          *
          * @param projectId Path parameter for project UUID
@@ -132,17 +131,14 @@ fun Route.fileDataRoutes(
                 call.respondError(HttpStatusCode.BadRequest, "Invalid batch request")
                 return@post
             }
-            if (request.requests.size > MAX_FILE_DATA_BATCH_SIZE) {
-                call.respondError(HttpStatusCode.BadRequest, "A batch may ask for at most $MAX_FILE_DATA_BATCH_SIZE entries")
-                return@post
-            }
+            val entries = request.requests.take(MAX_FILE_DATA_BATCH_SIZE)
 
             val callerComputationId = call.callerComputationId()
             val deadline = call.callerDeadline()
-            val permits = Semaphore(MAX_CONCURRENT_BATCH_ENTRIES)
+            val permits = Semaphore(fileDataConfig.batchConcurrency)
             fun failed(error: ApiError) = """{"error":${Json.encodeToString(ApiError.serializer(), error)}}"""
             val results = supervisorScope {
-                request.requests.map { entry ->
+                entries.map { entry ->
                     async(Dispatchers.IO) {
                         if (entry.path.isBlank() || entry.key.isBlank()) {
                             return@async failed(ApiError(ErrorCodes.BAD_REQUEST, "An entry needs a path and a key"))

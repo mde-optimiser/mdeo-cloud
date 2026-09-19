@@ -1,5 +1,6 @@
 package com.mdeo.optimizerexecution.worker
 
+import com.mdeo.execution.common.external.SessionAccess
 import com.mdeo.metamodel.data.MetamodelData
 import com.mdeo.metamodel.data.ModelData
 import com.mdeo.optimizer.config.GoalConfig
@@ -38,9 +39,7 @@ sealed class WorkerSubprocessRequest {
      * @param scriptAstJsons JSON-serialized script TypedAst per path.
      * @param pluginAstJson JSON-serialized script TypedPluginAst carrying all plugin-contributed
      *        functions, or `null` when there are none.
-     * @param sessionBackendApiUrl Backend this node asks for sessions to external functions.
-     * @param sessionProjectId Project the execution belongs to.
-     * @param sessionRunToken Run token used to ask for those sessions; null when none are needed.
+     * @param sessionAccess How this node opens sessions for external calls; null when none are needed.
      * @param goalConfig Objective and constraint definitions.
      * @param solverConfig Solver / mutation parameters.
      * @param initialSolutionCount How many initial solutions to generate (ignored when [skipInitialization] is true).
@@ -63,9 +62,7 @@ sealed class WorkerSubprocessRequest {
         val transformationAstJsons: Map<String, String>,
         val scriptAstJsons: Map<String, String>,
         val pluginAstJson: String? = null,
-        val sessionBackendApiUrl: String? = null,
-        val sessionProjectId: String? = null,
-        val sessionRunToken: String? = null,
+        val sessionAccess: SessionAccess? = null,
         val goalConfig: GoalConfig,
         val solverConfig: SolverConfig,
         val initialSolutionCount: Int,

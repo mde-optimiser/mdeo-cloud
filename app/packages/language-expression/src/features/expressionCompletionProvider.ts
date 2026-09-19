@@ -128,7 +128,8 @@ export class ExpressionCompletionProvider extends BaseCompletionProvider {
         }
         try {
             const document = (AstUtils as typeof AstUtilsType).getDocument(node);
-            const { packageMap, allInternalPackages } = this.typir.PackageMapCache.getDocumentPackageCache(document);
+            const { packageMap, allInternalPackages, typeAliases } =
+                this.typir.PackageMapCache.getDocumentPackageCache(document);
             const nodeAsClassType = node as { packageName?: string };
             const hasPackageName = nodeAsClassType.packageName != undefined && next.property === "name";
 
@@ -160,6 +161,14 @@ export class ExpressionCompletionProvider extends BaseCompletionProvider {
                     const list = byName.get(type.name) ?? [];
                     list.push(type);
                     byName.set(type.name, list);
+                }
+                for (const alias of typeAliases.keys()) {
+                    acceptor(context, {
+                        label: alias,
+                        insertText: this.astSerializer.serializePrimitive({ value: alias }, ID),
+                        kind: CompletionItemKind.Class,
+                        sortText: "0"
+                    });
                 }
                 for (const pkgName of packageMap.keys()) {
                     acceptor(context, {

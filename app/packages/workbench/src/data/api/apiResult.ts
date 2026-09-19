@@ -1,23 +1,20 @@
+import { ErrorCodes } from "@mdeo/plugin";
+
 /**
  * Represents the result of an API operation that can either succeed or fail.
  */
 export type ApiResult<T, E = ApiError> = { success: true; value: T } | { success: false; error: E };
 
 /**
- * Common error codes that can occur across all API operations, the general part of
- * `ErrorCodes` in `@mdeo/plugin`.
+ * Common error codes that can occur across all API operations: the general `ErrorCodes` of
+ * `@mdeo/plugin`.
  */
-export enum CommonErrorCode {
-    Unavailable = "Unavailable",
-    Unknown = "Unknown",
-    BadRequest = "BadRequest",
-    Unauthenticated = "Unauthenticated",
-    Forbidden = "Forbidden",
-    NotFound = "NotFound",
-    Conflict = "Conflict",
-    Internal = "Internal",
-    DeadlineExceeded = "DeadlineExceeded"
-}
+export const CommonErrorCode = ErrorCodes;
+
+/**
+ * One of the {@link CommonErrorCode} values.
+ */
+export type CommonErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];
 
 /**
  * Error codes specific to file system operations.
@@ -45,7 +42,8 @@ export enum PluginErrorCode {
     PluginAlreadyExists = "PluginAlreadyExists",
     PluginAlreadyAddedToProject = "PluginAlreadyAddedToProject",
     PluginNotAddedToProject = "PluginNotAddedToProject",
-    PluginContributionIdConflict = "PluginContributionIdConflict"
+    PluginContributionIdConflict = "PluginContributionIdConflict",
+    PluginManifestInvalid = "PluginManifestInvalid"
 }
 
 /**

@@ -92,52 +92,11 @@ class VariableDeclarationCompiler : StatementCompiler {
         if (init != null) {
             context.compileExpression(init, mv, type)
         } else {
-            emitDefaultValue(type, mv)
+            ASMUtil.emitZeroValue(type, mv)
         }
         
         val storeOpcode = ASMUtil.getStoreOpcode(type)
         mv.visitVarInsn(storeOpcode, variable.slotIndex)
-    }
-    
-    /**
-     * Emits the default value for a type onto the stack.
-     *
-     * For numeric types, emits 0. For boolean, emits false (0).
-     * For reference types, emits null.
-     *
-     * @param type the return type to emit a default value for
-     * @param mv the method visitor for emitting bytecode
-     */
-    private fun emitDefaultValue(type: ReturnType, mv: MethodVisitor) {
-        if (type is ClassTypeRef) {
-            if (type.isNullable) {
-                mv.visitInsn(Opcodes.ACONST_NULL)
-                return
-            }
-            if (type.`package` == "builtin") {
-                when (type.type) {
-                    "int", "boolean" -> {
-                        mv.visitInsn(Opcodes.ICONST_0)
-                    }
-                    "long" -> {
-                        mv.visitInsn(Opcodes.LCONST_0)
-                    }
-                    "float" -> {
-                        mv.visitInsn(Opcodes.FCONST_0)
-                    }
-                    "double" -> {
-                        mv.visitInsn(Opcodes.DCONST_0)
-                    }
-                    else -> {
-                        mv.visitInsn(Opcodes.ACONST_NULL)
-                    }
-                }
-            } else {
-                mv.visitInsn(Opcodes.ACONST_NULL)
-            }
-        } else {
-            mv.visitInsn(Opcodes.ACONST_NULL)
-        }
     }
     
     /**

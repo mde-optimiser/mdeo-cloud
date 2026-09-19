@@ -47,7 +47,11 @@ data class SessionConnection(
  * @param versions Protocol versions this side can speak, most preferred first
  * @param onMessage Called for every message the peer sends, on the client's own scope
  * @param onClosed Called once when the session ends for good, with the reason
- * @param maxReconnectAttempts How many times a dropped connection is redialled before giving up
+ * @property maxReconnectAttempts How many times a dropped connection is redialled before giving up.
+ *           The one retry budget of a session: an owner that resends after a reconnect resends at
+ *           most this often, rather than keeping a budget of its own.
+ * @param connectTimeoutMillis How long dialling the endpoint may take before it counts as
+ *        unreachable; only applies to the private client created when [httpClient] is omitted
  * @param httpClient WebSocket-capable client to dial with; a private one is created if omitted
  */
 class SessionClient(
@@ -55,7 +59,8 @@ class SessionClient(
     private val versions: List<Int>,
     private val onMessage: suspend (ByteArray) -> Unit,
     private val onClosed: (String) -> Unit = {},
-    private val maxReconnectAttempts: Int = DEFAULT_MAX_RECONNECT_ATTEMPTS,
+    val maxReconnectAttempts: Int = DEFAULT_MAX_RECONNECT_ATTEMPTS,
+    connectTimeoutMillis: Long = DEFAULT_CONNECT_TIMEOUT_MILLIS,
     httpClient: HttpClient? = null
 ) : AutoCloseable {
 
@@ -65,12 +70,13 @@ class SessionClient(
          * notice a peer that vanished without closing. The reverse proxy in front of a plugin
          * also drops connections idle for an hour, which this keeps from happening.
          */
-        const val PING_INTERVAL_MILLIS = 30_000L
+        const val PING_INTERVAL_MILLIS = SESSION_PING_PERIOD_SECONDS * 1000
 
         /**
-         * How long dialling the endpoint may take before it counts as unreachable.
+         * How long dialling the endpoint may take before it counts as unreachable, unless the
+         * creator configures otherwise.
          */
-        const val CONNECT_TIMEOUT_MILLIS = 10_000L
+        const val DEFAULT_CONNECT_TIMEOUT_MILLIS = 10_000L
 
         /**
          * How many times a dropped connection is redialled by default.
@@ -111,8 +117,8 @@ class SessionClient(
         }
         engine {
             endpoint {
-                connectTimeout = CONNECT_TIMEOUT_MILLIS
-                requestTimeout = CONNECT_TIMEOUT_MILLIS
+                connectTimeout = connectTimeoutMillis
+                requestTimeout = connectTimeoutMillis
             }
         }
     }

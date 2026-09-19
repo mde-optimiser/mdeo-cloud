@@ -1,12 +1,13 @@
 package com.mdeo.scriptfunctions.service
 
+import com.mdeo.scriptfunctions.protocol.ContributionNames
 import com.mdeo.expression.ast.types.ClassTypeRef
 import com.mdeo.expression.ast.types.ValueType
 
 /**
  * The package a contribution's classes are referred to by, followed by `/<contribution id>`.
  */
-const val CONTRIBUTED_CLASS_PACKAGE = "contrib"
+const val CONTRIBUTED_CLASS_PACKAGE = ContributionNames.CLASS_PACKAGE_PREFIX
 
 /**
  * A record a contribution defines: a value with named fields that scripts construct, read, assign

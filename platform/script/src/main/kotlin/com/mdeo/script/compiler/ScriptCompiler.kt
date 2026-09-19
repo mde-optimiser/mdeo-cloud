@@ -5,10 +5,12 @@ import com.mdeo.metamodel.data.MetamodelData
 import com.mdeo.script.ast.ExternalImplementation
 import com.mdeo.script.ast.TypedAst
 import com.mdeo.script.ast.TypedFunction
+import com.mdeo.expression.ast.TypedCallableBody
 import com.mdeo.script.ast.TypedImport
 import com.mdeo.script.ast.TypedPluginAst
 import com.mdeo.script.ast.TypedPluginClass
 import com.mdeo.script.ast.TypedPluginFunctionSignature
+import com.mdeo.script.ast.TypeKey
 import com.mdeo.expression.ast.types.ClassTypeRef
 import com.mdeo.expression.ast.types.ReturnType
 import com.mdeo.expression.ast.types.VoidType
@@ -172,9 +174,9 @@ class ScriptCompiler {
         allBytecodes += ContributedClassCompiler.generate(contributedClasses.values)
         for (ast in input.files.values) {
             for (record in ast.records) {
-                val jvmClassName = recordClasses.getValue(record.typeId)
+                val jvmClassName = recordClasses.getValue(record.key)
                 allBytecodes[jvmClassName.toJvmBinaryName()] =
-                    RecordClasses.generate(jvmClassName, record.typeId, record.fields.map { it.name })
+                    RecordClasses.generate(jvmClassName, record.name, record.fields.map { it.name })
             }
         }
 
@@ -259,8 +261,8 @@ class ScriptCompiler {
      * @param functionLookup Pre-assigned (filePath → functionName → jvmMethodName) mapping.
      * @param generatedInterfaces Shared mutable map for collecting generated lambda interfaces.
      * @param externalCalls Shared mutable map collecting one spec per emitted external stub.
-     * @param recordClasses JVM class names of the records scripts declare, by type id.
-     * @param contributedClasses The classes contributions define, by type id.
+     * @param recordClasses JVM class names of the records scripts declare, by type key.
+     * @param contributedClasses The classes contributions define, by type key.
      * @return The bytecode of the single ScriptProgram class.
      */
     private fun compileSingleClass(
@@ -272,8 +274,8 @@ class ScriptCompiler {
         pluginLookup: Map<String, Map<String, String>>,
         generatedInterfaces: MutableMap<String, ByteArray>,
         externalCalls: MutableMap<String, ExternalCallSpec>,
-        recordClasses: Map<String, String>,
-        contributedClasses: Map<String, ContributedClassSpec>
+        recordClasses: Map<TypeKey, String>,
+        contributedClasses: Map<TypeKey, ContributedClassSpec>
     ): ByteArray {
         val cw = ClassWriter(ClassWriter.COMPUTE_FRAMES)
 
@@ -313,7 +315,7 @@ class ScriptCompiler {
                 val jvmMethodName = fileLookup[record.name]!!
                 val descriptor = functionRegistry.lookupFunction(record.name)!!.getOverload("")!!.descriptor
                 compileRecordConstructor(
-                    cw, jvmMethodName, descriptor, recordClasses.getValue(record.typeId),
+                    cw, jvmMethodName, descriptor, recordClasses.getValue(record.key),
                     record.fields.map { ast.types[it.type] }
                 )
                 if (record.fields.any { it.defaultValue != null }) {
@@ -328,19 +330,36 @@ class ScriptCompiler {
             }
         }
 
-        for (spec in contributedClasses.values) {
-            if (spec.kind != TypedPluginClass.KIND_RECORD) continue
-            val signature = pluginRegistry.lookupFunction(spec.name)!!.getOverload("")!!
-            compileRecordConstructor(cw, signature.jvmMethodName, signature.descriptor, spec.jvmClassName, spec.fieldTypes)
-        }
-
         input.pluginAst?.let { pluginAst ->
+            // The contributed classes' own types come last, so the indices the plugin AST uses stay valid.
+            val classTypes = contributedClasses.values.map { ClassTypeRef(it.typePackage, it.name, false) }
             val pluginTypedAst = TypedAst(
-                types = pluginAst.types,
+                types = pluginAst.types + classTypes,
                 metamodelPath = null,
                 imports = emptyList(),
                 functions = emptyList()
             )
+            val compileDefaults = { function: TypedFunction, jvmMethodName: String, descriptor: String ->
+                compileDefaultsMethod(
+                    function, pluginTypedAst, jvmMethodName, descriptor,
+                    CompiledProgram.SCRIPT_PROGRAM_INTERNAL_NAME, cw, generatedInterfaces,
+                    pluginRegistry, typeRegistries.typeRegistry,
+                    typeRegistries.fileScopePropertyRegistry,
+                    sharedLambdaCounter, sharedLambdaInterfaceRegistry
+                )
+            }
+
+            for ((index, spec) in contributedClasses.values.withIndex()) {
+                if (spec.kind != TypedPluginClass.KIND_RECORD) continue
+                val signature = pluginRegistry.lookupFunction(spec.name)!!.getOverload("")!!
+                compileRecordConstructor(cw, signature.jvmMethodName, signature.descriptor, spec.jvmClassName, spec.fieldTypes)
+                val fields = pluginAst.classes.first { it.contribution == spec.contribution && it.name == spec.name }.fields
+                if (fields.any { it.defaultValue != null }) {
+                    val constructor = TypedFunction(spec.name, fields, pluginAst.types.size + index, TypedCallableBody(emptyList()))
+                    compileDefaults(constructor, signature.jvmMethodName, signature.descriptor)
+                }
+            }
+
             for (func in pluginAst.functions) {
                 val overloadLookup = pluginLookup[func.name] ?: continue
                 for ((overloadKey, signature) in func.signatures) {
@@ -351,6 +370,12 @@ class ScriptCompiler {
                             func.name, overloadKey, external, signature, pluginAst,
                             jvmMethodName, cw, pluginRegistry
                         )
+                        if (signature.parameters.any { it.defaultValue != null }) {
+                            // The defaults are evaluated here, so the service is sent every argument.
+                            val stub = TypedFunction(func.name, signature.parameters, signature.returnType, TypedCallableBody(emptyList()))
+                            val descriptor = pluginRegistry.lookupFunction(func.name)!!.getOverload(overloadKey)!!.descriptor
+                            compileDefaults(stub, jvmMethodName, descriptor)
+                        }
                         continue
                     }
                     val syntheticFunc = TypedFunction(
@@ -379,13 +404,13 @@ class ScriptCompiler {
      * Assigns a JVM class name to every record the scripts declare.
      *
      * @param input The compilation input.
-     * @return The internal class names, by [com.mdeo.script.ast.TypedRecord.typeId].
+     * @return The internal class names, by [com.mdeo.script.ast.TypedRecord.key].
      */
-    private fun scriptRecordClassNames(input: CompilationInput): Map<String, String> {
+    private fun scriptRecordClassNames(input: CompilationInput): Map<TypeKey, String> {
         var index = 0
         return input.files.values
             .flatMap { it.records }
-            .associate { record -> record.typeId to "$RECORD_CLASS_PACKAGE/R${index++}_${record.name}" }
+            .associate { record -> record.key to "$RECORD_CLASS_PACKAGE/R${index++}_${record.name}" }
     }
 
     /**
@@ -393,13 +418,13 @@ class ScriptCompiler {
      *
      * @param parent The registry scripts see otherwise.
      * @param input The compilation input.
-     * @param recordClasses The JVM class names of the records, by type id.
+     * @param recordClasses The JVM class names of the records, by type key.
      * @return The registry that also knows the records, or [parent] when there are none.
      */
     private fun registerScriptRecords(
         parent: TypeRegistry,
         input: CompilationInput,
-        recordClasses: Map<String, String>
+        recordClasses: Map<TypeKey, String>
     ): TypeRegistry {
         if (recordClasses.isEmpty()) return parent
         val registry = TypeRegistry(parent = parent)
@@ -409,7 +434,7 @@ class ScriptCompiler {
                     typePackage = record.`package`,
                     typeName = record.name,
                     extends = listOf(ClassTypeRef("builtin", "Any", false)),
-                    jvmClassName = recordClasses.getValue(record.typeId)
+                    jvmClassName = recordClasses.getValue(record.key)
                 )
                 RecordClasses.addMembers(
                     definition,
@@ -623,14 +648,16 @@ class ScriptCompiler {
         val mv = cw.visitMethod(
             Opcodes.ACC_PUBLIC,
             jvmMethodName + DefaultsMethod.SUFFIX,
-            DefaultsMethod.descriptor(descriptor),
+            DefaultsMethod.descriptor(descriptor, function.parameters.size),
             null,
             null
         )
 
         val paramsScope = Scope(level = 2)
         val parameters = function.parameters.map { param -> paramsScope.declareVariable(param.name, ast.types[param.type]) }
-        val mask = paramsScope.declareVariable(DEFAULTS_MASK_VARIABLE, ClassTypeRef("builtin", "int", false))
+        val masks = List(DefaultsMethod.maskCount(function.parameters.size)) { index ->
+            paramsScope.declareVariable("$DEFAULTS_MASK_VARIABLE$index", ClassTypeRef("builtin", "int", false))
+        }
 
         val tempContext = CompilationContext(
             ast, className, expressionCompilers, statementCompilers, function.returnType,
@@ -654,14 +681,10 @@ class ScriptCompiler {
 
         mv.visitCode()
         for ((index, param) in function.parameters.withIndex()) {
-            // Only the first parameters have a mask bit; a call never leaves out a later one.
-            if (index >= DefaultsMethod.MAX_PARAMETERS) {
-                break
-            }
             val defaultValue = param.defaultValue ?: continue
             val keep = Label()
-            mv.visitVarInsn(Opcodes.ILOAD, mask.slotIndex)
-            mv.visitLdcInsn(1 shl index)
+            mv.visitVarInsn(Opcodes.ILOAD, masks[DefaultsMethod.maskIndex(index)].slotIndex)
+            mv.visitLdcInsn(DefaultsMethod.bit(index))
             mv.visitInsn(Opcodes.IAND)
             mv.visitJumpInsn(Opcodes.IFEQ, keep)
             val type = ast.types[param.type]
@@ -879,7 +902,10 @@ class ScriptCompiler {
                         ownerClass = CompiledProgram.SCRIPT_PROGRAM_INTERNAL_NAME,
                         jvmMethodName = pluginLookup.getValue(spec.name).getValue(""),
                         namedParameters = parameters,
-                        returnType = returnType
+                        returnType = returnType,
+                        hasDefaults = pluginAst.classes
+                            .first { it.contribution == spec.contribution && it.name == spec.name }
+                            .fields.any { it.defaultValue != null }
                     )
                 )
             }
@@ -908,7 +934,8 @@ class ScriptCompiler {
                         ownerClass = CompiledProgram.SCRIPT_PROGRAM_INTERNAL_NAME,
                         jvmMethodName = jvmName,
                         namedParameters = namedParams,
-                        returnType = returnType
+                        returnType = returnType,
+                        hasDefaults = signature.parameters.any { it.defaultValue != null }
                     )
                 )
             }

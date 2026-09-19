@@ -207,8 +207,8 @@ object ContributionTargetsTable : Table("contribution_targets") {
  * Plugin sessions table schema for the session types a target declares.
  *
  * Rows exist for both target kinds — `lang:<id>` and `contrib:<id>` — so the connect endpoint
- * resolves either through one lookup. [versions] holds a JSON array of the protocol versions
- * the plugin side can speak.
+ * resolves either through one lookup. [versions] holds the protocol versions the plugin side can
+ * speak, most preferred first.
  */
 object PluginSessionsTable : Table("plugin_sessions") {
     val pluginId = uuid("plugin_id").references(PluginsTable.id, onDelete = ReferenceOption.CASCADE)
@@ -216,8 +216,7 @@ object PluginSessionsTable : Table("plugin_sessions") {
     val targetId = varchar("target_id", 255)
     val name = varchar("name", 255)
     val protocol = varchar("protocol", 255)
-    val versions = text("versions")
-    val description = text("description").nullable()
+    val versions = array<Int>("versions")
 
     override val primaryKey = PrimaryKey(pluginId, targetKind, targetId, name)
 }

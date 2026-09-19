@@ -1,6 +1,7 @@
 package com.mdeo.scriptfunctions.service
 
 import com.mdeo.scriptfunctions.protocol.WireModel
+import com.mdeo.scriptfunctions.protocol.WireScalars
 import com.mdeo.scriptfunctions.protocol.WireValue
 import java.util.concurrent.ConcurrentHashMap
 
@@ -37,7 +38,10 @@ class ScriptModel internal constructor(wire: WireModel, val metamodel: ScriptMet
             built[instance.name] = ScriptModelInstance(
                 name = instance.name,
                 className = instance.className,
-                attributeValues = instance.attributes.mapValues { (_, values) -> values.map(::scalar) },
+                attributeValues = instance.attributes.mapValues { (attributeName, values) ->
+                    val attribute = metamodel.attributeOf(instance.className, attributeName)
+                    values.map { attributeValue(it, attribute) }
+                },
                 referenceNames = instance.references,
                 model = this
             )
@@ -77,15 +81,17 @@ class ScriptModel internal constructor(wire: WireModel, val metamodel: ScriptMet
         }
     }
 
-    private fun scalar(value: WireValue): Any? = when (value) {
-        WireValue.Null -> null
-        is WireValue.Bool -> value.value
-        is WireValue.IntValue -> value.value
-        is WireValue.LongValue -> value.value
-        is WireValue.FloatValue -> value.value
-        is WireValue.DoubleValue -> value.value
-        is WireValue.StringValue -> value.value
-        is WireValue.Ref, is WireValue.InstanceValue, is WireValue.RecordValue, is WireValue.HandleValue -> null
+    /**
+     * An attribute value as operations see it: a scalar, or a [ScriptEnumValue] for an enum
+     * attribute, like the enum values operations receive as arguments.
+     */
+    private fun attributeValue(value: WireValue, attribute: MetamodelAttribute?): Any? = when {
+        value is WireValue.EnumValue -> ScriptEnumValue(value.enumName, value.entry)
+        !WireScalars.isScalar(value) -> null
+        else -> {
+            val decoded = WireScalars.decode(value)
+            if (attribute?.isEnum == true && decoded is String) ScriptEnumValue(attribute.type, decoded) else decoded
+        }
     }
 }
 
@@ -121,7 +127,7 @@ class ScriptModelInstance internal constructor(
 ) {
     /**
      * Returns a single-valued attribute: an `Int`, `Long`, `Float`, `Double`, `Boolean` or `String`,
-     * with enum values given as the entry's name.
+     * or a [ScriptEnumValue] for an enum attribute.
      *
      * @param name The attribute name
      * @return Its value, or null when it is unset
@@ -154,4 +160,19 @@ class ScriptModelInstance internal constructor(
         referenceNames[name].orEmpty().mapNotNull { model.instances[it] }
 
     override fun toString(): String = "$className $name"
+}
+
+/**
+ * An entry of an enum of the script's metamodel, as operations receive and return enum values.
+ *
+ * Equal when of the same enum with the same entry, like the enum values scripts see. It needs no
+ * model: a function that takes or returns only enum values does not get one.
+ *
+ * Attributes of model instances give their enum values the same way, see [ScriptModelInstance.attribute].
+ *
+ * @property enumName The enum's name, as the metamodel declares it
+ * @property entry The entry's name
+ */
+data class ScriptEnumValue(val enumName: String, val entry: String) {
+    override fun toString(): String = "$enumName.$entry"
 }

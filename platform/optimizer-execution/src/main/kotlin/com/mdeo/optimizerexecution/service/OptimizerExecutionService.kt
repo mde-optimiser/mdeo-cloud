@@ -35,10 +35,8 @@ import com.mdeo.optimizerexecution.worker.WorkerClient
 import com.mdeo.optimizerexecution.worker.WorkerService
 import com.mdeo.script.ast.TypedAst as ScriptTypedAst
 import com.mdeo.script.ast.TypedPluginAst as ScriptTypedPluginAst
-import com.mdeo.script.external.ExternalSessionCheck
-import com.mdeo.common.model.PluginTarget
-import com.mdeo.common.model.PluginTargetKind
-import com.mdeo.execution.common.api.SessionResolver
+import com.mdeo.execution.common.external.ExternalSessions
+import com.mdeo.execution.common.external.SessionAccess
 import com.mdeo.script.ast.expressions.TypedExpressionSerializer as ScriptExpressionSerializer
 import com.mdeo.script.ast.statements.TypedStatementSerializer
 import com.mdeo.metamodel.Model
@@ -397,14 +395,9 @@ class OptimizerExecutionService(
         )
         val scriptAsts = fetchAllScripts(executionId, projectId, scriptPaths, jwtToken)
             ?: return
-        val pluginAst = apiClient.getScriptPluginAst(projectId.toString(), jwtToken)
-        val sessionProblem = SessionResolver(apiClient.backendBaseUrl).use { resolver ->
-            ExternalSessionCheck.findProblem(pluginAst) { contribution, session ->
-                resolver.resolve(
-                    projectId.toString(), PluginTarget.of(PluginTargetKind.CONTRIBUTION, contribution), session, jwtToken
-                )
-            }
-        }
+        val pluginAst = apiClient.getPluginAst(projectId.toString(), jwtToken)
+        val sessionAccess = SessionAccess(apiClient.backendBaseUrl, projectId.toString(), jwtToken)
+        val sessionProblem = ExternalSessions(sessionAccess).use { it.findProblem(pluginAst) }
         if (sessionProblem != null) {
             storeError(executionId, sessionProblem)
             updateState(executionId, ExecutionState.FAILED, sessionProblem, jwtToken)
@@ -929,10 +922,10 @@ class OptimizerExecutionService(
     }
 
     /**
-     * Fetches all script typed ASTs for the given paths from the backend API,
-     * including transitive dependencies discovered via each AST's [imports] field.
-     * Uses BFS traversal to handle arbitrarily deep import chains while avoiding
-     * duplicate fetches and infinite loops from circular imports.
+     * Fetches the typed ASTs of the given scripts and of every file they import, one request per
+     * script. A script already contained in an earlier answer is not asked for again.
+     *
+     * The ASTs are keyed by absolute path, the form the optimization config names scripts by.
      *
      * Fails fast: returns null and sets execution state to FAILED if any path cannot be resolved.
      *
@@ -950,26 +943,16 @@ class OptimizerExecutionService(
         jwtToken: String
     ): Map<String, ScriptTypedAst>? {
         val result = mutableMapOf<String, ScriptTypedAst>()
-        val visited = mutableSetOf<String>()
-        val pending = mutableSetOf<String>().also { it.addAll(scriptPaths) }
-        while (pending.isNotEmpty()) {
-            val path = pending.first()
-            pending.remove(path)
-            if (visited.contains(path)) continue
-            visited.add(path)
-            val ast = apiClient.getScriptTypedAst(projectId.toString(), path, jwtToken)
-            if (ast == null) {
-                val msg = "Failed to fetch script: $path"
+        for (path in scriptPaths) {
+            if (path in result) continue
+            val closure = apiClient.getTypedAstClosure(projectId.toString(), path, jwtToken)
+            if (closure == null) {
+                val msg = "Could not load script $path or a file it imports: one is missing or has errors"
                 storeError(executionId, msg)
                 updateState(executionId, ExecutionState.FAILED, msg, jwtToken)
                 return null
             }
-            result[path] = ast
-            for (import in ast.imports) {
-                if (!visited.contains(import.uri) && !pending.contains(import.uri)) {
-                    pending.add(import.uri)
-                }
-            }
+            result.putAll(closure)
         }
         return result
     }

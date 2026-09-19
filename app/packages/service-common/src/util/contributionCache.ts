@@ -13,10 +13,11 @@ export const CONTRIBUTION_HASH_SUPPORT_HEADER = "x-mdeo-contribution-hashes";
 export const CONTRIBUTIONS_UNKNOWN_HEADER = "x-mdeo-contributions-unknown";
 
 /**
- * How many contribution sets a service remembers. One project uses one set per language, so this
- * covers many projects at once; a set that was forgotten is simply sent again.
+ * How many contribution sets a service remembers when it is not configured otherwise. One project
+ * uses one set per language, so this covers many projects at once; a set that was forgotten is
+ * simply sent again.
  */
-const DEFAULT_MAX_SETS = 64;
+export const DEFAULT_MAX_CONTRIBUTION_SETS = 64;
 
 /**
  * The contribution sets this service was sent, by the hash the backend identifies them with.
@@ -31,7 +32,7 @@ export class ContributionCache {
     /**
      * @param maxSets How many sets to remember, the least recently used being forgotten first
      */
-    constructor(private readonly maxSets: number = DEFAULT_MAX_SETS) {}
+    constructor(private readonly maxSets: number = DEFAULT_MAX_CONTRIBUTION_SETS) {}
 
     /**
      * Resolves the contribution plugins of one request.

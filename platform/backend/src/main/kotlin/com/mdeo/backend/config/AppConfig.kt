@@ -91,7 +91,10 @@ data class AppConfig(
                         ?.map { it.trim() }
                         ?.filter { it.isNotEmpty() }
                         ?: emptyList(),
-                    manifestCheckSeconds = System.getenv("PLUGIN_MANIFEST_CHECK_SECONDS")?.toLongOrNull()?.coerceAtLeast(0) ?: 60
+                    manifestCheckSeconds = System.getenv("PLUGIN_MANIFEST_CHECK_SECONDS")?.toLongOrNull()?.coerceAtLeast(0)
+                        ?: PluginConfig.DEFAULT_MANIFEST_CHECK_SECONDS,
+                    manifestRefreshCooldownSeconds = System.getenv("PLUGIN_MANIFEST_REFRESH_COOLDOWN_SECONDS")
+                        ?.toLongOrNull()?.coerceAtLeast(0) ?: PluginConfig.DEFAULT_MANIFEST_REFRESH_COOLDOWN_SECONDS
                 ),
                 jwt = JwtConfig(
                     expirationSeconds = System.getenv("JWT_EXPIRATION_SECONDS")?.toLongOrNull()
@@ -173,14 +176,23 @@ data class DefaultAdminConfig(
  * @property defaultPluginUrls List of plugin URLs to initialize as default plugins at startup
  * @property manifestCheckSeconds How often every plugin is asked whether its manifest changed
  *           (`PLUGIN_MANIFEST_CHECK_SECONDS`, default 60, 0 to only check on the plugin's answers)
+ * @property manifestRefreshCooldownSeconds How long a plugin whose manifest changed is not fetched
+ *           again after the last attempt, so a plugin that cannot be refreshed is not asked on every
+ *           answer (`PLUGIN_MANIFEST_REFRESH_COOLDOWN_SECONDS`, default 60)
  */
 data class PluginConfig(
     val baseUrl: String,
     val internalBaseUrl: String,
     val forceHttp1: Boolean,
     val defaultPluginUrls: List<String> = emptyList(),
-    val manifestCheckSeconds: Long = 60
-)
+    val manifestCheckSeconds: Long = DEFAULT_MANIFEST_CHECK_SECONDS,
+    val manifestRefreshCooldownSeconds: Long = DEFAULT_MANIFEST_REFRESH_COOLDOWN_SECONDS
+) {
+    companion object {
+        const val DEFAULT_MANIFEST_CHECK_SECONDS = 60L
+        const val DEFAULT_MANIFEST_REFRESH_COOLDOWN_SECONDS = 60L
+    }
+}
 
 /**
  * JWT configuration for plugin authentication.
@@ -214,12 +226,18 @@ data class JwtConfig(
  * @property computationBindingSeconds How long a computation, and the token bound to it, stays live
  *           before it is treated as abandoned (`FILE_DATA_COMPUTATION_BINDING_SECONDS`, default
  *           [computationTimeoutSeconds])
+ * @property batchConcurrency How many entries of one batch request are looked up at the same time
+ *           (`FILE_DATA_BATCH_CONCURRENCY`, default 16). Each one may wait on the database and on a
+ *           plugin, so this should stay below the database pool size.
  */
 data class FileDataConfig(
     val computationTimeoutSeconds: Long,
-    val computationBindingSeconds: Long = computationTimeoutSeconds
+    val computationBindingSeconds: Long = computationTimeoutSeconds,
+    val batchConcurrency: Int = DEFAULT_BATCH_CONCURRENCY
 ) {
     companion object {
+        const val DEFAULT_BATCH_CONCURRENCY = 16
+
         /**
          * Reads the configuration from the environment.
          *
@@ -232,7 +250,9 @@ data class FileDataConfig(
             val timeout = seconds("FILE_DATA_COMPUTATION_TIMEOUT_SECONDS") ?: TimeUnit.MINUTES.toSeconds(5)
             return FileDataConfig(
                 computationTimeoutSeconds = timeout,
-                computationBindingSeconds = seconds("FILE_DATA_COMPUTATION_BINDING_SECONDS") ?: timeout
+                computationBindingSeconds = seconds("FILE_DATA_COMPUTATION_BINDING_SECONDS") ?: timeout,
+                batchConcurrency = environment["FILE_DATA_BATCH_CONCURRENCY"]?.toIntOrNull()?.takeIf { it > 0 }
+                    ?: DEFAULT_BATCH_CONCURRENCY
             )
         }
     }

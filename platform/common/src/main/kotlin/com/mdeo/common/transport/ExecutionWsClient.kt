@@ -55,12 +55,12 @@ class ExecutionWsClient(
          * Keepalive ping interval. A peer that vanishes without closing the connection would
          * otherwise leave this side holding a socket that will never answer.
          */
-        private const val PING_INTERVAL_MILLIS = 30_000L
+        private const val PING_INTERVAL_MILLIS = SessionClient.PING_INTERVAL_MILLIS
 
         /**
          * How long dialling a peer may take before it counts as unreachable.
          */
-        private const val CONNECT_TIMEOUT_MILLIS = 10_000L
+        private const val CONNECT_TIMEOUT_MILLIS = SessionClient.DEFAULT_CONNECT_TIMEOUT_MILLIS
 
         /**
          * Converts an `http(s)` service base URL into the `ws(s)` URL of its execution endpoint.

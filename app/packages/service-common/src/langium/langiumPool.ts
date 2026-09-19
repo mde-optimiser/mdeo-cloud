@@ -23,16 +23,21 @@ import { JsonAstSerializer } from "./jsonAstSerializer.js";
 import { ExtendedIndexManager } from "./extendedIndexManager.js";
 
 /**
+ * How many instances the pool keeps per language, when the service is not configured otherwise.
+ */
+export const DEFAULT_MAX_LANGIUM_INSTANCES = 5;
+
+/**
  * How long a request waits for a free instance before giving up, when the pool is not
  * configured otherwise. Long enough to ride out a slow request ahead of it, short enough that
  * a caller learns the pool is stuck instead of hanging on it.
  */
-const DEFAULT_ACQUIRE_TIMEOUT_MS = 30_000;
+export const DEFAULT_LANGIUM_ACQUIRE_TIMEOUT_MS = 30_000;
 
 /**
  * How many instances open sessions may hold at once, when the pool is not configured otherwise.
  */
-const DEFAULT_MAX_SESSION_INSTANCES = 2;
+export const DEFAULT_MAX_SESSION_INSTANCES = 2;
 
 /**
  * Raised when the pool cannot serve an acquisition.
@@ -191,7 +196,7 @@ export class LangiumInstancePool<T> {
             return this.createInstance(contributionPlugins, key);
         }
 
-        const timeoutMs = this.config.acquireTimeoutMs ?? DEFAULT_ACQUIRE_TIMEOUT_MS;
+        const timeoutMs = this.config.acquireTimeoutMs ?? DEFAULT_LANGIUM_ACQUIRE_TIMEOUT_MS;
 
         return new Promise<LangiumInstance<T>>((resolve, reject) => {
             const giveUp = (): void => {

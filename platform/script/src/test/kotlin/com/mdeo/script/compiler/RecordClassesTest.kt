@@ -23,12 +23,12 @@ class RecordClassesTest {
 
     private val pointClass = loader.define(
         "test/record/Point",
-        RecordClasses.generate("test/record/Point", "record/main.fn/Point.Point", listOf("x", "label"))
+        RecordClasses.generate("test/record/Point", "Point", listOf("x", "label"))
     )
 
     private val otherPointClass = loader.define(
         "test/record/OtherPoint",
-        RecordClasses.generate("test/record/OtherPoint", "record/other.fn/Point.Point", listOf("x", "label"))
+        RecordClasses.generate("test/record/OtherPoint", "Point", listOf("x", "label"))
     )
 
     private fun point(vararg values: Any?, type: Class<*> = pointClass): ScriptRecord =
@@ -46,7 +46,7 @@ class RecordClassesTest {
         assertEquals(1.5, p.field(0))
         assertEquals("a", p.field(1))
         assertEquals(listOf(1.5, "a"), p.fields())
-        assertEquals("record/main.fn/Point.Point", p.recordType)
+        assertEquals("Point", p.recordName)
     }
 
     @Test

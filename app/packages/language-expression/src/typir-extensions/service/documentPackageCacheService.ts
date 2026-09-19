@@ -18,6 +18,25 @@ export type DocumentPackageCache = {
      * Set of all internal packages from all values of packageMap.
      */
     allInternalPackages: Set<string>;
+    /**
+     * Types the document refers to by a name of its own, such as a record imported under another
+     * name, by that name.
+     */
+    typeAliases: Map<string, TypeAlias>;
+};
+
+/**
+ * A type a document refers to by a name other than its own.
+ */
+export type TypeAlias = {
+    /**
+     * The internal package of the type.
+     */
+    package: string;
+    /**
+     * The name the type is declared with.
+     */
+    name: string;
 };
 
 /**
@@ -63,7 +82,11 @@ export class DefaultDocumentPackageCacheService implements DocumentPackageCacheS
                 allInternalPackages.add(pkg);
             }
         }
-        const entry: DocumentPackageCache = { packageMap, allInternalPackages };
+        const entry: DocumentPackageCache = {
+            packageMap,
+            allInternalPackages,
+            typeAliases: this.computeTypeAliases(document)
+        };
         this.cache.set(key, entry);
         return entry;
     }
@@ -108,6 +131,18 @@ export class DefaultDocumentPackageCacheService implements DocumentPackageCacheS
     }
 
     /**
+     * Computes the types a document refers to by a name of its own. A type's package that is only
+     * reached through an alias should be left out of {@link computePackageMap}, so the declared
+     * name does not resolve as well.
+     *
+     * @param _document The document
+     * @returns The aliased types by alias; none by default
+     */
+    protected computeTypeAliases(_document: LangiumDocument): Map<string, TypeAlias> {
+        return new Map();
+    }
+
+    /**
      * Returns the metamodel import file path from the document root, or `undefined`
      * if this document has no metamodel import.
      *
@@ -125,6 +160,6 @@ export class DefaultDocumentPackageCacheService implements DocumentPackageCacheS
  */
 export class NoopDocumentPackageCacheService implements DocumentPackageCacheService {
     getDocumentPackageCache(_document: LangiumDocument): DocumentPackageCache {
-        return { packageMap: new Map(), allInternalPackages: new Set() };
+        return { packageMap: new Map(), allInternalPackages: new Set(), typeAliases: new Map() };
     }
 }

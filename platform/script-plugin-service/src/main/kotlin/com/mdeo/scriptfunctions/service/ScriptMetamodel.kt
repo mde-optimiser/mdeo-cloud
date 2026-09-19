@@ -58,6 +58,19 @@ class ScriptMetamodel internal constructor(wire: WireMetamodel) {
      */
     fun subtypesOf(className: String): Set<String> = subtypes[className] ?: setOf(className)
 
+    /**
+     * Finds an attribute of a class, declared by the class itself or one it extends.
+     *
+     * @param className The class name
+     * @param name The attribute name
+     * @return The attribute, or null when the class has none of that name
+     */
+    fun attributeOf(className: String, name: String): MetamodelAttribute? {
+        val metamodelClass = classes[className] ?: return null
+        return metamodelClass.attributes.firstOrNull { it.name == name }
+            ?: metamodelClass.extends.firstNotNullOfOrNull { attributeOf(it, name) }
+    }
+
     private fun end(wire: WireAssociationEnd) =
         AssociationEnd(wire.className, wire.name, Multiplicity(wire.lower, wire.upper))
 

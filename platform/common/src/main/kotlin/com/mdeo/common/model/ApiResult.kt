@@ -84,6 +84,8 @@ object ErrorCodes {
     const val PLUGIN_ALREADY_ADDED_TO_PROJECT = "PluginAlreadyAddedToProject"
     const val PLUGIN_NOT_ADDED_TO_PROJECT = "PluginNotAddedToProject"
     const val PLUGIN_CONTRIBUTION_ID_CONFLICT = "PluginContributionIdConflict"
+    /** The plugin's manifest declares something the platform cannot store or address. */
+    const val PLUGIN_MANIFEST_INVALID = "PluginManifestInvalid"
     const val SESSION_NOT_FOUND = "SessionNotFound"
     
     const val USER_NOT_FOUND = "UserNotFound"

@@ -68,10 +68,29 @@ data class PluginTarget(
          * @return The target
          * @throws IllegalArgumentException if the id is empty or carries unusable characters
          */
-        fun of(kind: PluginTargetKind, id: String): PluginTarget {
-            require(ID_PATTERN.matches(id)) { "Invalid plugin target id '$id'" }
-            return PluginTarget(kind, id)
-        }
+        fun of(kind: PluginTargetKind, id: String): PluginTarget =
+            ofOrNull(kind, id) ?: throw IllegalArgumentException("Invalid plugin target id '$id'")
+
+        /**
+         * Builds a target from its two parts.
+         *
+         * @param kind The kind of target
+         * @param id The language or contribution id
+         * @return The target, or null when the id is empty or carries unusable characters
+         */
+        fun ofOrNull(kind: PluginTargetKind, id: String): PluginTarget? =
+            if (ID_PATTERN.matches(id)) PluginTarget(kind, id) else null
+
+        /**
+         * Builds a target from a kind given as its wire string and an id, as they arrive in
+         * separate URL segments.
+         *
+         * @param kind The wire string of the kind, e.g. `lang`
+         * @param id The language or contribution id
+         * @return The target, or null when the kind is unknown or the id unusable
+         */
+        fun ofOrNull(kind: String, id: String): PluginTarget? =
+            PluginTargetKind.fromWire(kind)?.let { ofOrNull(it, id) }
 
         /**
          * Parses an address of the form `<kind>:<id>`.
@@ -83,10 +102,7 @@ data class PluginTarget(
         fun parseOrNull(address: String): PluginTarget? {
             val separator = address.indexOf(':')
             if (separator < 0) return null
-            val kind = PluginTargetKind.fromWire(address.substring(0, separator)) ?: return null
-            val id = address.substring(separator + 1)
-            if (!ID_PATTERN.matches(id)) return null
-            return PluginTarget(kind, id)
+            return ofOrNull(address.substring(0, separator), address.substring(separator + 1))
         }
 
         /**
@@ -114,11 +130,9 @@ data class PluginTarget(
  * @property protocol Name of the protocol spoken on this session, owned by whoever defines the
  *           contract — `script-functions` belongs to the script language, not to the platform.
  * @property versions Protocol versions this side can speak, most preferred first.
- * @property description What the session is for, shown in the plugin details view.
  */
 @Serializable
 data class SessionType(
     val protocol: String,
-    val versions: List<Int> = emptyList(),
-    val description: String? = null
+    val versions: List<Int> = emptyList()
 )

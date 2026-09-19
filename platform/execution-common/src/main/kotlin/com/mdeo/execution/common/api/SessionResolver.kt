@@ -57,7 +57,12 @@ class SessionResolver(
         acceptCompressedResponses()
     }
 
-    private val cache = ConcurrentHashMap<String, SessionConnection>()
+    /**
+     * Identifies one session of one target in one project.
+     */
+    private data class SessionKey(val projectId: String, val target: PluginTarget, val sessionName: String)
+
+    private val cache = ConcurrentHashMap<SessionKey, SessionConnection>()
     private val mutex = Mutex()
 
     /**
@@ -77,7 +82,7 @@ class SessionResolver(
         sessionName: String,
         runToken: String
     ): SessionConnection {
-        val key = "$projectId/$target/$sessionName"
+        val key = SessionKey(projectId, target, sessionName)
         cache[key]?.let { cached ->
             if (cached.expiresAt - tokenLifetimeMarginSeconds > Instant.now().epochSecond) {
                 return cached

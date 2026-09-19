@@ -1,5 +1,6 @@
 package com.mdeo.script.external
 
+import com.mdeo.script.ast.TypeKey
 import com.mdeo.script.compiler.ContributedClassSpec
 import com.mdeo.metamodel.Model
 import com.mdeo.scriptfunctions.protocol.ScriptFunctionsProtocol
@@ -23,13 +24,15 @@ import java.util.concurrent.LinkedBlockingQueue
  * needs in full, and refuses handles that stood for state the lost service held.
  *
  * @param specs The external calls of the compiled program, keyed by call id
- * @param classes The records and opaque classes contributions define, keyed by type id
+ * @param classes The records and opaque classes contributions define, as the compiled program keys them
+ * @param connectTimeoutMillis How long dialling a session may take before it counts as unreachable
  * @param resolve Resolves one contribution's session to something that can be dialled, with a
  *        fresh token each time it is asked
  */
 class SessionDispatcher(
     private val specs: Map<String, ExternalCallSpec>,
-    private val classes: Map<String, ContributedClassSpec> = emptyMap(),
+    private val classes: Map<TypeKey, ContributedClassSpec> = emptyMap(),
+    private val connectTimeoutMillis: Long = SessionClient.DEFAULT_CONNECT_TIMEOUT_MILLIS,
     private val resolve: suspend (contribution: String, session: String) -> SessionConnection
 ) : ExternalCallDispatcher, AutoCloseable {
 
@@ -53,7 +56,8 @@ class SessionDispatcher(
             resolve = { resolve(contribution, sessionName) },
             versions = listOf(ScriptFunctionsProtocol.VERSION),
             onMessage = { inbox.put(Result.success(it)) },
-            onClosed = { reason -> inbox.put(Result.failure(ExternalCallException("Session to '$contribution' closed: $reason"))) }
+            onClosed = { reason -> inbox.put(Result.failure(ExternalCallException("Session to '$contribution' closed: $reason"))) },
+            connectTimeoutMillis = connectTimeoutMillis
         )
         try {
             runBlocking { session.open() }
@@ -78,9 +82,10 @@ class SessionDispatcher(
             }
             override fun receive(): ByteArray = inbox.take().getOrThrow()
             override val connection: Long get() = session.connectionNumber
+            override val maxReconnects: Int get() = session.maxReconnectAttempts
         }
         val ownSpecs = specs.filterValues { it.contribution == contribution }
-        val ownClasses = classes.filterValues { it.contribution == contribution }
+        val ownClasses = classes.values.filter { it.contribution == contribution }
         return Connection(session, ScriptFunctionsClient(transport, ownSpecs, ownClasses))
     }
 

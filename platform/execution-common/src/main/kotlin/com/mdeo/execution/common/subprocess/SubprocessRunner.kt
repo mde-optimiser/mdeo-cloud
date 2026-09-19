@@ -91,7 +91,7 @@ class SubprocessRunner(
     private val resultHolder = LinkedBlockingQueue<SubprocessResult>(1)
 
     @Volatile
-    private var processOutput: DataOutputStream? = null
+    private var processOutput: MessageWriter? = null
 
     private val commandIdCounter = AtomicInteger(0)
     private val channelIdCounter = AtomicInteger(0)
@@ -115,9 +115,7 @@ class SubprocessRunner(
         val id = commandIdCounter.incrementAndGet()
         val out = processOutput ?: return SubprocessResult.Failed("Subprocess not started")
         try {
-            synchronized(out) {
-                SubprocessMessage.write(out, SubprocessMessage.Command(id, payload))
-            }
+            out.write(SubprocessMessage.Command(id, payload))
         } catch (e: IOException) {
             return SubprocessResult.Failed("Failed to send command: ${e.message}")
         }
@@ -137,9 +135,7 @@ class SubprocessRunner(
     fun sendChannelMessage(payload: ByteArray) {
         val id = channelIdCounter.incrementAndGet()
         val out = processOutput ?: throw IOException("Subprocess not started")
-        synchronized(out) {
-            SubprocessMessage.write(out, SubprocessMessage.Channel(id, payload))
-        }
+        out.write(SubprocessMessage.Channel(id, payload))
     }
 
     /**
@@ -177,8 +173,7 @@ class SubprocessRunner(
         }
         this.shutdownHook = hook
 
-        val procOut = DataOutputStream(BufferedOutputStream(proc.outputStream))
-        this.processOutput = procOut
+        this.processOutput = MessageWriter(DataOutputStream(BufferedOutputStream(proc.outputStream)))
 
         Thread {
             proc.errorStream.bufferedReader().forEachLine { line ->
@@ -244,9 +239,7 @@ class SubprocessRunner(
         val out = processOutput
         if (out != null) {
             try {
-                synchronized(out) {
-                    SubprocessMessage.write(out, SubprocessMessage.Quit)
-                }
+                out.write(SubprocessMessage.Quit)
             } catch (_: IOException) {
                 // Process may already be dead
             }

@@ -58,11 +58,13 @@ scale(offset = 0.0, value = 1.0)
 Named arguments work for every function and method, with the parameter names their signatures
 declare, except for functions taking a variable number of arguments, such as `listOf`, and lambdas.
 
-Functions and records from another file are imported by name. A function can be renamed; a record
-cannot, because its name is also the name of its type:
+Functions and records from another file are imported by name, and either can be renamed. A renamed
+record is known by its new name only, both as a constructor and as a type, so two records of the
+same name from different files can be used side by side:
 
 ```fn
 import { unassignedEffort, maxOverload as overload } from "./objectives.fn"
+import { Point as GeoPoint } from "./geometry.fn"
 ```
 
 #### Records

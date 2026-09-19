@@ -8,12 +8,15 @@ package com.mdeo.script.runtime
  * mutable. Two records are equal when they are of the same record and their fields are equal, so a
  * record that is changed while it is an element of a set or a key of a map is not found there again.
  *
- * @param recordType Identifies the record as `<package>.<name>`
+ * The generated class is what identifies the record; [recordName] is only what it is shown as, and
+ * two records of different packages may share it.
+ *
+ * @param recordName The record's name, as scripts see it
  * @param fieldNames The field names, in declaration order
  * @param values The field values, in declaration order, boxed
  */
 abstract class ScriptRecord(
-    val recordType: String,
+    val recordName: String,
     private val fieldNames: Array<String>,
     private val values: Array<Any?>
 ) {
@@ -44,10 +47,10 @@ abstract class ScriptRecord(
     override fun equals(other: Any?): Boolean =
         other is ScriptRecord && other.javaClass == javaClass && values.contentEquals(other.values)
 
-    override fun hashCode(): Int = 31 * recordType.hashCode() + values.contentHashCode()
+    override fun hashCode(): Int = 31 * javaClass.name.hashCode() + values.contentHashCode()
 
     override fun toString(): String =
-        "${recordType.substringAfterLast('.')}(${fieldNames.indices.joinToString(", ") { "${fieldNames[it]}=${values[it]}" }})"
+        "$recordName(${fieldNames.indices.joinToString(", ") { "${fieldNames[it]}=${values[it]}" }})"
 
     companion object {
         /**
@@ -70,14 +73,15 @@ abstract class ScriptRecord(
  * Base class of every opaque class a contribution defines: a handle to state that stays on the
  * contribution's service.
  *
- * The compiler generates one final subclass per opaque class. Handles are equal only to themselves.
+ * The compiler generates one final subclass per opaque class, which is what identifies it. Handles
+ * are equal only to themselves.
  *
- * @param opaqueType Identifies the class as `contrib/<contribution>.<name>`
+ * @param className The class's name, as scripts see it
  * @param handle The id the service knows the state under
  */
 abstract class ScriptOpaque(
-    val opaqueType: String,
+    val className: String,
     val handle: Long
 ) {
-    override fun toString(): String = "${opaqueType.substringAfterLast('.')}#$handle"
+    override fun toString(): String = "$className#$handle"
 }

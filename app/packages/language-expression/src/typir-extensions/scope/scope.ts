@@ -41,21 +41,6 @@ export interface Scope<Specifics extends TypirSpecifics> {
      * @returns the list of scope entries
      */
     getEntries(position: number): ScopeEntry<Specifics>[];
-
-    /**
-     * Get all entries that are guaranteed newly initialized in this scope.
-     * Excludes entries initialized in parent scopes, and entries defined in this scope.
-     *
-     * @returns the set of newly initialized entries
-     */
-    getInitializedEntries(): Set<ScopeEntry<Specifics>>;
-
-    /**
-     * Gets all control flow entries in this scope.
-     *
-     * @returns the list of control flow entries
-     */
-    getControlFlowEntries(): ControlFlowEntry<Specifics>[];
 }
 
 /**
@@ -91,14 +76,6 @@ export interface BoundScope<Specifics extends TypirSpecifics> {
      * @returns the list of scope entries
      */
     getEntries(): ScopeEntry<Specifics>[];
-
-    /**
-     * Get all entries that are newly initialized in this scope.
-     * Excludes entries initialized in parent scopes, and entries defined in this scope.
-     *
-     * @returns the set of newly initialized entries
-     */
-    getInitializedEntries(): Set<ScopeEntry<Specifics>>;
 }
 
 /**
@@ -151,36 +128,14 @@ export interface ScopeLocalInitialization {
 }
 
 /**
- * A control flow entry representing possible sub-scopes that may be entered
- */
-export interface ControlFlowEntry<Specifics extends TypirSpecifics> {
-    /**
-     * The scopes which may be entered from this control flow entry, and after which control flow
-     * may continue past it. A branch that always jumps away is not one of them.
-     */
-    scopes: Scope<Specifics>[];
-    /**
-     * The position in the parent scope at which this control flow entry occurs.
-     */
-    position: number;
-    /**
-     * If it is guaranteed that at least one of the scopes will be completed when control flow leaves this entry
-     */
-    isComplete: boolean;
-}
-
-/**
  * The default implementation of a scope.
  */
 export class DefaultScope<Specifics extends TypirSpecifics> implements Scope<Specifics> {
     /**
-     * A lookup for the initialization positions of entries.
+     * The position at which each entry is initialized in this scope, -1 for the start of the scope.
      * This can include entries defined in parent scopes.
-     * A number represents the position at which the entry is initialized, with -1 indicating it is initialized at the start.
-     * A value of true indicates that the entry is initialized by a parent scope before entering this scope.
-     * A value of false indicates that the entry is not initialized in this scope or by any parent scope before entering this scope.
      */
-    private readonly initializationLookup: Map<ScopeEntry<Specifics>, number | boolean> = new Map();
+    private readonly initializationLookup: Map<ScopeEntry<Specifics>, number> = new Map();
 
     /**
      * A lookup for local entries by name.
@@ -188,40 +143,16 @@ export class DefaultScope<Specifics extends TypirSpecifics> implements Scope<Spe
     private readonly localEntryLookup: Map<string, ScopeEntry<Specifics>> = new Map();
 
     /**
-     * Tracks the highest position up to which control flow entries have been processed for initialization.
-     */
-    private controlFlowEntriesInitializedUntil = -1;
-
-    /**
-     * Lazy cache for control flow entries, sorted by position.
-     */
-    private _sortedControlFlowEntries: ControlFlowEntry<Specifics>[] | undefined;
-
-    /**
-     * Lazily resolves and returns the control flow entries sorted by position.
-     */
-    private get sortedControlFlowEntries(): ControlFlowEntry<Specifics>[] {
-        if (this._sortedControlFlowEntries === undefined) {
-            this._sortedControlFlowEntries = this.controlFlowEntriesProvider(this).sort(
-                (a, b) => a.position - b.position
-            );
-        }
-        return this._sortedControlFlowEntries;
-    }
-
-    /**
      * Creates a new DefaultScope.
      *
      * @param parent the optional parent scope
      * @param entriesProvider provider for the local scope entries
-     * @param controlFlowEntriesProvider provider for the control flow entries in this scope
-     * @param localInitializations a map of entry names to the position at which they are initialized in this scope
+     * @param localInitializations the positions at which entries are initialized in this scope
      * @param languageNode the language AST node that this scope is associated with
      */
     constructor(
         private readonly parent: BoundScope<Specifics> | undefined,
         entriesProvider: (scope: Scope<Specifics>) => ScopeEntry<Specifics>[],
-        private readonly controlFlowEntriesProvider: (scope: Scope<Specifics>) => ControlFlowEntry<Specifics>[],
         localInitializations: ScopeLocalInitialization[],
         readonly languageNode: Specifics["LanguageType"] | undefined
     ) {
@@ -230,8 +161,9 @@ export class DefaultScope<Specifics extends TypirSpecifics> implements Scope<Spe
         }
         for (const init of localInitializations) {
             const entry = this.getEntry(init.name, init.position);
-            if (entry != undefined) {
-                this.updateInitializationLookup(entry, init.position);
+            const current = entry != undefined ? this.initializationLookup.get(entry) : undefined;
+            if (entry != undefined && (current == undefined || init.position < current)) {
+                this.initializationLookup.set(entry, init.position);
             }
         }
     }
@@ -252,26 +184,14 @@ export class DefaultScope<Specifics extends TypirSpecifics> implements Scope<Spe
     }
 
     isEntryInitialized(entry: ScopeEntry<Specifics>, position: number): boolean {
-        let cached = this.initializationLookup.get(entry);
-        if (cached != undefined && this.isInitializedAt(position, cached)) {
+        const initializedAt = this.initializationLookup.get(entry);
+        if (initializedAt != undefined && initializedAt <= position) {
             return true;
         }
-        if (this.initializeControlFlowEntriesUntil(position)) {
-            cached = this.initializationLookup.get(entry);
-            if (cached != undefined && this.isInitializedAt(position, cached)) {
-                return true;
-            }
-        }
-        if (cached === false || entry.definingScope === this || this.parent == undefined) {
+        if (entry.definingScope === this || this.parent == undefined) {
             return false;
         }
-        // Not initialized here yet, maybe only further on: it still is if the parent initialized it
-        // before entering this scope.
-        const initializedByParent = this.parent.isEntryInitialized(entry);
-        if (cached == undefined) {
-            this.updateInitializationLookup(entry, initializedByParent);
-        }
-        return initializedByParent;
+        return this.parent.isEntryInitialized(entry);
     }
 
     getEntries(position: number): ScopeEntry<Specifics>[] {
@@ -283,112 +203,6 @@ export class DefaultScope<Specifics extends TypirSpecifics> implements Scope<Spe
             return [...localEntries, ...parentEntries];
         } else {
             return localEntries;
-        }
-    }
-
-    getInitializedEntries(): Set<ScopeEntry<Specifics>> {
-        this.initializeControlFlowEntriesUntil(Number.POSITIVE_INFINITY);
-        const initializedEntries: Set<ScopeEntry<Specifics>> = new Set();
-        for (const [entry, init] of this.initializationLookup.entries()) {
-            if (typeof init === "number" && entry.definingScope !== this) {
-                initializedEntries.add(entry);
-            }
-        }
-        return initializedEntries;
-    }
-
-    getControlFlowEntries(): ControlFlowEntry<Specifics>[] {
-        return this.controlFlowEntriesProvider(this);
-    }
-
-    /**
-     * Initializes the initialization lookup for control flow entries until the given position.
-     * Processes control flow entries sorted by their position.
-     *
-     * @param position the position until which to initialize
-     * @return true if any new initializations were made, false otherwise
-     */
-    private initializeControlFlowEntriesUntil(position: number): boolean {
-        if (this.controlFlowEntriesInitializedUntil >= position) {
-            return false;
-        }
-
-        let hasNewInitializations = false;
-
-        for (const controlFlowEntry of this.sortedControlFlowEntries) {
-            if (controlFlowEntry.position <= this.controlFlowEntriesInitializedUntil) {
-                continue;
-            }
-
-            if (controlFlowEntry.position > position) {
-                break;
-            }
-
-            if (controlFlowEntry.isComplete && controlFlowEntry.scopes.length > 0) {
-                const childInitializations = controlFlowEntry.scopes
-                    .map((scope) => scope.getInitializedEntries())
-                    .reduce<Set<ScopeEntry<Specifics>> | undefined>((previous, current) => {
-                        if (previous === undefined) {
-                            return current;
-                        } else {
-                            return current.intersection(previous);
-                        }
-                    }, undefined);
-
-                for (const entry of childInitializations ?? []) {
-                    this.updateInitializationLookup(entry, controlFlowEntry.position);
-                    hasNewInitializations = true;
-                }
-            }
-        }
-
-        if (this.controlFlowEntriesInitializedUntil < position) {
-            this.controlFlowEntriesInitializedUntil = position;
-        }
-
-        return hasNewInitializations;
-    }
-
-    /**
-     * Updates the initialization position of the given entry in a consistent manner.
-     * Throws an error if the update is inconsistent.
-     *
-     * @param entry the scope entry to update
-     * @param position the new initialization value
-     */
-    private updateInitializationLookup(entry: ScopeEntry<Specifics>, position: number | boolean): void {
-        const current = this.initializationLookup.get(entry);
-        if (current == undefined) {
-            this.initializationLookup.set(entry, position);
-        } else if (position === false) {
-            if (current !== false) {
-                throw new Error("Cannot update initialization to false if it is already initialized.");
-            }
-        } else if (current === false) {
-            throw new Error("Cannot update initialization from false to a position.");
-        } else if (current === true) {
-            // nothing to do here
-        } else if (position === true) {
-            this.initializationLookup.set(entry, true);
-        } else if (position < current) {
-            this.initializationLookup.set(entry, position);
-        }
-    }
-
-    /**
-     * Helper method for checking if an entry is initialized at a given position.
-     *
-     * @param position the position to check
-     * @param init the initialization value from {@link initializationLookup}
-     * @returns true if initialized, false otherwise
-     */
-    private isInitializedAt(position: number, init: number | boolean): boolean {
-        if (init === true) {
-            return true;
-        } else if (init === false) {
-            return false;
-        } else {
-            return init <= position;
         }
     }
 }
@@ -418,9 +232,5 @@ export class DefaultBoundScope<Specifics extends TypirSpecifics> implements Boun
 
     getEntries(): ScopeEntry<Specifics>[] {
         return this.scope.getEntries(this.position);
-    }
-
-    getInitializedEntries(): Set<ScopeEntry<Specifics>> {
-        return this.scope.getInitializedEntries();
     }
 }

@@ -1,6 +1,7 @@
 import type { ClassType, FunctionSignature, FunctionType, ReturnType, ValueType } from "@mdeo/language-expression";
 import type { ServerContributionPlugin } from "@mdeo/plugin";
 import type { TypedCallableBody } from "./typedAst.js";
+import type { TypedExpression } from "@mdeo/language-expression";
 import type { Interface, ParserRule, SerializedGrammar } from "@mdeo/language-common";
 import type { GenericAstNode } from "langium";
 
@@ -93,6 +94,11 @@ export interface ContributedRecordField {
      * The field type.
      */
     type: ValueType;
+    /**
+     * The value the field takes when the constructor leaves it out, as a typed expression whose type
+     * indices refer to the contribution's `types`. It may refer to the fields declared before it.
+     */
+    defaultValue?: TypedExpression;
 }
 
 /**
@@ -201,6 +207,13 @@ export interface ContributedFunctionSignature {
      * {@link ExternalImplementation} naming an operation the plugin's service answers
      */
     implementation: ContributedImplementation;
+    /**
+     * The values parameters take when a call leaves them out, by parameter name, as typed
+     * expressions whose type indices refer to the contribution's `types`. A default may refer to the
+     * parameters declared before it. It is evaluated in the script, also for an external
+     * implementation, so the service is always sent every argument.
+     */
+    defaultValues?: Record<string, TypedExpression>;
 }
 
 /**
@@ -260,6 +273,10 @@ export interface ResolvedContributedClass {
      * The declaration.
      */
     declaration: ContributedClass;
+    /**
+     * The types array of the contribution, which the default values of a record's fields refer to.
+     */
+    types: ReturnType[];
     /**
      * The class type registered with the type system.
      */

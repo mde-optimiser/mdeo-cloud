@@ -4,9 +4,11 @@ import type { CustomValueType } from "../typir-extensions/kinds/custom-value/cus
 import { isCustomValueType } from "../typir-extensions/kinds/custom-value/custom-value-type.js";
 import type { CustomVoidType } from "../typir-extensions/kinds/custom-void/custom-void-type.js";
 import { isCustomVoidType } from "../typir-extensions/kinds/custom-void/custom-void-type.js";
-import type { BoundScope, Scope } from "../typir-extensions/scope/scope.js";
+import type { BoundScope } from "../typir-extensions/scope/scope.js";
 import { findCommonParentType } from "../typir-extensions/rules/commonParentType.js";
 import { sharedImport } from "@mdeo/language-shared";
+import type { StatementControlFlow } from "./controlFlowAnalysis.js";
+import type { StatementsScopeType } from "../grammar/statementTypes.js";
 
 const { InferenceProblem: InferenceProblemConstant, ValidationProblem: ValidationProblemConstant } =
     sharedImport("typir");
@@ -35,15 +37,6 @@ export interface ReturnStatementAccessor<Specifics extends TypirSpecifics> {
      * @returns The expression being returned, or undefined for void returns
      */
     getReturnExpression(node: Specifics["LanguageType"]): Specifics["LanguageType"] | undefined;
-
-    /**
-     * Gets the statements from a statements scope node.
-     * By default, only handles statements scope nodes.
-     *
-     * @param node The language node (should be a statements scope)
-     * @returns Array of statement nodes, or undefined if not a statements scope
-     */
-    getStatementsFromScope(node: Specifics["LanguageType"]): Specifics["LanguageType"][] | undefined;
 }
 
 /**
@@ -75,11 +68,13 @@ export abstract class ReturnAnalyzerBase<Specifics extends TypirSpecifics, TProb
      * @param scope The scope containing the statements to analyze
      * @param services Extended Typir services for type operations
      * @param accessor Language-specific accessor for return statement information
+     * @param controlFlow The control flow analysis, which decides whether all paths return
      */
     constructor(
         protected readonly scope: BoundScope<Specifics>,
         readonly services: ExtendedTypirServices<Specifics>,
-        protected readonly accessor: ReturnStatementAccessor<Specifics>
+        protected readonly accessor: ReturnStatementAccessor<Specifics>,
+        protected readonly controlFlow: StatementControlFlow
     ) {}
 
     /**
@@ -110,52 +105,20 @@ export abstract class ReturnAnalyzerBase<Specifics extends TypirSpecifics, TProb
     ): void;
 
     /**
-     * Analyzes all return statements in the scope.
+     * Analyzes every return statement of the body, reachable or not, and whether all paths return.
      * Should be called by subclasses after construction.
      */
     protected analyze(): void {
-        this.allPathsReturn = this.analyzeScope(this.scope.scope);
-    }
-
-    /**
-     * Analyzes a single scope for return statements.
-     *
-     * @param scope The scope to analyze
-     * @returns Whether all paths in this scope return a value
-     */
-    private analyzeScope(scope: Scope<Specifics>): boolean {
-        let hasDirectReturn = false;
-
-        const languageNode = scope.languageNode;
-        if (languageNode == undefined) {
-            return false;
+        const body = this.scope.scope.languageNode as StatementsScopeType | undefined;
+        if (body == undefined) {
+            return;
         }
-
-        const statements = this.accessor.getStatementsFromScope(languageNode);
-        if (statements == undefined) {
-            return false;
-        }
-
-        for (const statement of statements) {
+        for (const statement of this.controlFlow.statementsOf(body)) {
             if (this.accessor.isReturnStatement(statement)) {
-                hasDirectReturn = true;
-                const returnExpr = this.accessor.getReturnExpression(statement);
-                this.analyzeReturnExpression(statement, returnExpr);
+                this.analyzeReturnExpression(statement, this.accessor.getReturnExpression(statement));
             }
         }
-
-        const controlFlowEntries = scope.getControlFlowEntries();
-        let hasCompleteReturningControlFlow = false;
-
-        for (const controlFlowEntry of controlFlowEntries) {
-            const childResults = controlFlowEntry.scopes.map((childScope) => this.analyzeScope(childScope));
-
-            if (controlFlowEntry.isComplete && childResults.every((result) => result)) {
-                hasCompleteReturningControlFlow = true;
-            }
-        }
-
-        return hasDirectReturn || hasCompleteReturningControlFlow;
+        this.allPathsReturn = !this.controlFlow.completesNormally(body);
     }
 
     /**
@@ -189,13 +152,15 @@ export class ReturnInferenceAnalyzer<Specifics extends TypirSpecifics> extends R
      * @param scope The scope containing the statements to analyze
      * @param services Extended Typir services for type operations
      * @param accessor Language-specific accessor for return statement information
+     * @param controlFlow The control flow analysis, which decides whether all paths return
      */
     constructor(
         scope: BoundScope<Specifics>,
         services: ExtendedTypirServices<Specifics>,
-        accessor: ReturnStatementAccessor<Specifics>
+        accessor: ReturnStatementAccessor<Specifics>,
+        controlFlow: StatementControlFlow
     ) {
-        super(scope, services, accessor);
+        super(scope, services, accessor, controlFlow);
         this.analyze();
     }
 
@@ -266,15 +231,17 @@ export class ReturnValidationAnalyzer<Specifics extends TypirSpecifics> extends 
      * @param expectedReturnTypeLanguageNode The language node representing the expected return type (for error reporting)
      * @param services Extended Typir services for type operations
      * @param accessor Language-specific accessor for return statement information
+     * @param controlFlow The control flow analysis, which decides whether all paths return
      */
     constructor(
         scope: BoundScope<Specifics>,
         private readonly expectedReturnType: CustomValueType | CustomVoidType,
         private readonly expectedReturnTypeLanguageNode: Specifics["LanguageType"],
         services: ExtendedTypirServices<Specifics>,
-        accessor: ReturnStatementAccessor<Specifics>
+        accessor: ReturnStatementAccessor<Specifics>,
+        controlFlow: StatementControlFlow
     ) {
-        super(scope, services, accessor);
+        super(scope, services, accessor, controlFlow);
         this.returnType = expectedReturnType;
         this.analyze();
         this.validateAllPathsReturn();

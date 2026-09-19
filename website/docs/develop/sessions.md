@@ -40,8 +40,8 @@ contrib:script-functions
 ```
 
 That same string is used everywhere one is written down: the URL segments of both endpoints, the
-`target` claim of a session token, the keys of `ServiceConfig.sessions`, log lines, error
-messages, and the plugin details view. `@mdeo/plugin` exports `formatPluginTarget` and
+`target` claim of a session token, the keys of `ServiceConfig.sessions`, log lines and error
+messages. `@mdeo/plugin` exports `formatPluginTarget` and
 `parsePluginTarget`; `com.mdeo.common.model.PluginTarget` is their Kotlin twin.
 
 Contribution ids are unique **within a project**. Adding a plugin whose contribution id is already
@@ -60,11 +60,7 @@ const modelLanguagePlugin: LanguagePlugin = {
     id: "model",
     // …
     sessions: {
-        validation: {
-            protocol: "model-validation",
-            versions: [1],
-            description: "Validates model changes as a run makes them"
-        }
+        validation: { protocol: "model-validation", versions: [1] }
     }
 };
 
@@ -82,7 +78,6 @@ const contribution: ServerContributionPlugin = {
 | --- | --- |
 | `protocol` | Name of the protocol, owned by whoever defines the contract — `script-functions` belongs to the script language, not to the platform |
 | `versions` | Versions this side can speak, most preferred first |
-| `description` | What the session is for; shown in the plugin details view |
 
 The manifest is the only place a session type is written down. The connect endpoint hands a
 caller the protocol and versions from there, and the session endpoint negotiates against the same

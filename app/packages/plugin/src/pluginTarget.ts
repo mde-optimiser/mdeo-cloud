@@ -52,6 +52,20 @@ export function isPluginTargetKind(value: string): value is PluginTargetKind {
 }
 
 /**
+ * Builds a target from its two parts, as they arrive in separate URL segments.
+ *
+ * @param kind The kind, e.g. `lang`
+ * @param id The language or contribution id
+ * @returns The target, or undefined when the kind is unknown or the id unusable
+ */
+export function pluginTargetOf(kind: string, id: string): PluginTarget | undefined {
+    if (!isPluginTargetKind(kind) || !TARGET_ID_PATTERN.test(id)) {
+        return undefined;
+    }
+    return { kind, id };
+}
+
+/**
  * Renders a target as the single string used everywhere one is written down — URL segments,
  * the `target` claim of a session token, configuration keys, log lines and error messages.
  *

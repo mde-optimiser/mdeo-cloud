@@ -46,6 +46,20 @@ class ScriptFunctionsServiceSessionTest {
     }
 
     @Test
+    fun `an enum entry arrives as its enum and entry, needs no model, and goes back the same way`() = runBlocking {
+        var received: Any? = null
+        val service = session("next" to ScriptFunctionOperation { call ->
+            received = call.arguments[0]
+            ScriptEnumValue(call.argument<ScriptEnumValue>(0).enumName, "Classic")
+        })
+        val answer = service.handle(
+            ClientMessage.Call(1, "next", emptyList(), listOf(WireValue.EnumValue("Style", "Modern")))
+        )
+        assertEquals(ScriptEnumValue("Style", "Modern"), received)
+        assertEquals(WireValue.EnumValue("Style", "Classic"), assertIs<ServiceMessage.Result>(answer).value)
+    }
+
+    @Test
     fun `an operation cannot change a collection it is given`() = runBlocking {
         val service = session("append" to ScriptFunctionOperation { call ->
             @Suppress("UNCHECKED_CAST")

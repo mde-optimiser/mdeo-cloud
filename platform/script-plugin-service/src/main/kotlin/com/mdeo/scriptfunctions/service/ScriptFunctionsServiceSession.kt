@@ -5,6 +5,7 @@ import com.mdeo.scriptfunctions.protocol.ClientMessage
 import com.mdeo.scriptfunctions.protocol.HeapKind
 import com.mdeo.scriptfunctions.protocol.HeapObject
 import com.mdeo.scriptfunctions.protocol.ServiceMessage
+import com.mdeo.scriptfunctions.protocol.WireScalars
 import com.mdeo.scriptfunctions.protocol.WireValue
 import kotlinx.coroutines.CancellationException
 import java.util.Collections
@@ -221,13 +222,6 @@ class ScriptFunctionsServiceSession(
     }
 
     private fun decode(value: WireValue): Any? = when (value) {
-        WireValue.Null -> null
-        is WireValue.Bool -> value.value
-        is WireValue.IntValue -> value.value
-        is WireValue.LongValue -> value.value
-        is WireValue.FloatValue -> value.value
-        is WireValue.DoubleValue -> value.value
-        is WireValue.StringValue -> value.value
         is WireValue.Ref -> views[value.id]
             ?: throw IllegalArgumentException("Collection ${value.id} is referenced but was not sent")
         is WireValue.InstanceValue -> model?.instances?.get(value.name)
@@ -237,6 +231,8 @@ class ScriptFunctionsServiceSession(
             ?: throw IllegalArgumentException(
                 "The ${value.className} handle ${value.id} is no longer held; handles do not outlive the model they were created on"
             )
+        is WireValue.EnumValue -> ScriptEnumValue(value.enumName, value.entry)
+        else -> WireScalars.decode(value)
     }
 
     /**
@@ -252,21 +248,16 @@ class ScriptFunctionsServiceSession(
 
     private fun encodeValue(value: Any?, created: MutableList<HeapObject>): WireValue = when (value) {
         null, Unit -> WireValue.Null
-        is Boolean -> WireValue.Bool(value)
-        is Int -> WireValue.IntValue(value)
-        is Long -> WireValue.LongValue(value)
-        is Float -> WireValue.FloatValue(value)
-        is Double -> WireValue.DoubleValue(value)
-        is String -> WireValue.StringValue(value)
         is RecordValue -> WireValue.RecordValue(value.recordName, value.fields.mapValues { encode(it.value, created) })
         is OpaqueValue -> WireValue.HandleValue(value.className, handleIdFor(value))
+        is ScriptEnumValue -> WireValue.EnumValue(value.enumName, value.entry)
         is ScriptModelInstance -> if (value.model === model) {
             WireValue.InstanceValue(value.name)
         } else {
             throw UnsupportedValueException("returned an instance of a model the call does not work on")
         }
         is Collection<*>, is Map<*, *> -> ids[value]?.let { WireValue.Ref(it) } ?: adopt(value, created)
-        else -> throw UnsupportedValueException(
+        else -> WireScalars.encode(value) ?: throw UnsupportedValueException(
             "returned a ${value::class.qualifiedName}, which cannot be sent to a script"
         )
     }

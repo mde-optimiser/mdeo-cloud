@@ -1,7 +1,6 @@
 import {
     DefaultScope,
     type BoundScope,
-    type ControlFlowEntry,
     type Scope,
     type ScopeEntry,
     type ScopeLocalInitialization,
@@ -20,7 +19,6 @@ export class LambdaScope extends DefaultScope<ScriptTypirSpecifics> {
      *
      * @param parent The parent scope containing this lambda scope
      * @param entriesProvider Function that provides the scope entries (parameters)
-     * @param controlFlowEntriesProvider Function that provides control flow entries
      * @param localInitializations Initial values for locally initialized entries
      * @param languageNode The lambda expression AST node
      * @param lambdaTypeInference The result of lambda type inference
@@ -28,12 +26,11 @@ export class LambdaScope extends DefaultScope<ScriptTypirSpecifics> {
     constructor(
         parent: BoundScope<ScriptTypirSpecifics> | undefined,
         entriesProvider: (scope: Scope<ScriptTypirSpecifics>) => ScopeEntry<ScriptTypirSpecifics>[],
-        controlFlowEntriesProvider: (scope: Scope<ScriptTypirSpecifics>) => ControlFlowEntry<ScriptTypirSpecifics>[],
         localInitializations: ScopeLocalInitialization[],
         languageNode: ScriptTypirSpecifics["LanguageType"] | undefined,
         readonly lambdaTypeInference: LambdaTypeInferenceResult<ScriptTypirSpecifics>
     ) {
-        super(parent, entriesProvider, controlFlowEntriesProvider, localInitializations, languageNode);
+        super(parent, entriesProvider, localInitializations, languageNode);
         this.lambdaTypeInference = lambdaTypeInference;
     }
 }

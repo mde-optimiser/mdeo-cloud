@@ -16,6 +16,9 @@ import com.mdeo.pluginservice.session.SessionContext
  * | `Set`, `OrderedSet` and their readonly types | [Set], readonly, iterating in insertion order |
  * | `Map`, `ReadonlyMap` | [Map], readonly, iterating in insertion order |
  * | a model class | [ScriptModelInstance] |
+ * | an enum of the metamodel | [ScriptEnumValue] |
+ * | a record the contribution defines | [RecordValue] |
+ * | an opaque class the contribution defines | the state its handle stands for; return it wrapped with [OpaqueType.wrap] |
  *
  * The same collection passed twice is the same object twice, and a collection that contains itself
  * does so here as well.

@@ -135,6 +135,22 @@ object ASMUtil {
         }
         return Opcodes.ASTORE
     }
+
+    /**
+     * Pushes the zero value of a type: `0` or `false` for a primitive, `null` for a reference.
+     *
+     * @param type The type.
+     * @param mv The method visitor to emit bytecode to.
+     */
+    fun emitZeroValue(type: ReturnType, mv: MethodVisitor) {
+        when (getTypeDescriptor(type)) {
+            "I", "Z", "B", "S", "C" -> mv.visitInsn(Opcodes.ICONST_0)
+            "J" -> mv.visitInsn(Opcodes.LCONST_0)
+            "F" -> mv.visitInsn(Opcodes.FCONST_0)
+            "D" -> mv.visitInsn(Opcodes.DCONST_0)
+            else -> mv.visitInsn(Opcodes.ACONST_NULL)
+        }
+    }
     
     /**
      * Gets the stack size for a ReturnType.

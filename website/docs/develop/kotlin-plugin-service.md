@@ -64,19 +64,20 @@ import com.mdeo.pluginservice.runPluginService
 import com.mdeo.scriptfunctions.service.scriptContribution
 
 fun main() {
-    val listOfString = genericClassType("builtin", "List", typeArgs = mapOf("T" to BuiltinTypes.STRING))
+    val stopsIn = genericClassType("builtin", "ReadonlyList", typeArgs = mapOf("T" to BuiltinTypes.STRING))
+    val stopsOut = genericClassType("builtin", "List", typeArgs = mapOf("T" to BuiltinTypes.STRING))
 
     val routing = scriptContribution("routing") {
         description = "Route planning"
 
         function("shortestTour") {
-            parameter("stops", listOfString)
-            returns(listOfString)
+            parameter("stops", stopsIn)
+            returns(stopsOut)
             implementation { call -> solve(call.argument<List<String>>(0)) }
         }
 
         function("tourLength") {
-            parameter("stops", genericClassType("builtin", "ReadonlyList", typeArgs = mapOf("T" to BuiltinTypes.STRING)))
+            parameter("stops", stopsIn)
             returns(BuiltinTypes.DOUBLE)
             implementation { call -> length(call.argument<List<String>>(0)) }
         }
@@ -106,7 +107,6 @@ calls address, as `contrib:<id>`, and must be unique within a project.
 | --- | --- |
 | `description` | Shown in the plugin details view |
 | `sessionName` | The name of the `script-functions` session, `functions` by default |
-| `sessionDescription` | What the session is for, shown in the plugin details view |
 | `function(name, overload = "") { … }` | One signature of one function. Declare the same name again with another `overload` key to add an overload |
 
 | In `function` | Meaning |
@@ -114,7 +114,7 @@ calls address, as `contrib:<id>`, and must be unique within a project.
 | `parameter(name, type)` | The next parameter |
 | `returns(type)` | The return type; `void` unless declared |
 | `generics("T", …)` | Generic type parameters, referenced with `GenericTypeRef("T")` |
-| `isVarArgs` | Whether the last parameter takes any number of arguments |
+| `parameter(name, type, default)` | The next parameter, which a call may leave out. `default` is an `Int`, `Long`, `Float`, `Double`, `Boolean` or `String` matching `type`, or `null` for a nullable type. The script evaluates it, so the operation always gets every argument |
 | `readsModel` | Whether calls are sent the model the script runs on, as `call.model` |
 | `operation` | The operation name on the wire; the function name, or `name/overload` for a named overload |
 | `implementation { call -> … }` | What answers a call |
@@ -130,8 +130,12 @@ operation table of the session answering them. A declared function cannot lack a
 an operation cannot answer a function nobody declared.
 
 Mistakes surface when the service starts, not when a project loads the plugin: a function without
-an implementation, a signature declared twice, and a lambda anywhere in a signature are all
-rejected by `scriptContribution`. A lambda is code inside the execution and cannot be sent.
+an implementation, a signature declared twice, and a type the protocol cannot carry are all
+rejected by `scriptContribution`. Parameters, results and record fields follow the same rule, which
+the script language applies again when it loads the contribution: scalars, strings, `Any`, model
+instances, enum values, the contribution's own records and opaque classes, declared generics, and
+collections of those. A lambda is code inside the execution and cannot be sent, and parameters take
+the read-only collection types, because an operation cannot change its arguments.
 
 ## Writing an operation
 
@@ -156,6 +160,7 @@ Arguments arrive as plain Kotlin values:
 | `Set`, `OrderedSet` and their readonly types | `Set`, readonly, iterating in insertion order |
 | `Map`, `ReadonlyMap` | `Map`, readonly, iterating in insertion order |
 | A metamodel class | `ScriptModelInstance`, readonly |
+| A metamodel enum | `ScriptEnumValue(enumName, entry)`; return one to return an enum value |
 | A record of the contribution | `RecordValue` |
 | An opaque class of the contribution | The state behind the handle |
 
@@ -207,9 +212,10 @@ val geo = scriptContribution("geo") {
 
 A **record** is a value with named fields. Scripts use it like a record they declare themselves:
 they create one with `Point(2.5, label = "home")`, read and assign its fields, copy it with `with`,
-compare records by content, and pass them to the contribution's functions. A field holds a scalar, a
-string, a model instance or enum value, a record of the same contribution declared before it, or a
-collection of those, and no field may be named `with`. Operations receive and return records as
+compare records by content, and pass them to the contribution's functions. A field follows the same
+type rule as a signature (see above), may name a record declared after it, and no field may be named
+`with`. `field(name, type, default)` gives a field a constant default, which the constructor may
+leave out. Operations receive and return records as
 `RecordValue`, a copy of the script's record; create one with `point.of(…)`, which checks that every
 field is given.
 
@@ -249,7 +255,7 @@ function("totalRooms") {
 | On `ScriptModelInstance` | Meaning |
 | --- | --- |
 | `name`, `className` | Identify the instance |
-| `attribute(name)`, `attributes(name)` | A single-valued attribute, or all values of a multi-valued one. Enum values are the entry's name |
+| `attribute(name)`, `attributes(name)` | A single-valued attribute, or all values of a multi-valued one. Enum values are `ScriptEnumValue`s, as in arguments |
 | `reference(name)`, `references(name)` | The instances an association end refers to |
 
 An instance passed as an argument is the same object as the one in `call.model.instances`, and an
@@ -295,7 +301,8 @@ numeric — there, once.
 | `JWT_ISSUER` | `mdeo-platform` | The issuer every accepted token must name |
 | `MAX_SESSIONS` | `64` | How many sessions may be open at once; another is refused with `4503` |
 
-Pass a `PluginServiceConfig` instead to set them in code.
+A numeric variable set to something that is not a whole number in its range stops the service at
+startup. Pass a `PluginServiceConfig` instead to set them in code.
 
 ## Adding routes of your own
 

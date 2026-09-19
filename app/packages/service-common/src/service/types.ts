@@ -78,6 +78,7 @@ export interface ServiceConfig<T = object> {
 
     /**
      * Maximum number of Langium instances to keep in the pool per language
+     * (default `DEFAULT_MAX_LANGIUM_INSTANCES`)
      */
     maxLangiumInstances?: number;
 
@@ -126,9 +127,16 @@ export interface ServiceConfig<T = object> {
     maxSessionInstances?: number;
 
     /**
-     * Maximum number of sessions open at once, on every target together (default 64).
+     * Maximum number of sessions open at once, on every target together
+     * (default `DEFAULT_MAX_SESSIONS`).
      */
     maxSessions?: number;
+
+    /**
+     * How many contribution sets the service remembers by hash
+     * (default `DEFAULT_MAX_CONTRIBUTION_SETS`); see `ContributionCache`.
+     */
+    maxContributionSets?: number;
 
     /**
      * How long a request may wait for a free Langium instance before failing, in milliseconds.

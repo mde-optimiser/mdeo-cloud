@@ -81,7 +81,26 @@ signature. Additional signatures get names of your choosing.
 | `parameters` | Ordered `{ name, type }` list |
 | `returnType` | A `ValueType`, or the void marker for a function returning nothing |
 | `generics` | Optional list of type parameter names, e.g. `["T"]` |
-| `isVarArgs` | Optional; the last parameter accepts any number of arguments |
+
+A contributed function cannot take a variable number of arguments; a signature with `isVarArgs` is
+refused.
+
+### Default values
+
+A `ContributedFunctionSignature` may carry `defaultValues`: typed expressions by parameter name,
+whose type indices refer to the contribution's `types`. A call may leave such a parameter out,
+also by passing later ones by name, and the script evaluates the default at the call, after the
+arguments it was given. A default may refer to the parameters before it. This also holds for
+external implementations, so their service is always sent every argument. A record field declares
+its default as `defaultValue` in the same form.
+
+```json
+"area": { "signatures": { "": {
+  "signature": { "parameters": [{ "name": "w", "type": … }, { "name": "h", "type": … }], "returnType": … },
+  "implementation": { "kind": "external", "operation": "area" },
+  "defaultValues": { "h": { "kind": "doubleLiteral", "evalType": 0, "value": "1.0" } }
+} } }
+```
 
 ### Implementations are data, not code
 
@@ -203,15 +222,18 @@ Collections the service creates and returns become the collection type the signa
 
 #### What cannot cross
 
-Version 1 of the protocol carries scalars, strings, instances of the script's model, the
-contribution's records and opaque handles, and collections of them. A call passed a model instance gets the model, readonly, whether or not the function
+Version 1 of the protocol carries scalars, strings, instances of the script's model, enum values
+of the script's metamodel, the contribution's records and opaque handles, and collections of them.
+An enum value travels as its enum and entry name and needs no model; one that comes back is the
+script's own entry, so `==` compares it as expected. A call passed a model instance gets the model, readonly, whether or not the function
 declares `model: "readonly"`. Refused outright:
 
 | Refused | When |
 | --- | --- |
-| A lambda parameter or return type | When the contribution is declared; the script language also rejects it when resolving contributions. A lambda is code in the execution process and cannot be sent |
+| A lambda anywhere in a parameter, result or record field type | When the contribution is declared; the script language also rejects it when resolving contributions. A lambda is code in the execution process and cannot be sent |
+| A mutable collection type (`List`, `Set`, `Map`, …) as a parameter | Likewise. An operation cannot change its arguments, so parameters are declared with the read-only types (`ReadonlyList`, …) |
 | An external implementation without a `script-functions` session | When the script language resolves contributions |
-| Enum values and other objects | When the call is made, with an error naming the function |
+| Any other object | When the call is made, with an error naming the function |
 
 A run whose contributions declare external functions checks that every one of their sessions can
 be resolved **before** it starts, and fails with a message naming the contribution otherwise.
@@ -317,7 +339,10 @@ At service creation the script language filters the contributions with
 | `Expression rule '…' not found in plugin grammar.` | `ruleName` is not in the serialised grammar |
 | `Expression interface '…' not found in plugin grammar.` | `interfaceName` is not in the serialised grammar |
 | `Duplicate function or expression name '…' contributed by plugins.` | Two contributions claim the same global name |
-| `External function '…' takes a lambda parameter '…'.` / `… returns a lambda.` | An external implementation's signature uses a lambda type |
+| `… in contribution '…' is a lambda, which cannot cross the boundary to a plugin's service.` | A lambda in the signature of an external implementation or in a record field |
+| `… in contribution '…' is a '…', but an external function cannot change its arguments.` | A parameter of an external implementation with a mutable collection type |
+| `… in contribution '…' has type '…', which cannot be sent to or from a plugin's service.` | A type the protocol cannot carry in an external signature or a record field |
+| `… in contribution '…' refers to class '…' of '…', which the contribution does not define.` | A contributed class of another contribution, or one that does not exist |
 | `Contribution '…' declares external implementations for … but no 'script-functions' session.` | An external implementation without a session to answer it |
 
 The last one is worth planning for: the global namespace is shared across every contribution enabled

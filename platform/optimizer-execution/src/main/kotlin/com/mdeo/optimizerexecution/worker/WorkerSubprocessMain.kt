@@ -32,11 +32,9 @@ import com.mdeo.script.ast.TypedPluginAst as ScriptTypedPluginAst
 import com.mdeo.script.ast.expressions.TypedExpressionSerializer as ScriptExpressionSerializer
 import com.mdeo.script.ast.statements.TypedStatementSerializer
 import com.mdeo.script.compiler.CompilationInput
-import com.mdeo.script.external.SessionDispatcher
+import com.mdeo.script.compiler.CompiledProgram
 import com.mdeo.script.runtime.ExternalCallDispatcher
-import com.mdeo.common.model.PluginTarget
-import com.mdeo.common.model.PluginTargetKind
-import com.mdeo.execution.common.api.SessionResolver
+import com.mdeo.execution.common.external.ExternalSessions
 import com.mdeo.script.compiler.ScriptCompiler
 import com.mdeo.script.runtime.ExecutionEnvironment
 import io.ktor.client.*
@@ -544,10 +542,9 @@ class WorkerSubprocessMain : SubprocessMain() {
     }
 
     /**
-     * Sessions opened for the external calls of the current execution, and the resolver they ask.
+     * Sessions opened for the external calls of the current execution.
      */
-    private var sessionDispatcher: SessionDispatcher? = null
-    private var sessionResolver: SessionResolver? = null
+    private var externalSessions: ExternalSessions? = null
 
     /**
      * Builds the dispatcher that answers the program's external calls over sessions.
@@ -559,31 +556,19 @@ class WorkerSubprocessMain : SubprocessMain() {
      *         external call or this node was given no way to open sessions
      */
     private fun createExternalCalls(
-        specs: Map<String, com.mdeo.script.compiler.ExternalCallSpec>,
-        classes: Map<String, com.mdeo.script.compiler.ContributedClassSpec>,
+        program: CompiledProgram,
         request: WorkerSubprocessRequest.Setup
     ): ExternalCallDispatcher {
         closeExternalSessions()
-        val backendApiUrl = request.sessionBackendApiUrl
-        val projectId = request.sessionProjectId
-        val runToken = request.sessionRunToken
-        if (specs.isEmpty() || backendApiUrl == null || projectId == null || runToken == null) {
-            return ExternalCallDispatcher.UNSUPPORTED
-        }
-        val resolver = SessionResolver(backendApiUrl)
-        val dispatcher = SessionDispatcher(specs, classes) { contribution, session ->
-            resolver.resolve(projectId, PluginTarget.of(PluginTargetKind.CONTRIBUTION, contribution), session, runToken)
-        }
-        sessionResolver = resolver
-        sessionDispatcher = dispatcher
-        return dispatcher
+        val sessions = request.sessionAccess?.let { ExternalSessions(it) }
+            ?: return ExternalCallDispatcher.UNSUPPORTED
+        externalSessions = sessions
+        return sessions.createDispatcher(program)
     }
 
     private fun closeExternalSessions() {
-        sessionDispatcher?.close()
-        sessionDispatcher = null
-        sessionResolver?.close()
-        sessionResolver = null
+        externalSessions?.close()
+        externalSessions = null
     }
 
     /**
@@ -613,7 +598,7 @@ class WorkerSubprocessMain : SubprocessMain() {
         )
         val metamodel = compiledProgram.metamodel ?: Metamodel.compile(request.metamodelData)
         val clazz = ExecutionEnvironment(compiledProgram).scriptProgramClass
-        val externalCalls = createExternalCalls(compiledProgram.externalCalls, compiledProgram.contributedClasses, request)
+        val externalCalls = createExternalCalls(compiledProgram, request)
 
         val objectives = request.goalConfig.objectives.map { obj ->
             val jvmName = compiledProgram.functionLookup[obj.path]?.get(obj.functionName)

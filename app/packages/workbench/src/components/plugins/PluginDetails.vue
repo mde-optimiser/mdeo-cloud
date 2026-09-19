@@ -51,7 +51,6 @@
                     <div class="text-sm text-muted-foreground mt-1">
                         Textual Editor: {{ langPlugin.textualEditorPlugin ? "Supported" : "Not supported" }}
                     </div>
-                    <SessionList :address="`lang:${langPlugin.id}`" :sessions="langPlugin.sessions" />
                 </div>
             </div>
         </div>
@@ -70,12 +69,6 @@
                     <div class="text-sm text-muted-foreground mt-1">
                         {{ contribPlugin.description || "No description provided." }}
                     </div>
-                    <template
-                        v-for="contribution in contribPlugin.serverContributionPlugins ?? []"
-                        :key="contribution.id"
-                    >
-                        <SessionList :address="`contrib:${contribution.id}`" :sessions="contribution.sessions" />
-                    </template>
                 </div>
             </div>
         </div>
@@ -86,7 +79,6 @@
 import type { Plugin } from "@mdeo/plugin";
 import { Link, Icon } from "@lucide/vue";
 import { Separator } from "@/components/ui/separator";
-import SessionList from "./SessionList.vue";
 import { computed } from "vue";
 
 const props = defineProps<{

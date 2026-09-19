@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { formatPluginTarget, parsePluginTarget, PluginTargetKind } from "../dist/pluginTarget.js";
+import { formatPluginTarget, parsePluginTarget, pluginTargetOf, PluginTargetKind } from "../dist/pluginTarget.js";
 
 describe("plugin targets", () => {
     it("round trips both kinds", () => {
@@ -15,5 +15,12 @@ describe("plugin targets", () => {
             assert.throws(() => parsePluginTarget(address), /Invalid plugin target/, address);
         }
         assert.throws(() => formatPluginTarget({ kind: PluginTargetKind.LANGUAGE, id: "../x" }));
+    });
+
+    it("builds a target from its parts", () => {
+        assert.deepEqual(pluginTargetOf("contrib", "geo"), { kind: PluginTargetKind.CONTRIBUTION, id: "geo" });
+        assert.equal(pluginTargetOf("plugin", "geo"), undefined);
+        assert.equal(pluginTargetOf("lang", "a/b"), undefined);
+        assert.equal(pluginTargetOf("lang", ""), undefined);
     });
 });

@@ -2,6 +2,7 @@ package com.mdeo.script.compiler
 
 import com.mdeo.expression.ast.types.ReturnType
 import com.mdeo.metamodel.Metamodel
+import com.mdeo.script.ast.TypeKey
 
 /**
  * Represents a compiled script program ready for class-loading and execution.
@@ -20,14 +21,14 @@ import com.mdeo.metamodel.Metamodel
  *                       the platform, keyed by the call id the generated stub passes to the
  *                       dispatcher. A program with no such signature has none.
  * @param contributedClasses The records and opaque classes contributions define, keyed by
- *                       [ContributedClassSpec.typeId]. Their classes are part of [allBytecodes].
+ *                       [ContributedClassSpec.key]. Their classes are part of [allBytecodes].
  */
 data class CompiledProgram(
     val allBytecodes: Map<String, ByteArray>,
     val functionLookup: Map<String, Map<String, String>> = emptyMap(),
     val metamodel: Metamodel? = null,
     val externalCalls: Map<String, ExternalCallSpec> = emptyMap(),
-    val contributedClasses: Map<String, ContributedClassSpec> = emptyMap()
+    val contributedClasses: Map<TypeKey, ContributedClassSpec> = emptyMap()
 ) {
     companion object {
         /**

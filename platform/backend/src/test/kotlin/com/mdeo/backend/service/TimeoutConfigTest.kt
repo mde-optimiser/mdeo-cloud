@@ -36,4 +36,10 @@ class TimeoutConfigTest {
             FileDataConfig.load(mapOf("FILE_DATA_COMPUTATION_TIMEOUT_SECONDS" to "120", "FILE_DATA_COMPUTATION_BINDING_SECONDS" to "900"))
         )
     }
+
+    @Test
+    fun `the batch concurrency can be set`() {
+        assertEquals(FileDataConfig.DEFAULT_BATCH_CONCURRENCY, FileDataConfig.load(emptyMap()).batchConcurrency)
+        assertEquals(4, FileDataConfig.load(mapOf("FILE_DATA_BATCH_CONCURRENCY" to "4")).batchConcurrency)
+    }
 }

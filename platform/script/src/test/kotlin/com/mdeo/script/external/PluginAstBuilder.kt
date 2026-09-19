@@ -1,5 +1,6 @@
 package com.mdeo.script.external
 
+import com.mdeo.expression.ast.expressions.TypedExpression
 import com.mdeo.expression.ast.types.ClassTypeRef
 import com.mdeo.expression.ast.types.ReturnType
 import com.mdeo.script.ast.ExternalImplementation
@@ -77,6 +78,57 @@ class PluginAstBuilder(private val contribution: String) {
             )
         )
     }
+
+    /**
+     * A parameter or field, with the value it takes when left out.
+     *
+     * @param name The name.
+     * @param type Its type.
+     * @param default Builds the default value from the index of [type] in this plugin AST's types.
+     */
+    fun defaulted(name: String, type: ReturnType, default: (Int) -> TypedExpression): TypedParameter {
+        val index = type(type)
+        return TypedParameter(name, index, default(index))
+    }
+
+    /**
+     * Declares a record whose fields may have default values.
+     *
+     * @param name The record name.
+     * @param fields The fields, in declaration order.
+     */
+    fun record(name: String, fields: List<TypedParameter>) {
+        classes += TypedPluginClass(contribution = contribution, name = name, kind = TypedPluginClass.KIND_RECORD, fields = fields)
+    }
+
+    /**
+     * Declares a function implemented by the operation of the same name, whose parameters may have
+     * default values.
+     *
+     * @param name The function and operation name.
+     * @param returnType The return type.
+     * @param parameters The parameters, in declaration order.
+     */
+    fun external(name: String, returnType: ReturnType, parameters: List<TypedParameter>) {
+        functions += TypedPluginFunction(
+            name = name,
+            signatures = mapOf(
+                "" to TypedPluginFunctionSignature(
+                    parameters = parameters,
+                    returnType = type(returnType),
+                    external = ExternalImplementation(operation = name, contribution = contribution, session = "functions")
+                )
+            )
+        )
+    }
+
+    /**
+     * A parameter or field without a default value.
+     *
+     * @param name The name.
+     * @param type Its type.
+     */
+    fun plain(name: String, type: ReturnType): TypedParameter = TypedParameter(name, type(type))
 
     /**
      * Builds the plugin AST.

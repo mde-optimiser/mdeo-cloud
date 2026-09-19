@@ -2,6 +2,7 @@ import {
     FunctionSignature,
     PartialTypeSystem,
     ReturnInferenceAnalyzer,
+    type StatementControlFlow,
     ReturnValidationAnalyzer,
     type CustomValueType,
     type CustomVoidType,
@@ -43,12 +44,6 @@ import type { LangiumDocument, LangiumDocuments } from "langium";
 const { isAstNode, AstUtils } = sharedImport("langium");
 
 /**
- * How many leading parameters of a function or record can have a default value. The compiled
- * function marks each parameter a call leaves out with one bit of an `int`.
- */
-const MAX_DEFAULTED_PARAMETERS = 31;
-
-/**
  * Partial type system implementation for Script-specific AST nodes.
  * Handles validation rules for Script language constructs like functions with return types.
  *
@@ -59,6 +54,11 @@ export class ScriptPartialTypeSystem extends PartialTypeSystem<ScriptTypirSpecif
      * Lookup map for extension expression functions contributed by plugins.
      */
     private readonly extensionExpressionFunctionLookup: Map<string, CustomFunctionType> = new Map();
+
+    /**
+     * The control flow analysis, which decides whether all paths of a body return.
+     */
+    private readonly controlFlow: StatementControlFlow;
 
     /**
      * Constructor for ScriptPartialTypeSystem.
@@ -73,6 +73,7 @@ export class ScriptPartialTypeSystem extends PartialTypeSystem<ScriptTypirSpecif
         private readonly plugins: ResolvedScriptContributionPlugins
     ) {
         super(typir, {});
+        this.controlFlow = typir.ControlFlow;
         for (const expression of this.plugins.expressions) {
             const functionType = typir.TypeDefinitions.resolveCustomFunctionType(
                 {
@@ -157,20 +158,6 @@ export class ScriptPartialTypeSystem extends PartialTypeSystem<ScriptTypirSpecif
                             languageNode: namedImport,
                             languageProperty: namedImport.name != undefined ? "name" : "entity",
                             message: `Name conflict: '${importName}' is already defined in this file.`,
-                            severity: "error"
-                        });
-                    }
-
-                    // A record is also a type, which is always referred to by its declared name.
-                    if (
-                        namedImport.name != undefined &&
-                        namedImport.entity?.ref != undefined &&
-                        this.astReflection.isInstance(namedImport.entity.ref, Record)
-                    ) {
-                        accept({
-                            languageNode: namedImport,
-                            languageProperty: "name",
-                            message: `The record '${namedImport.entity.ref.name}' cannot be renamed when it is imported.`,
                             severity: "error"
                         });
                     }
@@ -470,7 +457,8 @@ export class ScriptPartialTypeSystem extends PartialTypeSystem<ScriptTypirSpecif
                 expectedReturnType,
                 expectedReturnTypeLanguageNode,
                 this.typir,
-                accessor
+                accessor,
+                this.controlFlow
             );
 
             for (const error of analyzer.errors) {
@@ -526,13 +514,6 @@ export class ScriptPartialTypeSystem extends PartialTypeSystem<ScriptTypirSpecif
 
             const parameters = (node.$container as FunctionParametersType).parameters;
             const ownIndex = parameters.indexOf(node);
-            if (ownIndex >= MAX_DEFAULTED_PARAMETERS) {
-                accept({
-                    languageNode: defaultValue,
-                    message: `Only the first ${MAX_DEFAULTED_PARAMETERS} parameters can have a default value.`,
-                    severity: "error"
-                });
-            }
             for (const child of AstUtils.streamAst(defaultValue)) {
                 if (!this.astReflection.isInstance(child, expressionTypes.identifierExpressionType)) {
                     continue;
@@ -612,7 +593,12 @@ export class ScriptPartialTypeSystem extends PartialTypeSystem<ScriptTypirSpecif
                     };
                 }
 
-                const analyzer = new ReturnInferenceAnalyzer<ScriptTypirSpecifics>(bodyScope, this.typir, accessor);
+                const analyzer = new ReturnInferenceAnalyzer<ScriptTypirSpecifics>(
+                    bodyScope,
+                    this.typir,
+                    accessor,
+                    this.controlFlow
+                );
 
                 if (analyzer.errors.length > 0) {
                     return analyzer.errors[0];
@@ -722,7 +708,8 @@ export class ScriptPartialTypeSystem extends PartialTypeSystem<ScriptTypirSpecif
                     expectedReturnType,
                     node,
                     this.typir,
-                    accessor
+                    accessor,
+                    this.controlFlow
                 );
 
                 for (const error of analyzer.errors) {

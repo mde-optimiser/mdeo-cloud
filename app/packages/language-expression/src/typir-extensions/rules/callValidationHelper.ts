@@ -310,8 +310,8 @@ export abstract class CallValidationHelper<Specifics extends TypirSpecifics, TPr
      * Binds the arguments of the call to the parameters of a signature.
      *
      * Positional arguments bind by position, named arguments by name. Reports a named argument
-     * that names no parameter or a parameter that already has a value, named arguments to a
-     * varargs signature, and parameters without a default that receive no value.
+     * that names no parameter, a parameter that already has a value, or the variable arguments of
+     * a varargs signature, and parameters without a default that receive no value.
      *
      * @param signature The signature to bind to
      * @param errors Array to collect binding errors
@@ -332,18 +332,20 @@ export abstract class CallValidationHelper<Specifics extends TypirSpecifics, TPr
             assigned.add(i);
         }
 
-        if (this.namedArgumentNodes.length > 0 && isVarArgs) {
-            errors.push(
-                this.createError(
-                    this.languageNode,
-                    `Named arguments cannot be used with a function taking a variable number of arguments.`
-                )
-            );
-        }
         for (const namedArgument of this.namedArgumentNodes) {
             const index = parameters.findIndex((parameter) => parameter.name === namedArgument.name);
             if (index < 0) {
                 errors.push(this.createError(namedArgument, `No parameter named '${namedArgument.name}'.`));
+                continue;
+            }
+            if (isVarArgs && index === parameters.length - 1) {
+                // As in Kotlin, the variable arguments are passed by position only.
+                errors.push(
+                    this.createError(
+                        namedArgument,
+                        `The variable arguments '${namedArgument.name}' cannot be passed by name.`
+                    )
+                );
                 continue;
             }
             if (assigned.has(index)) {

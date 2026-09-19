@@ -18,7 +18,7 @@ import kotlin.test.assertTrue
 
 class ScriptContributionTest {
 
-    private val listOfString = genericClassType("builtin", "List", typeArgs = mapOf("T" to BuiltinTypes.STRING))
+    private val listOfString = genericClassType("builtin", "ReadonlyList", typeArgs = mapOf("T" to BuiltinTypes.STRING))
 
     private val routing = scriptContribution("routing") {
         description = "Route planning"
@@ -55,7 +55,7 @@ class ScriptContributionTest {
               "functions": {
                 "shortestTour": { "signatures": { "": {
                   "signature": {
-                    "parameters": [{ "name": "stops", "type": { "package": "builtin", "type": "List", "isNullable": false,
+                    "parameters": [{ "name": "stops", "type": { "package": "builtin", "type": "ReadonlyList", "isNullable": false,
                                      "typeArgs": { "T": { "package": "builtin", "type": "string", "isNullable": false } } } }],
                     "returnType": { "kind": "void" }
                   },
@@ -143,34 +143,93 @@ class ScriptContributionTest {
     }
 
     @Test
-    fun `records hold only values scripts can send and signatures only known classes`() {
+    fun `parameters, results and record fields follow one type rule`() {
         scriptContribution("geo") {
-            record("Good") { field("items", genericClassType("builtin", "List", typeArgs = mapOf("T" to BuiltinTypes.INT))) }
-        }
-        assertFailsWith<IllegalArgumentException> {
-            scriptContribution("geo") {
-                record("Bad") { field("items", genericClassType("builtin", "List", typeArgs = mapOf("T" to BuiltinTypes.ANY))) }
+            val index = opaque("Index")
+            // A record may name one declared after it, hold `Any`, and hold an opaque handle.
+            record("Route") { field("stops", genericClassType("builtin", "List", typeArgs = mapOf("T" to ClassTypeRef("contrib/geo", "Stop", false)))) }
+            record("Stop") {
+                field("index", index.type)
+                field("extra", genericClassType("builtin", "Map", typeArgs = mapOf("K" to BuiltinTypes.STRING, "V" to BuiltinTypes.ANY)))
             }
-        }.also { assertTrue(it.message!!.contains("cannot hold")) }
-        assertFailsWith<IllegalArgumentException> {
-            scriptContribution("geo") {
-                record("Bad") { field("with", BuiltinTypes.INT) }
-            }
-        }.also { assertTrue(it.message!!.contains("copies a record")) }
-        assertFailsWith<IllegalArgumentException> {
-            scriptContribution("geo") {
-                val index = opaque("Index")
-                record("Bad") { field("index", index.type) }
+            function("plan") {
+                parameter("index", index.type)
+                returns(genericClassType("builtin", "List", typeArgs = mapOf("T" to BuiltinTypes.STRING)))
+                implementation { null }
             }
         }
-        assertFailsWith<IllegalArgumentException> {
-            scriptContribution("geo") {
+        fun refused(init: ScriptContributionBuilder.() -> Unit) =
+            assertFailsWith<IllegalArgumentException> { scriptContribution("geo", init) }.message!!
+
+        assertTrue(
+            "Declare it as a 'ReadonlyList'" in refused {
+                function("f") {
+                    parameter("items", genericClassType("builtin", "List", typeArgs = mapOf("T" to BuiltinTypes.INT)))
+                    implementation { null }
+                }
+            }
+        )
+        assertTrue(
+            "lambda" in refused {
+                record("Bad") {
+                    field("callbacks", genericClassType("builtin", "ReadonlyList", typeArgs = mapOf("T" to lambdaType(BuiltinTypes.INT, emptyList()))))
+                }
+            }
+        )
+        assertTrue("copies a record" in refused { record("Bad") { field("with", BuiltinTypes.INT) } })
+        assertTrue(
+            "does not define" in refused {
                 function("f") {
                     returns(ClassTypeRef("contrib/geo", "Missing", false))
                     implementation { null }
                 }
             }
-        }.also { assertTrue(it.message!!.contains("does not define")) }
+        )
+        assertTrue(
+            "not declared" in refused {
+                function("f") {
+                    parameter("x", GenericTypeRef("T"))
+                    implementation { null }
+                }
+            }
+        )
+    }
+
+    @Test
+    fun `default values become typed literals in the payload`() {
+        val contribution = scriptContribution("geo") {
+            record("Tag") {
+                field("name", BuiltinTypes.STRING)
+                field("weight", BuiltinTypes.INT, 5)
+            }
+            function("area") {
+                parameter("w", BuiltinTypes.DOUBLE)
+                parameter("h", BuiltinTypes.DOUBLE, 1.0)
+                parameter("label", BuiltinTypes.STRING.copy(isNullable = true), null)
+                returns(BuiltinTypes.DOUBLE)
+                implementation { null }
+            }
+        }
+        val payload = contribution.payload()
+        val types = payload["types"]!!.jsonArray
+        val defaults = payload["functions"]!!.jsonObject["area"]!!.jsonObject["signatures"]!!.jsonObject[""]!!
+            .jsonObject["defaultValues"]!!.jsonObject
+        assertEquals(setOf("h", "label"), defaults.keys)
+        fun typeOf(literal: kotlinx.serialization.json.JsonElement) =
+            types[literal.jsonObject["evalType"].toString().toInt()]
+        assertEquals(Json.parseToJsonElement("""{"kind":"doubleLiteral","evalType":${defaults["h"]!!.jsonObject["evalType"]},"value":"1.0"}"""), defaults["h"])
+        assertEquals(Json.parseToJsonElement("""{"package":"builtin","type":"double","isNullable":false}"""), typeOf(defaults["h"]!!))
+        assertEquals("\"nullLiteral\"", defaults["label"]!!.jsonObject["kind"].toString())
+        val weight = payload["classes"]!!.jsonObject["Tag"]!!.jsonObject["fields"]!!.jsonArray[1].jsonObject["defaultValue"]!!
+        assertEquals("\"5\"", weight.jsonObject["value"].toString())
+        assertEquals(Json.parseToJsonElement("""{"package":"builtin","type":"int","isNullable":false}"""), typeOf(weight))
+
+        assertFailsWith<IllegalArgumentException> {
+            scriptContribution("geo") { function("f") { parameter("x", BuiltinTypes.INT, 1.5); implementation { null } } }
+        }
+        assertFailsWith<IllegalArgumentException> {
+            scriptContribution("geo") { function("f") { parameter("x", BuiltinTypes.INT, null); implementation { null } } }
+        }
     }
 
     @Test

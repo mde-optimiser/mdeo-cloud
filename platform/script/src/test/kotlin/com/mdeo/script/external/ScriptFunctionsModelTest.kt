@@ -22,6 +22,7 @@ import com.mdeo.scriptfunctions.protocol.ClientMessage
 import com.mdeo.scriptfunctions.protocol.ServiceMessage
 import com.mdeo.scriptfunctions.protocol.WireValue
 import com.mdeo.scriptfunctions.service.ScriptFunctionCall
+import com.mdeo.scriptfunctions.service.ScriptEnumValue
 import com.mdeo.scriptfunctions.service.ScriptModelInstance
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
@@ -108,7 +109,7 @@ class ScriptFunctionsModelTest {
 
         client.call("inspect", arrayOf(), model(), javaClass.classLoader)
 
-        assertEquals("[a, b] Modern [a, b] main", seen)
+        assertEquals("[a, b] Style.Modern [a, b] main", seen)
     }
 
     @Test
@@ -242,6 +243,35 @@ class ScriptFunctionsModelTest {
 
         assertEquals(2, loopback.received.count { it is ClientMessage.MetamodelPut })
         assertEquals(2, loopback.received.count { it is ClientMessage.ModelPut })
+    }
+
+    @Test
+    fun `enum values go out by enum and entry, need no model, and come back as the script's own entries`() {
+        val style = ClassTypeRef("enum/houses.mm", "Style", false)
+        val styles = ClassTypeRef("builtin", "ReadonlyList", false, mapOf("T" to style))
+        var received: Any? = null
+        val loopback = Loopback(mapOf("other" to { call ->
+            received = call.arguments
+            val given = call.argument<List<*>>(1).single() as ScriptEnumValue
+            ScriptEnumValue(given.enumName, if (given.entry == "Modern") "Classic" else "Modern")
+        }))
+        val client = ScriptFunctionsClient(loopback, mapOf("other" to spec("other", style, false, style, styles)))
+        val modern = metamodel.resolveEnumValue("Style", "Modern")
+        val classic = metamodel.resolveEnumValue("Style", "Classic")
+
+        assertSame(classic, client.call("other", arrayOf(modern, ListImpl(listOf(modern))), model(), metamodel.classLoader))
+        assertEquals(listOf(ScriptEnumValue("Style", "Modern"), listOf(ScriptEnumValue("Style", "Modern"))), received)
+        assertTrue(loopback.received.none { it is ClientMessage.ModelPut }, "enum values need no model")
+    }
+
+    @Test
+    fun `a returned enum entry the metamodel does not declare is rejected`() {
+        val style = ClassTypeRef("enum/houses.mm", "Style", false)
+        val loopback = Loopback(mapOf("bad" to { _ -> ScriptEnumValue("Style", "Gothic") }))
+        val client = ScriptFunctionsClient(loopback, mapOf("bad" to spec("bad", style, false)))
+
+        val error = assertFailsWith<ExternalCallException> { client.call("bad", arrayOf(), model(), metamodel.classLoader) }
+        assertTrue(error.message!!.contains("Style.Gothic"), error.message)
     }
 
     @Test

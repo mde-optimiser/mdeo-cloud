@@ -121,7 +121,7 @@ fun Application.module(appConfig: AppConfig) {
         
         authenticate(AUTH_SESSION, AUTH_JWT, optional = true) {
             fileRoutes(services.fileService, services.projectService)
-            fileDataRoutes(services.fileDataService, services.projectService, services.jwtService)
+            fileDataRoutes(services.fileDataService, services.projectService, services.jwtService, appConfig.fileData)
             languagePluginRequestRoutes(services.languagePluginRequestService, services.projectService, services.jwtService)
             executionStateRoutes(services.executionService, services.jwtService)
             sessionRoutes(services.pluginService, services.jwtService)

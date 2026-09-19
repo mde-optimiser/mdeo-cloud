@@ -60,9 +60,10 @@ A `WireValue` is one of:
 | `instance` | `name` | An instance of the call's model, by name. Only valid in a call that names a model, and in its answer |
 | `record` | `className`, `fields` | A record the contribution defines, sent whole: `fields` maps every field name to its `WireValue` |
 | `handle` | `className`, `id` | A handle to state the service keeps, of an opaque class the contribution defines |
+| `enum` | `enumName`, `entry` | An entry of an enum of the script's metamodel, by enum and entry name. Needs no model |
 
-Records are sent whole, as copies. Their fields hold scalars, strings, instances, other records,
-and collections (as `ref`s into the heap). Handles are ids the service chooses; the same state
+Records are sent whole, as copies. Their fields hold scalars, strings, instances, enum entries,
+other records, and collections (as `ref`s into the heap). Handles are ids the service chooses; the same state
 must go out under the same id every time.
 
 The type name says what the script sees. A service must send back the number type it received,

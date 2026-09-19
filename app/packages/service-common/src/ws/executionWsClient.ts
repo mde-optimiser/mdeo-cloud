@@ -1,6 +1,6 @@
 import { ErrorCodes } from "@mdeo/plugin";
 import { randomUUID } from "node:crypto";
-import { COMPRESSION_THRESHOLD_BYTES } from "../util/compression.js";
+import { COMPRESSION_THRESHOLD_BYTES, MAX_SERVICE_WEBSOCKET_MESSAGE_BYTES } from "../util/compression.js";
 import { WebSocket } from "ws";
 import {
     ExecutionWsRequestError,
@@ -32,12 +32,6 @@ const REAPER_INTERVAL_MS = 30_000;
  * How long to wait for a connection to be established.
  */
 const CONNECT_TIMEOUT_MS = 10_000;
-
-/**
- * Largest message accepted on the execution endpoint. Result files are sent whole, and a
- * large model can be tens of megabytes.
- */
-const MAX_PAYLOAD_BYTES = 512 * 1024 * 1024;
 
 /**
  * Reports connection failures.
@@ -104,7 +98,7 @@ class PooledConnection {
 
         this.opening = new Promise<WebSocket>((resolve, reject) => {
             const socket = new WebSocket(this.url, {
-                maxPayload: MAX_PAYLOAD_BYTES,
+                maxPayload: MAX_SERVICE_WEBSOCKET_MESSAGE_BYTES,
                 perMessageDeflate: { threshold: COMPRESSION_THRESHOLD_BYTES }
             });
             const timer = setTimeout(() => {

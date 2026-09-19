@@ -1,5 +1,6 @@
 package com.mdeo.script.ast
 
+import com.mdeo.scriptfunctions.protocol.ContributionNames
 import com.mdeo.expression.ast.TypedCallableBody
 import com.mdeo.expression.ast.types.ReturnType
 import com.mdeo.expression.ast.types.ReturnTypeSerializer
@@ -56,7 +57,7 @@ data class TypedPluginClass(
         /**
          * The package every contributed class lives in, followed by `/<contribution>`.
          */
-        const val PACKAGE_PREFIX = "contrib"
+        const val PACKAGE_PREFIX = ContributionNames.CLASS_PACKAGE_PREFIX
     }
 }
 

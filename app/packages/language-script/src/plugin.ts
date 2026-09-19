@@ -32,7 +32,13 @@ import type { TypirLangiumSpecifics } from "typir-langium";
 import { ScriptTypeSystem } from "./features/type-system/scriptTypeSystem.js";
 import { ScriptScopeProvider } from "./features/type-system/scriptScopeProvider.js";
 import { registerScriptSerializers } from "./features/scriptSerializers.js";
-import { expressionConfig, expressionTypes, statementTypes, typeTypes } from "./grammar/scriptTypes.js";
+import {
+    expressionConfig,
+    expressionTypes,
+    ReturnStatement,
+    statementTypes,
+    typeTypes
+} from "./grammar/scriptTypes.js";
 import { ScriptTokenBuilder } from "./features/scriptTokenBuilder.js";
 import { ScriptLangiumScopeProvider } from "./features/scriptScopeProvider.js";
 import { ScriptExternalReferenceCollector } from "./features/scriptExternalReferenceCollector.js";
@@ -44,7 +50,11 @@ import { ScriptActionProvider } from "./features/scriptActionProvider.js";
 import { RunScriptActionHandler } from "./action-handlers/runScriptActionHandler.js";
 import { NewFileActionHandler } from "./action-handlers/newFileActionHandler.js";
 import { ScriptCompletionProvider } from "./features/scriptCompletionProvider.js";
-import { ExpressionHoverProvider, ExpressionReferenceDescriptionProvider } from "@mdeo/language-expression";
+import {
+    ControlFlowAnalysis,
+    ExpressionHoverProvider,
+    ExpressionReferenceDescriptionProvider
+} from "@mdeo/language-expression";
 import type { DocumentPackageCacheService } from "@mdeo/language-expression";
 import { ScriptDocumentPackageCacheService } from "./features/scriptDocumentPackageCacheService.js";
 
@@ -61,6 +71,10 @@ export type ScriptTypirSpecifics = TypirLangiumSpecifics;
  */
 type AdditionalScriptTypirServices = AdditionalTypirServices<ScriptTypirSpecifics> & {
     ResolvedContributionPlugins: ResolvedScriptContributionPlugins;
+    /**
+     * The control flow analysis of script statements, shared by scoping and validation.
+     */
+    ControlFlow: ControlFlowAnalysis<ScriptTypirSpecifics>;
 };
 
 /**
@@ -112,6 +126,13 @@ export const scriptPluginProvider: LangiumLanguagePluginProvider<ScriptServices>
                             ...defaultExtendedTypirServices<ScriptTypirSpecifics>(),
                             ScopeProvider: (services) => new ScriptScopeProvider(services as ScriptTypirServices),
                             ResolvedContributionPlugins: () => resolvedPlugins,
+                            ControlFlow: (services) =>
+                                new ControlFlowAnalysis(
+                                    services as ScriptTypirServices,
+                                    statementTypes,
+                                    expressionTypes,
+                                    [ReturnStatement]
+                                ),
                             PackageMapCache: (): DocumentPackageCacheService =>
                                 new ScriptDocumentPackageCacheService(langiumSharedServices, resolvedPlugins)
                         }

@@ -40,12 +40,10 @@ data class PluginDefinition(
     }
 
     /**
-     * The sessions this plugin serves, keyed by target address and then by session name.
+     * The sessions this plugin serves, keyed by target and then by session name.
      */
-    val sessions: Map<String, Map<String, ServedSession>>
-        get() = contributions.associate {
-            PluginTarget.of(PluginTargetKind.CONTRIBUTION, it.id).toString() to it.sessions
-        }
+    val sessions: Map<PluginTarget, Map<String, ServedSession>>
+        get() = contributions.associate { PluginTarget.of(PluginTargetKind.CONTRIBUTION, it.id) to it.sessions }
 
     /**
      * Builds the manifest the backend reads from `GET /`.

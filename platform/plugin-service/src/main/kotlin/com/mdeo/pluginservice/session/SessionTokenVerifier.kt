@@ -4,6 +4,7 @@ import com.auth0.jwk.JwkProvider
 import com.auth0.jwk.JwkProviderBuilder
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
+import com.mdeo.common.model.PluginTarget
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.security.interfaces.RSAPublicKey
@@ -15,14 +16,14 @@ import java.util.concurrent.TimeUnit
  * @property projectId The project the token was issued for
  * @property executionId The execution the token is bound to
  * @property scopes The granted scopes; a session needs `plugin:session:connect`
- * @property target The one target the token opens, as `<kind>:<id>`
+ * @property target The one target the token opens; null when the claim is missing or no address
  * @property session The one session name the token opens
  */
 data class SessionTokenClaims(
     val projectId: String?,
     val executionId: String?,
     val scopes: List<String>,
-    val target: String?,
+    val target: PluginTarget?,
     val session: String?
 )
 
@@ -77,7 +78,7 @@ class JwksSessionTokenVerifier(
             projectId = decoded.getClaim("projectId")?.asString(),
             executionId = decoded.getClaim("executionId")?.asString(),
             scopes = decoded.getClaim("scope")?.asList(String::class.java) ?: emptyList(),
-            target = decoded.getClaim("target")?.asString(),
+            target = decoded.getClaim("target")?.asString()?.let { PluginTarget.parseOrNull(it) },
             session = decoded.getClaim("session")?.asString()
         )
     }

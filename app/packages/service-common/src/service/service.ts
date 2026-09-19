@@ -12,7 +12,11 @@ import fastifyStatic from "@fastify/static";
 import { resolve } from "path";
 import { createHash } from "node:crypto";
 import type { ServiceConfig, FileDataComputeRequest, FileDataComputeResponse, LanguageServiceConfig } from "./types.js";
-import { LangiumInstancePool, LangiumPoolExhaustedError } from "../langium/langiumPool.js";
+import {
+    DEFAULT_MAX_LANGIUM_INSTANCES,
+    LangiumInstancePool,
+    LangiumPoolExhaustedError
+} from "../langium/langiumPool.js";
 import type { LangiumInstance } from "../langium/langiumInstance.js";
 import {
     errorResponse,
@@ -150,7 +154,7 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
     for (const langConfig of config.languages) {
         const languageId = langConfig.languagePlugin.id;
         const pool = new LangiumInstancePool<T>({
-            maxInstances: config.maxLangiumInstances ?? 5,
+            maxInstances: config.maxLangiumInstances ?? DEFAULT_MAX_LANGIUM_INSTANCES,
             maxSessionInstances: config.maxSessionInstances,
             acquireTimeoutMs: config.langiumAcquireTimeoutMs,
             languagePluginProvider: langConfig.languagePluginProvider,
@@ -170,7 +174,7 @@ export async function createLanguageService<T>(config: ServiceConfig<T>): Promis
     const manifestFingerprint = createHash("sha256").update(manifestJson).digest("hex");
 
     // Contribution sets the backend sent, so later requests can carry just their hash.
-    const contributions = new ContributionCache();
+    const contributions = new ContributionCache(config.maxContributionSets);
     fastify.addHook("onSend", async (_request, reply, payload) => {
         reply.header(CONTRIBUTION_HASH_SUPPORT_HEADER, "1");
         reply.header(MANIFEST_FINGERPRINT_HEADER, manifestFingerprint);

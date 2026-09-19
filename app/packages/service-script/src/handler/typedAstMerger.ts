@@ -25,6 +25,18 @@ export class ScriptTypedAstMerger extends BaseTypedAstMerger {
     }
 
     /**
+     * Remaps a contributed expression, such as a default value, whose type indices refer to its
+     * contribution's own types array.
+     *
+     * @param expression The expression to remap
+     * @param typesArray The contribution's types array
+     * @returns The expression with global type indices
+     */
+    remapContributedExpression(expression: TypedExpression, typesArray: ReturnType[]): TypedExpression {
+        return this.remapExpression(expression, this.indexTypesArray(typesArray));
+    }
+
+    /**
      * Handles script-specific expression types (lambda, extensionCall).
      *
      * @param expr The expression to remap

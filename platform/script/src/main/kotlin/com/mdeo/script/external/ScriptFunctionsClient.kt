@@ -5,6 +5,7 @@ import com.mdeo.script.runtime.ScriptOpaque
 import com.mdeo.script.compiler.ContributedClassSpec
 import com.mdeo.script.ast.TypedPluginClass
 import java.util.WeakHashMap
+import java.util.concurrent.locks.ReentrantLock
 import com.mdeo.script.ast.ExternalImplementation
 import com.mdeo.metamodel.ModelInstance
 import com.mdeo.metamodel.Metamodel
@@ -14,6 +15,7 @@ import com.mdeo.scriptfunctions.protocol.ClientMessage
 import com.mdeo.scriptfunctions.protocol.ServiceMessage
 import com.mdeo.scriptfunctions.protocol.HeapKind
 import com.mdeo.scriptfunctions.protocol.HeapObject
+import com.mdeo.scriptfunctions.protocol.WireScalars
 import com.mdeo.scriptfunctions.protocol.WireValue
 import com.mdeo.expression.ast.types.ClassTypeRef
 import com.mdeo.expression.ast.types.ReturnType
@@ -49,23 +51,39 @@ class ExternalCallException(message: String) : RuntimeException(message)
  * When the transport reconnects, the service on the other side starts empty. The client notices
  * the new connection, gives the collections the old service created ids of its own, sends what the
  * next call needs in full, and refuses handles whose state only the old service held. A call whose
- * message went out on a connection that was not the one it was prepared for is sent again.
+ * message went out on a connection that was not the one it was prepared for is sent again, at most
+ * [ScriptFunctionsTransport.maxReconnects] times.
+ *
+ * Enum values are sent as their enum and entry name, with or without a model, and come back as the
+ * script's own entries, see [EnumValues].
  *
  * @param transport The pipe to the service
  * @param specs The external calls of the compiled program, keyed by call id
- * @param classes The records and opaque classes of the contribution this client calls, keyed by
- *        [ContributedClassSpec.typeId]
+ * @param classes The records and opaque classes of the contribution this client calls
  */
 class ScriptFunctionsClient(
     private val transport: ScriptFunctionsTransport,
     private val specs: Map<String, ExternalCallSpec>,
-    classes: Map<String, ContributedClassSpec> = emptyMap()
+    classes: Collection<ContributedClassSpec> = emptyList()
 ) : ExternalCallDispatcher {
 
     private val registry = IdentityRegistry()
     private val handles = HandleRegistry()
-    private val classesByType = classes
-    private val classesByName = classes.values.associateBy { it.name }
+
+    /**
+     * The contributed classes by the binary name of their generated class, which is what tells a
+     * record or handle the script passes apart.
+     */
+    private val classesByJvmName = classes.associateBy { it.jvmClassName.replace('/', '.') }
+
+    /**
+     * The contributed classes by the name the service knows them by.
+     */
+    private val classesByName = classes.associateBy { it.name }
+
+    private val enumValues = EnumValues(
+        specs.values.flatMap { it.parameterTypes + it.returnType } + classes.flatMap { it.fieldTypes }
+    )
 
     /**
      * For each id, the version at which the service is known to hold the collection. A collection
@@ -74,7 +92,12 @@ class ScriptFunctionsClient(
     private val serviceVersions = HashMap<Long, Long>()
 
     private var nextCallId = 1L
-    private val lock = Any()
+
+    /**
+     * Held for the whole of a call, since a session carries one conversation at a time. Taken
+     * interruptibly, so a thread waiting behind another call can still be cancelled.
+     */
+    private val lock = ReentrantLock()
 
     /**
      * Encoded models by the object they were built from. An execution calls many times on one
@@ -100,7 +123,16 @@ class ScriptFunctionsClient(
      */
     private var knownConnection: Long? = null
 
-    override fun call(callId: String, arguments: Array<Any?>, model: Model?, classLoader: ClassLoader): Any? = synchronized(lock) {
+    override fun call(callId: String, arguments: Array<Any?>, model: Model?, classLoader: ClassLoader): Any? {
+        lock.lockInterruptibly()
+        try {
+            return callLocked(callId, arguments, model, classLoader)
+        } finally {
+            lock.unlock()
+        }
+    }
+
+    private fun callLocked(callId: String, arguments: Array<Any?>, model: Model?, classLoader: ClassLoader): Any? {
         val spec = specs[callId] ?: throw ExternalCallException("No external call '$callId' was compiled")
 
         followConnection()
@@ -147,7 +179,9 @@ class ScriptFunctionsClient(
                 // The call reached a service that started empty, with ids and handles meant for
                 // the one before it: whatever it answered describes nothing this side holds.
                 discard(answer, encoder)
-                if (++reconnects > MAX_RECONNECTS_PER_CALL) {
+                // Each resend follows a reconnect the transport made; it gives up on a dropped
+                // connection after as many redials, and a call does not outlast it.
+                if (++reconnects > transport.maxReconnects) {
                     throw ExternalCallException(
                         "External function '${spec.functionName}' could not be called: the session kept reconnecting"
                     )
@@ -270,16 +304,10 @@ class ScriptFunctionsClient(
 
         fun encode(value: Any?, declared: ReturnType, functionName: String): WireValue = when (value) {
             null -> WireValue.Null
-            is Boolean -> WireValue.Bool(value)
-            is Int -> WireValue.IntValue(value)
-            is Long -> WireValue.LongValue(value)
-            is Float -> WireValue.FloatValue(value)
-            is Double -> WireValue.DoubleValue(value)
-            is String -> WireValue.StringValue(value)
             is ScriptRecord -> {
-                val recordClass = classesByType[value.recordType]
+                val recordClass = classesByJvmName[value.javaClass.name]
                     ?: throw ExternalCallException(
-                        "External function '$functionName' was passed a ${value.recordType}, which its contribution does not define"
+                        "External function '$functionName' was passed a ${value.recordName}, which its contribution does not define"
                     )
                 val values = value.fields()
                 WireValue.RecordValue(
@@ -290,9 +318,9 @@ class ScriptFunctionsClient(
                 )
             }
             is ScriptOpaque -> {
-                val opaqueClass = classesByType[value.opaqueType]
+                val opaqueClass = classesByJvmName[value.javaClass.name]
                     ?: throw ExternalCallException(
-                        "External function '$functionName' was passed a ${value.opaqueType}, which its contribution does not define"
+                        "External function '$functionName' was passed a ${value.className}, which its contribution does not define"
                     )
                 if (!handles.isCurrent(value.handle, value)) {
                     throw ExternalCallException(
@@ -328,11 +356,14 @@ class ScriptFunctionsClient(
                 }
                 WireValue.Ref(id)
             }
-            else -> throw ExternalCallException(
-                "External function '$functionName' was passed a ${value::class.simpleName}, which " +
-                        "script-functions version ${ScriptFunctionsProtocol.VERSION} cannot carry. " +
-                        "Only scalars, strings, model instances and collections of them can be passed."
-            )
+            else -> WireScalars.encode(value)
+                ?: enumValues.encode(value, model?.metamodel)
+                ?: throw ExternalCallException(
+                    "External function '$functionName' was passed a ${value::class.simpleName}, which " +
+                            "script-functions version ${ScriptFunctionsProtocol.VERSION} cannot carry. " +
+                            "Only scalars, strings, model instances, enum values, the contribution's records " +
+                            "and opaque classes, and collections of those can be passed."
+                )
         }
 
         /**
@@ -403,6 +434,9 @@ class ScriptFunctionsClient(
             }
             if (value is WireValue.Ref && value.id !in newIds && value.id !in encoder.sent && registry.objectOf(value.id) == null) {
                 reject("referred to unknown collection ${value.id}")
+            }
+            if (value is WireValue.EnumValue && enumValues.decode(value, classLoader) == null) {
+                reject("returned the enum value ${value.enumName}.${value.entry}, which the metamodel does not declare")
             }
         }
 
@@ -485,13 +519,6 @@ class ScriptFunctionsClient(
 
         private fun decode(value: WireValue, expected: ReturnType?): Any? {
             val decoded: Any? = when (value) {
-                WireValue.Null -> null
-                is WireValue.Bool -> value.value
-                is WireValue.IntValue -> value.value
-                is WireValue.LongValue -> value.value
-                is WireValue.FloatValue -> value.value
-                is WireValue.DoubleValue -> value.value
-                is WireValue.StringValue -> value.value
                 is WireValue.Ref -> created[value.id] ?: encoder.sent[value.id] ?: registry.objectOf(value.id)
                 is WireValue.InstanceValue -> encoder.model?.instancesByName?.get(value.name)
                 is WireValue.RecordValue -> {
@@ -509,17 +536,14 @@ class ScriptFunctionsClient(
                         .getConstructor(Long::class.javaPrimitiveType)
                         .newInstance(value.id)
                 }
+                is WireValue.EnumValue -> enumValues.decode(value, classLoader)
+                else -> WireScalars.decode(value)
             }
             return coerceNumber(decoded, expected)
         }
     }
 
     companion object {
-        /**
-         * How often one call is sent again because the connection changed under it.
-         */
-        private const val MAX_RECONNECTS_PER_CALL = 3
-
         private fun versionOf(value: Any): Long = when (value) {
             is HeapMap -> value.heapVersion
             else -> (value as HeapCollection).heapVersion

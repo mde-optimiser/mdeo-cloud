@@ -240,6 +240,18 @@ class ScriptFunctionsClientTest {
     }
 
     @Test
+    fun `a call is sent again at most as often as the transport redials`() {
+        val loopback = Loopback.ofArguments(mapOf("one" to { _ -> 1 }))
+        loopback.dropBeforeEveryCall = true
+        loopback.maxReconnects = 2
+        val dispatcher = client(loopback, spec("one", int))
+
+        val error = assertFailsWith<ExternalCallException> { dispatcher.call("one", arrayOf(), null, javaClass.classLoader) }
+        assertTrue("kept reconnecting" in error.message!!, error.message)
+        assertEquals(3, loopback.received.count { it is ClientMessage.Call }, "the first send and two resends")
+    }
+
+    @Test
     fun `a value the protocol cannot carry is refused before anything is sent`() {
         val loopback = Loopback.ofArguments(emptyMap())
         val dispatcher = client(loopback, spec("op", any, any))

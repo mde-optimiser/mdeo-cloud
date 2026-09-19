@@ -5,6 +5,7 @@ import com.mdeo.expression.ast.types.ValueType
 import com.mdeo.expression.ast.types.VoidType
 import org.objectweb.asm.MethodVisitor
 import org.objectweb.asm.Opcodes
+import org.objectweb.asm.Type
 
 /**
  * Represents a specific function signature (overload) for a function.
@@ -89,7 +90,7 @@ interface FunctionSignatureDefinition {
      * Emits the invocation of the companion method that fills in default values.
      *
      * All parameters should be on the stack, a placeholder for each one that is left out, followed
-     * by an `int` mask with bit `i` set when parameter `i` is left out.
+     * by the masks of [DefaultsMethod] saying which ones are left out.
      *
      * @param mv The method visitor to emit bytecode to.
      */
@@ -101,9 +102,9 @@ interface FunctionSignatureDefinition {
 /**
  * Naming of the companion method of a function with default values.
  *
- * The companion takes the function's parameters followed by an `int` mask with bit `i` set when
- * parameter `i` was left out. It evaluates the default value of each such parameter, in order,
- * and then calls the function.
+ * As in Kotlin, the companion takes the function's parameters followed by one `int` mask per 32
+ * parameters: bit `i % 32` of mask `i / 32` is set when parameter `i` was left out. It evaluates
+ * the default value of each such parameter, in order, and then calls the function.
  */
 object DefaultsMethod {
     /**
@@ -111,19 +112,35 @@ object DefaultsMethod {
      */
     const val SUFFIX = "\$default"
 
+    private const val BITS_PER_MASK = 32
+
     /**
-     * The highest number of parameters a function with default values may have: one mask bit each.
+     * The number of masks a function with [parameterCount] parameters takes.
      */
-    const val MAX_PARAMETERS = 31
+    fun maskCount(parameterCount: Int): Int = maxOf(1, (parameterCount + BITS_PER_MASK - 1) / BITS_PER_MASK)
+
+    /**
+     * The mask that holds the bit of a parameter.
+     */
+    fun maskIndex(parameterIndex: Int): Int = parameterIndex / BITS_PER_MASK
+
+    /**
+     * The bit of a parameter within its mask.
+     */
+    fun bit(parameterIndex: Int): Int = 1 shl (parameterIndex % BITS_PER_MASK)
 
     /**
      * Builds the descriptor of the companion method.
      *
      * @param descriptor The descriptor of the function itself.
-     * @return The same descriptor with an `int` mask appended to the parameters.
+     * @param parameterCount The number of parameters of the function.
+     * @return The same descriptor with the masks appended to the parameters.
      */
-    fun descriptor(descriptor: String): String =
-        descriptor.substringBefore(')') + "I)" + descriptor.substringAfter(')')
+    fun descriptor(descriptor: String, parameterCount: Int): String {
+        val method = Type.getMethodType(descriptor)
+        val masks = Array(maskCount(parameterCount)) { Type.INT_TYPE }
+        return Type.getMethodDescriptor(method.returnType, *method.argumentTypes, *masks)
+    }
 }
 
 /**
@@ -245,7 +262,7 @@ class InstanceFunctionSignatureDefinition(
             Opcodes.INVOKEVIRTUAL,
             ownerClass,
             jvmMethodName + DefaultsMethod.SUFFIX,
-            DefaultsMethod.descriptor(descriptor),
+            DefaultsMethod.descriptor(descriptor, parameterTypes.size),
             false
         )
     }
@@ -290,7 +307,8 @@ class PluginFunctionSignatureDefinition(
     override val ownerClass: String,
     override val jvmMethodName: String,
     val namedParameters: List<PluginFunctionParameter>,
-    override val returnType: ReturnType
+    override val returnType: ReturnType,
+    override val hasDefaults: Boolean = false
 ) : FunctionSignatureDefinition {
 
     override val isVarArgs: Boolean = false
@@ -304,6 +322,19 @@ class PluginFunctionSignatureDefinition(
             ownerClass,
             jvmMethodName,
             descriptor,
+            false
+        )
+    }
+
+    override fun emitDefaultsInvocation(mv: MethodVisitor) {
+        if (!hasDefaults) {
+            super.emitDefaultsInvocation(mv)
+        }
+        mv.visitMethodInsn(
+            Opcodes.INVOKEVIRTUAL,
+            ownerClass,
+            jvmMethodName + DefaultsMethod.SUFFIX,
+            DefaultsMethod.descriptor(descriptor, parameterTypes.size),
             false
         )
     }

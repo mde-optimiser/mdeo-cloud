@@ -25,15 +25,15 @@ private val logger = LoggerFactory.getLogger("com.mdeo.pluginservice.session")
  * name exactly this target and session, as tokens issued by the backend's connect endpoint do.
  * Keepalives are handled by the WebSockets plugin, see [installSessionWebSockets].
  *
- * @param sessions What this service serves, keyed by target address and then by session name
+ * @param sessions What this service serves, keyed by target and then by session name
  * @param verifier Verifies the token of each connection
  * @param maxSessions How many sessions may be open at once. Every open session keeps what its
  *        execution sent, so an unbounded number of them is an unbounded amount of memory.
  */
 fun Route.sessionEndpoint(
-    sessions: Map<String, Map<String, ServedSession>>,
+    sessions: Map<PluginTarget, Map<String, ServedSession>>,
     verifier: SessionTokenVerifier,
-    maxSessions: Int = Int.MAX_VALUE
+    maxSessions: Int
 ) {
     val open = AtomicInteger()
     webSocket("$SESSION_PATH_PREFIX/{kind}/{targetId}/{name}") {
@@ -41,7 +41,7 @@ fun Route.sessionEndpoint(
         val targetId = call.parameters["targetId"].orEmpty()
         val sessionName = call.parameters["name"].orEmpty()
 
-        val target = PluginTarget.parseOrNull("$kind:$targetId")
+        val target = PluginTarget.ofOrNull(kind, targetId)
         if (target == null) {
             refuse(SessionCloseCodes.NOT_FOUND, "Not a session address")
             return@webSocket
@@ -62,7 +62,7 @@ fun Route.sessionEndpoint(
         }
         // The token names the one session it opens, so a token issued for one target cannot be
         // spent on another served by the same service.
-        if (claims.target != target.toString() || claims.session != sessionName) {
+        if (claims.target != target || claims.session != sessionName) {
             refuse(
                 SessionCloseCodes.UNAUTHORIZED,
                 "Token is for ${claims.target ?: "no target"}/${claims.session ?: "no session"}, not for $label"
@@ -76,7 +76,7 @@ fun Route.sessionEndpoint(
             return@webSocket
         }
 
-        val served = sessions[target.toString()]?.get(sessionName)
+        val served = sessions[target]?.get(sessionName)
         if (served == null) {
             refuse(SessionCloseCodes.NOT_FOUND, "This service serves no session $label")
             return@webSocket

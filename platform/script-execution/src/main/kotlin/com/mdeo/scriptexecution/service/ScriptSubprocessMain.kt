@@ -13,10 +13,8 @@ import com.mdeo.script.compiler.CompilationInput
 import com.mdeo.script.compiler.ScriptCompiler
 import com.mdeo.script.runtime.ExecutionEnvironment
 import com.mdeo.script.runtime.SimpleScriptContext
-import com.mdeo.script.external.SessionDispatcher
-import com.mdeo.common.model.PluginTarget
-import com.mdeo.common.model.PluginTargetKind
-import com.mdeo.execution.common.api.SessionResolver
+import com.mdeo.execution.common.external.ExternalSessions
+import com.mdeo.execution.common.external.SessionAccess
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -89,26 +87,6 @@ class ScriptSubprocessMain : SubprocessMain() {
         }
     }
 
-    /**
-     * Builds the dispatcher that answers external calls over sessions, and the resolver it asks
-     * for each session's address and token.
-     */
-    private fun createDispatcher(
-        program: com.mdeo.script.compiler.CompiledProgram,
-        access: SessionAccess
-    ): Pair<SessionDispatcher, SessionResolver> {
-        val resolver = SessionResolver(access.backendApiUrl)
-        val dispatcher = SessionDispatcher(program.externalCalls, program.contributedClasses) { contribution, session ->
-            resolver.resolve(
-                access.projectId,
-                PluginTarget.of(PluginTargetKind.CONTRIBUTION, contribution),
-                session,
-                access.runToken
-            )
-        }
-        return dispatcher to resolver
-    }
-
     private fun handleExecute(cmd: ScriptCommand.Execute): ByteArray {
         val timeoutId = 0
         val outputStream = ByteArrayOutputStream()
@@ -129,20 +107,16 @@ class ScriptSubprocessMain : SubprocessMain() {
                 null
             }
 
-            val dispatcher = cmd.sessionAccess
-                ?.takeIf { compiledProgram.externalCalls.isNotEmpty() }
-                ?.let { access -> createDispatcher(compiledProgram, access) }
-
-            val context = if (dispatcher != null) {
-                SimpleScriptContext(printStream, model, dispatcher.first)
-            } else {
-                SimpleScriptContext(printStream, model)
-            }
+            val sessions = cmd.sessionAccess?.let { ExternalSessions(it) }
             val result = try {
+                val context = if (sessions != null) {
+                    SimpleScriptContext(printStream, model, sessions.createDispatcher(compiledProgram))
+                } else {
+                    SimpleScriptContext(printStream, model)
+                }
                 env.invoke(cmd.filePath, cmd.methodName, context)
             } finally {
-                dispatcher?.first?.close()
-                dispatcher?.second?.close()
+                sessions?.close()
             }
 
             return json.encodeToString<ScriptResponse>(
@@ -244,22 +218,4 @@ sealed class ScriptResponse {
 data class ScriptOutput(
     val result: String?,
     val output: String?
-)
-
-/**
- * What a subprocess needs to open sessions for external calls itself.
- *
- * The subprocess is where the calls happen, so it is the one that dials. It asks the backend for
- * each session with the run token, exactly as the parent would, and gets a fresh session token
- * every time a connection has to be reopened.
- *
- * @param backendApiUrl Base URL of the backend API
- * @param projectId The project the execution belongs to
- * @param runToken The token the execution holds for the run
- */
-@Serializable
-data class SessionAccess(
-    val backendApiUrl: String,
-    val projectId: String,
-    val runToken: String
 )

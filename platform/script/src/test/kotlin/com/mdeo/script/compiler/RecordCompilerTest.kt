@@ -602,6 +602,57 @@ class RecordCompilerTest {
     }
 
     /**
+     * Two scripts each declare a record `Point`; the main script imports both under other names.
+     * ```
+     * import { Point as A } from "/a.fn"
+     * import { Point as B } from "/b.fn"
+     *
+     * fun testFunction(): string {
+     *     val a: A = A(1.0)
+     *     val b: B = B(2.0, 3.0)
+     *     return "" + a + " " + b.with(label = "b") + " " + (a == A(1.0)) + (a == B(1.0))
+     * }
+     * ```
+     */
+    @Test
+    fun `records with the same name imported under other names stay apart`() {
+        val a = buildTypedAst { point(file = "/a.fn") }
+        val b = buildTypedAst { point(file = "/b.fn") }
+        val main = buildTypedAst {
+            import("A", "Point", "/a.fn")
+            import("B", "Point", "/b.fn")
+            val str = stringType()
+            val bool = booleanType()
+            val double = doubleType()
+            val aType = recordType("Point", "/a.fn")
+            val bType = recordType("Point", "/b.fn")
+            fun construct(name: String, type: Int, vararg values: Double) =
+                functionCall(name, "", values.map { doubleLiteral(it, double) }, type)
+            function(
+                "testFunction", str,
+                body = listOf(
+                    varDecl("a", aType, construct("A", aType, 1.0)),
+                    varDecl("b", bType, construct("B", bType, 2.0, 3.0)),
+                    returnStmt(
+                        concat(
+                            str, stringLiteral("", str), local("a", aType), stringLiteral(" ", str),
+                            memberCallWithArgs(local("b", bType), "with", "", listOf(named(stringLiteral("b", str), 2)), resultTypeIndex = bType),
+                            stringLiteral(" ", str),
+                            binaryExpr(local("a", aType), "==", construct("A", aType, 1.0), bool),
+                            binaryExpr(local("a", aType), "==", construct("B", bType, 1.0), bool)
+                        )
+                    )
+                )
+            )
+        }
+        val program = helper.compileFiles(mapOf("/a.fn" to a, "/b.fn" to b, "/main.fn" to main))
+        assertEquals(
+            "Point(x=1.0, y=1.0, label=) Point(x=2.0, y=3.0, label=b) truefalse",
+            helper.invoke(program, "testFunction", "/main.fn")
+        )
+    }
+
+    /**
      * ```
      * fun scale(p: Point, factor: double = 2.0): Point {
      *     p.x = p.x * factor

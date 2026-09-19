@@ -55,6 +55,13 @@ class Loopback(
     override var connection: Long = 1
         private set
 
+    override var maxReconnects: Int = 3
+
+    /**
+     * When set, the connection drops before every call, as with a service that keeps going away.
+     */
+    var dropBeforeEveryCall = false
+
     /**
      * When set, the connection drops just before the call with this number (counting from 1) is
      * handled, and a fresh service answers it, as after a reconnect inside a send.
@@ -64,7 +71,7 @@ class Loopback(
 
     override fun send(message: ByteArray) {
         val decoded = ScriptFunctionsProtocol.decodeClient(message)
-        if (decoded is ClientMessage.Call && ++calls == dropBeforeCall) {
+        if (decoded is ClientMessage.Call && (++calls == dropBeforeCall || dropBeforeEveryCall)) {
             service = ScriptFunctionsServiceSession(serviceOperations)
             connection++
         }

@@ -1,5 +1,5 @@
 import type { Type, TypirSpecifics } from "typir";
-import type { ControlFlowEntry, Scope, ScopeEntry } from "./scope.js";
+import type { Scope, ScopeEntry } from "./scope.js";
 import type { FunctionType, Member, ValueType } from "../config/type.js";
 import type { ExtendedTypirServices } from "../service/extendedTypirServices.js";
 
@@ -87,14 +87,6 @@ export class GlobalScope<Specifics extends TypirSpecifics> implements Scope<Spec
 
     getEntries(): ScopeEntry<Specifics>[] {
         return [...this.entriesMap.values()];
-    }
-
-    getInitializedEntries(): Set<ScopeEntry<Specifics>> {
-        return new Set<ScopeEntry<Specifics>>();
-    }
-
-    getControlFlowEntries(): ControlFlowEntry<Specifics>[] {
-        return [];
     }
 
     get level(): number {

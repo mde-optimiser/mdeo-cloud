@@ -31,10 +31,11 @@ class PluginServiceEndToEndTest {
 
     private val double = ClassTypeRef("builtin", "double", false)
     private val listOfDouble = ClassTypeRef("builtin", "List", false, mapOf("T" to double))
+    private val readonlyListOfDouble = ClassTypeRef("builtin", "ReadonlyList", false, mapOf("T" to double))
 
     private val contribution = scriptContribution("stats") {
         function("normalize") {
-            parameter("values", listOfDouble)
+            parameter("values", readonlyListOfDouble)
             returns(listOfDouble)
             implementation { call ->
                 val values = call.argument<List<Double>>(0)
@@ -48,7 +49,7 @@ class PluginServiceEndToEndTest {
     }
 
     private val verifier = SessionTokenVerifier { token ->
-        if (token == "run-token") SessionTokenClaims("p", "e", listOf("plugin:session:connect"), "contrib:stats", "functions") else null
+        if (token == "run-token") SessionTokenClaims("p", "e", listOf("plugin:session:connect"), PluginTarget.of(PluginTargetKind.CONTRIBUTION, "stats"), "functions") else null
     }
 
     private lateinit var server: EmbeddedServer<NettyApplicationEngine, NettyApplicationEngine.Configuration>
@@ -72,7 +73,7 @@ class PluginServiceEndToEndTest {
     )
 
     private fun dispatcher(token: String) = SessionDispatcher(
-        mapOf("normalize" to spec("normalize", listOfDouble, listOfDouble), "fail" to spec("fail", double))
+        mapOf("normalize" to spec("normalize", listOfDouble, readonlyListOfDouble), "fail" to spec("fail", double))
     ) { contributionId, session ->
         val target = PluginTarget.of(PluginTargetKind.CONTRIBUTION, contributionId)
         SessionConnection(

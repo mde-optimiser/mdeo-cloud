@@ -163,10 +163,16 @@ function createTypedRootAst(resolvedPlugins: ResolvedScriptContributionPlugins):
 
             // A signature names its types directly, so they go straight into the global table. Only a
             // typed AST body refers to its contribution's own types array by index.
-            const parameters = contributedSignature.signature.parameters.map((param) => ({
-                name: param.name,
-                type: merger.addTypeToGlobal(param.type)
-            }));
+            const parameters = contributedSignature.signature.parameters.map((param) => {
+                const defaultValue = contributedSignature.defaultValues?.[param.name];
+                return {
+                    name: param.name,
+                    type: merger.addTypeToGlobal(param.type),
+                    ...(defaultValue != undefined && {
+                        defaultValue: merger.remapContributedExpression(defaultValue, resolvedFunction.types)
+                    })
+                };
+            });
             const returnType = merger.addTypeToGlobal(contributedSignature.signature.returnType);
 
             signatures[overloadId] = ExternalImplementation.is(implementation)
@@ -200,7 +206,10 @@ function createTypedRootAst(resolvedPlugins: ResolvedScriptContributionPlugins):
             contributed.declaration.kind === "record"
                 ? contributed.declaration.fields.map((field) => ({
                       name: field.name,
-                      type: merger.addTypeToGlobal(field.type)
+                      type: merger.addTypeToGlobal(field.type),
+                      ...(field.defaultValue != undefined && {
+                          defaultValue: merger.remapContributedExpression(field.defaultValue, contributed.types)
+                      })
                   }))
                 : []
     }));

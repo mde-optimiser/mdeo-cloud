@@ -80,7 +80,7 @@ fun Route.sessionRoutes(
             val targetId = call.parameters["targetId"] ?: ""
             val sessionName = call.parameters["name"] ?: ""
 
-            val target = PluginTarget.parseOrNull("$kind:$targetId")
+            val target = PluginTarget.ofOrNull(kind, targetId)
             if (target == null) {
                 call.respondError(HttpStatusCode.BadRequest, "Not a plugin target: '$kind:$targetId'")
                 return@post
@@ -156,7 +156,7 @@ fun Route.sessionRoutes(
             val targetId = call.parameters["targetId"] ?: ""
             val sessionName = call.parameters["name"] ?: ""
 
-            val target = PluginTarget.parseOrNull("$kind:$targetId")
+            val target = PluginTarget.ofOrNull(kind, targetId)
             if (target == null || target.kind != PluginTargetKind.LANGUAGE) {
                 call.respondError(HttpStatusCode.BadRequest, "Only language targets load contribution plugins, not '$kind:$targetId'")
                 return@get
@@ -164,7 +164,7 @@ fun Route.sessionRoutes(
 
             val claimedTarget = jwtPrincipal.payload.getClaim(JwtService.CLAIM_TARGET)?.asString()
             val claimedSession = jwtPrincipal.payload.getClaim(JwtService.CLAIM_SESSION)?.asString()
-            if (claimedTarget != target.toString() || claimedSession != sessionName) {
+            if (claimedTarget?.let { PluginTarget.parseOrNull(it) } != target || claimedSession != sessionName) {
                 call.respondError(HttpStatusCode.Forbidden, "Token was issued for a different session")
                 return@get
             }

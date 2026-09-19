@@ -19,9 +19,9 @@ data class TypedRecord(
     val fields: List<TypedParameter>
 ) {
     /**
-     * The type the record's class stands for, `<package>.<name>`.
+     * The type the record's class stands for.
      */
-    val typeId: String get() = "$`package`.$name"
+    val key: TypeKey get() = TypeKey(`package`, name)
 
     /**
      * The record's constructor as a function: it takes the fields and returns a new record. Its

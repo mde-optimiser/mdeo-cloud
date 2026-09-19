@@ -39,7 +39,6 @@ import kotlin.uuid.toKotlinUuid
 class FileDataService(services: InjectedServices) : BaseService(), InjectedServices by services {
     private val logger = LoggerFactory.getLogger(FileDataService::class.java)
     private val json = Json { ignoreUnknownKeys = true }
-    private val computationLog = FileDataComputationLog()
     /**
      * Where shared computations run, apart from the requests waiting for them.
      */
@@ -221,15 +220,12 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
         // Recorded before the plugin is called so the token below is backed by a computation that is
         // already visible to token verification, and removed again as soon as the call is done.
         beginComputation(projectId, normalizedPath, key, computationId)
-        val logged = computationLog.start(projectId, normalizedPath, key)
 
         try {
             val token = jwtService.generateFileDataComputationToken(projectId, computationId)
 
-            val call =
+            val computedData =
                 computeFromPlugin(pluginId, pluginUrl, languagePlugin.id, key, projectId, fileSource, token, contributions)
-            logged.finish(call.requestBytes, call.responseBytes)
-            val computedData = call.response
 
             storeFileData(projectId, normalizedPath, key, computedData, fileSource?.version)
 
@@ -250,17 +246,14 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
 
             return success(RawFileData(json = computedData.data.toString(), version = fileSource?.version ?: -1))
         } catch (e: CancellationException) {
-            logged.fail()
             throw e
         } catch (e: java.net.http.HttpTimeoutException) {
-            logged.fail()
             logger.error("Plugin did not compute $normalizedPath:$key in time", e)
             return fileDataFailure(
                 ErrorCodes.FILE_DATA_COMPUTATION_FAILED,
                 "The plugin did not compute $normalizedPath:$key within ${fileDataConfig.computationTimeoutSeconds} seconds"
             )
         } catch (e: Exception) {
-            logged.fail()
             logger.error("Failed to compute file data for $normalizedPath:$key", e)
             return fileDataFailure(
                 ErrorCodes.FILE_DATA_COMPUTATION_FAILED,
@@ -364,7 +357,7 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
      * @param fileSource Source data with version, content, and path (null for directories)
      * @param token JWT token for authentication
      * @param contributions The contribution plugins the plugin needs, sent as a hash when it holds them
-     * @return Computed data response from the plugin, with the sizes of both messages
+     * @return Computed data response from the plugin
      */
     private suspend fun computeFromPlugin(
         pluginId: UUID,
@@ -375,28 +368,27 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
         fileSource: FileSource?,
         token: String,
         contributions: ContributionSet
-    ): PluginComputation {
+    ): FileDataComputeResponse {
         return withContext(Dispatchers.IO) {
             val timeout = Duration.ofSeconds(fileDataConfig.computationTimeoutSeconds)
             val dataUrl = URI.create(pluginUrl).resolve("data/$languageId/$key")
-            var requestBytes = ByteArray(0)
 
             val response = ContributionDelivery.send(pluginUrl) { includePayloads ->
-                requestBytes = json.encodeToString(
+                val requestBody = json.encodeToString(
                     FileDataComputeRequest(
                         project = project.toString(),
                         source = fileSource,
                         contributionPlugins = contributions.plugins.takeIf { includePayloads },
                         contributionHash = contributions.hash
                     )
-                ).toByteArray(Charsets.UTF_8)
+                )
 
                 val request = CompressedResponses.accept(HttpRequest.newBuilder())
                     .uri(dataUrl)
                     .header("Content-Type", "application/json")
                     .header("Authorization", "Bearer $token")
                     .header(CallerDeadline.HEADER, CallerDeadline.headerValue(timeout))
-                    .POST(HttpRequest.BodyPublishers.ofByteArray(requestBytes))
+                    .POST(HttpRequest.BodyPublishers.ofString(requestBody))
                     .timeout(timeout)
                     .build()
 
@@ -409,22 +401,9 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
                 throw RuntimeException("Plugin returned ${describeErrorResponse(response.statusCode(), responseText)}")
             }
 
-            PluginComputation(
-                response = json.decodeFromString<FileDataComputeResponse>(responseText),
-                requestBytes = requestBytes.size,
-                responseBytes = response.body().size
-            )
+            json.decodeFromString<FileDataComputeResponse>(responseText)
         }
     }
-
-    /**
-     * What a plugin computed, and how large the exchange was in bytes.
-     */
-    private class PluginComputation(
-        val response: FileDataComputeResponse,
-        val requestBytes: Int,
-        val responseBytes: Int
-    )
 
     /**
      * Stores computed file data in the database with dependencies.

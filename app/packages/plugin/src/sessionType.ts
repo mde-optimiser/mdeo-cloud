@@ -21,11 +21,6 @@ export interface SessionType {
      * unless the caller asks for one of these.
      */
     versions: number[];
-
-    /**
-     * What the session is for, shown in the plugin details view.
-     */
-    description?: string;
 }
 
 /**
