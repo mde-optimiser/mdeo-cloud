@@ -6,7 +6,9 @@ import com.mdeo.common.model.PluginTarget
  * Close codes the platform itself uses on a session.
  *
  * These are the refusals that happen before any plugin code runs. Everything a plugin closes a
- * session with is its own business. The same codes are used by the TypeScript services.
+ * session with is its own business. The TypeScript services refuse with the same codes, and add
+ * `4408` for a peer that stopped answering keepalives; here that is Ktor's own pong timeout, which
+ * closes with a Ktor code.
  */
 object SessionCloseCodes {
     /**

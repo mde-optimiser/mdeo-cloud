@@ -89,6 +89,53 @@ data class ManifestTextualEditorPlugin(
 )
 
 /**
+ * The server contribution payloads one contribution plugin of a manifest ships.
+ */
+internal fun serverContributionPayloads(contributionPlugin: JsonObject): List<JsonObject> =
+    contributionPlugin["serverContributionPlugins"]?.jsonArray?.map { it.jsonObject } ?: emptyList()
+
+/**
+ * The id a server contribution payload is addressed by, or null when it carries none.
+ */
+internal fun contributionIdOf(payload: JsonObject): String? = payload["id"]?.jsonPrimitive?.contentOrNull
+
+/**
+ * What a manifest declares that the platform cannot address, as messages.
+ *
+ * Contribution ids, and the ids of languages that declare sessions, become addresses
+ * (`contrib:<id>`, `lang:<id>`). A manifest where one of them cannot be carried by an address,
+ * where a contribution declares sessions without an id to be addressed by, or where a contribution
+ * id is declared twice, is refused as a whole rather than stored without the parts that do not fit.
+ *
+ * @param manifest The fetched manifest
+ * @return The problems found, empty when the manifest can be stored
+ */
+internal fun manifestProblems(manifest: PluginManifest): List<String> {
+    val problems = mutableListOf<String>()
+    for (plugin in manifest.languagePlugins) {
+        if (plugin.sessions.isNotEmpty() && PluginTarget.ofOrNull(PluginTargetKind.LANGUAGE, plugin.id) == null) {
+            problems += "language '${plugin.id}' declares sessions, but its id cannot be used as an address"
+        }
+    }
+    val payloads = manifest.contributionPlugins.flatMap { serverContributionPayloads(it) }
+    for (payload in payloads) {
+        if (contributionIdOf(payload) == null && payload["sessions"]?.jsonObject?.isNotEmpty() == true) {
+            problems += "a contribution declares sessions, but carries no id to be addressed by"
+        }
+    }
+    val contributionIds = payloads.mapNotNull { contributionIdOf(it) }
+    for (contributionId in contributionIds.distinct()) {
+        if (PluginTarget.ofOrNull(PluginTargetKind.CONTRIBUTION, contributionId) == null) {
+            problems += "contribution id '$contributionId' cannot be used as an address"
+        }
+        if (contributionIds.count { it == contributionId } > 1) {
+            problems += "contribution id '$contributionId' is declared more than once"
+        }
+    }
+    return problems
+}
+
+/**
  * One session of one target, resolved within a project.
  *
  * @property pluginId The plugin that serves the session
@@ -370,34 +417,14 @@ class PluginService(services: InjectedServices) : BaseService(), InjectedService
     }
 
     /**
-     * Refuses a manifest that declares something the platform cannot address.
-     *
-     * Contribution ids, and the ids of languages that declare sessions, become addresses
-     * (`contrib:<id>`, `lang:<id>`). A manifest where one of them cannot be carried by an address,
-     * or where a contribution id is declared twice, is refused as a whole rather than stored
-     * without the parts that do not fit.
+     * Refuses a manifest that declares something the platform cannot address, see
+     * [manifestProblems].
      *
      * @param manifest The fetched manifest
      * @return The failure to report, or null when the manifest can be stored
      */
     private fun manifestFailure(manifest: PluginManifest): ApiResult.Failure? {
-        val problems = mutableListOf<String>()
-        for (plugin in manifest.languagePlugins) {
-            if (plugin.sessions.isNotEmpty() && PluginTarget.ofOrNull(PluginTargetKind.LANGUAGE, plugin.id) == null) {
-                problems += "language '${plugin.id}' declares sessions, but its id cannot be used as an address"
-            }
-        }
-        val contributionIds = manifest.contributionPlugins
-            .flatMap { serverContributionPayloads(it) }
-            .mapNotNull { contributionIdOf(it) }
-        for (contributionId in contributionIds.distinct()) {
-            if (PluginTarget.ofOrNull(PluginTargetKind.CONTRIBUTION, contributionId) == null) {
-                problems += "contribution id '$contributionId' cannot be used as an address"
-            }
-            if (contributionIds.count { it == contributionId } > 1) {
-                problems += "contribution id '$contributionId' is declared more than once"
-            }
-        }
+        val problems = manifestProblems(manifest)
         if (problems.isEmpty()) return null
         return ApiResult.Failure(
             ApiError(
@@ -406,17 +433,6 @@ class PluginService(services: InjectedServices) : BaseService(), InjectedService
             )
         )
     }
-
-    /**
-     * The server contribution payloads one contribution plugin of a manifest ships.
-     */
-    private fun serverContributionPayloads(contributionPlugin: JsonObject): List<JsonObject> =
-        contributionPlugin["serverContributionPlugins"]?.jsonArray?.map { it.jsonObject } ?: emptyList()
-
-    /**
-     * The id a server contribution payload is addressed by, or null when it carries none.
-     */
-    private fun contributionIdOf(payload: JsonObject): String? = payload["id"]?.jsonPrimitive?.contentOrNull
 
     /**
      * Records the manifest fingerprint a plugin reported, or forgets it when the plugin sent none.
@@ -614,7 +630,8 @@ class PluginService(services: InjectedServices) : BaseService(), InjectedService
      * The payload as a whole belongs to the receiving language, and the platform reads exactly
      * two things from it: the contribution's `id`, which is the address callers use, and its
      * `sessions`. A payload without an id is not addressable and contributes no rows; it still
-     * reaches its language, which may not need one. The ids were checked by [manifestFailure].
+     * reaches its language, which may not need one. [manifestFailure] checked the ids, and refused
+     * a payload that declares sessions but has no id, so nothing is dropped here unnoticed.
      *
      * @param pluginId The plugin that ships the contributions
      * @param languageId The language the contributions extend

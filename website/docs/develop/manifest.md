@@ -155,7 +155,7 @@ extended, which type-guards on a `type` discriminator:
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `id` | string | Contribution id, unique **within a project**. This is the address callers write as `contrib:<id>`; a plugin whose id is already taken is refused with `PluginContributionIdConflict`. An id that is not letters, digits, `_`, `.` and `-` starting with a letter or digit, or one declared twice in the manifest, makes the backend refuse the manifest with `PluginManifestInvalid` |
-| `sessions` | object | [Sessions](/develop/sessions) this contribution accepts, keyed by session name |
+| `sessions` | object | [Sessions](/develop/sessions) this contribution accepts, keyed by session name. Callers reach them at `contrib:<id>`, so a contribution that declares sessions needs an id, or the manifest is refused with `PluginManifestInvalid` |
 
 The discriminators of the bundled languages:
 
