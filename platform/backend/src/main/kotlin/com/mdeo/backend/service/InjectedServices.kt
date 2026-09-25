@@ -72,4 +72,29 @@ interface InjectedServices {
      * Service for executing language plugin requests.
      */
     val languagePluginRequestService: LanguagePluginRequestService
+
+    /**
+     * Throttles password verification attempts, shared between the login
+     * route and git's HTTP basic authentication.
+     */
+    val authRateLimiter: AuthRateLimiter
+
+    /**
+     * Service for creating, listing, revoking, and verifying personal
+     * access tokens - an alternative to the account password for git's
+     * HTTP basic authentication.
+     */
+    val personalAccessTokenService: PersonalAccessTokenService
+
+    /**
+     * Service for registering, listing, removing, and resolving SSH public
+     * keys used to authenticate git-over-SSH.
+     */
+    val sshKeyService: SshKeyService
+
+    /**
+     * Issues and redeems the short-lived authorization codes a git
+     * credential helper trades a browser sign-in for.
+     */
+    val oAuthCodeService: OAuthCodeService
 }

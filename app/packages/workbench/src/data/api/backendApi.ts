@@ -1,5 +1,6 @@
 import { ApiResult, CommonErrorCode } from "./apiResult";
 import { AuthApi } from "./areas/authApi";
+import { GitApi } from "./areas/gitApi";
 import { UsersApi } from "./areas/usersApi";
 import { ProjectsApi } from "./areas/rojectsApi";
 import { WsFilesApi } from "./areas/wsFilesApi";
@@ -61,6 +62,11 @@ export class BackendApi implements BackendApiCore {
     readonly auth: AuthApi;
 
     /**
+     * How git access is configured on this deployment.
+     */
+    readonly git: GitApi;
+
+    /**
      * User management operations (list users, manage admin status)
      */
     readonly users: UsersApi;
@@ -102,6 +108,7 @@ export class BackendApi implements BackendApiCore {
      */
     constructor(readonly baseUrl: string = "/api") {
         this.auth = new AuthApi(this);
+        this.git = new GitApi(this);
         this.users = new UsersApi(this);
         this.projects = new ProjectsApi(this);
         this.websocket = new WebSocketApi({ baseUrl });

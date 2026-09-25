@@ -6,6 +6,11 @@ import java.util.concurrent.TimeUnit
  * Main application configuration containing all configuration sections.
  *
  * @property serverPort The port number on which the server will listen
+ * @property trustedProxyHops How many reverse proxies sit between clients and this backend, used
+ *   to resolve a request's real client address from `X-Forwarded-For`. Zero (the default) trusts
+ *   the header not at all and uses the direct peer, which is correct whenever the backend can be
+ *   reached without going through a proxy; every deployment that fronts it with nginx sets this
+ *   to 1. See [com.mdeo.backend.plugins.clientAddress].
  * @property database Database connection configuration
  * @property session Session management configuration
  * @property cors Cross-Origin Resource Sharing configuration
@@ -15,6 +20,7 @@ import java.util.concurrent.TimeUnit
  */
 data class AppConfig(
     val serverPort: Int,
+    val trustedProxyHops: Int,
     val database: DatabaseConfig,
     val session: SessionConfig,
     val cors: CorsConfig,
@@ -22,7 +28,8 @@ data class AppConfig(
     val defaultNewUserCanCreateProject: Boolean,
     val plugin: PluginConfig,
     val jwt: JwtConfig,
-    val fileData: FileDataConfig
+    val fileData: FileDataConfig,
+    val git: GitConfig
 ) {
     companion object {
         /**
@@ -36,6 +43,7 @@ data class AppConfig(
             
             return AppConfig(
                 serverPort = System.getenv("SERVER_PORT")?.toIntOrNull() ?: 8080,
+                trustedProxyHops = System.getenv("TRUSTED_PROXY_HOPS")?.toIntOrNull() ?: 0,
                 database = DatabaseConfig(
                     url = System.getenv("DATABASE_URL") 
                         ?: "jdbc:postgresql://localhost:5432/mdeo",
@@ -102,6 +110,20 @@ data class AppConfig(
                 fileData = FileDataConfig(
                     computationTimeoutSeconds = System.getenv("FILE_DATA_COMPUTATION_TIMEOUT_SECONDS")?.toLongOrNull()
                         ?: TimeUnit.MINUTES.toSeconds(5)
+                ),
+                git = GitConfig(
+                    maxPushPackSizeBytes = System.getenv("GIT_MAX_PUSH_PACK_SIZE_BYTES")?.toLongOrNull()
+                        ?: (100L * 1024 * 1024),
+                    maxProjectStorageBytes = System.getenv("GIT_MAX_PROJECT_STORAGE_BYTES")?.toLongOrNull()
+                        ?: (2L * 1024 * 1024 * 1024),
+                    sshPort = System.getenv("GIT_SSH_PORT")?.toIntOrNull() ?: 2222,
+                    sshHostKey = System.getenv("GIT_SSH_HOST_KEY"),
+                    oauthClientId = System.getenv("GIT_OAUTH_CLIENT_ID") ?: "mdeo-git",
+                    oauthCodeTtlSeconds = System.getenv("GIT_OAUTH_CODE_TTL_SECONDS")?.toLongOrNull() ?: 300,
+                    sshPublicHost = System.getenv("GIT_SSH_PUBLIC_HOST"),
+                    sshPubliclyReachable = System.getenv("GIT_SSH_PUBLICLY_REACHABLE")?.toBooleanStrictOrNull() ?: true,
+                    oauthAuthorizePath = System.getenv("GIT_OAUTH_AUTHORIZE_PATH") ?: "/oauth/authorize",
+                    oauthTokenPath = System.getenv("GIT_OAUTH_TOKEN_PATH") ?: "/api/oauth/token"
                 )
             )
         }
@@ -204,4 +226,51 @@ data class JwtConfig(
  */
 data class FileDataConfig(
     val computationTimeoutSeconds: Long
+)
+
+/**
+ * Git server configuration.
+ *
+ * @property maxPushPackSizeBytes Largest pack a push may send, in bytes (default 100 MiB). JGit
+ *   rejects an oversized pack while unpacking it, before any of its content reaches
+ *   [com.mdeo.backend.git.GitRepositoryService.applyCommitToProject], so this fails the push
+ *   cleanly rather than partway through applying it.
+ * @property maxProjectStorageBytes Largest total git object storage one project may hold, in
+ *   bytes (default 2 GiB), checked before a push is applied. Nothing else reclaims storage a
+ *   rejected push already wrote except the sweep this cap's own rejection triggers, so without
+ *   it a write-capable user could otherwise grow the database without bound by pushing large
+ *   rejected packs in a loop.
+ * @property sshPort Port the git-over-SSH server listens on (default 2222; not the standard 22,
+ *   so a client needs an explicit port in its clone URL or SSH client config).
+ * @property sshHostKey The SSH server's host key, as the literal contents of an OpenSSH-format
+ *   private key file (what `ssh-keygen -t ed25519 -f hostkey` produces) - optional, an ephemeral
+ *   key is generated at startup if not provided. A generated key changes on every restart, so
+ *   clients see a new host-key warning each time; set this in any environment where that matters.
+ * @property oauthClientId The client id Git Credential Manager is configured with. A public
+ *   client: there is no secret, because a credential helper installed on a developer's machine
+ *   cannot keep one, which is exactly the case PKCE exists for.
+ * @property oauthCodeTtlSeconds How long an issued authorization code stays redeemable. Short by
+ *   design - the code is exchanged by the credential helper within seconds of the browser
+ *   redirect, so anything longer is only a wider window for a leaked code.
+ * @property sshPublicHost The host clients should use in an SSH clone URL, when that is not the
+ *   host the workbench itself is served from. Null means they are the same.
+ * @property sshPubliclyReachable Whether the SSH port is reachable by clients at all. False in a
+ *   deployment that keeps it pod-internal, where advertising an SSH URL would only mislead.
+ * @property oauthAuthorizePath Where the browser-facing authorization screen lives. Both mounted
+ *   and advertised from here, so the setup commands the workbench shows cannot drift from what
+ *   the deployment actually serves.
+ * @property oauthTokenPath Where credential helpers exchange a code for a token, likewise both
+ *   mounted and advertised from this one value.
+ */
+data class GitConfig(
+    val maxPushPackSizeBytes: Long,
+    val maxProjectStorageBytes: Long,
+    val sshPort: Int,
+    val sshHostKey: String? = null,
+    val oauthClientId: String,
+    val oauthCodeTtlSeconds: Long,
+    val sshPublicHost: String? = null,
+    val sshPubliclyReachable: Boolean = true,
+    val oauthAuthorizePath: String,
+    val oauthTokenPath: String
 )

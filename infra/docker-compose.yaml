@@ -63,13 +63,25 @@ services:
 
   backend:
     image: ${MDEO_IMAGE_PREFIX:-ghcr.io/mde-optimiser}/mdeo-backend:${MDEO_IMAGE_TAG:-latest}
+    # The git SSH port, published because GIT_SSH_PUBLICLY_REACHABLE below
+    # advertises an SSH clone URL to users: nginx proxies HTTP only, so
+    # without this mapping the URL the workbench shows would not connect.
+    ports:
+      - "2222:2222"
     environment:
       DATABASE_URL: jdbc:postgresql://postgres-backend:5432/mdeo
       DATABASE_USER: mdeo
       DATABASE_PASSWORD: mdeo
+      # Every HTTP request arrives through the workbench nginx, which appends
+      # the address it saw to X-Forwarded-For, and the backend itself is not
+      # published. See plugins/ClientAddress.kt.
+      TRUSTED_PROXY_HOPS: 1
+      GIT_SSH_PORT: 2222
+      GIT_OAUTH_AUTHORIZE_PATH: /oauth/authorize
+      GIT_OAUTH_TOKEN_PATH: /api/oauth/token
+      GIT_SSH_PUBLICLY_REACHABLE: "true"
       SESSION_MAX_IDLE_SECONDS: 604800
       SESSION_MAX_ABSOLUTE_SECONDS: 15552000
-      CSRF_ROTATION_SECONDS: 3600
       COOKIE_SECURE: "false"
       COOKIE_SAMESITE: "Lax"
       CORS_ALLOWED_HOSTS: localhost:4242,127.0.0.1:4242

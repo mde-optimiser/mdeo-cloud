@@ -19,7 +19,11 @@ export enum FileSystemErrorCode {
     FileExists = "FileExists",
     FileIsADirectory = "FileIsADirectory",
     FileNotADirectory = "FileNotADirectory",
-    DirectoryNotEmpty = "DirectoryNotEmpty"
+    DirectoryNotEmpty = "DirectoryNotEmpty",
+    /** The path uses an extension the platform reserves for its own files. */
+    ReservedPath = "ReservedPath",
+    /** The file moved on since the version the write was based on. */
+    VersionConflict = "VersionConflict"
 }
 
 /**
@@ -33,6 +37,8 @@ export enum ProjectErrorCode {
  * Error codes specific to plugin operations.
  */
 export enum PluginErrorCode {
+    /** The plugin claims a file extension the platform reserves for itself. */
+    ReservedExtension = "ReservedExtension",
     PluginNotFound = "PluginNotFound",
     PluginAlreadyExists = "PluginAlreadyExists",
     PluginAlreadyAddedToProject = "PluginAlreadyAddedToProject",

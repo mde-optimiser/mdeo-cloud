@@ -41,7 +41,28 @@ export class BackendFileSystemProvider implements IFileSystemProviderWithFileRea
 
     readonly onDidChangeCapabilities = new Emitter<void>().event;
 
-    constructor(private readonly backendApi: BackendApi) {}
+    constructor(private readonly backendApi: BackendApi) {
+        // A git push changes the project's files without any of the writes
+        // below going through this provider, so nothing would otherwise tell
+        // the editor that what it has open is now out of date. The cache is
+        // already dropped by the time this runs; firing a change event for
+        // each affected path is what makes the workbench read the new content
+        // back through readFile.
+        //
+        // This covers files the client had already seen, which is what the
+        // coarse notification can support: a push that adds or removes files
+        // is not announced per path, and the explorer picks those up on its
+        // next readdir, which now reaches the server rather than the cache.
+        this.backendApi.files.onCachedFilesInvalidated((projectId, paths) => {
+            const changes = paths.map((path) => ({
+                type: FileChangeType.UPDATED,
+                resource: Uri.parse(`file:///${projectId}/files/${path}`)
+            }));
+            if (changes.length > 0) {
+                this._onDidChangeFile.fire(changes);
+            }
+        });
+    }
 
     async stat(resource: URI): Promise<IStat> {
         const parsed = parseUri(Uri.from(resource));

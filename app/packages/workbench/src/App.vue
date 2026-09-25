@@ -1,12 +1,21 @@
 <template>
     <TooltipProvider>
-        <Workbench v-if="workspaceState != undefined" :workbenchState="workspaceState" :auth-state="authState" />
+        <Workbench
+            v-if="workspaceState != undefined && !isAuthorizingGit"
+            :workbenchState="workspaceState"
+            :auth-state="authState"
+        />
         <div v-else-if="!isCheckingAuth" class="flex h-screen w-screen">
             <div class="flex h-full border-r border-border/60">
                 <BaseSidebarRail />
             </div>
             <div class="flex flex-1 items-center justify-center px-4 py-10">
-                <LoginCard :auth-state="authState" @success="handleAuthSuccess" />
+                <AuthorizeGitCard
+                    v-if="isAuthorizingGit && authState.isAuthenticated.value"
+                    :backend-api="backendApi"
+                    :username="authState.user.value?.username ?? ''"
+                />
+                <LoginCard v-else :auth-state="authState" @success="handleAuthSuccess" />
             </div>
         </div>
     </TooltipProvider>
@@ -20,6 +29,8 @@ import { WorkbenchState } from "./data/workbenchState";
 import { AuthState } from "./data/authState";
 import Workbench from "./components/workbench/Workbench.vue";
 import LoginCard from "./components/auth/LoginCard.vue";
+import AuthorizeGitCard from "./components/auth/AuthorizeGitCard.vue";
+import { isGitOAuthAuthorizePath, DEFAULT_GIT_OAUTH_AUTHORIZE_PATH } from "./data/gitOAuthRequest";
 import BaseSidebarRail from "./components/sidebar/BaseSidebarRail.vue";
 import { useColorMode } from "@vueuse/core";
 import { TooltipProvider } from "./components/ui/tooltip";
@@ -39,17 +50,31 @@ const authState = new AuthState(backendApi, () => {
 
 const isCheckingAuth = ref(true);
 
+// A git credential helper opens this path directly. Signing in is the login
+// card below, exactly as anywhere else in the product - the authorization
+// screen only ever asks the question it owns. The path is the server's to
+// decide, so it is resolved before anything renders.
+const isAuthorizingGit = ref(isGitOAuthAuthorizePath(DEFAULT_GIT_OAUTH_AUTHORIZE_PATH));
+
 const theme = useColorMode();
 
 onMounted(async () => {
-    await authState.checkAuthentication();
-    if (authState.isAuthenticated.value) {
+    const [, gitConfig] = await Promise.all([authState.checkAuthentication(), backendApi.git.getAccessConfig()]);
+    if (gitConfig.success) {
+        isAuthorizingGit.value = isGitOAuthAuthorizePath(gitConfig.value.oauthAuthorizePath);
+    }
+    if (authState.isAuthenticated.value && !isAuthorizingGit.value) {
         await initializeWorkbench();
     }
     isCheckingAuth.value = false;
 });
 
 async function handleAuthSuccess() {
+    if (isAuthorizingGit.value) {
+        // Signing in from the authorization screen leaves the user on it,
+        // now able to answer, rather than dropping them into the workbench.
+        return;
+    }
     await initializeWorkbench();
 }
 

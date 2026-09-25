@@ -49,6 +49,8 @@ object ErrorCodes {
     const val FILE_IS_A_DIRECTORY = "FileIsADirectory"
     const val FILE_NOT_A_DIRECTORY = "FileNotADirectory"
     const val DIRECTORY_NOT_EMPTY = "DirectoryNotEmpty"
+    const val RESERVED_PATH = "ReservedPath"
+    const val VERSION_CONFLICT = "VersionConflict"
     
     const val PROJECT_NOT_FOUND = "ProjectNotFound"
     
@@ -56,9 +58,11 @@ object ErrorCodes {
     const val PLUGIN_ALREADY_EXISTS = "PluginAlreadyExists"
     const val PLUGIN_ALREADY_ADDED_TO_PROJECT = "PluginAlreadyAddedToProject"
     const val PLUGIN_NOT_ADDED_TO_PROJECT = "PluginNotAddedToProject"
+    const val RESERVED_EXTENSION = "ReservedExtension"
     
     const val USER_NOT_FOUND = "UserNotFound"
     const val INVALID_CREDENTIALS = "InvalidCredentials"
+    const val TOKEN_NOT_FOUND = "TokenNotFound"
     const val LAST_OWNER = "LastOwner"
     const val OWNER_ALREADY_EXISTS = "OwnerAlreadyExists"
     const val OWNER_NOT_FOUND = "OwnerNotFound"

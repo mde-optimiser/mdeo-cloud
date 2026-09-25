@@ -1,6 +1,7 @@
 package com.mdeo.backend.routes
 
 import com.mdeo.backend.plugins.*
+import com.mdeo.backend.service.AuthRateLimiter
 import com.mdeo.backend.service.UserService
 import com.mdeo.backend.service.JwtService
 import com.mdeo.common.model.*
@@ -17,23 +18,48 @@ import java.time.Instant
  *
  * @param userService Service for user authentication and management
  * @param jwtService Service for JWT operations
+ * @param authRateLimiter Throttles failed login attempts, shared with git's HTTP basic authentication
+ * @param trustedProxyHops How many reverse proxies sit in front of this backend; see
+ *   [com.mdeo.backend.plugins.clientAddress]
  */
-fun Route.authRoutes(userService: UserService, jwtService: JwtService) {
+fun Route.authRoutes(
+    userService: UserService,
+    jwtService: JwtService,
+    authRateLimiter: AuthRateLimiter,
+    trustedProxyHops: Int
+) {
     route("/api/auth") {
         /**
          * Authenticates a user and creates a session.
          *
          * @param body LoginRequest containing username and password
-         * @return LoginResponse with user information on success, 401 Unauthorized on failure
+         * @return LoginResponse with user information on success, 401 Unauthorized on failure,
+         *   429 Too Many Requests when rate limited
          */
         post("/login") {
             val request = call.receive<LoginRequest>()
-            
+
+            // Resolved through the deployment's trusted proxies rather than
+            // taken from the peer, which behind nginx is nginx: keyed on that,
+            // every proxied user would share one bucket and could lock each
+            // other out with their own failed logins.
+            val clientAddress = call.clientAddress(trustedProxyHops)
+            // Reserved before verification runs, not checked-then-reported after: see
+            // AuthRateLimiter.tryReserve's doc comment for why the two cannot be split apart
+            // without letting concurrent requests bypass the limit.
+            if (!authRateLimiter.tryReserve(request.username, clientAddress)) {
+                call.respond(HttpStatusCode.TooManyRequests, mapOf("error" to "Too many attempts, try again later"))
+                return@post
+            }
+
             val user = userService.verifyPassword(request.username, request.password)
             if (user == null) {
+                // No separate "record failure" call: the reservation above already counts this
+                // attempt as one.
                 call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "Invalid credentials"))
                 return@post
             }
+            authRateLimiter.recordSuccess(request.username, clientAddress)
             
             call.sessions.set(UserSession(
                 userId = user.id,

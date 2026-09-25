@@ -158,6 +158,108 @@
 
                 <div>
                     <Separator />
+                    <SidebarPanelHeader label="Git" />
+                    <div class="px-4 py-2 space-y-3">
+                        <div class="space-y-1.5">
+                            <p class="text-[11px] font-medium text-muted-foreground">HTTPS</p>
+                            <div class="flex items-center gap-2">
+                                <Input
+                                    :model-value="gitCloneUrl"
+                                    readonly
+                                    class="flex-1 text-xs font-mono"
+                                    @focus="($event.target as HTMLInputElement).select()"
+                                />
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            class="h-8 w-8 shrink-0"
+                                            :aria-label="copiedUrl === 'https' ? 'Copied' : 'Copy clone URL'"
+                                            @click="handleCopyGitUrl('https')"
+                                        >
+                                            <Check v-if="copiedUrl === 'https'" class="size-4" />
+                                            <Copy v-else class="size-4" />
+                                        </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="right">
+                                        {{ copiedUrl === "https" ? "Copied" : "Copy clone URL" }}
+                                    </TooltipContent>
+                                </Tooltip>
+                            </div>
+                        </div>
+
+                        <div v-if="sshCloneUrl" class="space-y-1.5">
+                            <p class="text-[11px] font-medium text-muted-foreground">SSH</p>
+                            <div class="flex items-center gap-2">
+                                <Input
+                                    :model-value="sshCloneUrl"
+                                    readonly
+                                    class="flex-1 text-xs font-mono"
+                                    @focus="($event.target as HTMLInputElement).select()"
+                                />
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            class="h-8 w-8 shrink-0"
+                                            :aria-label="copiedUrl === 'ssh' ? 'Copied' : 'Copy SSH clone URL'"
+                                            @click="handleCopyGitUrl('ssh')"
+                                        >
+                                            <Check v-if="copiedUrl === 'ssh'" class="size-4" />
+                                            <Copy v-else class="size-4" />
+                                        </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="right">
+                                        {{ copiedUrl === "ssh" ? "Copied" : "Copy SSH clone URL" }}
+                                    </TooltipContent>
+                                </Tooltip>
+                            </div>
+                        </div>
+
+                        <!-- Shown the first time someone takes a URL away, because that is the
+                             moment the one-time client setup becomes relevant - and never again
+                             once dismissed. -->
+                        <div
+                            v-if="isSetupHintVisible && setupCommands"
+                            class="space-y-2 rounded-lg border border-border/70 bg-muted/30 p-3"
+                        >
+                            <p class="text-xs font-medium text-foreground">Sign in from git without a password</p>
+                            <p class="text-xs text-muted-foreground">
+                                Point Git Credential Manager at this server once and it will open a browser to sign you
+                                in, then save an access token for every later clone and push.
+                            </p>
+                            <ScrollArea orientation="horizontal" class="rounded-md bg-background/60">
+                                <pre
+                                    class="p-2 text-[10px] leading-relaxed font-mono text-muted-foreground"
+                                ><code>{{ setupCommands }}</code></pre>
+                            </ScrollArea>
+                            <div class="flex items-center gap-2">
+                                <Button variant="ghost" size="sm" class="h-7 text-xs" @click="handleCopySetup">
+                                    <Check v-if="isSetupCopied" class="size-3" />
+                                    <Copy v-else class="size-3" />
+                                    {{ isSetupCopied ? "Copied" : "Copy commands" }}
+                                </Button>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    class="h-7 text-xs text-muted-foreground"
+                                    @click="dismissSetupHint"
+                                >
+                                    Don't show again
+                                </Button>
+                            </div>
+                        </div>
+
+                        <p class="text-xs text-muted-foreground">
+                            Clone or push this project with git, using your MDEO Cloud login.
+                        </p>
+                    </div>
+                </div>
+
+                <div>
+                    <Separator />
                     <SidebarPanelHeader label="Management" />
                     <div class="px-4 py-2 space-y-2">
                         <Button variant="secondary" class="w-full" @click="handleDownloadProject">
@@ -205,7 +307,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, inject, useTemplateRef, nextTick, computed, reactive } from "vue";
+import { ref, inject, useTemplateRef, nextTick, computed, reactive, onMounted } from "vue";
 import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
@@ -228,7 +330,8 @@ import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } 
 import ManagePluginsDialog from "./ManagePluginsDialog.vue";
 import ManageUsersDialog from "./ManageUsersDialog.vue";
 import type { ProjectUserInfo } from "@/data/api/backendApi";
-import { Pencil, Trash2, Download, FolderOpen, User as UserIcon, Settings2, Icon } from "@lucide/vue";
+import type { GitAccessConfig } from "@/data/api/areas/gitApi";
+import { Pencil, Trash2, Download, FolderOpen, User as UserIcon, Settings2, Icon, Copy, Check } from "@lucide/vue";
 import { workbenchStateKey } from "@/components/workbench/util";
 import type { WorkbenchPlugin } from "@/data/plugin/plugin";
 import { showApiError } from "@/lib/notifications";
@@ -261,6 +364,102 @@ const removingUserIds = reactive(new Set<string>());
 const sortedPlugins = computed(() => {
     return Array.from(plugins.value.values()).sort((a, b) => a.name.localeCompare(b.name));
 });
+
+// Same origin as the workbench itself: nginx (and the vite dev proxy) forward
+// /git/ to the backend alongside /api/, so no separate backend URL is needed.
+const gitCloneUrl = computed(() => `${window.location.origin}/git/${project.value!.id}.git`);
+const origin = window.location.origin;
+
+// The SSH port is configurable and, in some deployments, not exposed to
+// clients at all - so it is asked for rather than assumed, and no SSH URL is
+// shown when there would be nothing listening on the other end.
+const gitAccess = ref<GitAccessConfig>();
+const sshCloneUrl = computed(() => {
+    const access = gitAccess.value;
+    if (access == undefined || !access.sshEnabled) {
+        return undefined;
+    }
+    return `ssh://git@${access.sshHost ?? window.location.hostname}:${access.sshPort}/${project.value!.id}.git`;
+});
+
+// Device specific rather than account state: whether someone has set up their
+// credential helper is a property of the machine they are sitting at.
+const SETUP_HINT_DISMISSED_KEY = "mdeo.git.setupHintDismissed";
+const isSetupHintVisible = ref(false);
+const isSetupCopied = ref(false);
+const copiedUrl = ref<"https" | "ssh">();
+
+// Paths come from the server rather than being written out here, so the
+// commands always name the endpoints this deployment actually serves.
+const setupCommands = computed(() => {
+    const access = gitAccess.value;
+    if (access == undefined) {
+        return "";
+    }
+    return (
+        `git config --global "credential.${origin}.oauthAuthorizeEndpoint" ${access.oauthAuthorizePath}\n` +
+        `git config --global "credential.${origin}.oauthTokenEndpoint" ${access.oauthTokenPath}`
+    );
+});
+
+onMounted(async () => {
+    const result = await backendApi.git.getAccessConfig();
+    if (result.success) {
+        gitAccess.value = result.value;
+    }
+});
+
+async function handleCopyGitUrl(kind: "https" | "ssh") {
+    const url = kind === "ssh" ? sshCloneUrl.value : gitCloneUrl.value;
+    if (url == undefined || !(await copyText(url))) {
+        return;
+    }
+    copiedUrl.value = kind;
+    setTimeout(() => {
+        copiedUrl.value = undefined;
+    }, 1500);
+
+    if (localStorage.getItem(SETUP_HINT_DISMISSED_KEY) !== "true") {
+        isSetupHintVisible.value = true;
+    }
+}
+
+async function handleCopySetup() {
+    if (!(await copyText(setupCommands.value))) {
+        return;
+    }
+    isSetupCopied.value = true;
+    setTimeout(() => {
+        isSetupCopied.value = false;
+    }, 1500);
+}
+
+function dismissSetupHint() {
+    localStorage.setItem(SETUP_HINT_DISMISSED_KEY, "true");
+    isSetupHintVisible.value = false;
+}
+
+/**
+ * Copies text, reporting failure rather than throwing: the compose
+ * deployments serve the workbench over plain HTTP, where navigator.clipboard
+ * is undefined.
+ *
+ * @param text What to put on the clipboard
+ * @return Whether it got there
+ */
+async function copyText(text: string): Promise<boolean> {
+    if (navigator.clipboard == undefined) {
+        showApiError("copy to clipboard", "Clipboard unavailable over plain HTTP - select the text and copy it.");
+        return false;
+    }
+    try {
+        await navigator.clipboard.writeText(text);
+        return true;
+    } catch (error) {
+        showApiError("copy to clipboard", String(error));
+        return false;
+    }
+}
 
 function handleEditName() {
     editedName.value = project.value!.name;

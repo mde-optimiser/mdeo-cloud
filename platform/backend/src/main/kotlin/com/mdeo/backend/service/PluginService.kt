@@ -135,6 +135,63 @@ class PluginService(services: InjectedServices) : BaseService(), InjectedService
     }
 
     /**
+     * Urls of the plugins enabled for a project, as registered rather than
+     * resolved against a base url, sorted for a stable order.
+     *
+     * Used to publish a project's plugin selection as part of its git tree
+     * (see [com.mdeo.backend.git.GitRepositoryService]), where the registered
+     * url is what a push can be matched back against.
+     *
+     * @param projectId The UUID of the project
+     * @return The enabled plugins' registered urls
+     */
+    fun getProjectPluginUrls(projectId: UUID): List<String> {
+        return transaction {
+            (ProjectPluginsTable innerJoin PluginsTable)
+                .select(PluginsTable.url)
+                .where { ProjectPluginsTable.projectId eq projectId.toKotlinUuid() }
+                .map { it[PluginsTable.url] }
+                .sorted()
+        }
+    }
+
+    /**
+     * Replaces a project's enabled plugins to match exactly the given urls.
+     *
+     * A url that does not match a registered plugin is skipped rather than
+     * failing the call, since a git clone can be pushed back to a different
+     * MDEO instance than the one it came from, which may not have every
+     * plugin registered.
+     *
+     * @param projectId The UUID of the project
+     * @param urls The urls that should be enabled, replacing the current set
+     * @return The urls that did not match a registered plugin
+     */
+    fun setProjectPlugins(projectId: UUID, urls: List<String>): List<String> {
+        val normalized = urls.map { it.trimEnd('/') + "/" }.toSet()
+
+        val unknown = transaction {
+            val resolved = PluginsTable.selectAll()
+                .where { PluginsTable.url inList normalized }
+                .associate { it[PluginsTable.url] to it[PluginsTable.id] }
+
+            val project = projectId.toKotlinUuid()
+            ProjectPluginsTable.deleteWhere { ProjectPluginsTable.projectId eq project }
+            for (pluginId in resolved.values) {
+                ProjectPluginsTable.insert {
+                    it[ProjectPluginsTable.projectId] = project
+                    it[ProjectPluginsTable.pluginId] = pluginId
+                }
+            }
+
+            normalized - resolved.keys
+        }
+
+        fileDataService.invalidateProjectData(projectId)
+        return unknown.toList()
+    }
+
+    /**
      * Retrieves a specific plugin by ID.
      *
      * @param pluginId The UUID of the plugin
@@ -192,6 +249,14 @@ class PluginService(services: InjectedServices) : BaseService(), InjectedService
             )
         }
 
+        reservedExtensionClaim(manifest)?.let { languagePluginId ->
+            return pluginFailure(
+                ErrorCodes.RESERVED_EXTENSION,
+                "Language plugin '$languagePluginId' claims the '$RESERVED_FILE_EXTENSION' extension, " +
+                    "which is reserved for MDEO's own project metadata"
+            )
+        }
+
         return transaction {
             val pluginId = UUID.randomUUID()
             val now = Instant.now()
@@ -245,6 +310,19 @@ class PluginService(services: InjectedServices) : BaseService(), InjectedService
             return pluginFailure(
                 ErrorCodes.PLUGIN_NOT_FOUND,
                 "Failed to fetch plugin manifest: ${e.message}"
+            )
+        }
+
+        reservedExtensionClaim(manifest)?.let { languagePluginId ->
+            // Refused rather than applied with the offending language
+            // dropped: a refresh that silently removes the language a
+            // plugin exists for is harder to diagnose than one that fails
+            // saying why, and the plugin's previously stored languages are
+            // left exactly as they were.
+            return pluginFailure(
+                ErrorCodes.RESERVED_EXTENSION,
+                "Language plugin '$languagePluginId' claims the '$RESERVED_FILE_EXTENSION' extension, " +
+                    "which is reserved for MDEO's own project metadata"
             )
         }
 
@@ -314,6 +392,31 @@ class PluginService(services: InjectedServices) : BaseService(), InjectedService
             json.decodeFromString<PluginManifest>(response.body())
         }
     }
+
+    /**
+     * Names the language plugin in [manifest] that claims MDEO's reserved
+     * file extension, if any.
+     *
+     * [RESERVED_FILE_EXTENSION] is only safe for the platform to generate
+     * files under (see [FileService]) for as long as nothing else can
+     * produce a file ending that way, so the reservation has to be enforced
+     * where extensions enter the platform - here, when a manifest is read -
+     * and not only where paths are written.
+     *
+     * A leading dot is optional in a manifest, so both spellings are
+     * compared against; an extension that reached the database without one
+     * would never match a file anyway, but it would still be a plugin
+     * claiming the reserved name.
+     *
+     * @param manifest The manifest just fetched from the plugin
+     * @return The offending language plugin's id, or null if the manifest
+     *   claims nothing reserved
+     */
+    private fun reservedExtensionClaim(manifest: PluginManifest): String? =
+        manifest.languagePlugins.firstOrNull { plugin ->
+            val extension = plugin.extension?.let { if (it.startsWith(".")) it else ".$it" }
+            extension.equals(RESERVED_FILE_EXTENSION, ignoreCase = true)
+        }?.id
 
     /**
      * Stores language plugins in the database.
@@ -531,6 +634,17 @@ class PluginService(services: InjectedServices) : BaseService(), InjectedService
                     fetchPluginManifest(normalizedUrl)
                 } catch (e: Exception) {
                     logger.error("Failed to fetch plugin manifest from $normalizedUrl", e)
+                    continue
+                }
+
+                val reservedClaim = reservedExtensionClaim(manifest)
+                if (reservedClaim != null) {
+                    logger.error(
+                        "Skipping default plugin {}: language plugin '{}' claims the reserved '{}' extension",
+                        normalizedUrl,
+                        reservedClaim,
+                        RESERVED_FILE_EXTENSION
+                    )
                     continue
                 }
 

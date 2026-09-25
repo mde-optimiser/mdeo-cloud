@@ -65,9 +65,22 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       DATABASE_USER: ${BACKEND_DB_USER:-${DATABASE_USER}}
       DATABASE_PASSWORD: ${BACKEND_DB_PASSWORD:-${DATABASE_PASSWORD}}
+      # Every HTTP request arrives through the workbench nginx, which appends
+      # the address it saw to X-Forwarded-For, and the backend itself is not
+      # published. See plugins/ClientAddress.kt.
+      TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-1}
+      GIT_SSH_PORT: 2222
+      GIT_OAUTH_AUTHORIZE_PATH: /oauth/authorize
+      GIT_OAUTH_TOKEN_PATH: /api/oauth/token
+      # Defaults to false because this stack publishes only the workbench's
+      # port 80, and nginx proxies HTTP only: with nothing mapping 2222 there
+      # is no SSH endpoint, and advertising a clone URL for one would only
+      # send users at an address that refuses the connection. Set it to true
+      # together with the ports mapping below, and set GIT_SSH_HOST_KEY, so
+      # clients are not asked to re-accept a new host key on every restart.
+      GIT_SSH_PUBLICLY_REACHABLE: "${GIT_SSH_PUBLICLY_REACHABLE:-false}"
       SESSION_MAX_IDLE_SECONDS: ${SESSION_MAX_IDLE_SECONDS}
       SESSION_MAX_ABSOLUTE_SECONDS: ${SESSION_MAX_ABSOLUTE_SECONDS}
-      CSRF_ROTATION_SECONDS: ${CSRF_ROTATION_SECONDS}
       JWT_EXPIRATION_SECONDS: ${JWT_EXPIRATION_SECONDS:-3600}
       JWT_EXECUTION_EXPIRATION_SECONDS: ${JWT_EXECUTION_EXPIRATION_SECONDS:-604800}
       COOKIE_SECURE: ${COOKIE_SECURE}
@@ -78,6 +91,11 @@ services:
       PLUGIN_BASE_URL: ${PLUGIN_BASE_URL}
       INTERNAL_PLUGIN_BASE_URL: ${INTERNAL_PLUGIN_BASE_URL:-http://workbench:80}
       DEFAULT_PLUGIN_URLS: ${DEFAULT_PLUGIN_URLS:-http://service-metamodel:3000,http://service-model:3000,http://service-script:3000,http://service-model-transformation:3000,http://service-config:3000,http://service-config-optimization:3000,http://service-config-mdeo:3000,http://service-csv:3000,http://service-model-csv:3000}
+    # Uncomment together with GIT_SSH_PUBLICLY_REACHABLE=true above to serve
+    # git over SSH, or map the port through whatever L4 ingress fronts this
+    # deployment instead.
+    # ports:
+    #   - "2222:2222"
     depends_on:
       postgres-backend:
         condition: service_healthy

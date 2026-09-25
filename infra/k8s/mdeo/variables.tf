@@ -101,6 +101,14 @@ variable "jwt_public_key" {
   default     = null
 }
 
+variable "ssh_host_key" {
+  type        = string
+  description = "OpenSSH-format private key for the git-over-SSH server's host key. If null, a key pair is generated automatically and stored in Terraform state."
+  sensitive   = true
+  nullable    = true
+  default     = null
+}
+
 variable "max_langium_instances" {
   type        = number
   description = "Maximum number of Langium worker instances per JS service"
@@ -149,4 +157,47 @@ variable "optimizer_transformation_timeout_ms" {
   type        = number
   description = "Default per-transformation timeout in milliseconds for optimizer-execution pods"
   default     = 1000
+}
+
+variable "git_oauth_authorize_path" {
+  type        = string
+  description = "Path of the browser-facing git authorization screen. Both mounted and advertised in the setup commands the workbench shows, so the two cannot drift apart."
+  default     = "/oauth/authorize"
+}
+
+variable "git_oauth_token_path" {
+  type        = string
+  description = "Path where git credential helpers exchange an authorization code for an access token."
+  default     = "/api/oauth/token"
+}
+
+variable "git_ssh_public_host" {
+  type        = string
+  description = "Host clients should use in an SSH clone URL, when that is not the host the workbench is served from. Null means they are the same."
+  nullable    = true
+  default     = null
+}
+
+variable "git_ssh_publicly_reachable" {
+  type        = bool
+  description = "Whether the git SSH port is reachable by clients. The in-cluster service port is pod-to-pod only by default, so this stays false until SSH is actually exposed - otherwise the workbench would advertise an SSH clone URL that nobody can reach."
+  default     = false
+}
+
+variable "trusted_proxy_hops" {
+  type        = number
+  description = <<-EOT
+    How many reverse proxies sit between clients and the backend, used to resolve a request's real
+    client address out of X-Forwarded-For for the authentication rate limiter (see
+    platform/backend/.../plugins/ClientAddress.kt). Zero, the default, trusts the header not at all
+    and keys on the direct peer, which groups every user of a proxied deployment into one bucket but
+    can never be spoofed.
+
+    Setting this wrong in the *high* direction is what lets a caller forge its own address, so raise
+    it only once the hop count is known for certain. In this deployment it is not uniform: /api goes
+    Gateway -> backend, while /git goes Gateway -> workbench nginx -> backend, and whether the
+    Gateway appends to X-Forwarded-For at all depends on the controller in use. Set 1 only if the
+    Gateway is known to append it.
+  EOT
+  default     = 0
 }

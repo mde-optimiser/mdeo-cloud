@@ -33,6 +33,19 @@ interface ExecutionStateChangedMessage extends WebSocketMessage {
 }
 
 /**
+ * Notification that a project's files changed from outside this connection,
+ * most commonly a git push.
+ *
+ * Deliberately coarse: it says only that something changed, not what, so a
+ * client reloads whatever it currently holds rather than reconciling a diff
+ * it never saw.
+ */
+interface FilesChangedMessage extends WebSocketMessage {
+    messageType: "event/filesChanged";
+    projectId: string;
+}
+
+/**
  * Request to authorize file operations for a project via WebSocket.
  */
 interface SubscribeFilesMessage extends WebSocketMessage {
@@ -202,6 +215,11 @@ export type ConnectionState = "disconnected" | "connecting" | "connected";
 export type ExecutionStateChangeCallback = (execution: Execution) => void;
 
 /**
+ * Callback for a project's files changing outside this connection
+ */
+export type FilesChangedCallback = (projectId: string) => void;
+
+/**
  * Callback for streaming project load events
  */
 export interface ProjectLoadCallbacks {
@@ -262,6 +280,8 @@ export class WebSocketApi {
     private reconnectAttempts = 0;
     private reconnectTimeoutId: ReturnType<typeof setTimeout> | null = null;
     private readonly stateChangeCallbacks: Set<ExecutionStateChangeCallback> = new Set();
+
+    private readonly filesChangedCallbacks: Set<FilesChangedCallback> = new Set();
     private readonly reconnectDelay: number;
     private readonly maxReconnectDelay: number;
     private readonly showNotifications: boolean;
@@ -340,6 +360,25 @@ export class WebSocketApi {
      */
     offExecutionStateChange(callback: ExecutionStateChangeCallback): void {
         this.stateChangeCallbacks.delete(callback);
+    }
+
+    /**
+     * Registers a callback for a project's files changing outside this
+     * connection, for instance because someone pushed to it over git.
+     *
+     * @param callback The callback function to register
+     */
+    onFilesChanged(callback: FilesChangedCallback): void {
+        this.filesChangedCallbacks.add(callback);
+    }
+
+    /**
+     * Unregisters a previously registered files-changed callback
+     *
+     * @param callback The callback function to unregister
+     */
+    offFilesChanged(callback: FilesChangedCallback): void {
+        this.filesChangedCallbacks.delete(callback);
     }
 
     /**
@@ -432,6 +471,9 @@ export class WebSocketApi {
             case "event/executionStateChanged":
                 this.handleExecutionStateChanged(message as ExecutionStateChangedMessage);
                 break;
+            case "event/filesChanged":
+                this.handleFilesChanged(message as FilesChangedMessage);
+                break;
             case "file/response":
                 this.handleFileResponse(message as FileResponseMessage);
                 break;
@@ -483,6 +525,17 @@ export class WebSocketApi {
 
         if (stateChanged) {
             this.showStateChangeNotification(execution);
+        }
+    }
+
+    /**
+     * Handles notification that a project's files changed elsewhere
+     *
+     * @param message The files changed message
+     */
+    private handleFilesChanged(message: FilesChangedMessage): void {
+        for (const callback of this.filesChangedCallbacks) {
+            callback(message.projectId);
         }
     }
 
@@ -948,13 +1001,19 @@ export class WebSocketApi {
      * @param contentBase64 The file content encoded as Base64
      * @param create Whether to create the file if it doesn't exist
      * @param overwrite Whether to overwrite if the file exists
+     * @param expectedVersion The version the caller last saw. When given, the
+     *   write fails with a version conflict unless the stored file is still at
+     *   exactly that version, so a tab that has been open since before a git
+     *   push cannot silently overwrite content it never saw. Omitted when the
+     *   caller has no version to go on, which writes unconditionally.
      */
     async writeFile(
         projectId: string,
         path: string,
         contentBase64: string,
         create: boolean,
-        overwrite: boolean
+        overwrite: boolean,
+        expectedVersion?: number
     ): Promise<void> {
         const requestId = this.nextRequestId();
         await this.sendRequest({
@@ -964,7 +1023,8 @@ export class WebSocketApi {
             path,
             content: contentBase64,
             create,
-            overwrite
+            overwrite,
+            ...(expectedVersion === undefined ? {} : { expectedVersion })
         });
     }
 

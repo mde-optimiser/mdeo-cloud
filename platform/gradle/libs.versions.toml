@@ -6,12 +6,16 @@ hikari = "7.1.0"
 postgresql = "42.7.13"
 logback = "1.6.3"
 bcrypt = "0.10.2"
+jgit = "7.3.0.202506031305-r"
+apache-sshd = "2.15.0"
+bouncycastle = "1.79"
 kotlinx-serialization = "1.11.0"
 kotlinx-coroutines = "1.11.0"
 junit = "6.1.3"
 auth0-jwt = "4.6.0"
 auth0-jwks = "0.24.1"
 mockk = "1.14.11"
+testcontainers = "1.20.4"
 commons-collections = "4.6.0"
 asm = "9.10.1"
 jacoco = "0.8.15"
@@ -55,6 +59,11 @@ hikari = { module = "com.zaxxer:HikariCP", version.ref = "hikari" }
 
 # Security
 bcrypt = { module = "at.favre.lib:bcrypt", version.ref = "bcrypt" }
+
+# Git
+jgit = { module = "org.eclipse.jgit:org.eclipse.jgit", version.ref = "jgit" }
+sshd-core = { module = "org.apache.sshd:sshd-core", version.ref = "apache-sshd" }
+bouncycastle-provider = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = "bouncycastle" }
 auth0-jwt = { module = "com.auth0:java-jwt", version.ref = "auth0-jwt" }
 auth0-jwks = { module = "com.auth0:jwks-rsa", version.ref = "auth0-jwks" }
 
@@ -71,6 +80,9 @@ kotlin-test-junit5 = { module = "org.jetbrains.kotlin:kotlin-test-junit5" }
 junit-jupiter = { module = "org.junit.jupiter:junit-jupiter", version.ref = "junit" }
 junit-jupiter-params = { module = "org.junit.jupiter:junit-jupiter-params", version.ref = "junit" }
 mockk = { module = "io.mockk:mockk", version.ref = "mockk" }
+testcontainers = { module = "org.testcontainers:testcontainers", version.ref = "testcontainers" }
+testcontainers-postgresql = { module = "org.testcontainers:postgresql", version.ref = "testcontainers" }
+testcontainers-junit-jupiter = { module = "org.testcontainers:junit-jupiter", version.ref = "testcontainers" }
 
 # Other
 commons-collections = { module = "org.apache.commons:commons-collections4", version.ref = "commons-collections" }

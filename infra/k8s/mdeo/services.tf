@@ -107,7 +107,12 @@ locals {
         PLUGIN_CONFIG_MDEO_SERVICE            = "http://service-config-mdeo:3000"
         PLUGIN_CSV_SERVICE                    = "http://service-csv:3000"
         PLUGIN_MODEL_CSV_SERVICE              = "http://service-model-csv:3000"
-        BACKEND_SERVICE                       = "http://backend:8080/api"
+        # No path component, deliberately: nginx's proxy_pass treats a URI
+        # here as replacing the matched location prefix rather than being
+        # appended to it, so an /api suffix here would turn /api/... into
+        # /api... and /git/... into /api.... Both compose files already get
+        # this right by leaving it origin-only; this one did not.
+        BACKEND_SERVICE                       = "http://backend:8080"
       }
     }
   }
