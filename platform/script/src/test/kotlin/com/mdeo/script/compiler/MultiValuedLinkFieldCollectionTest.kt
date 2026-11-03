@@ -21,7 +21,7 @@ import kotlin.test.assertEquals
  * Regression test for IncompatibleClassChangeError when calling ReadonlyCollection
  * interface methods (filter, map, sum, size) on multi-valued link fields.
  *
- * Bug: DirectFieldPropertyDefinition.emitAccess() returned the raw java.util.LinkedHashSet
+ * Bug: FieldGetterPropertyDefinition.emitAccess() returned the raw java.util.LinkedHashSet
  * (for link fields) without wrapping it in SetImpl. The generated INVOKEINTERFACE bytecode
  * for ReadonlyCollection methods (e.g. size(), filter()) failed at runtime because
  * java.util.LinkedHashSet does not implement ReadonlyCollection.

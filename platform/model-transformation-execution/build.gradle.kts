@@ -44,8 +44,8 @@ dependencies {
     implementation(libs.hikari)
     
     // Apache TinkerPop Gremlin - TinkerGraph for in-memory execution
-    implementation("org.apache.tinkerpop:gremlin-core:3.8.0")
-    implementation("org.apache.tinkerpop:tinkergraph-gremlin:3.8.0")
+    implementation(libs.gremlin.core)
+    implementation(libs.tinkergraph.gremlin)
     
     // Logging
     implementation(libs.logback)

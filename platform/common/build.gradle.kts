@@ -14,6 +14,9 @@ dependencies {
     api(libs.ktor.client.websockets)
     api(libs.ktor.server.core)
     api(libs.ktor.server.websockets)
+    // Compression of HTTP bodies and WebSocket messages on every hop, see HttpCompression.kt
+    api(libs.ktor.server.compression)
+    api(libs.ktor.client.encoding)
     api(libs.kotlinx.coroutines.core)
 
     implementation(libs.logback)

@@ -60,11 +60,12 @@ internal class MatchPlanBuilder(
 
     companion object {
         /**
-         * A step must be estimated *strictly below* this to count as shrinking the
-         * partial-match set, which is the only case in which the cost model overrides the
-         * planner's pre-existing order; see [PlanExecution.candidateComparator].
+         * A step estimated *at most* this cannot enlarge the partial-match set (a scan of a class
+         * with a single instance, a to-one walk); such steps go before any step that fans out,
+         * which is the only case in which the cost model overrides the planner's pre-existing
+         * order; see [PlanExecution.candidateComparator].
          */
-        private const val SHRINKING_FACTOR = 1.0
+        private const val NON_INCREASING_FACTOR = 1.0
 
         /**
          * When this system property is set, the structural step order chosen by
@@ -174,12 +175,16 @@ internal class MatchPlanBuilder(
      * @property classPriority See [TraversalCandidate.classPriority].
      * @property nacUnlockCost See [TraversalCandidate.nacUnlockCost].
      * @property branchingFactor See [TraversalCandidate.branchingFactor].
+     * @property anchored `true` when pattern links connect [instance] to an already covered
+     *           instance, so that walks can reach it instead; see
+     *           [PlanExecution.candidateComparator].
      */
     private data class ScanCandidate(
         val instance: TypedPatternObjectInstanceElement,
         override val classPriority: Int,
         override val nacUnlockCost: Int,
-        override val branchingFactor: Double
+        override val branchingFactor: Double,
+        val anchored: Boolean = false
     ) : TraversalCandidate() {
         override val targetName: String get() = instance.objectInstance.name
     }
@@ -341,6 +346,7 @@ internal class MatchPlanBuilder(
             val comparators = HashMap<Boolean, Comparator<TraversalCandidate>>()
             fun comparator(costModel: MatchCostModel?) =
                 comparators.getOrPut(costModel != null) { candidateComparator(costModel) }
+            val componentOf = linkComponents()
 
             while (uncovered.isNotEmpty() || availableWalks.isNotEmpty()) {
                 val preBound = uncovered.firstOrNull { getVertexId(it.objectInstance.name) != null }
@@ -385,7 +391,9 @@ internal class MatchPlanBuilder(
                     val factor = costModel?.let {
                         estimateBranchingFactor(it, name, it.scanFactor(inst), covered, coveringLink = null)
                     } ?: Double.NaN
-                    candidates.add(ScanCandidate(inst, prio, nacCost, factor))
+                    val component = componentOf[name]
+                    val anchored = covered.any { componentOf[it] == component }
+                    candidates.add(ScanCandidate(inst, prio, nacCost, factor, anchored))
                 }
                 for (walk in walkable) {
                     val prio = if (onlyChoice) 0 else graph.instancePriorities[walk.toInstanceName] ?: 0
@@ -447,7 +455,9 @@ internal class MatchPlanBuilder(
          *    so doing it earlier can only shrink what every later step processes — it weakly
          *    dominates every alternative regardless of the rest of the plan. This is what
          *    fixes the pathologies the cost model exists for: a constant guard on a singleton
-         *    class (factor 0.1), a class with no instances at all (factor 0), a to-one walk.
+         *    class (factor 0.1), a class with no instances at all (factor 0), a to-one walk, a
+         *    scan of a class with a single instance (factor 1: e.g. a model's root, which the
+         *    structural priority may otherwise rank below a large class next to it).
          * 2. **Between two candidates of the same kind, the smaller factor wins.** Two scans
          *    cost the same to run, as do two walks, so their output sizes are directly
          *    comparable — this is the classic model-sensitive rule, and it is what picks the
@@ -469,6 +479,22 @@ internal class MatchPlanBuilder(
          * legacy tie-breakers decide, so a model whose statistics carry no signal keeps
          * producing exactly the legacy order.
          *
+         * **Exception to rule 3: an anchored scan against a walk.** Rule 3 is about a scan the
+         * plan cannot avoid — of an instance no pattern link connects to what is covered, which
+         * has to be scanned at some point and is then paid once per traverser wherever it goes.
+         * An *anchored* scan ([ScanCandidate.anchored]) is of an instance that links connect to
+         * the covered part of the pattern: walks can reach it, so scanning it now only forms the
+         * cross product of the current partial matches with its whole class, which a later link
+         * check then has to cut back to what the walks would have produced. Such a scan is taken
+         * ahead of a walk only when it cannot enlarge the partial matches (rule 1: a singleton
+         * class); a fan-out scan never goes ahead of a walk, even with a smaller estimate, since
+         * the estimate counts what the scan yields, not the cross product it forms. This
+         * is what makes a plan search outward from its bound nodes — a pinned input, an object
+         * bound by an earlier statement, or the first scanned instance — instead of scanning
+         * class buckets next to them (and the "unlock a cheap application condition early"
+         * criterion cannot pull such a scan forward: a walk binds the same node, later, with far
+         * fewer candidates for the condition to check).
+         *
          * @param costModel The cost model, or `null` when no statistics were supplied.
          */
         private fun candidateComparator(costModel: MatchCostModel?): Comparator<TraversalCandidate> {
@@ -478,17 +504,58 @@ internal class MatchPlanBuilder(
             if (costModel == null) return legacy
 
             return Comparator<TraversalCandidate> { a, b ->
-                val aShrinks = a.branchingFactor < SHRINKING_FACTOR
-                val bShrinks = b.branchingFactor < SHRINKING_FACTOR
+                val aShrinks = a.branchingFactor <= NON_INCREASING_FACTOR
+                val bShrinks = b.branchingFactor <= NON_INCREASING_FACTOR
                 when {
-                    // A step that strictly shrinks the result is taken ahead of one that
-                    // does not; among several, the one that shrinks it most.
+                    // A step that cannot enlarge the result is taken ahead of one that fans
+                    // out; among several, the one that shrinks it most.
                     aShrinks != bShrinks -> if (aShrinks) -1 else 1
-                    !aShrinks -> 0
+                    !aShrinks -> anchoredScanAgainstWalk(costModel, a, b)
                     costModel.approximatelyEqual(a.branchingFactor, b.branchingFactor) -> 0
                     else -> a.branchingFactor.compareTo(b.branchingFactor)
                 }
             }.then(legacy).thenBy { it.targetName }
+        }
+
+        /**
+         * The order of two candidates that both fan out when one is an anchored scan and the
+         * other a walk (see [candidateComparator]): always the walk. No pattern link joins an
+         * anchored scan's instance to a covered one (it would be a walk target, not scannable),
+         * so the scan pairs every partial match with every candidate of its class, and the links
+         * that cut this back are checked only after the walks that reach them; a smaller
+         * estimate of the scan does not make that cross product cheaper than the walk. A scan
+         * that cannot enlarge the partial matches (a singleton class) is taken first by rule 1.
+         * `0` (no opinion) for any other pair.
+         */
+        @Suppress("UNUSED_PARAMETER")
+        private fun anchoredScanAgainstWalk(costModel: MatchCostModel, a: TraversalCandidate, b: TraversalCandidate): Int = when {
+            a is ScanCandidate && a.anchored && b is WalkCandidate -> 1
+            b is ScanCandidate && b.anchored && a is WalkCandidate -> -1
+            else -> 0
+        }
+
+        /**
+         * The connected components of the main pattern: each matchable instance mapped to a
+         * component number, two instances sharing one when pattern links connect them.
+         */
+        private fun linkComponents(): Map<String, Int> {
+            val parent = HashMap<String, String>()
+            fun find(name: String): String {
+                var root = name
+                while (true) { root = parent[root]?.takeIf { it != root } ?: break }
+                return root
+            }
+            for (inst in graph.instances) parent[inst.objectInstance.name] = inst.objectInstance.name
+            for (link in graph.links) {
+                val src = link.link.source.objectName
+                val tgt = link.link.target.objectName
+                if (src !in parent || tgt !in parent) continue
+                val a = find(src)
+                val b = find(tgt)
+                if (a != b) parent[a] = b
+            }
+            val numbers = HashMap<String, Int>()
+            return parent.keys.associateWith { numbers.getOrPut(find(it)) { numbers.size } }
         }
 
         /**
@@ -859,9 +926,9 @@ internal class MatchPlanBuilder(
             var emitted = false
             val iterator = pendingInjectivePairs.iterator()
             while (iterator.hasNext()) {
-                val (nameA, nameB) = iterator.next()
-                if (nameA in coveredInstances && nameB in coveredInstances) {
-                    baseSteps.add(BaseStep.InjectiveConstraint(nameA, nameB))
+                val pair = iterator.next()
+                if (pair.nameA in coveredInstances && pair.nameB in coveredInstances) {
+                    baseSteps.add(BaseStep.InjectiveConstraint(pair.nameA, pair.nameB, pair.exactClassOfA))
                     iterator.remove()
                     emitted = true
                 }

@@ -181,6 +181,22 @@ class MetamodelCompilationTest {
     }
 
     @Test
+    fun `setPropertyByKey stores null into optional boxed numeric fields`() {
+        // unsetting an optional number (the model transformation's `maybe = null`) used to
+        // unbox the null value and throw a NullPointerException
+        val types = listOf("int", "long", "float", "double")
+        val data = singleClassMetamodel(properties = types.map {
+            PropertyData(name = "${it}Prop", primitiveType = it, multiplicity = MultiplicityData.optional())
+        })
+        val instance = Metamodel.compile(data).createInstance("Thing")
+        for (type in types) {
+            instance.setPropertyByKey("${type}Prop", 1)
+            assertDoesNotThrow { instance.setPropertyByKey("${type}Prop", null) }
+            assertEquals(null, instance.getPropertyByKey("${type}Prop"), type)
+        }
+    }
+
+    @Test
     fun `class with multi-valued string property compiles`() {
         val data = singleClassMetamodel(properties = listOf(
             PropertyData(name = "tags", primitiveType = "string", multiplicity = MultiplicityData.many())

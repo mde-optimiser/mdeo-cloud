@@ -1,0 +1,595 @@
+{
+ "types": [
+  {
+   "kind": "void"
+  },
+  {
+   "package": "builtin",
+   "type": "string",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "double",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "boolean",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "Any",
+   "isNullable": true
+  },
+  {
+   "package": "class/metamodel/base.mm",
+   "type": "Component",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "class/metamodel/shop.mm",
+   "type": "Service",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "int",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "List",
+   "isNullable": false,
+   "typeArgs": {
+    "T": {
+     "package": "class/metamodel/base.mm",
+     "type": "Component",
+     "isNullable": false,
+     "typeArgs": {}
+    }
+   }
+  }
+ ],
+ "metamodelPath": "/metamodel/shop.mm",
+ "statements": [
+  {
+   "kind": "match",
+   "pattern": {
+    "elements": [
+     {
+      "kind": "objectInstance",
+      "objectInstance": {
+       "name": "db",
+       "className": "Component",
+       "properties": [
+        {
+         "propertyName": "name",
+         "operator": "==",
+         "value": {
+          "kind": "stringLiteral",
+          "evalType": 1,
+          "value": "ordersDb"
+         }
+        }
+       ]
+      }
+     },
+     {
+      "kind": "objectInstance",
+      "objectInstance": {
+       "name": "svc",
+       "className": "Service",
+       "properties": [
+        {
+         "propertyName": "name",
+         "operator": "==",
+         "value": {
+          "kind": "stringLiteral",
+          "evalType": 1,
+          "value": "orders"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "kind": "call",
+   "callee": "/optimize/scenarios/mates-of.mt",
+   "name": "matesOf",
+   "arguments": [
+    {
+     "name": "seed",
+     "value": {
+      "kind": "identifier",
+      "evalType": 5,
+      "name": "db",
+      "scope": 1
+     }
+    }
+   ],
+   "outputs": [
+    {
+     "parameter": "mates",
+     "name": "dbMates"
+    }
+   ]
+  },
+  {
+   "kind": "call",
+   "callee": "/optimize/scenarios/mates-of.mt",
+   "name": "matesOf",
+   "arguments": [
+    {
+     "name": "seed",
+     "value": {
+      "kind": "identifier",
+      "evalType": 6,
+      "name": "svc",
+      "scope": 1
+     }
+    }
+   ],
+   "outputs": [
+    {
+     "parameter": "mates",
+     "name": "svcMates"
+    }
+   ]
+  },
+  {
+   "kind": "forMatch",
+   "pattern": {
+    "elements": [
+     {
+      "kind": "objectInstance",
+      "objectInstance": {
+       "name": "svc",
+       "properties": []
+      }
+     },
+     {
+      "kind": "objectInstance",
+      "objectInstance": {
+       "name": "other",
+       "className": "Component",
+       "properties": []
+      }
+     },
+     {
+      "kind": "link",
+      "link": {
+       "source": {
+        "objectName": "other",
+        "propertyName": "host"
+       },
+       "target": {
+        "objectName": "svcHost"
+       }
+      }
+     },
+     {
+      "kind": "link",
+      "link": {
+       "source": {
+        "objectName": "svc",
+        "propertyName": "host"
+       },
+       "target": {
+        "objectName": "svcHost"
+       }
+      }
+     },
+     {
+      "kind": "objectInstance",
+      "objectInstance": {
+       "name": "svcHost",
+       "className": "Container",
+       "properties": []
+      }
+     }
+    ]
+   },
+   "doBlock": [
+    {
+     "kind": "match",
+     "pattern": {
+      "elements": [
+       {
+        "kind": "objectInstance",
+        "objectInstance": {
+         "modifier": "create",
+         "name": "seen",
+         "className": "Container",
+         "properties": [
+          {
+           "propertyName": "name",
+           "operator": "=",
+           "value": {
+            "kind": "binary",
+            "evalType": 1,
+            "operator": "+",
+            "left": {
+             "kind": "stringLiteral",
+             "evalType": 1,
+             "value": "svc mate "
+            },
+            "right": {
+             "kind": "memberAccess",
+             "evalType": 1,
+             "expression": {
+              "kind": "identifier",
+              "evalType": 5,
+              "name": "other",
+              "scope": 2
+             },
+             "member": "name",
+             "isNullChaining": false
+            }
+           }
+          }
+         ]
+        }
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "kind": "forMatch",
+   "pattern": {
+    "elements": [
+     {
+      "kind": "objectInstance",
+      "objectInstance": {
+       "name": "s2",
+       "className": "Service",
+       "properties": []
+      }
+     },
+     {
+      "kind": "objectInstance",
+      "objectInstance": {
+       "name": "c2",
+       "className": "Component",
+       "properties": []
+      }
+     },
+     {
+      "kind": "link",
+      "link": {
+       "source": {
+        "objectName": "s2",
+        "propertyName": "host"
+       },
+       "target": {
+        "objectName": "h2"
+       }
+      }
+     },
+     {
+      "kind": "link",
+      "link": {
+       "source": {
+        "objectName": "c2",
+        "propertyName": "host"
+       },
+       "target": {
+        "objectName": "h2"
+       }
+      }
+     },
+     {
+      "kind": "objectInstance",
+      "objectInstance": {
+       "name": "h2",
+       "className": "Container",
+       "properties": []
+      }
+     }
+    ]
+   },
+   "doBlock": [
+    {
+     "kind": "match",
+     "pattern": {
+      "elements": [
+       {
+        "kind": "objectInstance",
+        "objectInstance": {
+         "modifier": "create",
+         "name": "seen2",
+         "className": "Container",
+         "properties": [
+          {
+           "propertyName": "name",
+           "operator": "=",
+           "value": {
+            "kind": "binary",
+            "evalType": 1,
+            "operator": "+",
+            "left": {
+             "kind": "binary",
+             "evalType": 1,
+             "operator": "+",
+             "left": {
+              "kind": "binary",
+              "evalType": 1,
+              "operator": "+",
+              "left": {
+               "kind": "stringLiteral",
+               "evalType": 1,
+               "value": "pair "
+              },
+              "right": {
+               "kind": "memberAccess",
+               "evalType": 1,
+               "expression": {
+                "kind": "identifier",
+                "evalType": 6,
+                "name": "s2",
+                "scope": 2
+               },
+               "member": "name",
+               "isNullChaining": false
+              }
+             },
+             "right": {
+              "kind": "stringLiteral",
+              "evalType": 1,
+              "value": " "
+             }
+            },
+            "right": {
+             "kind": "memberAccess",
+             "evalType": 1,
+             "expression": {
+              "kind": "identifier",
+              "evalType": 5,
+              "name": "c2",
+              "scope": 2
+             },
+             "member": "name",
+             "isNullChaining": false
+            }
+           }
+          }
+         ]
+        }
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "kind": "match",
+   "pattern": {
+    "elements": [
+     {
+      "kind": "objectInstance",
+      "objectInstance": {
+       "modifier": "create",
+       "name": "log",
+       "className": "Container",
+       "properties": [
+        {
+         "propertyName": "name",
+         "operator": "=",
+         "value": {
+          "kind": "binary",
+          "evalType": 1,
+          "operator": "+",
+          "left": {
+           "kind": "binary",
+           "evalType": 1,
+           "operator": "+",
+           "left": {
+            "kind": "binary",
+            "evalType": 1,
+            "operator": "+",
+            "left": {
+             "kind": "stringLiteral",
+             "evalType": 1,
+             "value": "mates "
+            },
+            "right": {
+             "kind": "memberCall",
+             "evalType": 7,
+             "expression": {
+              "kind": "identifier",
+              "evalType": 8,
+              "name": "dbMates",
+              "scope": 1
+             },
+             "member": "size",
+             "isNullChaining": false,
+             "arguments": [],
+             "overload": ""
+            }
+           },
+           "right": {
+            "kind": "stringLiteral",
+            "evalType": 1,
+            "value": " "
+           }
+          },
+          "right": {
+           "kind": "memberCall",
+           "evalType": 7,
+           "expression": {
+            "kind": "identifier",
+            "evalType": 8,
+            "name": "svcMates",
+            "scope": 1
+           },
+           "member": "size",
+           "isNullChaining": false,
+           "arguments": [],
+           "overload": ""
+          }
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  }
+ ],
+ "signature": {
+  "name": "call-trap-injective.mt",
+  "parameters": []
+ },
+ "callees": {
+  "/optimize/scenarios/mates-of.mt": {
+   "types": [
+    {
+     "kind": "void"
+    },
+    {
+     "package": "builtin",
+     "type": "string",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "double",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "boolean",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "Any",
+     "isNullable": true
+    },
+    {
+     "package": "class/metamodel/base.mm",
+     "type": "Component",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "List",
+     "isNullable": false,
+     "typeArgs": {
+      "T": {
+       "package": "class/metamodel/base.mm",
+       "type": "Component",
+       "isNullable": false,
+       "typeArgs": {}
+      }
+     }
+    }
+   ],
+   "metamodelPath": "/metamodel/base.mm",
+   "statements": [
+    {
+     "kind": "forMatch",
+     "pattern": {
+      "elements": [
+       {
+        "kind": "objectInstance",
+        "objectInstance": {
+         "name": "seed",
+         "properties": []
+        }
+       },
+       {
+        "kind": "objectInstance",
+        "objectInstance": {
+         "name": "home",
+         "className": "Container",
+         "properties": []
+        }
+       },
+       {
+        "kind": "objectInstance",
+        "objectInstance": {
+         "name": "mate",
+         "className": "Component",
+         "properties": []
+        }
+       },
+       {
+        "kind": "link",
+        "link": {
+         "source": {
+          "objectName": "seed",
+          "propertyName": "host"
+         },
+         "target": {
+          "objectName": "home"
+         }
+        }
+       },
+       {
+        "kind": "link",
+        "link": {
+         "source": {
+          "objectName": "mate",
+          "propertyName": "host"
+         },
+         "target": {
+          "objectName": "home"
+         }
+        }
+       }
+      ]
+     },
+     "doBlock": [
+      {
+       "kind": "assignment",
+       "name": "mates",
+       "operator": "+=",
+       "value": {
+        "kind": "identifier",
+        "evalType": 5,
+        "name": "mate",
+        "scope": 2
+       }
+      }
+     ]
+    }
+   ],
+   "signature": {
+    "name": "mates-of.mt",
+    "parameters": [
+     {
+      "name": "seed",
+      "direction": "in",
+      "type": 5,
+      "isElement": true
+     },
+     {
+      "name": "mates",
+      "direction": "out",
+      "type": 6,
+      "isElement": false,
+      "collection": "List",
+      "elementsAreElements": true
+     }
+    ]
+   }
+  }
+ }
+}

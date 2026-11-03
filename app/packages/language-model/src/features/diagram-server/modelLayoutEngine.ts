@@ -1,64 +1,36 @@
 import type { GModelRoot } from "@eclipse-glsp/server";
 import type { LayoutOperation } from "@mdeo/protocol-common";
 import { BaseLayoutEngine, GEdge, GNode, sharedImport } from "@mdeo/language-shared";
-import type { ElkExtendedEdge, ElkNode } from "elkjs";
+import type { EdgeLabelSpec, LayoutInput } from "@mdeo/language-shared";
 import { GLinkEndNode } from "./model/linkEndNode.js";
 
 const { injectable } = sharedImport("inversify");
 
 /**
- * Layout engine for model diagrams.
- * Uses ELK for automatic layout computation.
+ * Layout engine for model diagrams (also used by the generated, read-only model view).
  */
 @injectable()
 export class ModelLayoutEngine extends BaseLayoutEngine {
     /**
-     * Transforms the GModel to an ELK graph for layout computation.
+     * Builds the layout input: objects become nodes, links edges with their end labels.
      *
      * @param model The GModelRoot to transform
      * @param operation The layout operation containing bounds information
-     * @returns The ELK node representation of the graph
+     * @returns The layout input
      */
-    protected override transformToElk(model: GModelRoot, operation: LayoutOperation): ElkNode {
+    protected override buildInput(model: GModelRoot, operation: LayoutOperation): LayoutInput {
         const bounds = operation.bounds;
-        const nodes: ElkNode[] = [];
-        const edges: ElkExtendedEdge[] = [];
-
+        const input: LayoutInput = { nodes: [], edges: [], direction: "down" };
         for (const child of model.children) {
             if (child instanceof GNode) {
-                nodes.push({
-                    id: child.id,
-                    width: bounds[child.id]?.width,
-                    height: bounds[child.id]?.height
-                });
+                input.nodes.push({ id: child.id, ...this.sizeOf(child.id, bounds) });
             } else if (child instanceof GEdge) {
-                edges.push({
-                    id: child.id,
-                    sources: [child.sourceId],
-                    targets: [child.targetId],
-                    labels: child.children
-                        .filter((label) => label instanceof GLinkEndNode)
-                        .map((label) => ({
-                            text: "_",
-                            width: bounds[label.id]?.width,
-                            height: bounds[label.id]?.height,
-                            layoutOptions: {
-                                "elk.edgeLabels.placement": label.end === "source" ? "HEAD" : "TAIL"
-                            }
-                        }))
-                });
+                const labels: EdgeLabelSpec[] = child.children
+                    .filter((label): label is GLinkEndNode => label instanceof GLinkEndNode)
+                    .map((label) => this.labelSpec(label, label.end, "left", bounds));
+                input.edges.push({ id: child.id, sourceId: child.sourceId, targetId: child.targetId, labels });
             }
         }
-
-        return {
-            id: model.id,
-            layoutOptions: {
-                "elk.algorithm": "layered",
-                "elk.direction": "DOWN",
-                "elk.spacing.edgeEdge": "40"
-            },
-            children: nodes,
-            edges: edges
-        };
+        return input;
     }
 }

@@ -21,6 +21,7 @@ import type {
 import type { CustomValueType } from "../typir-extensions/kinds/custom-value/custom-value-type.js";
 import type { ClassType } from "../typir-extensions/config/type.js";
 import type { AstNode } from "langium";
+import type { ControlFlowAnalysis } from "../features/controlFlowAnalysis.js";
 
 const { AstUtils } = sharedImport("langium");
 const { InferenceProblem: InferenceProblemConstant } = sharedImport("typir");
@@ -40,7 +41,8 @@ export class StatementPartialTypeSystem<Specifics extends TypirLangiumSpecifics>
         protected readonly expressionTypes: ExpressionTypes,
         protected readonly primitiveTypes: PrimitiveTypes,
         protected readonly nullablePrimitiveTypes: PrimitiveTypes,
-        protected readonly iterableType: ClassType
+        protected readonly iterableType: ClassType,
+        protected readonly controlFlow: ControlFlowAnalysis<Specifics>
     ) {
         super(typir, types);
     }
@@ -183,6 +185,21 @@ export class StatementPartialTypeSystem<Specifics extends TypirLangiumSpecifics>
                 const scope = this.typir.ScopeProvider.getScope(node);
                 const entry = scope.getEntry((node.left as IdentifierExpressionType).name);
                 if (entry != undefined && entry.readonly === true) {
+                    if (
+                        entry.languageNode != undefined &&
+                        this.astReflection.isInstance(entry.languageNode, this.types.variableDeclarationStatementType)
+                    ) {
+                        const problem = this.controlFlow.getValAssignmentProblem(node);
+                        if (problem != undefined) {
+                            accept({
+                                $problem: this.validationProblem,
+                                languageNode: node,
+                                message: problem,
+                                severity: "error"
+                            });
+                        }
+                        return;
+                    }
                     isReadonly = true;
                 }
             } else {

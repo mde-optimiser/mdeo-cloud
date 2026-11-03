@@ -7,6 +7,7 @@ import { FileType } from "@codingame/monaco-vscode-files-service-override";
 import type { FileOperationEvent } from "@codingame/monaco-vscode-api/vscode/vs/platform/files/common/files";
 import {
     FileOperation,
+    type IFileStat,
     type IFileStatWithMetadata
 } from "@codingame/monaco-vscode-api/vscode/vs/platform/files/common/files";
 import { Uri } from "vscode";
@@ -31,12 +32,16 @@ export function useFileTree(monacoApi: MonacoApi, workbenchState: WorkbenchState
         parent: null
     });
 
+    // Incremented on every project change, so that listings still arriving for the previous project
+    // are dropped instead of being merged into the new tree.
+    let generation = 0;
+
     const loadTree = async (currentProject: Project) => {
-        const projectUri = markRaw(Uri.file(`/${currentProject.id}/files`));
+        const loadGeneration = ++generation;
         root.name = currentProject.name;
-        root.uri = projectUri;
-        const children = await loadChildren(monacoApi, projectUri, root);
-        root.children = children;
+        root.uri = markRaw(Uri.file(`/${currentProject.id}/files`));
+        root.children = [];
+        await loadSubtree(monacoApi, root, () => loadGeneration === generation);
     };
 
     watch(
@@ -57,51 +62,113 @@ export function useFileTree(monacoApi: MonacoApi, workbenchState: WorkbenchState
 }
 
 /**
- * Recursively loads all children of a directory from the file system.
+ * Maximum number of folder listings requested from the file system at the same time.
+ */
+const MAX_CONCURRENT_LISTINGS = 8;
+
+/**
+ * Loads the whole subtree below a folder breadth-first, adding each folder's children to the tree
+ * as soon as its listing arrives.
+ *
+ * Folders are listed in the order they were found, at most {@link MAX_CONCURRENT_LISTINGS} at a
+ * time, so shallow folders fill in before deep ones and one slow listing does not hold up the rest.
+ * A folder whose listing fails stays empty; the others are still loaded.
  *
  * @param monacoApi Monaco API instance providing access to file service
- * @param uri Uri of the directory to load children from
- * @param parent Parent folder of the children being loaded
- * @returns Promise resolving to an array of child file system nodes
+ * @param folder The folder whose subtree to load
+ * @param isCurrent Returns false once the result is no longer wanted; pending listings are then dropped
+ * @returns Promise that resolves once the subtree is loaded or abandoned
  */
-async function loadChildren(monacoApi: MonacoApi, uri: Uri, parent: Folder): Promise<FileSystemNode[]> {
-    const entries = await monacoApi.fileService.resolve(uri);
-    if (entries.children == undefined) {
-        return [];
-    }
+function loadSubtree(monacoApi: MonacoApi, folder: Folder, isCurrent: () => boolean = () => true): Promise<void> {
+    const queue: Folder[] = [folder];
+    let active = 0;
 
-    const children: FileSystemNode[] = [];
+    return new Promise((resolve) => {
+        const next = () => {
+            while (active < MAX_CONCURRENT_LISTINGS && queue.length > 0 && isCurrent()) {
+                const current = queue.shift();
+                if (current == undefined) {
+                    break;
+                }
 
-    for (const entry of entries.children) {
+                active++;
+                monacoApi.fileService
+                    .resolve(current.uri)
+                    .then((stat) => {
+                        if (isCurrent()) {
+                            queue.push(...addChildren(current, stat));
+                        }
+                    })
+                    .catch((error) => {
+                        // eslint-disable-next-line no-console
+                        console.error(`Failed to list ${current.uri.path}`, error);
+                    })
+                    .finally(() => {
+                        active--;
+                        next();
+                    });
+            }
+
+            if (active === 0) {
+                resolve();
+            }
+        };
+
+        next();
+    });
+}
+
+/**
+ * Adds the entries of a folder listing to the folder's children.
+ *
+ * Entries already in the tree (e.g. added by a file operation while the listing was pending) are
+ * kept as they are, so that no node is replaced.
+ *
+ * @param folder The folder the listing belongs to
+ * @param stat The resolved folder, including its children
+ * @returns All subfolders of the folder, to be loaded next
+ */
+function addChildren(folder: Folder, stat: IFileStat): Folder[] {
+    const existing = new Map(folder.children.map((child) => [child.name, child]));
+    const subfolders: Folder[] = [];
+
+    for (const entry of stat.children ?? []) {
+        const known = existing.get(entry.name);
+        if (known != undefined) {
+            if (known.type === FileType.Directory) {
+                subfolders.push(known);
+            }
+            continue;
+        }
+
         const childUri = markRaw(entry.resource);
 
         if (entry.isDirectory) {
-            const folder = reactive<Folder>({
+            const child = reactive<Folder>({
                 id: childUri.path,
                 name: entry.name,
                 type: FileType.Directory,
                 uri: childUri,
                 children: [],
-                parent
+                parent: folder
             });
-            const subChildren = await loadChildren(monacoApi, childUri, folder);
-            folder.children = subChildren;
-            children.push(folder);
+            folder.children.push(child);
+            subfolders.push(child);
         } else {
-            children.push(
+            folder.children.push(
                 reactive<File>({
                     id: childUri.path,
                     name: entry.name,
                     type: FileType.File,
                     uri: childUri,
-                    parent,
+                    parent: folder,
                     extension: getFileExtension(entry.name)
                 })
             );
         }
     }
 
-    return children;
+    return subfolders;
 }
 
 /**
@@ -170,12 +237,7 @@ async function handleCreate(
             return;
         }
 
-        const children = await loadChildren(monacoApi, folder.uri, folder);
-        for (const child of children) {
-            if (!folder.children.some((existing) => existing.name === child.name)) {
-                folder.children.push(child);
-            }
-        }
+        await loadSubtree(monacoApi, folder);
     } else {
         if (parent.children.some((child) => child.name === name)) {
             return;

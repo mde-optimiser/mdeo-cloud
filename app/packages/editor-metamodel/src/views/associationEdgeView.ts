@@ -1,16 +1,14 @@
 import {
     sharedImport,
     GEdgeView,
-    type EdgeAttachment,
+    type EdgeLabelElement,
     EdgeAttachmentPosition,
     type EdgeMarkerData
 } from "@mdeo/editor-shared";
-import type { RenderingContext } from "@eclipse-glsp/sprotty";
 import type { GAssociationEdge } from "../model/associationEdge.js";
 import { GAssociationPropertyNode } from "../model/associationPropertyNode.js";
 import { GAssociationMultiplicityNode } from "../model/associationMultiplicityNode.js";
 import { AssociationEndKind } from "@mdeo/protocol-metamodel";
-import type { GNode } from "@mdeo/editor-shared";
 
 const { injectable } = sharedImport("inversify");
 const { svg } = sharedImport("@eclipse-glsp/sprotty");
@@ -22,55 +20,28 @@ const { svg } = sharedImport("@eclipse-glsp/sprotty");
  */
 @injectable()
 export class GAssociationEdgeView extends GEdgeView {
-    protected override getEdgeAttachments(
-        model: Readonly<GAssociationEdge>,
-        context: RenderingContext
-    ): EdgeAttachment[] {
-        const attachments: EdgeAttachment[] = [];
+    protected override getLabelElements(model: Readonly<GAssociationEdge>): EdgeLabelElement[] {
+        const labels: EdgeLabelElement[] = [];
 
         for (const child of model.children) {
             if (child instanceof GAssociationPropertyNode) {
-                const attachment = this.createAttachmentFromNode(
-                    child,
-                    child.end == "source" ? EdgeAttachmentPosition.SOURCE_LEFT : EdgeAttachmentPosition.TARGET_LEFT,
-                    context
-                );
-                if (attachment) {
-                    attachments.push(attachment);
-                }
+                labels.push({
+                    element: child,
+                    position:
+                        child.end == "source" ? EdgeAttachmentPosition.SOURCE_LEFT : EdgeAttachmentPosition.TARGET_LEFT
+                });
             } else if (child instanceof GAssociationMultiplicityNode) {
-                const attachment = this.createAttachmentFromNode(
-                    child,
-                    child.end == "source" ? EdgeAttachmentPosition.SOURCE_RIGHT : EdgeAttachmentPosition.TARGET_RIGHT,
-                    context
-                );
-                if (attachment) {
-                    attachments.push(attachment);
-                }
+                labels.push({
+                    element: child,
+                    position:
+                        child.end == "source"
+                            ? EdgeAttachmentPosition.SOURCE_RIGHT
+                            : EdgeAttachmentPosition.TARGET_RIGHT
+                });
             }
         }
 
-        return attachments;
-    }
-
-    /**
-     * Creates an edge attachment from a node (property or multiplicity).
-     *
-     * @param node The node to create attachment from
-     * @param position The position of the attachment on the edge
-     * @param context The rendering context
-     * @returns An edge attachment or undefined if the node cannot be rendered
-     */
-    protected createAttachmentFromNode(
-        node: GNode,
-        position: EdgeAttachmentPosition,
-        context: RenderingContext
-    ): EdgeAttachment | undefined {
-        return {
-            vnode: context.renderElement(node),
-            bounds: node.bounds,
-            position
-        };
+        return labels;
     }
 
     protected override renderSourceMarker(model: Readonly<GAssociationEdge>): EdgeMarkerData | undefined {

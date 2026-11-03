@@ -1,0 +1,567 @@
+{
+ "types": [
+  {
+   "kind": "void"
+  },
+  {
+   "package": "builtin",
+   "type": "string",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "double",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "boolean",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "Any",
+   "isNullable": true
+  },
+  {
+   "package": "class/metamodel/base.mm",
+   "type": "Component",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "class/metamodel/base.mm",
+   "type": "Container",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "int",
+   "isNullable": false,
+   "typeArgs": {}
+  }
+ ],
+ "metamodelPath": "/metamodel/shop.mm",
+ "statements": [
+  {
+   "kind": "match",
+   "pattern": {
+    "elements": [
+     {
+      "kind": "objectInstance",
+      "objectInstance": {
+       "name": "db",
+       "className": "Component",
+       "properties": [
+        {
+         "propertyName": "name",
+         "operator": "==",
+         "value": {
+          "kind": "stringLiteral",
+          "evalType": 1,
+          "value": "ordersDb"
+         }
+        }
+       ]
+      }
+     },
+     {
+      "kind": "objectInstance",
+      "objectInstance": {
+       "name": "hostA",
+       "className": "Container",
+       "properties": [
+        {
+         "propertyName": "name",
+         "operator": "==",
+         "value": {
+          "kind": "stringLiteral",
+          "evalType": 1,
+          "value": "a"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "kind": "call",
+   "callee": "/optimize/scenarios/count-others.mt",
+   "name": "countOthers",
+   "arguments": [
+    {
+     "name": "seed",
+     "value": {
+      "kind": "identifier",
+      "evalType": 5,
+      "name": "db",
+      "scope": 1
+     }
+    },
+    {
+     "name": "home",
+     "value": {
+      "kind": "identifier",
+      "evalType": 6,
+      "name": "hostA",
+      "scope": 1
+     }
+    }
+   ],
+   "outputs": [
+    {
+     "parameter": "others",
+     "name": "n"
+    },
+    {
+     "parameter": "same",
+     "name": "k"
+    },
+    {
+     "parameter": "near",
+     "name": "m"
+    }
+   ]
+  },
+  {
+   "kind": "match",
+   "pattern": {
+    "elements": [
+     {
+      "kind": "objectInstance",
+      "objectInstance": {
+       "modifier": "create",
+       "name": "log",
+       "className": "Container",
+       "properties": [
+        {
+         "propertyName": "name",
+         "operator": "=",
+         "value": {
+          "kind": "binary",
+          "evalType": 1,
+          "operator": "+",
+          "left": {
+           "kind": "binary",
+           "evalType": 1,
+           "operator": "+",
+           "left": {
+            "kind": "binary",
+            "evalType": 1,
+            "operator": "+",
+            "left": {
+             "kind": "binary",
+             "evalType": 1,
+             "operator": "+",
+             "left": {
+              "kind": "binary",
+              "evalType": 1,
+              "operator": "+",
+              "left": {
+               "kind": "stringLiteral",
+               "evalType": 1,
+               "value": "others "
+              },
+              "right": {
+               "kind": "identifier",
+               "evalType": 7,
+               "name": "n",
+               "scope": 1
+              }
+             },
+             "right": {
+              "kind": "stringLiteral",
+              "evalType": 1,
+              "value": " "
+             }
+            },
+            "right": {
+             "kind": "identifier",
+             "evalType": 7,
+             "name": "k",
+             "scope": 1
+            }
+           },
+           "right": {
+            "kind": "stringLiteral",
+            "evalType": 1,
+            "value": " "
+           }
+          },
+          "right": {
+           "kind": "identifier",
+           "evalType": 7,
+           "name": "m",
+           "scope": 1
+          }
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  }
+ ],
+ "signature": {
+  "name": "call-trap-unreferenced.mt",
+  "parameters": []
+ },
+ "callees": {
+  "/optimize/scenarios/count-others.mt": {
+   "types": [
+    {
+     "kind": "void"
+    },
+    {
+     "package": "builtin",
+     "type": "string",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "double",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "boolean",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "Any",
+     "isNullable": true
+    },
+    {
+     "package": "builtin",
+     "type": "int",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "class/metamodel/base.mm",
+     "type": "Component",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "class/metamodel/base.mm",
+     "type": "Container",
+     "isNullable": false,
+     "typeArgs": {}
+    }
+   ],
+   "metamodelPath": "/metamodel/base.mm",
+   "statements": [
+    {
+     "kind": "assignment",
+     "name": "others",
+     "operator": "=",
+     "value": {
+      "kind": "intLiteral",
+      "evalType": 5,
+      "value": "0"
+     }
+    },
+    {
+     "kind": "assignment",
+     "name": "same",
+     "operator": "=",
+     "value": {
+      "kind": "intLiteral",
+      "evalType": 5,
+      "value": "0"
+     }
+    },
+    {
+     "kind": "assignment",
+     "name": "near",
+     "operator": "=",
+     "value": {
+      "kind": "intLiteral",
+      "evalType": 5,
+      "value": "0"
+     }
+    },
+    {
+     "kind": "forMatch",
+     "pattern": {
+      "elements": [
+       {
+        "kind": "objectInstance",
+        "objectInstance": {
+         "name": "other",
+         "className": "Component",
+         "properties": []
+        }
+       },
+       {
+        "kind": "whereClause",
+        "whereClause": {
+         "expression": {
+          "kind": "binary",
+          "evalType": 3,
+          "operator": "!=",
+          "left": {
+           "kind": "identifier",
+           "evalType": 6,
+           "name": "other",
+           "scope": 2
+          },
+          "right": {
+           "kind": "identifier",
+           "evalType": 6,
+           "name": "seed",
+           "scope": 1
+          }
+         }
+        }
+       }
+      ]
+     },
+     "doBlock": [
+      {
+       "kind": "assignment",
+       "name": "others",
+       "operator": "=",
+       "value": {
+        "kind": "binary",
+        "evalType": 5,
+        "operator": "+",
+        "left": {
+         "kind": "identifier",
+         "evalType": 5,
+         "name": "others",
+         "scope": 1
+        },
+        "right": {
+         "kind": "intLiteral",
+         "evalType": 5,
+         "value": "1"
+        }
+       }
+      }
+     ]
+    },
+    {
+     "kind": "forMatch",
+     "pattern": {
+      "elements": [
+       {
+        "kind": "objectInstance",
+        "objectInstance": {
+         "name": "again",
+         "className": "Component",
+         "properties": []
+        }
+       },
+       {
+        "kind": "whereClause",
+        "whereClause": {
+         "expression": {
+          "kind": "binary",
+          "evalType": 3,
+          "operator": "&&",
+          "left": {
+           "kind": "binary",
+           "evalType": 3,
+           "operator": "==",
+           "left": {
+            "kind": "identifier",
+            "evalType": 6,
+            "name": "again",
+            "scope": 2
+           },
+           "right": {
+            "kind": "identifier",
+            "evalType": 6,
+            "name": "seed",
+            "scope": 1
+           }
+          },
+          "right": {
+           "kind": "binary",
+           "evalType": 3,
+           "operator": "==",
+           "left": {
+            "kind": "memberAccess",
+            "evalType": 1,
+            "expression": {
+             "kind": "identifier",
+             "evalType": 6,
+             "name": "seed",
+             "scope": 1
+            },
+            "member": "name",
+            "isNullChaining": false
+           },
+           "right": {
+            "kind": "memberAccess",
+            "evalType": 1,
+            "expression": {
+             "kind": "identifier",
+             "evalType": 6,
+             "name": "again",
+             "scope": 2
+            },
+            "member": "name",
+            "isNullChaining": false
+           }
+          }
+         }
+        }
+       }
+      ]
+     },
+     "doBlock": [
+      {
+       "kind": "assignment",
+       "name": "same",
+       "operator": "=",
+       "value": {
+        "kind": "binary",
+        "evalType": 5,
+        "operator": "+",
+        "left": {
+         "kind": "identifier",
+         "evalType": 5,
+         "name": "same",
+         "scope": 1
+        },
+        "right": {
+         "kind": "intLiteral",
+         "evalType": 5,
+         "value": "1"
+        }
+       }
+      }
+     ]
+    },
+    {
+     "kind": "forMatch",
+     "pattern": {
+      "elements": [
+       {
+        "kind": "objectInstance",
+        "objectInstance": {
+         "name": "home",
+         "properties": []
+        }
+       },
+       {
+        "kind": "objectInstance",
+        "objectInstance": {
+         "name": "nearby",
+         "className": "Component",
+         "properties": []
+        }
+       },
+       {
+        "kind": "link",
+        "link": {
+         "source": {
+          "objectName": "nearby",
+          "propertyName": "host"
+         },
+         "target": {
+          "objectName": "home"
+         }
+        }
+       },
+       {
+        "kind": "whereClause",
+        "whereClause": {
+         "expression": {
+          "kind": "binary",
+          "evalType": 3,
+          "operator": "!=",
+          "left": {
+           "kind": "identifier",
+           "evalType": 6,
+           "name": "nearby",
+           "scope": 2
+          },
+          "right": {
+           "kind": "identifier",
+           "evalType": 6,
+           "name": "seed",
+           "scope": 1
+          }
+         }
+        }
+       }
+      ]
+     },
+     "doBlock": [
+      {
+       "kind": "assignment",
+       "name": "near",
+       "operator": "=",
+       "value": {
+        "kind": "binary",
+        "evalType": 5,
+        "operator": "+",
+        "left": {
+         "kind": "identifier",
+         "evalType": 5,
+         "name": "near",
+         "scope": 1
+        },
+        "right": {
+         "kind": "intLiteral",
+         "evalType": 5,
+         "value": "1"
+        }
+       }
+      }
+     ]
+    }
+   ],
+   "signature": {
+    "name": "count-others.mt",
+    "parameters": [
+     {
+      "name": "seed",
+      "direction": "in",
+      "type": 6,
+      "isElement": true
+     },
+     {
+      "name": "home",
+      "direction": "in",
+      "type": 7,
+      "isElement": true
+     },
+     {
+      "name": "others",
+      "direction": "out",
+      "type": 5,
+      "isElement": false
+     },
+     {
+      "name": "same",
+      "direction": "out",
+      "type": 5,
+      "isElement": false
+     },
+     {
+      "name": "near",
+      "direction": "out",
+      "type": 5,
+      "isElement": false
+     }
+    ]
+   }
+  }
+ }
+}

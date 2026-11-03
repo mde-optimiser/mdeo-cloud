@@ -2,13 +2,13 @@ import { URI, type LangiumDocument } from "langium";
 import type { FileDataHandler, FileDataResult } from "./types.js";
 import type { JsonAstSerializer } from "../langium/jsonAstSerializer.js";
 import { type AstData } from "../langium/jsonAstSerializer.js";
-import type {
-    ExternalReferenceAdditionalServices,
-    ExternalReferenceCollector,
-    ExternalReferences
+import {
+    hasErrors,
+    type ExternalReferenceAdditionalServices,
+    type ExternalReferenceCollector,
+    type ExternalReferences
 } from "@mdeo/language-common";
 import type { TrackedRequests } from "../service/serverApi.js";
-import { hasErrors } from "../util/hasErrors.js";
 
 /**
  * Key for the AST handler

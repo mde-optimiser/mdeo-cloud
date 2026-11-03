@@ -38,6 +38,8 @@ class MdeoEdge(
 
     override fun remove() {
         if (removed) return
+        outVertex.checkWritable()
+        inVertex.checkWritable()
         (graph() as MdeoGraph).removeEdge(id)
         removed = true
     }

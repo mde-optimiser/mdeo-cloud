@@ -1,9 +1,4 @@
-import {
-    BaseCreateNodeOperationHandler,
-    MetadataManager,
-    PlaceholderModelIdRegistry,
-    sharedImport
-} from "@mdeo/language-shared";
+import { MetadataManager, PlaceholderModelIdRegistry, sharedImport } from "@mdeo/language-shared";
 import type { CreateNodeResult, GroupedToolboxItem, ToolboxItemProvider } from "@mdeo/language-shared";
 import type { CreateNodeOperation, GhostElement } from "@eclipse-glsp/protocol";
 import { Enum, EnumEntry, type EnumType } from "../../../grammar/metamodelTypes.js";
@@ -12,6 +7,7 @@ import { MetamodelElementType } from "@mdeo/protocol-metamodel";
 import type { MetamodelGModelFactory } from "../metamodelGModelFactory.js";
 import type { MetamodelMetadataManager } from "../metamodelMetadataManager.js";
 import type { NodeLayoutMetadata } from "@mdeo/protocol-common";
+import { MetamodelBaseCreateNodeOperationHandler } from "./metamodelBaseCreateNodeOperationHandler.js";
 
 const { injectable, inject } = sharedImport("inversify");
 const { CreateNodeOperation: CreateNodeOperationKind, TriggerNodeCreationAction } =
@@ -26,7 +22,7 @@ const { GModelFactory } = sharedImport("@eclipse-glsp/server");
  * with ghost element templates for visual preview during node creation.
  */
 @injectable()
-export class CreateEnumOperationHandler extends BaseCreateNodeOperationHandler implements ToolboxItemProvider {
+export class CreateEnumOperationHandler extends MetamodelBaseCreateNodeOperationHandler implements ToolboxItemProvider {
     readonly operationType = CreateNodeOperationKind.KIND;
     override readonly label = "Enum";
     readonly elementTypeIds = [MetamodelElementType.NODE_ENUM];
@@ -172,7 +168,7 @@ export class CreateEnumOperationHandler extends BaseCreateNodeOperationHandler i
         }
 
         return {
-            workspaceEdit: edit,
+            workspaceEdit: this.addToActiveView(edit, enumNode),
             insertSpecifications: [
                 {
                     container: this.modelState.sourceModel!,

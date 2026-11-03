@@ -105,7 +105,7 @@ export class LangiumModelValidator {
 
             issues.push({
                 severity: this.diagnosticSeverityToValidationSeverity(diagnostic.severity ?? 1),
-                message: diagnostic.message,
+                message: typeof diagnostic.message === "string" ? diagnostic.message : diagnostic.message.value,
                 info: {
                     node: astNode,
                     range: diagnostic.range

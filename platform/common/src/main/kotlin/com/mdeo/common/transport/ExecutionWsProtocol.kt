@@ -1,5 +1,6 @@
 package com.mdeo.common.transport
 
+import com.mdeo.common.model.ApiError
 import com.mdeo.common.model.FileEntry
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -184,15 +185,13 @@ data class ExecutionWsResponse(
 /**
  * Terminating failure response for a request.
  *
- * @property code Machine-readable error code
- * @property message Human-readable description
+ * @property error What went wrong, in the platform's error shape
  */
 @Serializable
 @SerialName("exec/error")
 data class ExecutionWsError(
     override val requestId: String,
-    val code: String,
-    val message: String
+    val error: ApiError
 ) : ExecutionWsMessage
 
 /**
@@ -232,34 +231,3 @@ data class ExecutionFileTreePayload(val files: List<FileEntry>)
  */
 @Serializable
 data class ExecutionFilePayload(val content: String)
-
-/**
- * Error codes shared by all hops, so a failure raised at the execution service keeps its
- * meaning by the time it reaches the browser.
- */
-object ExecutionWsErrorCodes {
-    /**
-     * The request was malformed or addressed something that does not exist.
-     */
-    const val BAD_REQUEST = "BadRequest"
-
-    /**
-     * The token or session does not authorize this request.
-     */
-    const val FORBIDDEN = "Forbidden"
-
-    /**
-     * The execution, file, or plugin could not be found.
-     */
-    const val NOT_FOUND = "NotFound"
-
-    /**
-     * A downstream hop could not be reached.
-     */
-    const val UNAVAILABLE = "Unavailable"
-
-    /**
-     * Anything else.
-     */
-    const val INTERNAL = "Internal"
-}

@@ -12,3 +12,9 @@ export const GeneratedModelTransformation = createInterface("GeneratedModelTrans
  * Generated model transformation AST type.
  */
 export type GeneratedModelTransformationType = ASTType<typeof GeneratedModelTransformation>;
+
+/**
+ * Stands in for an expression of a generated transformation shown as a regular one: the typed
+ * AST is rendered to the expression's text, which the node keeps as its CST text.
+ */
+export const RenderedExpression = createInterface("IdentifierExpression").attrs({});

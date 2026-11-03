@@ -6,20 +6,36 @@ import type {
     LangiumDocument,
     LangiumDocuments
 } from "langium";
-import type { ExtendedLangiumServices } from "@mdeo/language-common";
+import type { AstReflection, ExtendedLangiumServices } from "@mdeo/language-common";
 import { sharedImport, resolveRelativePath } from "@mdeo/language-shared";
 import {
     type SearchSectionType,
     type SolverSectionType,
     type MutationsBlockType,
+    type CrossoversBlockType,
+    type CrossoverBlockType,
     type UsingPathType,
     type MutationBlockType,
+    type AlgorithmParametersType,
     type ArchiveBlockType,
     type RuntimeSectionType,
     type RuntimeTimeoutBlockType,
-    type RuntimeResourcesBlockType
+    type RuntimeResourcesBlockType,
+    MutationStepNumeric,
+    MutationStepFixedN,
+    MutationStepInterval
 } from "../grammar/mdeoTypes.js";
-import { ModelTransformation, type ModelTransformationType } from "@mdeo/language-model-transformation";
+import {
+    ModelTransformation,
+    describeTransformationInputs,
+    transformationDisplayName,
+    type ModelTransformationType,
+    type TransformationInputDescription
+} from "@mdeo/language-model-transformation";
+import { getWrapperInterfaceName } from "@mdeo/language-config";
+import { MDEO_PLUGIN_NAME } from "../plugin/mdeoContributionPlugin.js";
+import { DEFAULT_CROSSOVER_PARENTS } from "../features/operatorArguments.js";
+import { OperatorArgumentsValidator, isPassableInput } from "./operatorArgumentsValidator.js";
 import { isMetamodelCompatible } from "@mdeo/language-metamodel";
 import type { MdeoMetamodelResolver } from "../features/mdeoMetamodelResolver.js";
 import type { Range } from "vscode-languageserver-types";
@@ -34,7 +50,12 @@ const VALID_ALGORITHMS = new Set(["NSGAII", "IBEA", "SPEA2", "SMSMOEA", "VEGA", 
 /**
  * Valid variation values for mutation configuration.
  */
-const VALID_VARIATIONS = new Set(["mutation", "genetic", "probabilistic"]);
+const VALID_VARIATIONS = new Set(["mutation", "genetic"]);
+
+/**
+ * Valid crossover strategy values.
+ */
+const VALID_CROSSOVER_STRATEGIES = new Set(["random"]);
 
 /**
  * Valid mutation strategy values.
@@ -87,6 +108,8 @@ export function registerMdeoValidationChecks(
 export class MdeoValidator {
     private readonly services: ExtendedLangiumServices;
     private readonly metamodelResolver: MdeoMetamodelResolver;
+    private readonly reflection: AstReflection;
+    private readonly argumentsValidator: OperatorArgumentsValidator;
 
     /**
      * Constructs a new MdeoValidator.
@@ -96,20 +119,28 @@ export class MdeoValidator {
     constructor(services: ExtendedLangiumServices & { MdeoMetamodelResolver: MdeoMetamodelResolver }) {
         this.services = services;
         this.metamodelResolver = services.MdeoMetamodelResolver;
+        this.reflection = services.shared.AstReflection;
+        this.argumentsValidator = new OperatorArgumentsValidator(this.reflection);
     }
 
     /**
      * Validates a search section.
-     * Checks that mutations block exists and using paths resolve to valid transformation files.
+     * Checks the mutations and crossovers blocks: their using paths resolve to transformation
+     * files that are operators of the block's kind, and their arguments fit the inputs.
      *
      * @param search The search section node to validate
      * @param accept The validation acceptor for reporting diagnostics
      */
     validateSearchSection(search: SearchSectionType, accept: ValidationAcceptor): void {
         this.checkNoDuplicateNodes(search.mutations, "mutations", accept);
+        this.checkNoDuplicateNodes(search.crossovers, "crossovers", accept);
         const mutations = search.mutations[0];
         if (mutations != undefined) {
             this.validateMutationsBlock(mutations, accept);
+        }
+        const crossovers = search.crossovers[0];
+        if (crossovers != undefined) {
+            this.validateCrossoversBlock(crossovers, accept);
         }
     }
 
@@ -122,7 +153,10 @@ export class MdeoValidator {
      */
     private validateMutationsBlock(mutations: MutationsBlockType, accept: ValidationAcceptor): void {
         for (const usingPath of mutations.usingPaths ?? []) {
-            this.validateUsingPath(usingPath, accept);
+            const operator = this.validateUsingPath(usingPath, accept);
+            if (operator != undefined) {
+                this.validateMutationOperator(usingPath, operator, accept);
+            }
         }
 
         if (
@@ -137,16 +171,192 @@ export class MdeoValidator {
     }
 
     /**
+     * Validates a crossovers block.
+     * Checks that its using paths are crossover operators that accept the configured number of
+     * parents, and that the block is used (`variation = genetic`) and not empty then.
+     *
+     * @param crossovers The crossovers block to validate
+     * @param accept The validation acceptor
+     */
+    private validateCrossoversBlock(crossovers: CrossoversBlockType, accept: ValidationAcceptor): void {
+        const solver = this.findSolverSettings(crossovers);
+        for (const usingPath of crossovers.usingPaths ?? []) {
+            const operator = this.validateUsingPath(usingPath, accept);
+            if (operator != undefined) {
+                this.validateCrossoverOperator(usingPath, operator, solver, accept);
+            }
+        }
+
+        if (solver.variation !== "genetic") {
+            accept(
+                "warning",
+                "The crossovers block is unused: crossover operators only run with 'variation = genetic' in the solver parameters.",
+                { node: crossovers, keyword: "crossovers" }
+            );
+        } else if ((crossovers.usingPaths?.length ?? 0) === 0) {
+            accept(
+                "error",
+                "The crossovers block has no crossover operators, but 'variation = genetic' needs at least one.",
+                { node: crossovers, keyword: "crossovers" }
+            );
+        }
+    }
+
+    /**
+     * Checks that a transformation listed under `mutations` is a mutation operator: it has no
+     * model inputs, and every required input is passed by the `with` block.
+     *
+     * @param usingPath The using path being validated
+     * @param operator The transformation and what the `with` block supplies
+     * @param accept The validation acceptor
+     */
+    private validateMutationOperator(
+        usingPath: UsingPathType,
+        operator: ResolvedOperator,
+        accept: ValidationAcceptor
+    ): void {
+        const models = operator.inputs.filter((input) => isModelInput(input));
+        if (models.length > 0) {
+            accept(
+                "error",
+                `The transformation at '${usingPath.path}' has ${plural(models.length, "the model input", "the model inputs")} ${quoteNames(models)}, so it is a crossover operator, not a mutation operator: list it in the crossovers block of the search section.`,
+                { node: usingPath, property: "path" }
+            );
+            return;
+        }
+        this.validateRequiredInputsSupplied(usingPath, operator, "a mutation operator", accept);
+    }
+
+    /**
+     * Checks that a transformation listed under `crossovers` is a crossover operator (D.1): its
+     * required inputs are model inputs (at least one) and inputs the `with` block passes, its
+     * model inputs are either single `model` inputs or exactly one `List<model>`, and it accepts
+     * the configured number of parents.
+     *
+     * @param usingPath The using path being validated
+     * @param operator The transformation and what the `with` block supplies
+     * @param solver The crossover settings of the solver section
+     * @param accept The validation acceptor
+     */
+    private validateCrossoverOperator(
+        usingPath: UsingPathType,
+        operator: ResolvedOperator,
+        solver: SolverSettings,
+        accept: ValidationAcceptor
+    ): void {
+        const singles = operator.inputs.filter((input) => input.kind === "model");
+        const lists = operator.inputs.filter((input) => input.kind === "modelList");
+        if (singles.length === 0 && lists.length === 0) {
+            accept(
+                "error",
+                `The transformation at '${usingPath.path}' has no model input, so it is not a crossover operator: a crossover operator receives the other parents as 'in donor: model' or 'in donors: List<model>'. List mutation operators in the mutations block.`,
+                { node: usingPath, property: "path" }
+            );
+            return;
+        }
+        if (singles.length > 0 && lists.length > 0) {
+            accept(
+                "error",
+                `The crossover operator at '${usingPath.path}' mixes single model inputs (${quoteNames(singles)}) with a list of models (${quoteNames(lists)}): declare either single 'model' inputs, one per other parent, or exactly one 'List<model>' input.`,
+                { node: usingPath, property: "path" }
+            );
+            return;
+        }
+        if (lists.length > 1) {
+            accept(
+                "error",
+                `The crossover operator at '${usingPath.path}' has more than one 'List<model>' input (${quoteNames(lists)}): a crossover operator for any number of parents has exactly one.`,
+                { node: usingPath, property: "path" }
+            );
+            return;
+        }
+        this.validateRequiredInputsSupplied(usingPath, operator, "a crossover operator", accept);
+
+        if (singles.length > 0 && solver.parents >= 2 && singles.length !== solver.parents - 1) {
+            const takes = singles.length + 1;
+            const configured = solver.parentsWritten
+                ? `'crossover { parents = ${solver.parents} }' groups ${solver.parents} parents`
+                : `crossovers group ${solver.parents} parents (the default of 'crossover { parents }')`;
+            accept(
+                "error",
+                `The crossover operator at '${usingPath.path}' takes ${takes} parents (the model it runs on and ${plural(singles.length, "the model input", "the model inputs")} ${quoteNames(singles)}), but ${configured}. Use a transformation with ${solver.parents - 1} model ${solver.parents - 1 === 1 ? "input" : "inputs"} or one 'List<model>' input, or set 'parents = ${takes}'.`,
+                { node: usingPath, property: "path" }
+            );
+        }
+    }
+
+    /**
+     * Checks that every required input of an operator that is not a model input is passed by
+     * the `with` block (an input that the config cannot set has to have a default or be
+     * optional).
+     *
+     * @param usingPath The using path being validated
+     * @param operator The transformation and what the `with` block supplies
+     * @param role How the operator is named in messages, e.g. `a mutation operator`
+     * @param accept The validation acceptor
+     */
+    private validateRequiredInputsSupplied(
+        usingPath: UsingPathType,
+        operator: ResolvedOperator,
+        role: string,
+        accept: ValidationAcceptor
+    ): void {
+        for (const input of operator.inputs) {
+            if (input.optional || isModelInput(input) || operator.supplied.has(input.name)) {
+                continue;
+            }
+            const fixes: string[] = [];
+            if (isPassableInput(input)) {
+                fixes.push(`add 'with { ${input.name} = … }'`);
+            }
+            if (input.kind === "scalar" || input.kind === "enum") {
+                fixes.push("give the input a default");
+            }
+            if (input.kind === "element") {
+                fixes.push(`make the input optional ('${input.typeName}?')`);
+            }
+            fixes.push("call the transformation from an operator with 'call'");
+            const reason = isPassableInput(input)
+                ? "which this entry does not pass"
+                : "which cannot be set from the config";
+            accept(
+                "error",
+                `The transformation at '${usingPath.path}' has the required input '${input.name}' (${input.typeName}), ${reason}, so it cannot be ${role}: ${joinAlternatives(fixes)}.`,
+                { node: usingPath, property: "path" }
+            );
+        }
+    }
+
+    /**
+     * Reads the solver settings that the search section's checks depend on.
+     *
+     * @param node Any node of the config
+     * @returns The variation and the number of parents per crossover
+     */
+    private findSolverSettings(node: AstNode): SolverSettings {
+        const solver = findSiblingSection<SolverSectionType>(node, "solver");
+        const params = solver?.parameters?.[0];
+        const parents = params?.crossover?.[0]?.parents?.[0];
+        return {
+            variation: params?.variation?.[0],
+            parents: parents ?? DEFAULT_CROSSOVER_PARENTS,
+            parentsWritten: parents != undefined
+        };
+    }
+
+    /**
      * Validates a using path.
-     * Checks that the path resolves to a valid model transformation file
-     * and that the transformation's metamodel is compatible with the problem section's metamodel.
+     * Checks that the path resolves to a valid model transformation file, that the
+     * transformation's metamodel is compatible with the problem section's metamodel and that
+     * the arguments of its `with` block fit its inputs.
      *
      * @param usingPath The using path to validate
      * @param accept The validation acceptor
+     * @returns The transformation's inputs and the inputs the entry passes, if it resolves
      */
-    private validateUsingPath(usingPath: UsingPathType, accept: ValidationAcceptor): void {
+    private validateUsingPath(usingPath: UsingPathType, accept: ValidationAcceptor): ResolvedOperator | undefined {
         if (usingPath.path == undefined) {
-            return;
+            return undefined;
         }
         const document = AstUtils.getDocument(usingPath);
         const targetUri = resolveRelativePath(document, usingPath.path);
@@ -158,7 +368,7 @@ export class MdeoValidator {
                 node: usingPath,
                 property: "path"
             });
-            return;
+            return undefined;
         }
 
         const root = targetDoc.parseResult?.value;
@@ -167,10 +377,24 @@ export class MdeoValidator {
                 node: usingPath,
                 property: "path"
             });
-            return;
+            return undefined;
         }
 
         this.validateTransformationMetamodelCompatibility(usingPath, document, targetDoc, documents, accept);
+
+        const transformation = root as ModelTransformationType;
+        const inputs = describeTransformationInputs(transformation, this.reflection, documents);
+        const outputs = new Set(
+            (transformation.parameters ?? []).filter((p) => p.direction === "out").map((p) => p.name)
+        );
+        const supplied = this.argumentsValidator.validate(
+            usingPath,
+            transformationDisplayName(transformation),
+            inputs,
+            outputs,
+            accept
+        );
+        return { inputs, supplied };
     }
 
     /**
@@ -417,6 +641,7 @@ export class MdeoValidator {
 
         this.checkNoDuplicateKeys(params, "population", accept);
         this.checkNoDuplicateKeys(params, "variation", accept);
+        this.checkNoDuplicateNodes(params.crossover, "crossover", accept);
         this.checkNoDuplicateNodes(params.mutation, "mutation", accept);
         this.checkNoDuplicateKeys(params, "bisections", accept);
         this.checkNoDuplicateNodes(params.archive, "archive", accept);
@@ -441,6 +666,13 @@ export class MdeoValidator {
                 `Invalid variation '${variation}'. Must be one of: ${Array.from(VALID_VARIATIONS).join(", ")}.`,
                 { node: params, property: "variation", index: 0 }
             );
+        } else if (variation === "genetic") {
+            this.validateGeneticVariation(solver, params, accept);
+        }
+
+        const crossover = params.crossover[0];
+        if (crossover != undefined) {
+            this.validateCrossoverBlock(crossover, variation, accept);
         }
 
         const mutation = params.mutation[0];
@@ -470,6 +702,87 @@ export class MdeoValidator {
     }
 
     /**
+     * Validates `variation = genetic`: the algorithm must take a crossover (PAES does not), and
+     * the search section must list crossover operators.
+     *
+     * @param solver The solver section
+     * @param params The parameters block
+     * @param accept The validation acceptor
+     */
+    private validateGeneticVariation(
+        solver: SolverSectionType,
+        params: AlgorithmParametersType,
+        accept: ValidationAcceptor
+    ): void {
+        const algorithm = solver.algorithm[0];
+        if (algorithm === "PAES") {
+            accept(
+                "error",
+                "PAES evolves a single solution with one mutation operator per step, so it cannot use 'variation = genetic': use 'variation = mutation' or another algorithm.",
+                { node: params, property: "variation", index: 0 }
+            );
+        }
+        const search = findSiblingSection<SearchSectionType>(solver, "search");
+        if ((search?.crossovers?.length ?? 0) === 0) {
+            accept(
+                "error",
+                "'variation = genetic' needs crossover operators: add a 'crossovers { using \"….mt\" }' block to the search section.",
+                { node: params, property: "variation", index: 0 }
+            );
+        }
+    }
+
+    /**
+     * Validates the crossover sub-block: each key at most once, `rate` in [0, 1], `parents` at
+     * least 2, and a warning when the block is unused (variation other than `genetic`).
+     *
+     * @param crossover The crossover block to validate
+     * @param variation The configured variation, if any
+     * @param accept The validation acceptor
+     */
+    private validateCrossoverBlock(
+        crossover: CrossoverBlockType,
+        variation: string | undefined,
+        accept: ValidationAcceptor
+    ): void {
+        this.checkNoDuplicateKeys(crossover, "rate", accept);
+        this.checkNoDuplicateKeys(crossover, "parents", accept);
+        this.checkNoDuplicateKeys(crossover, "strategy", accept);
+
+        if (variation !== "genetic") {
+            accept("warning", "The crossover block is unused: it only applies with 'variation = genetic'.", {
+                node: crossover,
+                keyword: "crossover"
+            });
+        }
+
+        const rate = crossover.rate[0];
+        if (rate != undefined && (rate < 0 || rate > 1)) {
+            accept("error", `The crossover rate is a probability: it must lie between 0 and 1, not ${rate}.`, {
+                node: crossover,
+                property: "rate",
+                index: 0
+            });
+        }
+        const parents = crossover.parents[0];
+        if (parents != undefined && parents < 2) {
+            accept("error", `A crossover needs at least 2 parents, not ${parents}.`, {
+                node: crossover,
+                property: "parents",
+                index: 0
+            });
+        }
+        const strategy = crossover.strategy[0];
+        if (strategy != undefined && !VALID_CROSSOVER_STRATEGIES.has(strategy)) {
+            accept(
+                "error",
+                `Invalid crossover strategy '${strategy}'. Must be one of: ${Array.from(VALID_CROSSOVER_STRATEGIES).join(", ")}.`,
+                { node: crossover, property: "strategy", index: 0 }
+            );
+        }
+    }
+
+    /**
      * Validates the archive sub-block.
      *
      * @param archive The archive block to validate
@@ -488,6 +801,40 @@ export class MdeoValidator {
     }
 
     /**
+     * Validates the mutation step: step counts are not negative (0 applies no mutation step), and an
+     * interval draws from [lower, upper), so its upper bound must be above its lower one.
+     *
+     * @param mutation The mutation block to validate
+     * @param accept The validation acceptor
+     */
+    private validateMutationStep(mutation: MutationBlockType, accept: ValidationAcceptor): void {
+        const step = mutation.step[0];
+        if (step == undefined) {
+            return;
+        }
+        const negative = (value: number, property: string) => {
+            if (value < 0) {
+                accept("error", "A mutation step count cannot be negative.", { node: step, property });
+            }
+        };
+        if (this.reflection.isInstance(step, MutationStepNumeric)) {
+            negative(step.value, "value");
+        } else if (this.reflection.isInstance(step, MutationStepFixedN)) {
+            negative(step.n, "n");
+        } else if (this.reflection.isInstance(step, MutationStepInterval)) {
+            negative(step.lower, "lower");
+            negative(step.upper, "upper");
+            if (step.upper <= step.lower) {
+                accept(
+                    "error",
+                    `interval(lower, upper) draws from [lower, upper), so upper must be above lower: write interval(${step.lower}, ${step.lower + 1}) or fixed(${step.lower}) for exactly ${step.lower}.`,
+                    { node: step, property: "upper" }
+                );
+            }
+        }
+    }
+
+    /**
      * Validates the mutation sub-block.
      * Checks strategy and selection values against allowed identifiers.
      *
@@ -501,6 +848,8 @@ export class MdeoValidator {
         this.checkNoDuplicateKeys(mutation, "application", accept);
         this.checkNoDuplicateKeys(mutation, "credit", accept);
         this.checkNoDuplicateKeys(mutation, "repair", accept);
+
+        this.validateMutationStep(mutation, accept);
 
         const strategy = mutation.strategy[0];
         if (strategy != undefined && !VALID_MUTATION_STRATEGIES.has(strategy)) {
@@ -608,4 +957,68 @@ export class MdeoValidator {
         }
         return keywordNode.range;
     }
+}
+
+/**
+ * A transformation named by a using entry: its inputs and the names its `with` block sets.
+ */
+interface ResolvedOperator {
+    inputs: TransformationInputDescription[];
+    supplied: ReadonlySet<string>;
+}
+
+/**
+ * The solver settings that the checks of the search section depend on.
+ */
+interface SolverSettings {
+    variation: string | undefined;
+    parents: number;
+    parentsWritten: boolean;
+}
+
+/**
+ * Finds the content of another MDEO section of the config a node belongs to.
+ *
+ * @param node Any node of the config
+ * @param sectionName The section, e.g. `solver`
+ * @returns The section's content node, if the config has the section
+ */
+function findSiblingSection<T>(node: AstNode, sectionName: string): T | undefined {
+    const root = AstUtils.findRootNode(node) as { sections?: (AstNode & { content?: AstNode })[] };
+    const wrapperType = getWrapperInterfaceName(sectionName, MDEO_PLUGIN_NAME);
+    return root.sections?.find((section) => section.$type === wrapperType)?.content as T | undefined;
+}
+
+/**
+ * Whether an input is a model input (`model` or `List<model>`).
+ */
+function isModelInput(input: TransformationInputDescription): boolean {
+    return input.kind === "model" || input.kind === "modelList";
+}
+
+/**
+ * Quotes the names of inputs for messages, e.g. `'a', 'b'`.
+ */
+function quoteNames(inputs: TransformationInputDescription[]): string {
+    return inputs.map((input) => `'${input.name}'`).join(", ");
+}
+
+/**
+ * Picks the singular or plural form of a phrase.
+ */
+function plural(count: number, singular: string, pluralForm: string): string {
+    return count === 1 ? singular : pluralForm;
+}
+
+/**
+ * Joins alternatives for a message, e.g. `a, b, or c`.
+ */
+function joinAlternatives(alternatives: string[]): string {
+    if (alternatives.length <= 1) {
+        return alternatives.join("");
+    }
+    if (alternatives.length === 2) {
+        return `${alternatives[0]} or ${alternatives[1]}`;
+    }
+    return `${alternatives.slice(0, -1).join(", ")}, or ${alternatives[alternatives.length - 1]}`;
 }

@@ -3,6 +3,7 @@ package com.mdeo.modeltransformation.stdlib.types
 import com.mdeo.modeltransformation.compiler.CompilationResult
 import com.mdeo.modeltransformation.compiler.registry.GremlinTypeDefinition
 import com.mdeo.modeltransformation.compiler.registry.gremlinType
+import com.mdeo.modeltransformation.stdlib.contextMethod
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal
 
 /**
@@ -21,6 +22,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal
  * - `mod(divisor)` - Modulo operation (remainder after division)
  * - `max(other)` - Returns the maximum of this integer and other
  * - `min(other)` - Returns the minimum of this integer and other
+ * - `to(end)` - The integers from this one to `end`, both included ([compileRange])
  *
  * The max and min operations are overloaded to work with int, long, float, and double types.
  *
@@ -30,6 +32,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal
 fun createIntType(): GremlinTypeDefinition {
     return gremlinType("builtin", "int")
         .extends("builtin", "Any")
+        .contextMethod("to", 1, ::compileRange)
         .method("abs", "", 0) { receiver, _ ->
             val traversal = (receiver as GraphTraversal<Any, Any>).math("abs(_)")
             CompilationResult.of(traversal as GraphTraversal<Any, Any>)

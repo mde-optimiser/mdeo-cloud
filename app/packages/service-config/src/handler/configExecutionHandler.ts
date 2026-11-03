@@ -59,14 +59,13 @@ export class ConfigExecutionHandler implements ExecutionHandler<ExecuteResponse>
         const plugins = (context.contributionPlugins as ServerContributionPlugin[]).filter(ConfigContributionPlugin.is);
         const executableSection = await this.resolveSingleExecutableSection(context, plugins);
 
-        const requestBody: ConfigExecutionPluginRequestBody & { jwt?: string } = {
+        const requestBody: ConfigExecutionPluginRequestBody = {
             executionId: context.executionId,
             project: context.project,
             filePath: context.filePath,
             fileContent: context.fileContent,
             fileVersion: context.fileVersion,
-            data: context.data,
-            jwt: context.jwt
+            data: context.data
         };
 
         const routingMetadata: ConfigExecutionRoutingMetadata = {
@@ -82,7 +81,8 @@ export class ConfigExecutionHandler implements ExecutionHandler<ExecuteResponse>
         const result = (await context.serverApi.sendPluginRequest(
             executableSection.plugin.languageKey,
             CONFIG_EXECUTION_REQUEST_KEY,
-            requestBody
+            requestBody,
+            { delegate: true }
         )) as ExecuteResponse | null;
         if (result == undefined || result == null) {
             throw new Error(
@@ -101,7 +101,8 @@ export class ConfigExecutionHandler implements ExecutionHandler<ExecuteResponse>
         const result = await context.serverApi.sendPluginRequest(
             routing.languageId,
             CONFIG_EXECUTION_GET_SUMMARY_REQUEST_KEY,
-            requestBody
+            requestBody,
+            { delegate: true }
         );
         return typeof result === "string" ? result : "";
     }
@@ -114,7 +115,8 @@ export class ConfigExecutionHandler implements ExecutionHandler<ExecuteResponse>
         const result = await context.serverApi.sendPluginRequest(
             routing.languageId,
             CONFIG_EXECUTION_GET_FILE_TREE_REQUEST_KEY,
-            requestBody
+            requestBody,
+            { delegate: true }
         );
 
         return Array.isArray(result) ? (result as ExecutionResultEntry[]) : [];
@@ -129,7 +131,8 @@ export class ConfigExecutionHandler implements ExecutionHandler<ExecuteResponse>
         const result = await context.serverApi.sendPluginRequest(
             routing.languageId,
             CONFIG_EXECUTION_GET_FILE_REQUEST_KEY,
-            requestBody
+            requestBody,
+            { delegate: true }
         );
 
         if (typeof result === "string") {
@@ -166,7 +169,8 @@ export class ConfigExecutionHandler implements ExecutionHandler<ExecuteResponse>
         const result = (await context.serverApi.sendPluginRequest(
             routing.languageId,
             CONFIG_EXECUTION_GET_FILES_REQUEST_KEY,
-            requestBody
+            requestBody,
+            { delegate: true }
         )) as ConfigExecutionFilesResponse | null;
 
         if (!result) {
@@ -180,19 +184,37 @@ export class ConfigExecutionHandler implements ExecutionHandler<ExecuteResponse>
     }
 
     async cancel(context: ExecutionRequestContext): Promise<void> {
-        const routing = this.getRoutingMetadata(context);
+        const routing = this.findRoutingMetadata(context);
+        if (routing == undefined) {
+            // The execution failed before it reached a contribution plugin: nothing runs there.
+            return;
+        }
         const requestBody: ConfigExecutionFollowUpRequestBody = {
             executionId: context.executionId
         };
-        await context.serverApi.sendPluginRequest(routing.languageId, CONFIG_EXECUTION_CANCEL_REQUEST_KEY, requestBody);
+        await context.serverApi.sendPluginRequest(
+            routing.languageId,
+            CONFIG_EXECUTION_CANCEL_REQUEST_KEY,
+            requestBody,
+            { delegate: true }
+        );
     }
 
     async delete(context: ExecutionRequestContext): Promise<void> {
-        const routing = this.getRoutingMetadata(context);
+        const routing = this.findRoutingMetadata(context);
+        if (routing == undefined) {
+            // The execution failed before it reached a contribution plugin: nothing is stored there.
+            return;
+        }
         const requestBody: ConfigExecutionFollowUpRequestBody = {
             executionId: context.executionId
         };
-        await context.serverApi.sendPluginRequest(routing.languageId, CONFIG_EXECUTION_DELETE_REQUEST_KEY, requestBody);
+        await context.serverApi.sendPluginRequest(
+            routing.languageId,
+            CONFIG_EXECUTION_DELETE_REQUEST_KEY,
+            requestBody,
+            { delegate: true }
+        );
     }
 
     private async resolveSingleExecutableSection(
@@ -248,10 +270,24 @@ export class ConfigExecutionHandler implements ExecutionHandler<ExecuteResponse>
     }
 
     private getRoutingMetadata(context: ExecutionRequestContext): ConfigExecutionRoutingMetadata {
+        const routing = this.findRoutingMetadata(context);
+        if (routing == undefined) {
+            throw new Error("Missing execution routing metadata for config execution forwarding");
+        }
+        return routing;
+    }
+
+    /**
+     * Reads which contribution plugin an execution was forwarded to.
+     *
+     * @param context The execution request context
+     * @returns The routing, or undefined when the execution failed before it was forwarded
+     */
+    private findRoutingMetadata(context: ExecutionRequestContext): ConfigExecutionRoutingMetadata | undefined {
         const envelope = context.metadata as ConfigExecutionMetadataEnvelope | undefined;
         const routing = envelope?.configExecution;
         if (routing == undefined || typeof routing.languageId !== "string" || routing.languageId.length === 0) {
-            throw new Error("Missing execution routing metadata for config execution forwarding");
+            return undefined;
         }
         return routing;
     }

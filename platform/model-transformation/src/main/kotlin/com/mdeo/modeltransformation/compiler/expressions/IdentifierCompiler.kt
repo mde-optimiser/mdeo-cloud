@@ -7,6 +7,8 @@ import com.mdeo.modeltransformation.compiler.CompilationContext
 import com.mdeo.modeltransformation.compiler.CompilationResult
 import com.mdeo.modeltransformation.compiler.ExpressionCompiler
 import com.mdeo.modeltransformation.compiler.VariableBinding
+import com.mdeo.modeltransformation.compiler.CollectionValue
+import com.mdeo.modeltransformation.graph.VertexRef
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.`__` as AnonymousTraversal
 
@@ -132,7 +134,12 @@ class IdentifierCompiler : ExpressionCompiler {
     ): CompilationResult {
         return when (binding) {
             is VariableBinding.ValueBinding -> {
-                CompilationResult.constant(binding.value, initialTraversal)
+                val value = binding.value
+                if (value is CollectionValue) {
+                    compileCollection(value, context, initialTraversal)
+                } else {
+                    CompilationResult.constant(value, initialTraversal)
+                }
             }
             is VariableBinding.InstanceBinding -> {
                 compileInstanceBinding(binding, name, context, initialTraversal)
@@ -143,6 +150,31 @@ class IdentifierCompiler : ExpressionCompiler {
         }
     }
     
+    /**
+     * Compiles a collection parameter or output to a traversal yielding the collection as one
+     * list, with its model elements resolved to the current vertices. Collection operations
+     * (`size()`, `filter(...)`, `for … in`) unfold it.
+     *
+     * @param collection The collection
+     * @param context The compilation context
+     * @param initialTraversal Optional initial traversal to build upon
+     * @return A traversal result producing the list
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun compileCollection(
+        collection: CollectionValue,
+        context: CompilationContext,
+        initialTraversal: GraphTraversal<*, *>?
+    ): CompilationResult {
+        val start = (initialTraversal ?: AnonymousTraversal.identity<Any>()) as GraphTraversal<Any, Any>
+        val refs = collection.items.filterIsInstance<VertexRef>()
+        if (context.traversalSource == null && refs.isNotEmpty()) {
+            val ids = refs.map { it.rawId }.toTypedArray()
+            return CompilationResult.of(start.map(AnonymousTraversal.V<Any>(*ids).fold()))
+        }
+        return CompilationResult.of(start.constant(collection.resolve(context.traversalSource)))
+    }
+
     /**
      * Compiles an instance binding to a traversal that references the vertex.
      *

@@ -71,7 +71,7 @@ interface InjectedServices {
     /**
      * Service for executing language plugin requests.
      */
-    val languagePluginRequestService: LanguagePluginRequestService
+    val pluginRequestService: PluginRequestService
 
     /**
      * Throttles password verification attempts, shared between the login

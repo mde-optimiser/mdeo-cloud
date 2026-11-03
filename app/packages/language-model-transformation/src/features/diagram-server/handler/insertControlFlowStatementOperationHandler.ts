@@ -30,12 +30,18 @@ import {
     IfExpressionStatement,
     WhileExpressionStatement,
     StopStatement,
+    CallStatement,
+    IfCallStatement,
+    IfCallConditionAndBlock,
+    ForInStatement,
+    AssignmentStatement,
     Pattern,
     IfMatchConditionAndBlock,
     ModelTransformation,
     StatementsScope,
     type BaseTransformationStatementType,
     type ForMatchStatementType,
+    type ForInStatementType,
     type IfMatchStatementType,
     type IfMatchConditionAndBlockType,
     type PatternType,
@@ -113,7 +119,7 @@ export class InsertControlFlowStatementOperationHandler extends BaseOperationHan
             return undefined;
         }
 
-        const newText = this.buildStatementText(statementKind);
+        const newText = this.buildStatementText(statementKind, operation.callee);
 
         let insertResult: StatementInsertResult | undefined;
 
@@ -157,6 +163,16 @@ export class InsertControlFlowStatementOperationHandler extends BaseOperationHan
             { label: "Kill", kind: "kill" }
         ];
 
+        // a call (and an if call) of every imported transformation
+        const sourceModel = this.modelState.sourceModel as ModelTransformationType | undefined;
+        const callees = (sourceModel?.imports ?? [])
+            .map((fileImport) => fileImport.name)
+            .filter((name): name is string => name != undefined && name !== "");
+        const callKinds = callees.flatMap((callee) => [
+            { label: `Call ${callee}`, kind: "call" as const, callee },
+            { label: `If Call ${callee}`, kind: "if-call" as const, callee }
+        ]);
+
         const edge = element as GEdge;
 
         return [
@@ -166,16 +182,29 @@ export class InsertControlFlowStatementOperationHandler extends BaseOperationHan
                 icon: "between-horizontal-start",
                 sortString: "a",
                 position: EdgeAttachmentPosition.MIDDLE,
-                children: statementKinds.map((statementKind) => ({
-                    id: `insert-control-flow-${element.id}-${statementKind.kind}`,
-                    label: statementKind.label,
-                    action: InsertControlFlowStatementOperation.create({
-                        edgeId: element.id,
-                        statementKind: statementKind.kind,
-                        sourceNodeId: edge.sourceId,
-                        targetNodeId: edge.targetId
-                    })
-                }))
+                children: [
+                    ...statementKinds.map((statementKind) => ({
+                        id: `insert-control-flow-${element.id}-${statementKind.kind}`,
+                        label: statementKind.label,
+                        action: InsertControlFlowStatementOperation.create({
+                            edgeId: element.id,
+                            statementKind: statementKind.kind,
+                            sourceNodeId: edge.sourceId,
+                            targetNodeId: edge.targetId
+                        })
+                    })),
+                    ...callKinds.map((callKind) => ({
+                        id: `insert-control-flow-${element.id}-${callKind.kind}-${callKind.callee}`,
+                        label: callKind.label,
+                        action: InsertControlFlowStatementOperation.create({
+                            edgeId: element.id,
+                            statementKind: callKind.kind,
+                            sourceNodeId: edge.sourceId,
+                            targetNodeId: edge.targetId,
+                            callee: callKind.callee
+                        })
+                    }))
+                ]
             }
         ];
     }
@@ -223,9 +252,9 @@ export class InsertControlFlowStatementOperationHandler extends BaseOperationHan
             };
         }
 
-        // Case 3: source is the start node
+        // Case 3: source is the start node; statements follow the imports and the declarations
         if (sourceNodeId === "start") {
-            const importCst = sourceModel.import?.$cstNode;
+            const importCst = this.headerEndCst(sourceModel);
             if (importCst != undefined) {
                 const edit = await this.createInsertAfterNodeEdit(importCst, newText);
                 return { edit, container: sourceModel, property: "statements", index: 0 };
@@ -267,11 +296,15 @@ export class InsertControlFlowStatementOperationHandler extends BaseOperationHan
         newText: string,
         sourceModel: ModelTransformationType
     ): Promise<StatementInsertResult | undefined> {
-        let forMatchStmt: ForMatchStatementType | undefined;
+        let forMatchStmt: ForMatchStatementType | ForInStatementType | undefined;
 
         const outerStmt = this.findOuterStatementForNodeId(loopNodeId);
-        if (outerStmt != undefined && this.reflection.isInstance(outerStmt, ForMatchStatement)) {
-            forMatchStmt = outerStmt as ForMatchStatementType;
+        if (
+            outerStmt != undefined &&
+            (this.reflection.isInstance(outerStmt, ForMatchStatement) ||
+                this.reflection.isInstance(outerStmt, ForInStatement))
+        ) {
+            forMatchStmt = outerStmt as ForMatchStatementType | ForInStatementType;
         }
 
         // Fall back: for the synthetic no-pattern node (id = "${stmtId}_no-pattern"),
@@ -420,6 +453,10 @@ export class InsertControlFlowStatementOperationHandler extends BaseOperationHan
                 return StopStatement.name;
             case "kill":
                 return StopStatement.name;
+            case "call":
+                return CallStatement.name;
+            case "if-call":
+                return IfCallStatement.name;
         }
     }
 
@@ -459,9 +496,10 @@ export class InsertControlFlowStatementOperationHandler extends BaseOperationHan
      * indentation when inserting the text).
      *
      * @param kind The statement kind to generate text for
+     * @param callee For calls, the name of the transformation to call
      * @returns The placeholder source text
      */
-    private buildStatementText(kind: InsertControlFlowStatementKind): string {
+    private buildStatementText(kind: InsertControlFlowStatementKind, callee?: string): string {
         switch (kind) {
             case "match":
                 return "match {}";
@@ -481,6 +519,10 @@ export class InsertControlFlowStatementOperationHandler extends BaseOperationHan
                 return "stop";
             case "kill":
                 return "kill";
+            case "call":
+                return `call ${callee ?? "transformation"}()`;
+            case "if-call":
+                return `if call ${callee ?? "transformation"}() then {\n} else {\n}`;
         }
     }
 
@@ -524,8 +566,20 @@ export class InsertControlFlowStatementOperationHandler extends BaseOperationHan
             this.reflection.isInstance(astNode, UntilMatchStatement) ||
             this.reflection.isInstance(astNode, IfExpressionStatement) ||
             this.reflection.isInstance(astNode, WhileExpressionStatement) ||
-            this.reflection.isInstance(astNode, StopStatement)
+            this.reflection.isInstance(astNode, StopStatement) ||
+            this.reflection.isInstance(astNode, IfCallStatement) ||
+            this.reflection.isInstance(astNode, ForInStatement) ||
+            this.reflection.isInstance(astNode, AssignmentStatement)
         ) {
+            return astNode as BaseTransformationStatementType;
+        }
+
+        if (this.reflection.isInstance(astNode, CallStatement)) {
+            // the call of an `if call` stands for the whole statement
+            const container = astNode.$container;
+            if (this.reflection.isInstance(container, IfCallConditionAndBlock)) {
+                return container.$container as BaseTransformationStatementType;
+            }
             return astNode as BaseTransformationStatementType;
         }
 
@@ -563,7 +617,7 @@ export class InsertControlFlowStatementOperationHandler extends BaseOperationHan
             if (idx > 0) {
                 return parent.statements[idx - 1]!.$cstNode;
             }
-            return parent.import?.$cstNode;
+            return this.headerEndCst(parent as ModelTransformationType);
         }
 
         if (this.reflection.isInstance(parent, StatementsScope)) {
@@ -575,6 +629,22 @@ export class InsertControlFlowStatementOperationHandler extends BaseOperationHan
         }
 
         return undefined;
+    }
+
+    /**
+     * Returns the last CST node of the transformation's header, after which its first statement
+     * goes: the last `in` / `out` declaration, else the last import of another transformation,
+     * else the `using` line.
+     *
+     * @param root The transformation root AST node
+     * @returns The CST node, if there is one
+     */
+    private headerEndCst(root: ModelTransformationType): CstNode | undefined {
+        return (
+            root.parameters?.[root.parameters.length - 1]?.$cstNode ??
+            root.imports?.[root.imports.length - 1]?.$cstNode ??
+            root.import?.$cstNode
+        );
     }
 
     /**

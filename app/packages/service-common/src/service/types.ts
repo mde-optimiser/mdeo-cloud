@@ -1,8 +1,9 @@
 import type { LangiumLanguagePluginProvider, LanguageServices, PartialLanguageServices } from "@mdeo/language-common";
 import type { Plugin, LanguagePlugin } from "@mdeo/plugin";
 import type { FastifyInstance } from "fastify";
-import type { FileDataHandler, FileDataResult, RequestHandler } from "../handler/types.js";
+import type { FileDataHandler, FileDataResult, RequestHandler, TargetRequestHandler } from "../handler/types.js";
 import type { ExecutionHandler } from "../execution/types.js";
+import type { SessionHandlers } from "../ws/sessionServer.js";
 import type { DeepPartial, Module } from "langium";
 
 /**
@@ -44,7 +45,8 @@ export interface LanguageServiceConfig<T = object> {
     serviceModule?: Module<LanguageServices & T, PartialLanguageServices & DeepPartial<T>>;
 
     /**
-     * File data handlers keyed by data key (e.g., "ast", "diagram")
+     * File data handlers keyed by data key (e.g., "ast", "diagram").
+     * A "diagnostics" handler is provided for every language unless one is registered here.
      */
     fileDataHandlers: Record<string, FileDataHandler<unknown, T>>;
 
@@ -77,6 +79,7 @@ export interface ServiceConfig<T = object> {
 
     /**
      * Maximum number of Langium instances to keep in the pool per language
+     * (default `DEFAULT_MAX_LANGIUM_INSTANCES`)
      */
     maxLangiumInstances?: number;
 
@@ -108,6 +111,50 @@ export interface ServiceConfig<T = object> {
     languages: LanguageServiceConfig<T>[];
 
     /**
+     * Session handlers this service serves, keyed by target address and then by session name.
+     *
+     * A handler must have a matching declaration in {@link plugin} — on the language plugin for
+     * a `lang:` address, on the contribution payload for a `contrib:` one. The declaration is
+     * what a caller negotiates against; this is only what answers once it has.
+     */
+    sessions?: SessionHandlers;
+
+    /**
+     * One-shot request handlers for targets that own no Langium instance, keyed by target
+     * address and then by request key.
+     *
+     * This is how a contribution serves requests: `{ "contrib:my-contribution": { "info": … } }`.
+     * A language plugin registers its handlers in {@link LanguageServiceConfig.requestHandlers}
+     * instead, which also hands each one an instance of that language.
+     */
+    requests?: TargetRequestHandlers;
+
+    /**
+     * Maximum number of Langium instances open sessions may hold at once, per language.
+     *
+     * Separate from {@link maxLangiumInstances}, because a session keeps its instance for the
+     * length of a connection rather than the length of a request.
+     */
+    maxSessionInstances?: number;
+
+    /**
+     * Maximum number of sessions open at once, on every target together
+     * (default `DEFAULT_MAX_SESSIONS`).
+     */
+    maxSessions?: number;
+
+    /**
+     * How many contribution sets the service remembers by hash
+     * (default `DEFAULT_MAX_CONTRIBUTION_SETS`); see `ContributionCache`.
+     */
+    maxContributionSets?: number;
+
+    /**
+     * How long a request may wait for a free Langium instance before failing, in milliseconds.
+     */
+    langiumAcquireTimeoutMs?: number;
+
+    /**
      * Whether to serve static files (default: true)
      */
     serveStatic?: boolean;
@@ -123,6 +170,15 @@ export interface ServiceConfig<T = object> {
      */
     version?: string;
 }
+
+/**
+ * The instance-free request handlers a service registers, keyed by target address and then by
+ * request key.
+ *
+ * The address is the same `<kind>:<id>` string the plugin manifest and the backend's request
+ * endpoint use, so a registration is looked up with exactly what the caller asked for.
+ */
+export type TargetRequestHandlers = Record<string, Record<string, TargetRequestHandler>>;
 
 /**
  * Directory entry returned by listDirectory
@@ -181,6 +237,11 @@ export interface FileDataComputeRequest {
      * Contribution plugins to apply for this request
      */
     contributionPlugins?: object[];
+    /**
+     * Identifies the contribution set. Sent alone once the backend knows this service keeps sets by
+     * hash; see `ContributionCache`.
+     */
+    contributionHash?: string;
 }
 
 /**

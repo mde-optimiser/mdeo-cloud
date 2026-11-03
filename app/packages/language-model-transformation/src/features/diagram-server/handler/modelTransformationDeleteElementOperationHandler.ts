@@ -3,6 +3,7 @@ import { BaseDeleteElementOperationHandler, type DeleteOperationResult, sharedIm
 import {
     Pattern,
     PatternApplicationCondition,
+    PatternModelScope,
     PatternLink,
     PatternObjectInstance,
     PatternObjectInstanceReference,
@@ -16,6 +17,13 @@ import {
     WhileExpressionStatement,
     BaseTransformationStatement,
     IfMatchConditionAndBlock,
+    CallStatement,
+    IfCallConditionAndBlock,
+    TransformationFileImport,
+    TransformationParameter,
+    type ModelTransformationType,
+    type TransformationFileImportType,
+    type TransformationParameterType,
     type PatternType,
     type PatternLinkType,
     type PatternObjectInstanceType,
@@ -23,10 +31,12 @@ import {
     type PatternObjectInstanceDeleteType,
     type BaseTransformationStatementType,
     type IfExpressionStatementType,
-    type PatternApplicationConditionType
+    type PatternApplicationConditionType,
+    type PatternModelScopeType
 } from "../../../grammar/modelTransformationTypes.js";
 import { ModelTransformationIdGenerator } from "../modelTransformationIdGenerator.js";
 import { findContainingPattern } from "../modelTransformationPatternUtils.js";
+import { headerLineDeletionRange } from "../modelTransformationHeader.js";
 import type { AstNode } from "langium";
 import type { WorkspaceEdit } from "vscode-languageserver-types";
 
@@ -44,12 +54,19 @@ const { AstUtils } = sharedImport("langium");
  *   final stop node cannot be deleted
  * - Match pattern nodes (which deletes the entire containing statement block)
  * - Split nodes for if/while expression statements (which deletes the entire statement)
+ * - Call nodes, loop heads and assignments (the call of an `if call` deletes the whole
+ *   `if call` statement)
+ * - Declaration rows of the start node (inputs) and of the end nodes (outputs)
  *
  * Transitive closure rules:
  * - Deleting an instance also deletes all pattern links in the same pattern that reference
  *   that instance by name, wherever they are declared: a condition block anchors its graph to
  *   the match with such a link.
  * - Deleting the last element of an application condition block also deletes the block.
+ * - Deleting a declaration deletes the nodes that reference it as an object of a pattern
+ *   (`placement { }`, `delete placement`) and their links, like deleting an instance does. Other
+ *   uses (expressions, call arguments, scope blocks of a model input, calls of a deleted import)
+ *   stay and are reported by the validation, like the uses of a deleted call's outputs.
  * - Deleting a match pattern node (for if/while/until/for match) deletes the whole
  *   containing statement, including all nested patterns and statements.
  * - Implicitly deleted descendants are tracked and excluded from explicit CST deletion
@@ -132,6 +149,19 @@ export class ModelTransformationDeleteElementOperationHandler extends BaseDelete
         const statementsToProcess = new Set<BaseTransformationStatementType>();
 
         for (const element of elements) {
+            // deleting the call of an `if call` deletes the whole statement
+            if (
+                this.reflection.isInstance(element, CallStatement) &&
+                this.reflection.isInstance(element.$container, IfCallConditionAndBlock)
+            ) {
+                const ifCall = element.$container.$container as BaseTransformationStatementType | undefined;
+                if (ifCall != undefined) {
+                    result.delete(element);
+                    result.add(ifCall);
+                    statementsToProcess.add(ifCall);
+                }
+                continue;
+            }
             if (this.reflection.isInstance(element, Pattern)) {
                 const stmt = this.findContainingStatement(element as PatternType);
                 if (stmt != undefined) {
@@ -178,6 +208,15 @@ export class ModelTransformationDeleteElementOperationHandler extends BaseDelete
         for (const names of deletedInstanceNamesPerPattern.values()) {
             for (const name of names) {
                 allDeletedInstanceNames.add(name);
+            }
+        }
+        // an element input is an object every pattern may reference, like an instance
+        for (const element of result) {
+            if (this.reflection.isInstance(element, TransformationParameter)) {
+                const name = (element as TransformationParameterType).name;
+                if (name != undefined) {
+                    allDeletedInstanceNames.add(name);
+                }
             }
         }
 
@@ -232,12 +271,13 @@ export class ModelTransformationDeleteElementOperationHandler extends BaseDelete
     }
 
     /**
-     * Adds every application condition block whose elements are all being deleted.
+     * Adds every application condition block and model scope block whose elements are all being
+     * deleted.
      *
      * A block is not drawn as an element of its own - its members carry its stereotype - so an
      * emptied block could neither be selected nor deleted from the diagram, while an empty
-     * `forbid` / `require` block is not a valid condition. Deleting the last member therefore
-     * deletes the block with it.
+     * `forbid` / `require` block is not a valid condition (and an empty `in donor { }` says
+     * nothing). Deleting the last member therefore deletes the block with it.
      *
      * @param result The deletion set, extended in place
      */
@@ -247,13 +287,23 @@ export class ModelTransformationDeleteElementOperationHandler extends BaseDelete
             return;
         }
 
-        for (const node of AstUtils.streamAst(sourceModel)) {
-            if (!this.reflection.isInstance(node, PatternApplicationCondition) || result.has(node)) {
-                continue;
-            }
-            const elements = (node as PatternApplicationConditionType).elements ?? [];
-            if (elements.length > 0 && elements.every((element) => result.has(element as AstNode))) {
-                result.add(node);
+        // repeated until nothing changes: an emptied block may empty the block around it
+        let changed = true;
+        while (changed) {
+            changed = false;
+            for (const node of AstUtils.streamAst(sourceModel)) {
+                if (
+                    (!this.reflection.isInstance(node, PatternApplicationCondition) &&
+                        !this.reflection.isInstance(node, PatternModelScope)) ||
+                    result.has(node)
+                ) {
+                    continue;
+                }
+                const elements = (node as PatternApplicationConditionType | PatternModelScopeType).elements ?? [];
+                if (elements.length > 0 && elements.every((element) => result.has(element as AstNode))) {
+                    result.add(node);
+                    changed = true;
+                }
             }
         }
     }
@@ -310,7 +360,8 @@ export class ModelTransformationDeleteElementOperationHandler extends BaseDelete
         for (const element of elements) {
             if (
                 this.reflection.isInstance(element, BaseTransformationStatement) ||
-                this.reflection.isInstance(element, PatternApplicationCondition)
+                this.reflection.isInstance(element, PatternApplicationCondition) ||
+                this.reflection.isInstance(element, PatternModelScope)
             ) {
                 deletedContainers.add(element);
             }
@@ -354,11 +405,45 @@ export class ModelTransformationDeleteElementOperationHandler extends BaseDelete
     private async createDeleteEdits(elements: Set<AstNode>): Promise<WorkspaceEdit> {
         const edits: WorkspaceEdit[] = [];
         for (const element of elements) {
-            if (element.$cstNode != undefined) {
+            if (this.isHeaderLine(element)) {
+                edits.push(this.deleteHeaderLine(element, elements));
+            } else if (element.$cstNode != undefined) {
                 edits.push(this.deleteCstNode(element.$cstNode));
             }
         }
         return this.mergeWorkspaceEdits(edits);
+    }
+
+    /**
+     * Checks whether a node is a line of the header: a path import or a declaration.
+     *
+     * @param node The node
+     * @returns `true` for imports and declarations
+     */
+    private isHeaderLine(node: AstNode): node is TransformationFileImportType | TransformationParameterType {
+        return (
+            this.reflection.isInstance(node, TransformationFileImport) ||
+            this.reflection.isInstance(node, TransformationParameter)
+        );
+    }
+
+    /**
+     * Creates the edit deleting a header line, together with the blank line after its block
+     * when the whole block goes.
+     *
+     * @param node The import or declaration
+     * @param deleted Everything being deleted
+     * @returns The workspace edit
+     */
+    private deleteHeaderLine(
+        node: TransformationFileImportType | TransformationParameterType,
+        deleted: Set<AstNode>
+    ): WorkspaceEdit {
+        const document = this.getSourceDocument();
+        const range = headerLineDeletionRange(node.$container as ModelTransformationType, document, node, deleted);
+        return range != undefined
+            ? { changes: { [document.uri.toString()]: [{ range, newText: "" }] } }
+            : { changes: {} };
     }
 
     /**

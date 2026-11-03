@@ -11,7 +11,8 @@ import {
     type ServicePluginDefinition,
     type LanguageServiceConfig,
     initializePluginContext,
-    startLanguageService
+    startLanguageService,
+    DIAGNOSTICS_HANDLER_KEY
 } from "@mdeo/service-common";
 import { convertIcon } from "@mdeo/language-common";
 import type { ConfigAdditionalServices } from "@mdeo/language-config";
@@ -60,6 +61,7 @@ initializePluginContext();
 const { configPluginProvider } = await import("@mdeo/language-config");
 const { configDataHandler, CONFIG_DATA_KEY } = await import("./handler/configFileDataHandler.js");
 const { ConfigExecutionHandler } = await import("./handler/configExecutionHandler.js");
+const { configDiagnosticsHandler } = await import("./handler/configDiagnosticsHandler.js");
 const { DefaultExternalReferenceCollector } = await import("@mdeo/language-shared");
 
 const envConfig = parseServiceConfigFromEnv();
@@ -78,7 +80,8 @@ const configLanguageConfig: LanguageServiceConfig<ConfigAdditionalServices> = {
         }
     },
     fileDataHandlers: {
-        [CONFIG_DATA_KEY]: configDataHandler
+        [CONFIG_DATA_KEY]: configDataHandler,
+        [DIAGNOSTICS_HANDLER_KEY]: configDiagnosticsHandler
     },
     executionHandlers: [configExecutionHandler]
 };

@@ -4,7 +4,17 @@ import type { Operation } from "@eclipse-glsp/protocol";
  * Supported insertion kinds for control-flow edge context actions.
  */
 export type InsertControlFlowStatementKind =
-    "match" | "for-match" | "if-match" | "while-match" | "until-match" | "if" | "while" | "stop" | "kill";
+    | "match"
+    | "for-match"
+    | "if-match"
+    | "while-match"
+    | "until-match"
+    | "if"
+    | "while"
+    | "stop"
+    | "kill"
+    | "call"
+    | "if-call";
 
 /**
  * Operation to insert a new control-flow statement between two connected nodes.
@@ -36,6 +46,11 @@ export interface InsertControlFlowStatementOperation extends Operation {
      * Used by the handler to determine the insertion position in the source file.
      */
     targetNodeId?: string;
+
+    /**
+     * For `call` and `if-call`: the name of the imported transformation to call.
+     */
+    callee?: string;
 }
 
 /**
@@ -70,6 +85,11 @@ export namespace InsertControlFlowStatementOperation {
          * The ID of the target node of the edge.
          */
         targetNodeId?: string;
+
+        /**
+         * For `call` and `if-call`: the name of the imported transformation to call.
+         */
+        callee?: string;
     }
 
     /**
@@ -85,7 +105,8 @@ export namespace InsertControlFlowStatementOperation {
             edgeId: options.edgeId,
             statementKind: options.statementKind,
             sourceNodeId: options.sourceNodeId,
-            targetNodeId: options.targetNodeId
+            targetNodeId: options.targetNodeId,
+            ...(options.callee != undefined ? { callee: options.callee } : {})
         };
     }
 

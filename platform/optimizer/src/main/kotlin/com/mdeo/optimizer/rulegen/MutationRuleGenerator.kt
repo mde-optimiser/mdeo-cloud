@@ -1,181 +1,98 @@
 package com.mdeo.optimizer.rulegen
 
 import com.mdeo.metamodel.data.MetamodelData
+import com.mdeo.metamodel.data.ModelData
 import com.mdeo.optimizer.config.RefinementConfig
-import org.slf4j.LoggerFactory
 
 /**
- * Entry-point for automatic consistency-preserving mutation operator generation.
+ * The operators generated for an optimisation.
  *
- * Given a metamodel and a list of [MutationRuleSpec] entries this object produces a flat list of
- * [GeneratedMutation] objects – each containing a human-readable name and a compiled [TypedAst]
- * ready for execution by the model-transformation engine.
+ * @param mutations The operators, in the order their specs were given.
+ * @param warnings Notes on operators that could not be generated or are limited, for the user.
+ */
+data class GenerationResult(
+    val mutations: List<GeneratedMutation>,
+    val warnings: List<String>
+) {
+    /** The warnings as a Markdown page for the results, or `null` when there are none. */
+    fun warningsReport(): String? =
+        if (warnings.isEmpty()) null
+        else "# Mutation generation warnings\n\n" + warnings.joinToString("\n") { "- $it" } + "\n"
+}
+
+/** Whether an optimisation can start with generated operators. */
+sealed interface Preparation {
+    /** The operators were generated and the initial model keeps every refined bound. */
+    data class Ready(val result: GenerationResult) : Preparation
+
+    /** The run cannot start, for [reason]. */
+    data class Rejected(val reason: String) : Preparation
+}
+
+/**
+ * Generates consistency-preserving mutation operators after Burdusel et al., "Automatic
+ * generation of atomic multiplicity-preserving search operators for search-based model
+ * engineering" (SoSyM 2021) and the MDEOptimiser implementation.
  *
- * ### Generation passes
- *
- * **Pass 1 – Base rules (prefix: none)**
- * Generated from the metamodel as-is.  The specs drive which classes and edges are considered.
- *
- * **Pass 2 – Solution-space rules (prefix: `S_`)**
- * Only performed when [refinements] is non-empty.  A second [MetamodelInfo] is constructed with
- * the refined multiplicities applied, and the same spec list is processed again.  Resulting rule
- * names receive the `"S_"` prefix so they can be distinguished from base rules.
- *
- * ### Deduplication
- * Rules with the same name are silently dropped so that duplicate [MutationRuleSpec] entries in
- * the input do not produce duplicate operators.
- *
- * ### Unknown classes
- * Any spec referencing a class that is not present in the metamodel is skipped with a warning log.
+ * Operators are generated against the metamodel with every refinement applied, so applied to a
+ * model that respects the (refined) multiplicities they produce one that does too. Unlike the
+ * papers, no operators are generated for the unrefined metamodel: those could break the
+ * refinements.
  */
 object MutationRuleGenerator {
 
-    private val log = LoggerFactory.getLogger(MutationRuleGenerator::class.java)
-
-    private val specsGenerator = SpecsGenerator()
-
     /**
-     * Generates mutation operators from [metamodelData] according to [specs].
+     * Generates the operators [specs] ask for.
      *
-     * @param metamodelData  The metamodel to analyse.
-     * @param specs          Operator generation specifications.
-     * @param refinements    Optional multiplicity overrides for the solution-space pass.
-     * @return               Deduplicated list of [GeneratedMutation] objects.
+     * @throws RuleGenerationException when a spec or a refinement names something the metamodel
+     *   does not have, or a refinement is invalid.
      */
     fun generate(
         metamodelData: MetamodelData,
         specs: List<MutationRuleSpec>,
         refinements: List<RefinementConfig> = emptyList()
-    ): List<GeneratedMutation> {
-        if (specs.isEmpty()) return emptyList()
-
-        val baseInfo = MetamodelInfo(metamodelData)
-        val result = mutableMapOf<String, GeneratedMutation>()
-
-        // Pass 1: base rules
-        generatePass(specs, baseInfo, metamodelData.path, prefix = "", result)
-
-        // Pass 2: solution-space rules (only when refinements are declared)
-        if (refinements.isNotEmpty()) {
-            val overrides = refinements.map {
-                MultiplicityOverride(
-                    className = it.className,
-                    refName = it.fieldName,
-                    lower = it.lower,
-                    upper = it.upper
-                )
-            }
-            val refinedInfo = MetamodelInfo.withOverrides(metamodelData, overrides)
-            generatePass(specs, refinedInfo, metamodelData.path, prefix = "S_", result)
-        }
-
-        return result.values.toList()
-    }
-
-    // -------------------------------------------------------------------------
-    // Internal helpers
-    // -------------------------------------------------------------------------
-
-    /**
-     * Runs a single generation pass and merges results into [accumulator].
-     * Already-seen names are skipped (deduplication across passes).
-     */
-    private fun generatePass(
-        specs: List<MutationRuleSpec>,
-        info: MetamodelInfo,
-        metamodelPath: String,
-        prefix: String,
-        accumulator: MutableMap<String, GeneratedMutation>
-    ) {
+    ): GenerationResult {
+        val info = MetamodelInfo(metamodelData, refinements.map { MultiplicityOverride(it.className, it.fieldName, it.lower, it.upper) })
+        val generator = SpecsGenerator(info)
+        val operators = LinkedHashMap<String, OperatorSpec>()
         for (spec in specs) {
-            if (!info.classNames().contains(spec.node)) {
-                log.warn("MutationRuleGenerator: unknown class '${spec.node}' – skipping spec")
-                continue
+            val generated = try {
+                generator.generate(spec)
+            } catch (e: RuleGenerationException) {
+                throw RuleGenerationException("${describe(spec)}: ${e.message}")
             }
-
-            val repairMap = specsGenerator.getRepairsForRuleSpec(spec, info)
-
-            for ((_, repairSpecs) in repairMap) {
-                for (repairSpec in repairSpecs) {
-                    emitMutation(repairSpec, info, metamodelPath, prefix, accumulator)
-                }
+            for (operator in generated) {
+                val previous = operators.putIfAbsent(operator.name, operator)
+                check(previous == null || previous == operator) { "two different operators named '${operator.name}'" }
             }
         }
+        val warnings = generator.warnings.distinct().toMutableList()
+        val mutations = operators.values.map { GeneratedMutation(it.name, MutationAstBuilder.build(it, info, warnings)) }
+        return GenerationResult(mutations, warnings.distinct())
     }
 
     /**
-     * Translates a single [RepairSpec] into one or more [GeneratedMutation] objects and adds them
-     * to [accumulator] (skipping names that are already present).
-     *
-     * CREATE specs are special: they may expand into multiple rules, one per containment context.
-     * All other spec types produce exactly one rule.
+     * Generates the operators [specs] ask for and checks that [initialModel] keeps every refined
+     * bound: the operators only keep bounds a model already has. A spec or refinement that cannot
+     * be generated, or a model outside the refinements, rejects the run with the reason.
      */
-    private fun emitMutation(
-        spec: RepairSpec,
-        info: MetamodelInfo,
-        metamodelPath: String,
-        prefix: String,
-        accumulator: MutableMap<String, GeneratedMutation>
-    ) {
-        when (spec.type) {
-            RepairSpecType.CREATE -> {
-                val contexts = info.containmentContextsFor(spec.className)
-                if (contexts.isEmpty()) {
-                    // Standalone create (no containment context)
-                    val name = prefix + MutationRuleNameGenerator.forNode("CREATE", spec.className)
-                    addIfAbsent(name, spec, metamodelPath, info, null, accumulator)
-                } else {
-                    for ((containerClass, refName) in contexts) {
-                        val name = prefix + MutationRuleNameGenerator.forNodeCreate(
-                            spec.className, containerClass, refName
-                        )
-                        addIfAbsent(name, spec, metamodelPath, info, containerClass to refName, accumulator)
-                    }
-                }
-            }
-
-            RepairSpecType.CREATE_LB_REPAIR,
-            RepairSpecType.CREATE_LB_REPAIR_MULTI -> {
-                val contexts = info.containmentContextsFor(spec.className)
-                val suffix = when (spec.type) {
-                    RepairSpecType.CREATE_LB_REPAIR -> "_LBREPAIR"
-                    RepairSpecType.CREATE_LB_REPAIR_MULTI -> "_LBREPAIR_MULTI"
-                }
-
-                if (contexts.isEmpty()) {
-                    val name = prefix + MutationRuleNameGenerator.fromRepairSpec(spec)
-                    addIfAbsent(name, spec, metamodelPath, info, null, accumulator)
-                } else {
-                    for ((containerClass, refName) in contexts) {
-                        val name = prefix + MutationRuleNameGenerator.forNodeCreate(
-                            spec.className, containerClass, refName
-                        ) + suffix
-                        addIfAbsent(name, spec, metamodelPath, info, containerClass to refName, accumulator)
-                    }
-                }
-            }
-
-            else -> {
-                val name = prefix + MutationRuleNameGenerator.fromRepairSpec(spec)
-                addIfAbsent(name, spec, metamodelPath, info, null, accumulator)
-            }
-        }
+    fun prepare(
+        metamodelData: MetamodelData,
+        specs: List<MutationRuleSpec>,
+        refinements: List<RefinementConfig>,
+        initialModel: ModelData
+    ): Preparation = try {
+        val generated = generate(metamodelData, specs, refinements)
+        val info = MetamodelInfo(metamodelData, refinements.map { MultiplicityOverride(it.className, it.fieldName, it.lower, it.upper) })
+        val violations = MultiplicityChecker.violations(initialModel, info, info.refinedEnds)
+        if (violations.isEmpty()) Preparation.Ready(generated)
+        else Preparation.Rejected("The initial model violates the goal's refinements: " + violations.joinToString("; "))
+    } catch (e: RuleGenerationException) {
+        Preparation.Rejected("Cannot generate mutation operators: ${e.message}")
     }
 
-    private fun addIfAbsent(
-        name: String,
-        spec: RepairSpec,
-        metamodelPath: String,
-        info: MetamodelInfo,
-        createContext: Pair<String, String>?,
-        accumulator: MutableMap<String, GeneratedMutation>
-    ) {
-        if (accumulator.containsKey(name)) return
-        try {
-            val ast = MutationAstBuilder.build(name, spec, metamodelPath, info, createContext)
-            accumulator[name] = GeneratedMutation(name, ast)
-        } catch (e: Exception) {
-            log.warn("MutationRuleGenerator: failed to build rule '$name': ${e.message}")
-        }
+    private fun describe(spec: MutationRuleSpec): String {
+        val keyword = if (spec.action == MutationAction.ALL) "mutate" else spec.action.name.lowercase()
+        return "$keyword ${spec.node}${spec.edge?.let { ".$it" } ?: ""}"
     }
 }

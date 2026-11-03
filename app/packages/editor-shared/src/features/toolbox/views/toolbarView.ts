@@ -7,7 +7,7 @@ import { ToolType, isCreationTool } from "../toolboxTypes.js";
 import { iconButtonClasses } from "./styles.js";
 
 const { html } = sharedImport("@eclipse-glsp/sprotty");
-const { X, PencilRuler } = sharedImport("lucide");
+const { X, PencilRuler, PanelBottomOpen, PanelBottomClose } = sharedImport("lucide");
 
 import { generateIcon } from "./iconView.js";
 
@@ -51,17 +51,20 @@ export function generateToolbarView(context: Toolbox): VNode {
  * @returns The tool button VNode
  */
 function generateToolButton(context: Toolbox, tool: ToolDefinition): VNode {
-    const isActive = context.toolType === tool.id;
+    const isActive = context.layoutPanelOpen ? tool.id === ToolType.LAYOUT : context.toolType === tool.id;
     const hasItems = context.hasToolboxItems();
 
     const isDisabled =
         (tool.id === ToolType.BOTTOM_PANEL_TOGGLE &&
+            !context.layoutPanelOpen &&
             (!hasItems ||
                 context.toolType === ToolType.HAND ||
                 context.toolType === ToolType.MARQUEE ||
                 isCreationTool(context.toolType))) ||
         (tool.id === ToolType.CREATE_EDGE && context.isLayoutable);
     const isInteractable = context.isOpen && !isDisabled;
+    const isPanelToggle = tool.id === ToolType.BOTTOM_PANEL_TOGGLE;
+    const title = isPanelToggle ? (context.isBottomPanelOpen ? "Hide Bottom Panel" : "Show Bottom Panel") : tool.title;
 
     return html(
         "button",
@@ -81,9 +84,9 @@ function generateToolButton(context: Toolbox, tool: ToolDefinition): VNode {
                 "pointer-events-none": !isInteractable
             },
             attrs: {
-                title: tool.title,
-                "aria-label": tool.title,
-                "aria-pressed": isActive ? "true" : "false",
+                title,
+                "aria-label": title,
+                "aria-pressed": (isPanelToggle ? context.isBottomPanelOpen : isActive) ? "true" : "false",
                 "aria-disabled": isDisabled ? "true" : "false",
                 disabled: isDisabled
             },
@@ -95,7 +98,10 @@ function generateToolButton(context: Toolbox, tool: ToolDefinition): VNode {
                 }
             }
         },
-        generateIcon(tool.icon, ["h-4", "w-4"])
+        generateIcon(isPanelToggle ? (context.isBottomPanelOpen ? PanelBottomClose : PanelBottomOpen) : tool.icon, [
+            "h-4",
+            "w-4"
+        ])
     );
 }
 

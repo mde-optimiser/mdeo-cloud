@@ -143,7 +143,7 @@ class MultiBatchExecutionIsolationTest {
             ),
             search = SearchConfig(
                 mutations = com.mdeo.optimizer.config.MutationsConfig(
-                    usingPaths = listOf("/dummy/mutation")
+                    operators = listOf("/dummy/mutation").map { com.mdeo.optimizer.config.OperatorRef(it) }
                 )
             ),
             solver = SolverConfig(

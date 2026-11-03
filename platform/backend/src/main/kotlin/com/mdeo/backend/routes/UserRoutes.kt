@@ -1,5 +1,6 @@
 package com.mdeo.backend.routes
 
+import com.mdeo.common.transport.respondError
 import com.mdeo.backend.plugins.*
 import com.mdeo.backend.service.ProjectService
 import com.mdeo.backend.service.UpdateUserPermissionsResult
@@ -36,12 +37,12 @@ fun Route.userRoutes(userService: UserService, projectService: ProjectService) {
         get {
             val session = call.getUserSession()
             if (session == null) {
-                call.respond(HttpStatusCode.Unauthorized)
+                call.respondError(HttpStatusCode.Unauthorized, "Not authenticated")
                 return@get
             }
             
             if (!call.isAdmin()) {
-                call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Admin access required"))
+                call.respondError(HttpStatusCode.Forbidden, "Admin access required")
                 return@get
             }
             
@@ -59,12 +60,12 @@ fun Route.userRoutes(userService: UserService, projectService: ProjectService) {
             get("/projects") {
                 val session = call.getUserSession()
                 if (session == null) {
-                    call.respond(HttpStatusCode.Unauthorized)
+                    call.respondError(HttpStatusCode.Unauthorized, "Not authenticated")
                     return@get
                 }
                 
                 if (!call.isAdmin()) {
-                    call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Admin access required"))
+                    call.respondError(HttpStatusCode.Forbidden, "Admin access required")
                     return@get
                 }
                 
@@ -72,7 +73,7 @@ fun Route.userRoutes(userService: UserService, projectService: ProjectService) {
                     try { UUID.fromString(it) } catch (e: Exception) { null }
                 }
                 if (userId == null) {
-                    call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid user ID"))
+                    call.respondError(HttpStatusCode.BadRequest, "Invalid user ID")
                     return@get
                 }
                 
@@ -90,12 +91,12 @@ fun Route.userRoutes(userService: UserService, projectService: ProjectService) {
             put("/permissions") {
                 val session = call.getUserSession()
                 if (session == null) {
-                    call.respond(HttpStatusCode.Unauthorized)
+                    call.respondError(HttpStatusCode.Unauthorized, "Not authenticated")
                     return@put
                 }
                 
                 if (!call.isAdmin()) {
-                    call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Admin access required"))
+                    call.respondError(HttpStatusCode.Forbidden, "Admin access required")
                     return@put
                 }
                 
@@ -103,7 +104,7 @@ fun Route.userRoutes(userService: UserService, projectService: ProjectService) {
                     try { UUID.fromString(it) } catch (e: Exception) { null }
                 }
                 if (userId == null) {
-                    call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid user ID"))
+                    call.respondError(HttpStatusCode.BadRequest, "Invalid user ID")
                     return@put
                 }
                 
@@ -118,12 +119,9 @@ fun Route.userRoutes(userService: UserService, projectService: ProjectService) {
                 ) {
                     UpdateUserPermissionsResult.SUCCESS -> call.respond(Unit)
                     UpdateUserPermissionsResult.USER_NOT_FOUND ->
-                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "User not found"))
+                        call.respondError(HttpStatusCode.BadRequest, "User not found")
                     UpdateUserPermissionsResult.LAST_GLOBAL_ADMIN ->
-                        call.respond(
-                            HttpStatusCode.BadRequest,
-                            mapOf("error" to "Cannot remove the last global admin")
-                        )
+                        call.respondError(HttpStatusCode.BadRequest, "Cannot remove the last global admin")
                 }
             }
 
@@ -133,12 +131,12 @@ fun Route.userRoutes(userService: UserService, projectService: ProjectService) {
             put("/admin") {
                 val session = call.getUserSession()
                 if (session == null) {
-                    call.respond(HttpStatusCode.Unauthorized)
+                    call.respondError(HttpStatusCode.Unauthorized, "Not authenticated")
                     return@put
                 }
 
                 if (!call.isAdmin()) {
-                    call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Admin access required"))
+                    call.respondError(HttpStatusCode.Forbidden, "Admin access required")
                     return@put
                 }
 
@@ -146,7 +144,7 @@ fun Route.userRoutes(userService: UserService, projectService: ProjectService) {
                     try { UUID.fromString(it) } catch (e: Exception) { null }
                 }
                 if (userId == null) {
-                    call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid user ID"))
+                    call.respondError(HttpStatusCode.BadRequest, "Invalid user ID")
                     return@put
                 }
 
@@ -162,12 +160,9 @@ fun Route.userRoutes(userService: UserService, projectService: ProjectService) {
                 ) {
                     UpdateUserPermissionsResult.SUCCESS -> call.respond(Unit)
                     UpdateUserPermissionsResult.USER_NOT_FOUND ->
-                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "User not found"))
+                        call.respondError(HttpStatusCode.BadRequest, "User not found")
                     UpdateUserPermissionsResult.LAST_GLOBAL_ADMIN ->
-                        call.respond(
-                            HttpStatusCode.BadRequest,
-                            mapOf("error" to "Cannot remove the last global admin")
-                        )
+                        call.respondError(HttpStatusCode.BadRequest, "Cannot remove the last global admin")
                 }
             }
         }

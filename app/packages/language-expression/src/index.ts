@@ -11,6 +11,7 @@ export * from "./features/expressionTypeRendering.js";
 export * from "./features/inferLambdaType.js";
 export * from "./features/precedenceHelper.js";
 export * from "./features/returnAnalyzer.js";
+export * from "./features/controlFlowAnalysis.js";
 export * from "./features/ruleOverride.js";
 export * from "./features/statementSerializers.js";
 export * from "./features/statementsScopeProvider.js";

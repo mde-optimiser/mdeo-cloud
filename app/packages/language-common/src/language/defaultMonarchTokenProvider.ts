@@ -11,7 +11,7 @@ export const defaultMonarchTokenProvider: languages.IMonarchLanguage = {
     tokenizer: {
         expression: [
             // number
-            [/[0-9]+(\.[0-9]+)?([eE]-?[0-9]+)?/u, { token: "constant.numerical", switchTo: "expression" }],
+            [/[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?/u, { token: "constant.numerical", switchTo: "expression" }],
 
             // strings
             [/"/u, { token: "string.quote", bracket: "@open", switchTo: "@string" }],

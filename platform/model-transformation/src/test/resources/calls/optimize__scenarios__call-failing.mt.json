@@ -1,0 +1,195 @@
+{
+ "types": [
+  {
+   "kind": "void"
+  },
+  {
+   "package": "builtin",
+   "type": "string",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "double",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "boolean",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "Any",
+   "isNullable": true
+  }
+ ],
+ "metamodelPath": "/metamodel/shop.mm",
+ "statements": [
+  {
+   "kind": "match",
+   "pattern": {
+    "elements": [
+     {
+      "kind": "objectInstance",
+      "objectInstance": {
+       "name": "first",
+       "className": "Container",
+       "properties": [
+        {
+         "propertyName": "name",
+         "operator": "=",
+         "value": {
+          "kind": "stringLiteral",
+          "evalType": 1,
+          "value": "before"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "kind": "call",
+   "callee": "/optimize/scenarios/no-placement.mt",
+   "name": "noPlacement",
+   "arguments": [
+    {
+     "name": "wanted",
+     "value": {
+      "kind": "stringLiteral",
+      "evalType": 1,
+      "value": "nobody"
+     }
+    }
+   ],
+   "outputs": []
+  },
+  {
+   "kind": "match",
+   "pattern": {
+    "elements": [
+     {
+      "kind": "objectInstance",
+      "objectInstance": {
+       "name": "second",
+       "className": "Container",
+       "properties": [
+        {
+         "propertyName": "name",
+         "operator": "=",
+         "value": {
+          "kind": "stringLiteral",
+          "evalType": 1,
+          "value": "after"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  }
+ ],
+ "signature": {
+  "name": "call-failing.mt",
+  "parameters": []
+ },
+ "callees": {
+  "/optimize/scenarios/no-placement.mt": {
+   "types": [
+    {
+     "kind": "void"
+    },
+    {
+     "package": "builtin",
+     "type": "string",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "double",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "boolean",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "Any",
+     "isNullable": true
+    }
+   ],
+   "metamodelPath": "/metamodel/base.mm",
+   "statements": [
+    {
+     "kind": "match",
+     "pattern": {
+      "elements": [
+       {
+        "kind": "objectInstance",
+        "objectInstance": {
+         "name": "placement",
+         "className": "Placement",
+         "properties": []
+        }
+       },
+       {
+        "kind": "objectInstance",
+        "objectInstance": {
+         "name": "component",
+         "className": "Component",
+         "properties": [
+          {
+           "propertyName": "name",
+           "operator": "==",
+           "value": {
+            "kind": "identifier",
+            "evalType": 1,
+            "name": "wanted",
+            "scope": 1
+           }
+          }
+         ]
+        }
+       },
+       {
+        "kind": "link",
+        "link": {
+         "source": {
+          "objectName": "placement",
+          "propertyName": "component"
+         },
+         "target": {
+          "objectName": "component"
+         }
+        }
+       }
+      ]
+     }
+    }
+   ],
+   "signature": {
+    "name": "no-placement.mt",
+    "parameters": [
+     {
+      "name": "wanted",
+      "direction": "in",
+      "type": 1,
+      "isElement": false
+     }
+    ]
+   }
+  }
+ }
+}

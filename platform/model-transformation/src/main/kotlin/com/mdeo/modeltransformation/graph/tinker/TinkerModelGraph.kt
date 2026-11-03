@@ -10,10 +10,13 @@ import com.mdeo.modeltransformation.graph.ModelMetadata
 import com.mdeo.modeltransformation.graph.ModelStatistics
 import com.mdeo.modeltransformation.graph.VertexRef
 import com.mdeo.modeltransformation.runtime.InstanceNameRegistry
+import com.mdeo.modeltransformation.graph.ModelGraphStrategies
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategies
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource
+import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.FilterRankingStrategy
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.LazyBarrierStrategy
+import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.PathRetractionStrategy
 import org.apache.tinkerpop.gremlin.structure.T
 import org.apache.tinkerpop.gremlin.structure.Vertex
 import org.apache.tinkerpop.gremlin.structure.VertexProperty
@@ -79,10 +82,45 @@ class TinkerModelGraph private constructor(
         val (newGraph, newRegistry) = copyGraphShuffled()
         return TinkerModelGraph(newGraph, metamodel, newRegistry, metamodelPath).also {
             it.metadata = metadata?.deepCopy()
+            it.loadedModelInputs.addAll(loadedModelInputs)
             // The copy has identical statistics, so it can start from this graph's snapshot
             // instead of paying for its own O(V + E) pass on first use.
             it.statisticsCache.seedFrom(statisticsCache)
         }
+    }
+
+    /** The model-input slots loaded; see [modelInputSlots]. */
+    private val loadedModelInputs = LinkedHashSet<Int>()
+
+    override val modelInputSlots: Set<Int>
+        get() = loadedModelInputs
+
+    /**
+     * Loads [model] from its [ModelData] with [ModelDataGraphLoader], each vertex tagged with
+     * [slot] in the vertex property [ModelGraph.MODEL_SLOT_KEY]. A TinkerGraph vertex stores any
+     * property, so the tag survives the rebuild of [resetNondeterminism], which copies every
+     * property, and identifies the vertices [unloadModelInputs] removes whatever their IDs are by
+     * then.
+     */
+    override fun loadModelInput(slot: Int, model: ModelGraph) {
+        require(slot >= 1) { "A model-input slot is at least 1, not $slot" }
+        require(slot !in loadedModelInputs) { "Model-input slot $slot is already loaded" }
+        require(model !== this) { "A graph cannot be loaded into itself as a model input" }
+        require(model.modelInputSlots.isEmpty()) { "A model input must not have model inputs loaded itself" }
+        ModelDataGraphLoader().load(graph.traversal(), model.toModelData(), nameRegistry, metamodel, slot)
+        loadedModelInputs += slot
+    }
+
+    override fun unloadModelInputs() {
+        if (loadedModelInputs.isEmpty()) return
+        val vertices = graph.traversal().V().has(ModelGraph.MODEL_SLOT_KEY).toList()
+        for (vertex in vertices) {
+            nameRegistry.unregister(vertex.id())
+            vertex.remove()
+        }
+        loadedModelInputs.clear()
+        // the vertex count alone may come back to that of a stale snapshot taken with the inputs
+        statisticsCache.invalidate()
     }
 
     override fun resetNondeterminism(): Map<Any, Any> {
@@ -179,25 +217,33 @@ class TinkerModelGraph private constructor(
 
     /**
      * Rebuilds the name registry with updated vertex IDs from a vertex ID mapping.
+     *
+     * The copy numbers its vertices afresh, so a deleted vertex's old ID may now belong to
+     * another vertex. Its name is kept under a [RetiredVertex] instead, so that it is neither
+     * given to that vertex nor reused for a new one, as with the other graph backend.
      */
     private fun rebuildNameRegistry(vertexIdMap: Map<Any, Any>): InstanceNameRegistry {
         val newRegistry = InstanceNameRegistry()
         for ((oldId, name) in nameRegistry.getAllMappings()) {
-            val newId = vertexIdMap[oldId] ?: oldId
+            val newId = vertexIdMap[oldId] ?: (oldId as? RetiredVertex ?: RetiredVertex())
             newRegistry.register(newId, name)
         }
         return newRegistry
     }
 
+    /** The registry key of a deleted vertex's name; never the ID of a vertex. */
+    private class RetiredVertex
+
     companion object {
 
         init {
-            // Remove LazyBarrierStrategy globally for TinkerGraph to avoid the per-call
-            // overhead of withoutStrategies(). This mirrors the pattern used in MdeoGraph.
+            // Remove LazyBarrierStrategy, PathRetractionStrategy and FilterRankingStrategy globally for TinkerGraph to
+            // avoid the per-call overhead of withoutStrategies(). This mirrors the pattern used
+            // in MdeoGraph; MDEO_MT_DEFAULT_STRATEGIES=1 keeps the last two (ModelGraphStrategies).
             TraversalStrategies.GlobalCache.registerStrategies(
                 TinkerGraph::class.java,
                 TraversalStrategies.GlobalCache.getStrategies(TinkerGraph::class.java).clone()
-                    .removeStrategies(LazyBarrierStrategy::class.java)
+                    .let { ModelGraphStrategies.configure(it) }
             )
         }
 

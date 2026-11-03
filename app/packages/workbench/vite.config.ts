@@ -20,6 +20,10 @@ export default defineConfig({
     worker: {
         format: "es"
     },
+    // orthoflow loads its WebAssembly module relative to its own URL; pre-bundling would break that
+    optimizeDeps: {
+        exclude: ["orthoflow"]
+    },
     server: {
         port: 4242,
         host: "127.0.0.1",

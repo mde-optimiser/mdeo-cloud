@@ -29,7 +29,8 @@ import java.util.Collections
 class FailedOperatorsMetadata : ModelMetadata {
 
     /**
-     * Numerical IDs (alphabetically-sorted index into the operator list) of
+     * Numerical IDs (index into the mutation operators sorted by path and arguments,
+     * [com.mdeo.optimizer.operators.OperatorCatalog]; never crossover operators) of
      * operators that are known to deterministically fail on the current model state.
      * Thread-safe: backed by [Collections.synchronizedSet].
      */

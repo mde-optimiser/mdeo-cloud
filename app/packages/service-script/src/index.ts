@@ -41,6 +41,7 @@ const scriptLanguagePlugin: LanguagePlugin = {
                 "from",
                 "as",
                 "fun",
+                "record",
                 "return",
                 "if",
                 "else",
@@ -49,6 +50,7 @@ const scriptLanguagePlugin: LanguagePlugin = {
                 "break",
                 "continue",
                 "var",
+                "val",
                 "true",
                 "false",
                 "null",
@@ -65,6 +67,7 @@ initializePluginContext();
 
 const { scriptPluginProvider } = await import("@mdeo/language-script");
 const { typedAstHandler, TYPED_AST_HANDLER_KEY } = await import("./handler/typedAstHandler.js");
+const { typedAstClosureHandler, TYPED_AST_CLOSURE_HANDLER_KEY } = await import("./handler/typedAstClosureHandler.js");
 const { ScriptExecutionHandler } = await import("./handler/scriptExecutionHandler.js");
 const { createScriptConfigContributionPlugin } = await import("./scriptConfigContributionPlugin.js");
 
@@ -109,7 +112,8 @@ const scriptLanguageConfig: LanguageServiceConfig<ScriptServices> = {
     languagePluginProvider: scriptPluginProvider,
     fileDataHandlers: {
         [AST_HANDLER_KEY]: astHandler,
-        [TYPED_AST_HANDLER_KEY]: typedAstHandler
+        [TYPED_AST_HANDLER_KEY]: typedAstHandler,
+        [TYPED_AST_CLOSURE_HANDLER_KEY]: typedAstClosureHandler
     },
     executionHandlers: [scriptExecutionHandler]
 };

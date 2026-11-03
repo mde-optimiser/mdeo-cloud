@@ -15,11 +15,12 @@ export const INT = createTerminal("INT")
     .as(/-?[0-9]+/);
 
 /**
- * Float token
+ * Float token: a fraction (`1.5`), a fraction with an exponent (`1.0e300`, `2.5E-3`) or an
+ * exponent alone (`1e3`), as JavaScript prints numbers
  */
 export const FLOAT = createTerminal("FLOAT")
     .returns(Number)
-    .as(/-?[0-9]+\.[0-9]+/);
+    .as(/-?[0-9]+(?:\.[0-9]+(?:[eE][+-]?[0-9]+)?|[eE][+-]?[0-9]+)/);
 
 /**
  * String token

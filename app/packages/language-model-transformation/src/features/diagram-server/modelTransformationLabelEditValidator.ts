@@ -8,6 +8,9 @@ import {
     PatternPropertyAssignment,
     PatternVariable,
     PatternVariableReassignment,
+    TransformationParameter,
+    type ModelTransformationType,
+    type TransformationParameterType,
     type PatternObjectInstanceType,
     type PatternPropertyAssignmentType,
     type PatternVariableType
@@ -27,6 +30,14 @@ import {
 } from "./handler/addVariableOperationHandler.js";
 import { NEW_WHERE_CLAUSE_LABEL_PREFIX } from "./handler/addWhereClauseOperationHandler.js";
 import { effectivePatternModifier } from "./modelTransformationPatternUtils.js";
+import { TransformationDeclarationResolver } from "../transformationDeclarations.js";
+import {
+    checkHeaderLineParses,
+    declaredNames,
+    NEW_DECLARATION_LABEL_PREFIX,
+    parseHeaderLine,
+    unquotedName
+} from "./modelTransformationHeader.js";
 
 const { injectable, inject } = sharedImport("inversify");
 const { ValidationStatus, GModelIndex: GModelIndexKey } = sharedImport("@eclipse-glsp/server");
@@ -72,6 +83,20 @@ export class ModelTransformationLabelEditValidator extends BaseLabelEditValidato
                 return this.validateModifierLabel(label) ?? ValidationStatus.NONE;
             case ModelTransformationElementType.LABEL_CONTROL_FLOW:
                 return this.validateControlFlowLabel(label) ?? ValidationStatus.NONE;
+            case ModelTransformationElementType.LABEL_DECLARATION: {
+                const declaration = this.declarationOf(element);
+                return declaration != undefined
+                    ? (this.validateDeclarationRow(
+                          label,
+                          declaration.direction === "out" ? "out" : "in",
+                          declaration
+                      ) ?? ValidationStatus.NONE)
+                    : ValidationStatus.NONE;
+            }
+            case ModelTransformationElementType.LABEL_CALL:
+                return label.trim().startsWith("call ")
+                    ? ValidationStatus.NONE
+                    : this.error("A call starts with 'call', e.g. call name(input = value) -> (output: name).");
             default:
                 return ValidationStatus.NONE;
         }
@@ -89,12 +114,18 @@ export class ModelTransformationLabelEditValidator extends BaseLabelEditValidato
      *   name uniqueness.
      * - {@link NEW_WHERE_CLAUSE_LABEL_PREFIX} — new where-clause placeholder; validates the
      *   {@code where } prefix and non-empty expression.
+     * - {@link NEW_DECLARATION_LABEL_PREFIX} — new row of the start node (an input) or of an end
+     *   node (an output); validates the declaration.
      *
      * @param text The label text currently being entered
      * @param modelElementId The temporary label element ID
      * @returns Validation status for the in-progress edit
      */
     override validateUnknown(text: string, modelElementId: string): ValidationStatusType {
+        if (modelElementId.startsWith(NEW_DECLARATION_LABEL_PREFIX)) {
+            const direction = modelElementId.slice(NEW_DECLARATION_LABEL_PREFIX.length) === "out" ? "out" : "in";
+            return this.validateDeclarationRow(text, direction, undefined) ?? ValidationStatus.NONE;
+        }
         if (modelElementId.startsWith(NEW_PROPERTY_COMPARISON_LABEL_PREFIX)) {
             if (text.trim().length === 0) {
                 return ValidationStatus.NONE;
@@ -118,6 +149,89 @@ export class ModelTransformationLabelEditValidator extends BaseLabelEditValidato
             return this.validateWhereClauseLabel(text) ?? ValidationStatus.NONE;
         }
         return ValidationStatus.NONE;
+    }
+
+    /**
+     * Returns the declaration behind a row of the start node or of an end node.
+     *
+     * @param element The row
+     * @returns The declaration, or undefined when the row has none
+     */
+    private declarationOf(element: GModelElement): TransformationParameterType | undefined {
+        const astNode = this.index.getAstNode(element);
+        return astNode != undefined && this.reflection.isInstance(astNode, TransformationParameter)
+            ? (astNode as TransformationParameterType)
+            : undefined;
+    }
+
+    /**
+     * Validates a declaration row: the start node lists the inputs (`in name: Type [= default]`),
+     * the end nodes list the outputs (`out name: Type`).
+     *
+     * The row has to declare in the direction of its node, its name must not be declared
+     * anywhere else in the file (names are file-global), and the file must parse with the line
+     * in place; whether its type resolves is reported by the validation of the file afterwards.
+     * An empty existing row deletes its line; an empty new row is discarded.
+     *
+     * @param text The edited line
+     * @param direction The direction the node lists
+     * @param replaced The declaration the row holds, undefined for a new row
+     * @returns A validation status if invalid, undefined if valid
+     */
+    private validateDeclarationRow(
+        text: string,
+        direction: "in" | "out",
+        replaced: TransformationParameterType | undefined
+    ): ValidationStatusType | undefined {
+        if (text.trim().length === 0) {
+            return undefined;
+        }
+        const parsed = parseHeaderLine(text);
+        if (parsed == undefined || parsed.kind !== direction) {
+            return this.error(
+                direction === "in"
+                    ? "The start node lists the inputs: in name: Type [= default]"
+                    : "An end node lists the outputs: out name: Type"
+            );
+        }
+        const nameValidation = this.validateRawIdentifier(parsed.name, "Name");
+        if (nameValidation != undefined) {
+            return nameValidation;
+        }
+
+        const root = this.modelState.sourceModel as ModelTransformationType | undefined;
+        const document = root?.$document;
+        if (root == undefined || document == undefined) {
+            return undefined;
+        }
+        const name = unquotedName(parsed.name);
+        const names = declaredNames(root);
+        // an optional element input shares its name with the object of the first pattern it pins
+        const pins =
+            parsed.kind === "in" &&
+            parsed.type.trim().endsWith("?") &&
+            new TransformationDeclarationResolver(
+                this.reflection,
+                this.modelState.languageServices.shared.workspace.LangiumDocuments
+            )
+                .firstPatternObjects(root)
+                .some((object) => object.name === name);
+        if (name !== replaced?.name && names.has(name) && !pins) {
+            return this.error(`The name '${name}' is used already in this file.`);
+        }
+
+        const parser = this.modelState.languageServices.parser.LangiumParser;
+        const syntaxError = checkHeaderLineParses(
+            root,
+            document,
+            (source) => {
+                const result = parser.parse(source);
+                return [...result.lexerErrors, ...result.parserErrors];
+            },
+            text,
+            replaced
+        );
+        return syntaxError != undefined ? this.error(`Invalid declaration: ${syntaxError}`) : undefined;
     }
 
     /**

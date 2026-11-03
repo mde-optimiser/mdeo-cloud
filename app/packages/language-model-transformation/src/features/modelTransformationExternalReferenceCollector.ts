@@ -5,7 +5,8 @@ import type { ModelTransformationType } from "../grammar/modelTransformationType
 
 /**
  * A collector for external references used in model transformation reference resolution.
- * Collects metamodel file imports from transformation files.
+ * Collects metamodel file imports from transformation files (external) and the transformations
+ * they import (local, as they are documents of this language).
  */
 export class ModelTransformationExternalReferenceCollector implements ExternalReferenceCollector {
     /**
@@ -25,8 +26,14 @@ export class ModelTransformationExternalReferenceCollector implements ExternalRe
                 return [];
             }
         });
+        const localUris = docs.flatMap((doc) => {
+            const transformation = doc.parseResult.value as ModelTransformationType;
+            return (transformation.imports ?? [])
+                .filter((imp) => imp.file != undefined)
+                .map((imp) => resolveRelativePath(doc, imp.file));
+        });
         return {
-            local: [],
+            local: localUris,
             external: uris
         };
     }

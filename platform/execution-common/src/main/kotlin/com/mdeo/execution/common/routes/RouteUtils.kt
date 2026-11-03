@@ -1,5 +1,6 @@
 package com.mdeo.execution.common.routes
 
+import com.mdeo.common.transport.respondError
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.response.*
@@ -14,35 +15,35 @@ object ErrorResponses {
      * Responds with an unauthorized error.
      */
     suspend fun ApplicationCall.respondUnauthorized(message: String = "Authentication required") {
-        respond(HttpStatusCode.Unauthorized, mapOf("error" to message))
+        respondError(HttpStatusCode.Unauthorized, message)
     }
 
     /**
      * Responds with a forbidden error.
      */
     suspend fun ApplicationCall.respondForbidden(message: String = "Insufficient permissions") {
-        respond(HttpStatusCode.Forbidden, mapOf("error" to message))
+        respondError(HttpStatusCode.Forbidden, message)
     }
 
     /**
      * Responds with a bad request error.
      */
     suspend fun ApplicationCall.respondBadRequest(message: String) {
-        respond(HttpStatusCode.BadRequest, mapOf("error" to message))
+        respondError(HttpStatusCode.BadRequest, message)
     }
 
     /**
      * Responds with a not found error.
      */
     suspend fun ApplicationCall.respondNotFound(message: String = "Resource not found") {
-        respond(HttpStatusCode.NotFound, mapOf("error" to message))
+        respondError(HttpStatusCode.NotFound, message)
     }
 
     /**
      * Responds with an internal server error.
      */
     suspend fun ApplicationCall.respondInternalError(message: String = "Internal server error") {
-        respond(HttpStatusCode.InternalServerError, mapOf("error" to message))
+        respondError(HttpStatusCode.InternalServerError, message)
     }
 }
 

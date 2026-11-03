@@ -68,7 +68,8 @@ export class TypePartialTypeSystem<Specifics extends TypirLangiumSpecifics> exte
      */
     private resolveClassType(node: ClassTypeType): ClassTypeResolutionResult {
         const document = AstUtils.getDocument(node);
-        const { packageMap, allInternalPackages } = this.typir.PackageMapCache.getDocumentPackageCache(document);
+        const { packageMap, allInternalPackages, typeAliases } =
+            this.typir.PackageMapCache.getDocumentPackageCache(document);
         const typeName = node.name;
         const packageName = node.packageName;
 
@@ -104,6 +105,12 @@ export class TypePartialTypeSystem<Specifics extends TypirLangiumSpecifics> exte
                 typeName,
                 matchingPackages: matchingTypes.map((t) => t.package)
             };
+        }
+
+        const alias = typeAliases.get(typeName);
+        if (alias != undefined) {
+            const classType = this.typir.TypeDefinitions.getClassTypeIfExisting(alias.name, alias.package);
+            return classType != undefined ? { kind: "found", classType } : { kind: "not-found", typeName };
         }
 
         const allTypesWithName = this.typir.TypeDefinitions.getClassTypesByName(typeName);

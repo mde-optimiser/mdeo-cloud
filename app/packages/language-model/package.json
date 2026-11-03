@@ -24,17 +24,17 @@
         "@mdeo/language-metamodel": "^0.2.11",
         "@mdeo/language-shared": "^0.2.11",
         "@mdeo/protocol-model": "^0.2.11",
-        "lucide": "^1.31.0"
+        "lucide": "^1.63.0"
     },
     "devDependencies": {
-        "@eclipse-glsp/protocol": "^2.7.0",
-        "@eclipse-glsp/server": "^2.7.0",
+        "@eclipse-glsp/protocol": "^2.8.0",
+        "@eclipse-glsp/server": "^2.8.0",
         "@mdeo/plugin": "^0.2.11",
         "@mdeo/protocol-common": "^0.2.11",
-        "chevrotain": "~12.0.0",
-        "elkjs": "^0.12.0",
-        "langium": "~4.2.4",
-        "prettier": "^3.9.6",
-        "vscode-languageserver-types": "~3.17.5"
+        "chevrotain": "~13.2.0",
+        "elkjs": "^0.12.1",
+        "langium": "~4.4.0",
+        "prettier": "^3.9.10",
+        "vscode-languageserver-types": "3.18.4"
     }
 }

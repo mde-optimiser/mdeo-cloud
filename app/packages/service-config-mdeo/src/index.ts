@@ -3,6 +3,7 @@ import { convertIcon } from "@mdeo/language-common";
 import type { MdeoServices } from "@mdeo/language-config-mdeo";
 import {
     CONFIG_PLUGIN_REQUEST_KEY,
+    CONFIG_DIAGNOSTICS_REQUEST_KEY,
     CONFIG_EXECUTION_REQUEST_KEY,
     CONFIG_EXECUTION_GET_SUMMARY_REQUEST_KEY,
     CONFIG_EXECUTION_GET_FILE_TREE_REQUEST_KEY,
@@ -48,7 +49,7 @@ const configMdeoLanguagePlugin: LanguagePlugin = {
 initializePluginContext();
 
 const { configMdeoPluginProvider, createMdeoContributionPlugin } = await import("@mdeo/language-config-mdeo");
-const { mdeoRequestHandler } = await import("./handler/mdeoRequestHandler.js");
+const { mdeoRequestHandler, mdeoDiagnosticsRequestHandler } = await import("./handler/mdeoRequestHandler.js");
 const {
     mdeoExecutionRequestHandler,
     mdeoExecutionGetSummaryRequestHandler,
@@ -76,7 +77,9 @@ const configMdeoServicePlugin: ServicePluginDefinition = {
                 "search",
                 "solver",
                 "mutations",
+                "crossovers",
                 "using",
+                "with",
                 "create",
                 "delete",
                 "mutate",
@@ -85,6 +88,9 @@ const configMdeoServicePlugin: ServicePluginDefinition = {
                 "provider",
                 "algorithm",
                 "parameters",
+                "crossover",
+                "rate",
+                "parents",
                 "termination",
                 "batches",
                 "runtime",
@@ -118,6 +124,7 @@ const configMdeoLanguageConfig: LanguageServiceConfig<MdeoServices> = {
     },
     requestHandlers: {
         [CONFIG_PLUGIN_REQUEST_KEY]: mdeoRequestHandler,
+        [CONFIG_DIAGNOSTICS_REQUEST_KEY]: mdeoDiagnosticsRequestHandler,
         [CONFIG_EXECUTION_REQUEST_KEY]: mdeoExecutionRequestHandler,
         [CONFIG_EXECUTION_GET_SUMMARY_REQUEST_KEY]: mdeoExecutionGetSummaryRequestHandler,
         [CONFIG_EXECUTION_GET_FILE_TREE_REQUEST_KEY]: mdeoExecutionGetFileTreeRequestHandler,

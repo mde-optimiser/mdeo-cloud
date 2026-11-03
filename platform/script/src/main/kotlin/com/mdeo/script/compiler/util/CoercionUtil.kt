@@ -689,9 +689,14 @@ object CoercionUtil {
     }
     
     /**
-     * Gets the functional interface for a lambda type.
+     * Gets the functional interface for a lambda type, generating its bytecode the first time the
+     * type is seen.
+     *
+     * @param lambdaType The lambda type.
+     * @param context The compilation context.
+     * @return The internal name of the functional interface.
      */
-    private fun getInterfaceForLambdaType(lambdaType: LambdaType, context: CompilationContext): String {
+    fun getInterfaceForLambdaType(lambdaType: LambdaType, context: CompilationContext): String {
         val registry = context.getLambdaInterfaceRegistry()
         val lookupResult = registry.getInterfaceForLambdaType(lambdaType)
         

@@ -347,31 +347,22 @@ internal class MetamodelIndex private constructor(
 ) {
     companion object {
         /**
-         * Single-entry memo of the most recently used metamodel, compared by identity.
-         *
-         * A search runs one metamodel for its whole duration and rebuilds a cost model for
-         * every match block of every mutation, so this is read hundreds of thousands of times
-         * and always hits. Two plain volatile fields keep that path allocation- and lock-free;
-         * a miss simply rebuilds, which is idempotent, so the unsynchronised pair needs no
-         * further protection.
+         * The index per metamodel. A search runs one metamodel for its whole duration and
+         * rebuilds a cost model for every match block of every mutation, so this is read
+         * hundreds of thousands of times; [MetamodelMemo] answers the repeated lookup with a
+         * volatile read and a reference comparison.
          */
-        @Volatile private var cachedKey: MetamodelData? = null
-        @Volatile private var cachedIndex: MetamodelIndex? = null
-
-        /** Returns the index for [metamodelData], building it on first use. */
-        fun of(metamodelData: MetamodelData): MetamodelIndex {
-            val index = cachedIndex
-            if (index != null && cachedKey === metamodelData) return index
-            val built = MetamodelIndex(
+        private val memo = MetamodelMemo { metamodelData ->
+            MetamodelIndex(
                 subclassesOf = buildClassHierarchy(metamodelData),
                 associationByRoles = metamodelData.associations.associateBy {
                     it.source.name to it.target.name
                 }
             )
-            cachedKey = metamodelData
-            cachedIndex = built
-            return built
         }
+
+        /** Returns the index for [metamodelData], building it on first use. */
+        fun of(metamodelData: MetamodelData): MetamodelIndex = memo[metamodelData]
 
         private fun buildClassHierarchy(metamodelData: MetamodelData): Map<String, Set<String>> {
             val classByName = metamodelData.classes.associateBy { it.name }

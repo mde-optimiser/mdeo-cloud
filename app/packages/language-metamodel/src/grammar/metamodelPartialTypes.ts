@@ -16,7 +16,9 @@ import type {
     PropertyTypeValueType,
     PrimitiveTypeType,
     ClassEnumOrAssociationType,
-    FileImportType
+    FileImportType,
+    ViewType,
+    ViewEntryType
 } from "./metamodelTypes.js";
 
 /**
@@ -103,3 +105,13 @@ export type PartialFileImport = PartialAstNode<FileImportType>;
  * Partial class, enum, or association type with optional domain properties.
  */
 export type PartialClassEnumOrAssociation = PartialAstNode<ClassEnumOrAssociationType>;
+
+/**
+ * Partial view type with optional domain properties.
+ */
+export type PartialView = PartialAstNode<ViewType>;
+
+/**
+ * Partial view entry type with optional domain properties.
+ */
+export type PartialViewEntry = PartialAstNode<ViewEntryType>;

@@ -1,5 +1,6 @@
 package com.mdeo.scriptexecution
 
+import com.mdeo.common.transport.installHttpCompression
 import com.mdeo.execution.common.auth.configureJwtAuth
 import com.mdeo.execution.common.config.configureExecutionTransport
 import com.mdeo.execution.common.config.configureSerialization
@@ -44,7 +45,8 @@ fun Application.module(appConfig: AppConfig) {
     val executionService = ExecutionService(
         backendApiService,
         appConfig.executionTimeoutMs,
-        this
+        this,
+        appConfig.sessionConnectTimeoutMillis
     )
     
     monitor.subscribe(ApplicationStopped) {
@@ -57,6 +59,7 @@ fun Application.module(appConfig: AppConfig) {
     }
     
     configureSerialization()
+    installHttpCompression()
     configureStatusPages()
     
     configureJwtAuth(appConfig.backendApiUrl, appConfig.jwtIssuer)

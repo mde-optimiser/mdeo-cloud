@@ -1,16 +1,23 @@
 import type { Action } from "@eclipse-glsp/protocol";
 import { sharedImport } from "../../sharedImport.js";
 import type { ActionDispatcher, CommandExecutionContext, CommandReturn } from "@eclipse-glsp/sprotty";
-import type { LayoutOperation } from "@mdeo/protocol-common";
+import type { LayoutAlgorithmKind, LayoutOperation } from "@mdeo/protocol-common";
+import type { EditorContextService } from "@eclipse-glsp/client";
+import { readDefaultLayoutAlgorithm } from "./layoutAlgorithmPreference.js";
 
 const { injectable, inject } = sharedImport("inversify");
 const { Command, TYPES, isBoundsAware } = sharedImport("@eclipse-glsp/sprotty");
+const { EditorContextService: EditorContextServiceKey } = sharedImport("@eclipse-glsp/client");
 
 /**
  * Action to trigger layouting of the diagram
  */
 export interface LayoutAction extends Action {
     kind: typeof LayoutAction.KIND;
+    /**
+     * The algorithm to use; the default algorithm of the diagram type (see the layout panel) if undefined
+     */
+    algorithm?: LayoutAlgorithmKind;
 }
 
 export namespace LayoutAction {
@@ -19,11 +26,13 @@ export namespace LayoutAction {
     /**
      * Creates a new layout action
      *
+     * @param algorithm the algorithm to use, the default algorithm of the diagram type if undefined
      * @return the created layout action
      */
-    export function create(): LayoutAction {
+    export function create(algorithm?: LayoutAlgorithmKind): LayoutAction {
         return {
-            kind: KIND
+            kind: KIND,
+            algorithm
         };
     }
 }
@@ -40,6 +49,15 @@ export class LayoutCommand extends Command {
      */
     @inject(TYPES.IActionDispatcher) protected readonly actionDispatcher!: ActionDispatcher;
 
+    /**
+     * The editor context, provides the diagram type
+     */
+    @inject(EditorContextServiceKey) protected readonly editorContext!: EditorContextService;
+
+    constructor(@inject(TYPES.Action) protected readonly action: LayoutAction) {
+        super();
+    }
+
     override execute(context: CommandExecutionContext): CommandReturn {
         const bounds = Object.fromEntries(
             [...context.root.index.all()]
@@ -50,7 +68,8 @@ export class LayoutCommand extends Command {
         const operation: LayoutOperation = {
             kind: "layout",
             isOperation: true,
-            bounds
+            bounds,
+            algorithm: this.action.algorithm ?? readDefaultLayoutAlgorithm(this.editorContext.diagramType)
         };
         this.actionDispatcher.dispatch(operation);
         return context.root;

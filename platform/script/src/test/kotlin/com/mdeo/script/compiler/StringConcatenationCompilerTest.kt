@@ -740,4 +740,47 @@ class StringConcatenationCompilerTest {
         // Java's Double.toString(-0.0) returns "-0.0"
         assertEquals("Value: -0.0", result)
     }
+
+    /**
+     * ```
+     * fun testFunction(): string {
+     *     val d: double? = 1.5
+     *     val n: double? = null
+     *     val l: long? = 3L
+     *     return "" + d + n + l
+     * }
+     * ```
+     *
+     * A nullable number is a boxed object and used to be appended as a primitive, which failed
+     * bytecode verification.
+     */
+    @Test
+    fun `concatenate string with nullable numbers`() {
+        val ast = buildTypedAst {
+            val stringType = stringType()
+            val nullableDouble = doubleNullableType()
+            val nullableLong = longNullableType()
+            function(
+                name = "testFunction",
+                returnType = stringType,
+                body = listOf(
+                    varDecl("d", nullableDouble, doubleLiteral(1.5, doubleType())),
+                    varDecl("n", nullableDouble, nullLiteral(anyNullableType())),
+                    varDecl("l", nullableLong, longLiteral(3L, longType())),
+                    returnStmt(
+                        concat(
+                            stringType,
+                            stringLiteral("", stringType),
+                            identifier("d", nullableDouble, 3),
+                            identifier("n", nullableDouble, 3),
+                            identifier("l", nullableLong, 3)
+                        )
+                    )
+                )
+            )
+        }
+
+        val result = helper.compileAndInvoke(ast)
+        assertEquals("1.5null3", result)
+    }
 }

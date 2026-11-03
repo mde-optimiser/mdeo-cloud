@@ -15,6 +15,16 @@ import type * as vscodeLanguageserverProtocol from "vscode-languageserver-protoc
 import type * as elkjs from "elkjs/lib/elk.bundled.js";
 
 /**
+ * The part of the orthoflow API (TALA layout, WebAssembly) provided to plugins. The module is initialized by the host.
+ */
+export interface OrthoflowPluginApi {
+    /**
+     * Lays out a TALA graphjson graph and returns the report as JSON.
+     */
+    layoutJson(graph: string, options?: { seeds?: number[] }): string;
+}
+
+/**
  * Context provided to plugins when they are initialized
  */
 export interface PluginContext {
@@ -33,4 +43,8 @@ export interface PluginContext {
     "vscode-languageserver-types": typeof vscodeLanguageserverTypes;
     "vscode-languageserver-protocol": typeof vscodeLanguageserverProtocol;
     elkjs: typeof elkjs;
+    /**
+     * The initialized orthoflow module, if the host provides it (used by the TALA layout).
+     */
+    orthoflow?: OrthoflowPluginApi;
 }

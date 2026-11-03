@@ -7,6 +7,7 @@ import com.mdeo.expression.ast.types.LambdaType
 import com.mdeo.expression.ast.types.ReturnType
 import com.mdeo.script.compiler.util.CoercionUtil
 import com.mdeo.script.compiler.CompilationContext
+import com.mdeo.script.compiler.RecordClasses
 import com.mdeo.script.compiler.util.ASMUtil
 import com.mdeo.script.compiler.ScriptCompiler
 import com.mdeo.script.compiler.registry.type.TypeRegistry
@@ -146,6 +147,11 @@ class MemberCallCompiler : AbstractCallCompiler() {
         val methodDef = context.typeRegistry.lookupMethod(lookupTypeRef, memberCall.member, memberCall.overload)
             ?: throw UnsupportedOperationException("Method ${memberCall.member} not found on type ${lookupTypeRef.`package`}.${lookupTypeRef.type}")
 
+        if (methodDef is RecordClasses.CopyMethodDefinition) {
+            emitRecordCopy(memberCall, context, mv, methodDef)
+            return
+        }
+
         emitRegistryMethodCall(memberCall, context, mv, methodDef, resultType)
     }
 
@@ -183,13 +189,18 @@ class MemberCallCompiler : AbstractCallCompiler() {
             )
         }
 
-        compileArgumentsWithCoercion(
-            memberCall.arguments,
-            context,
-            mv,
-            signatureParameterTypes = methodDef.parameterTypes,
-            varArgsStartIndex = if (methodDef.isVarArgs)  methodDef.parameterTypes.size - 1 else null
-        )
+        if (!methodDef.isVarArgs && needsArgumentBinding(memberCall.arguments, methodDef.parameterTypes.size, hasDefaults = false)) {
+            // Methods have no default values, so every parameter receives an argument.
+            compileBoundArguments(memberCall.arguments, context, mv, methodDef.parameterTypes)
+        } else {
+            compileArgumentsWithCoercion(
+                memberCall.arguments,
+                context,
+                mv,
+                signatureParameterTypes = methodDef.parameterTypes,
+                varArgsStartIndex = if (methodDef.isVarArgs)  methodDef.parameterTypes.size - 1 else null
+            )
+        }
 
         methodDef.emitInvocation(mv)
 
@@ -210,6 +221,44 @@ class MemberCallCompiler : AbstractCallCompiler() {
      * @param methodDef The method definition being invoked.
      * @return true if the receiver needs to be boxed.
      */
+    /**
+     * Emits a call of a record's copy method, with the record on the stack.
+     *
+     * Copies the record, then sets each field the call passes on the copy, evaluating the
+     * arguments in the order they are written. Leaves the copy on the stack.
+     *
+     * @param memberCall The member call expression.
+     * @param context The compilation context.
+     * @param mv The method visitor.
+     * @param methodDef The copy method, which carries the field types.
+     */
+    private fun emitRecordCopy(
+        memberCall: TypedMemberCallExpression,
+        context: CompilationContext,
+        mv: MethodVisitor,
+        methodDef: RecordClasses.CopyMethodDefinition
+    ) {
+        mv.visitTypeInsn(Opcodes.CHECKCAST, RecordClasses.RECORD_BASE)
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, RecordClasses.RECORD_BASE, "copy", "()L${RecordClasses.RECORD_BASE};", false)
+        for ((index, argument) in memberCall.arguments.withIndex()) {
+            val field = argument.parameter ?: index
+            val fieldType = methodDef.parameterTypes[field]
+            val resolvedType = context.getType(argument.parameterType)
+            mv.visitInsn(Opcodes.DUP)
+            context.compileExpression(argument.value, mv, resolvedType)
+            CoercionUtil.emitCoercion(resolvedType, fieldType, mv, context)
+            RecordClasses.emitBoxing(fieldType, mv)
+            mv.visitLdcInsn(field)
+            mv.visitMethodInsn(
+                Opcodes.INVOKESTATIC,
+                RecordClasses.RECORD_BASE,
+                "set",
+                "(Ljava/lang/Object;Ljava/lang/Object;I)V",
+                false
+            )
+        }
+    }
+
     private fun needsReceiverBoxing(targetType: ReturnType, methodDef: MethodDefinition): Boolean {
         if (!methodDef.isStatic) {
             return false

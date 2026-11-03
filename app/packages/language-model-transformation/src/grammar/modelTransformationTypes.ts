@@ -64,11 +64,12 @@ export type PatternVariableType = ASTType<typeof PatternVariable>;
  * Format: name = expression
  *
  * Unlike {@link PatternVariable}, this does not declare a new variable; it updates the
- * value of an already-declared one. Like declarations, the reassignment is performed as
+ * value of an already-declared one: a `var` of an enclosing scope or an `out` parameter of the
+ * transformation. Like declarations, the reassignment is performed as
  * part of the match, before any access in that match block.
  */
 export const PatternVariableReassignment = createInterface("PatternVariableReassignment").attrs({
-    variable: Ref(() => PatternVariable),
+    variable: Ref(() => AssignableVariable),
     value: BaseExpression
 });
 
@@ -76,6 +77,23 @@ export const PatternVariableReassignment = createInterface("PatternVariableReass
  * Type representing a PatternVariableReassignment AST node.
  */
 export type PatternVariableReassignmentType = ASTType<typeof PatternVariableReassignment>;
+
+/**
+ * Addition of an element to a collection `out` parameter.
+ * Format: name += expression
+ *
+ * The value is computed with the match, after its modifications, so it can be an object the
+ * pattern creates. In a `for match` every match adds its value.
+ */
+export const PatternCollectionAppend = createInterface("PatternCollectionAppend").attrs({
+    variable: Ref(() => AssignableVariable),
+    value: BaseExpression
+});
+
+/**
+ * Type representing a PatternCollectionAppend AST node.
+ */
+export type PatternCollectionAppendType = ASTType<typeof PatternCollectionAppend>;
 
 /**
  * Property assignment in a pattern object instance.
@@ -113,7 +131,7 @@ export type PatternObjectInstanceType = ASTType<typeof PatternObjectInstance>;
  * Contains the instance reference and optional property assignments for constraints.
  */
 export const PatternObjectInstanceReference = createInterface("PatternObjectInstanceReference").attrs({
-    instance: Ref(PatternObjectInstance),
+    instance: Ref(() => ObjectInstanceDeclaration),
     properties: [PatternPropertyAssignment]
 });
 
@@ -128,7 +146,7 @@ export type PatternObjectInstanceReferenceType = ASTType<typeof PatternObjectIns
  * Format: delete nameOfTheNode
  */
 export const PatternObjectInstanceDelete = createInterface("PatternObjectDelete").attrs({
-    instance: Ref(() => PatternObjectInstance)
+    instance: Ref(() => ObjectInstanceDeclaration)
 });
 
 /**
@@ -141,7 +159,7 @@ export type PatternObjectInstanceDeleteType = ASTType<typeof PatternObjectInstan
  * References an object instance with optional property.
  */
 export const PatternLinkEnd = createInterface("PatternLinkEnd").attrs({
-    object: Ref(() => PatternObjectInstance),
+    object: Ref(() => ObjectInstanceDeclaration),
     property: Optional(Ref(() => Property))
 });
 
@@ -178,17 +196,31 @@ export const WhereClause = createInterface("WhereClause").attrs({
 export type WhereClauseType = ASTType<typeof WhereClause>;
 
 /**
+ * Base of the blocks inside a pattern: application conditions (`forbid { … }`,
+ * `require { … }`) and model scope blocks (`in donor { … }`). The two may contain each other,
+ * so the element unions of both name this base instead of the other block type.
+ */
+export const PatternBlock = createInterface("PatternBlock").attrs({});
+
+/**
+ * Type representing a PatternBlock AST node.
+ */
+export type PatternBlockType = ASTType<typeof PatternBlock>;
+
+/**
  * Element type union for the body of an application-condition block.
  *
  * A condition block describes its own, separate graph, so it may only contain the
  * structural elements of that graph: object instances (and references to instances of
- * the enclosing pattern), links, and where clauses.
+ * the enclosing pattern), links, where clauses, and model scope blocks
+ * ({@link PatternModelScope}) that put part of the condition graph into an input model.
  */
 export const ApplicationConditionElement: BaseType<AstNode> = createType("ApplicationConditionElement").types(
     PatternObjectInstance,
     PatternObjectInstanceReference,
     PatternLink,
-    WhereClause
+    WhereClause,
+    PatternBlock
 );
 
 /**
@@ -213,11 +245,13 @@ export type ApplicationConditionElementType = ASTType<typeof ApplicationConditio
  * is only worth writing when it says something, so the editor leaves the blocks it
  * creates unnamed and shows them numbered instead.
  */
-export const PatternApplicationCondition = createInterface("PatternApplicationCondition").attrs({
-    kind: String,
-    name: Optional(String),
-    elements: [ApplicationConditionElement]
-});
+export const PatternApplicationCondition = createInterface("PatternApplicationCondition")
+    .extends(PatternBlock)
+    .attrs({
+        kind: String,
+        name: Optional(String),
+        elements: [ApplicationConditionElement]
+    });
 
 /**
  * Type representing a PatternApplicationCondition AST node.
@@ -225,16 +259,64 @@ export const PatternApplicationCondition = createInterface("PatternApplicationCo
 export type PatternApplicationConditionType = ASTType<typeof PatternApplicationCondition>;
 
 /**
+ * Element type union for the body of a model scope block: everything that finds or reads
+ * objects of the scoped model. Nothing that changes a model is part of it; `create`/`delete`
+ * modifiers, `delete name` and property assignments (`=`) are parsed for better messages and
+ * rejected by the validator, since input models are read-only.
+ */
+export const ModelScopeElement: BaseType<AstNode> = createType("ModelScopeElement").types(
+    PatternVariable,
+    PatternObjectInstance,
+    PatternObjectInstanceReference,
+    PatternObjectInstanceDelete,
+    PatternLink,
+    WhereClause,
+    PatternBlock
+);
+
+/**
+ * Type representing a ModelScopeElement AST node.
+ */
+export type ModelScopeElementType = ASTType<typeof ModelScopeElement>;
+
+/**
+ * A model scope block of a pattern: the objects declared in it are objects of an input model
+ * instead of the model the transformation runs on (its implicit model).
+ *
+ * Format: `in model { ... }`, where `model` is a `model` input of the transformation or the
+ * variable of a `for … in` loop over a `List<model>` input.
+ *
+ * The block is not a scope of names: its objects and variables are visible to the rest of the
+ * pattern (and after it) exactly as if they were declared outside of it, so the implicit model
+ * can read them in expressions. Only the matching is scoped: the block's objects match objects
+ * of the scoped model only, and its links connect them only. A `forbid` / `require` block inside
+ * a scope block, or a scope block inside one, describes a condition graph in that model.
+ */
+export const PatternModelScope = createInterface("PatternModelScope")
+    .extends(PatternBlock)
+    .attrs({
+        model: Ref(() => ModelValueDeclaration),
+        elements: [ModelScopeElement]
+    });
+
+/**
+ * Type representing a PatternModelScope AST node.
+ */
+export type PatternModelScopeType = ASTType<typeof PatternModelScope>;
+
+/**
  * Base pattern element type union.
  */
 export const PatternElement: BaseType<AstNode> = createType("PatternElement").types(
     PatternVariable,
     PatternVariableReassignment,
+    PatternCollectionAppend,
     PatternObjectInstance,
     PatternObjectInstanceDelete,
     PatternLink,
     WhereClause,
-    PatternApplicationCondition
+    PatternApplicationCondition,
+    PatternModelScope
 );
 
 /**
@@ -424,6 +506,222 @@ export const StopStatement = createInterface("StopStatement").extends(BaseTransf
 export type StopStatementType = ASTType<typeof StopStatement>;
 
 /**
+ * An input or output of a transformation, declared in the header of the file (after `using`
+ * and the imports, before the first statement), one per line.
+ * Format: `in name: Type [= default]` or `out name: Type`
+ *
+ * An `in` parameter is bound before the transformation's first statement: a model element
+ * (a metamodel class type) is a bound object that patterns reference as `name { }`, a scalar
+ * (`int`, `long`, `float`, `double`, `string`, `boolean` or an enum) is a value for
+ * expressions, a `model` (or `List<model>`) is another model of the transformation's metamodel
+ * that scope blocks (`in name { … }`) read. An `out` parameter starts as `null` and is assigned
+ * with `name = expression` inside a pattern; the caller binds it after a successful call.
+ */
+export const TransformationParameter = createInterface("TransformationParameter").attrs({
+    direction: String,
+    name: String,
+    type: typeTypes.baseTypeType,
+    defaultValue: Optional(BaseExpression)
+});
+
+/**
+ * Type representing a TransformationParameter AST node.
+ */
+export type TransformationParameterType = ASTType<typeof TransformationParameter>;
+
+/**
+ * Base of the transformation root ({@link ModelTransformation}), the target of a call's callee
+ * reference. The callee is typed with this base instead of the root itself, which would make the
+ * root's type refer to itself (through its statements); use {@link getCallee} to get the root.
+ */
+export const CallableTransformation = createInterface("CallableTransformation").attrs({});
+
+/**
+ * Type representing a CallableTransformation AST node.
+ */
+export type CallableTransformationType = ASTType<typeof CallableTransformation>;
+
+/**
+ * A named argument of a call.
+ * Format: `parameter = expression`
+ */
+export const CallArgument = createInterface("CallArgument").attrs({
+    parameter: Ref(() => TransformationParameter),
+    value: BaseExpression
+});
+
+/**
+ * Type representing a CallArgument AST node.
+ */
+export type CallArgumentType = ASTType<typeof CallArgument>;
+
+/**
+ * The binding of a callee's `out` parameter to a new name of the caller.
+ * Format: `parameter: name`
+ *
+ * The name is bound after the call as if a match had bound it: an element output is an
+ * object that later patterns reference as `name { }`, a scalar output is a value.
+ */
+export const CallOutput = createInterface("CallOutput").attrs({
+    parameter: Ref(() => TransformationParameter),
+    name: String
+});
+
+/**
+ * Type representing a CallOutput AST node.
+ */
+export type CallOutputType = ASTType<typeof CallOutput>;
+
+/**
+ * Call of another transformation.
+ * Format: `call alias(argument, ...) [-> (output, ...)]`
+ *
+ * The callee is the transformation a path import (`import "./file.mt" as alias`) names; the
+ * reference resolves to the root of the imported file. The callee runs on the same model with
+ * its inputs bound. A callee that fails (a `match`
+ * that does not match, or `kill`) fails the call, and so the calling transformation; `stop` in
+ * the callee only returns from the callee.
+ */
+export const CallStatement = createInterface("CallStatement")
+    .extends(BaseTransformationStatement)
+    .attrs({
+        callee: Ref(() => CallableTransformation),
+        arguments: [CallArgument],
+        outputs: [CallOutput]
+    });
+
+/**
+ * Type representing a CallStatement AST node.
+ */
+export type CallStatementType = ASTType<typeof CallStatement>;
+
+/**
+ * The call of an `if call` together with its then block, so that the call's outputs are
+ * visible in the then block and nowhere else.
+ * Format: `call name(...) [-> (...)] then { block }`
+ */
+export const IfCallConditionAndBlock = createInterface("IfCallConditionAndBlock").attrs({
+    call: CallStatement,
+    thenBlock: StatementsScope
+});
+
+/**
+ * Type representing an IfCallConditionAndBlock AST node.
+ */
+export type IfCallConditionAndBlockType = ASTType<typeof IfCallConditionAndBlock>;
+
+/**
+ * Conditional call of another transformation.
+ * Format: `if call name(...) [-> (...)] then { block } [else { block }]`
+ *
+ * When the callee succeeds its outputs are bound and the then block runs; when it fails the
+ * else block runs. `kill` in the callee still ends everything. The validator only accepts a
+ * callee that fails before it changes the model, since the engine cannot undo changes.
+ */
+export const IfCallStatement = createInterface("IfCallStatement")
+    .extends(BaseTransformationStatement)
+    .attrs({
+        ifBlock: IfCallConditionAndBlock,
+        elseBlock: Optional(StatementsScope)
+    });
+
+/**
+ * Type representing an IfCallStatement AST node.
+ */
+export type IfCallStatementType = ASTType<typeof IfCallStatement>;
+
+/**
+ * The loop variable of a `for x in collection` statement.
+ */
+export const ForInVariable = createInterface("ForInVariable").attrs({
+    name: String
+});
+
+/**
+ * Type representing a ForInVariable AST node.
+ */
+export type ForInVariableType = ASTType<typeof ForInVariable>;
+
+/**
+ * Loop over the elements of a collection.
+ * Format: `for name in expression do { block }`
+ *
+ * The block runs once per element, with the loop variable bound to it: an element of a
+ * collection of model elements is a bound object (`name { }` in the block's patterns), an
+ * element of a collection of scalars is a value.
+ */
+export const ForInStatement = createInterface("ForInStatement").extends(BaseTransformationStatement).attrs({
+    variable: ForInVariable,
+    collection: BaseExpression,
+    doBlock: StatementsScope
+});
+
+/**
+ * Type representing a ForInStatement AST node.
+ */
+export type ForInStatementType = ASTType<typeof ForInStatement>;
+
+/**
+ * Assignment outside a pattern.
+ * Format: `name = expression` or `name += expression`
+ *
+ * `=` assigns a variable of an enclosing scope or an `out` parameter, `+=` adds to a collection
+ * `out` parameter.
+ */
+export const AssignmentStatement = createInterface("AssignmentStatement")
+    .extends(BaseTransformationStatement)
+    .attrs({
+        variable: Ref(() => AssignableVariable),
+        operator: String,
+        value: BaseExpression
+    });
+
+/**
+ * Type representing an AssignmentStatement AST node.
+ */
+export type AssignmentStatementType = ASTType<typeof AssignmentStatement>;
+
+/**
+ * Everything a pattern can reference as an object (`name { }`, `delete name`, link ends):
+ * object instances of patterns, element parameters of the transformation, element outputs of
+ * calls and the variables of `for … in` loops.
+ */
+export const ObjectInstanceDeclaration = createType("ObjectInstanceDeclaration").types(
+    PatternObjectInstance,
+    TransformationParameter,
+    CallOutput,
+    ForInVariable
+);
+
+/**
+ * Type representing an ObjectInstanceDeclaration AST node.
+ */
+export type ObjectInstanceDeclarationType = ASTType<typeof ObjectInstanceDeclaration>;
+
+/**
+ * Everything that can denote a model value (the target of a scope block `in name { … }`): a
+ * `model` input of the transformation and the variable of a `for … in` loop over a
+ * `List<model>` input. Which of them really is a model value is checked by the validator.
+ */
+export const ModelValueDeclaration = createType("ModelValueDeclaration").types(TransformationParameter, ForInVariable);
+
+/**
+ * Type representing a ModelValueDeclaration AST node.
+ */
+export type ModelValueDeclarationType = ASTType<typeof ModelValueDeclaration>;
+
+/**
+ * Everything a reassignment (`name = expression`) can assign: pattern variables and the
+ * `out` parameters of the transformation.
+ */
+export const AssignableVariable = createType("AssignableVariable").types(PatternVariable, TransformationParameter);
+
+/**
+ * Type representing an AssignableVariable AST node.
+ */
+export type AssignableVariableType = ASTType<typeof AssignableVariable>;
+
+/**
  * Union of all transformation statement types.
  */
 export const TransformationStatement: BaseType<AstNode> = createType("TransformationStatement").types(
@@ -434,7 +732,11 @@ export const TransformationStatement: BaseType<AstNode> = createType("Transforma
     ForMatchStatement,
     IfExpressionStatement,
     WhileExpressionStatement,
-    StopStatement
+    StopStatement,
+    CallStatement,
+    IfCallStatement,
+    ForInStatement,
+    AssignmentStatement
 );
 
 /**
@@ -493,15 +795,49 @@ export const MetamodelFileImport = createInterface("MetamodelFileImport").attrs(
 export type MetamodelFileImportType = ASTType<typeof MetamodelFileImport>;
 
 /**
- * Model Transformation root interface.
- * Contains metamodel import and transformation statements.
+ * A path import of another transformation: every `.mt` file is one transformation, which this
+ * file calls by the alias.
+ * Format: `import "./file.mt" as alias`
+ *
+ * The alias is the only name of the imported transformation in this file; a call
+ * (`call alias(…)`) resolves to the root of the imported file.
  */
-export const ModelTransformation = createInterface("ModelTransformation").attrs({
-    import: MetamodelFileImport,
-    statements: [TransformationStatement]
+export const TransformationFileImport = createInterface("TransformationFileImport").attrs({
+    file: String,
+    name: String
 });
+
+/**
+ * Type representing a TransformationFileImport AST node.
+ */
+export type TransformationFileImportType = ASTType<typeof TransformationFileImport>;
+
+/**
+ * Model Transformation root interface.
+ * Contains the metamodel import, the path imports of other transformations, the header
+ * declarations of the inputs and outputs (`in …` / `out …` lines) and the transformation
+ * statements.
+ */
+export const ModelTransformation = createInterface("ModelTransformation")
+    .extends(CallableTransformation)
+    .attrs({
+        import: MetamodelFileImport,
+        imports: [TransformationFileImport],
+        parameters: [TransformationParameter],
+        statements: [TransformationStatement]
+    });
 
 /**
  * Model Transformation AST type.
  */
 export type ModelTransformationType = ASTType<typeof ModelTransformation>;
+
+/**
+ * Returns the transformation a call calls: the root of the imported file its alias names.
+ *
+ * @param call The call statement
+ * @returns The callee's root, or undefined when the alias does not resolve
+ */
+export function getCallee(call: CallStatementType | undefined): ModelTransformationType | undefined {
+    return call?.callee?.ref as ModelTransformationType | undefined;
+}

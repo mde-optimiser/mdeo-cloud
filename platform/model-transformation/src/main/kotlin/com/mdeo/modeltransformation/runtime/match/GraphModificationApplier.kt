@@ -1,5 +1,8 @@
 package com.mdeo.modeltransformation.runtime.match
 
+import com.mdeo.expression.ast.types.ClassTypeRef
+import com.mdeo.expression.ast.types.GenericTypeRef
+import com.mdeo.expression.ast.types.ValueType
 import com.mdeo.metamodel.data.AssociationData
 import com.mdeo.modeltransformation.ast.EdgeLabelUtils
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternLinkElement
@@ -7,6 +10,8 @@ import com.mdeo.modeltransformation.ast.patterns.TypedPatternObjectInstanceEleme
 import com.mdeo.modeltransformation.compiler.CompilationContext
 import com.mdeo.modeltransformation.compiler.CompilationResult
 import com.mdeo.modeltransformation.compiler.VariableBinding
+import org.apache.tinkerpop.gremlin.process.traversal.GType
+import org.apache.tinkerpop.gremlin.process.traversal.P
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.`__` as AnonymousTraversal
 import org.apache.tinkerpop.gremlin.structure.Vertex
@@ -98,44 +103,29 @@ internal class GraphModificationApplier(
         for (property in simpleProps) {
             val graphKey = expressionSupport.engine.resolvePropertyGraphKey(className, property.propertyName)
             val compiled = expressionSupport.compilePropertyExpression(property.value, matchedInstanceNames)!!
-            val castFunction = getNumericCastFunction(className, property.propertyName)
-            
+            val numericType = getNumericType(className, property.propertyName)
+
             result = if (compiled is CompilationResult.ValueResult) {
                 if (compiled.value != null) {
-                    val finalValue = if (castFunction != null && compiled.value is Number) castFunction(compiled.value) else compiled.value
-                    result.property(graphKey, finalValue) as GraphTraversal<Vertex, Map<String, Any>>
+                    result.property(graphKey, castConstant(compiled.value, numericType)) as GraphTraversal<Vertex, Map<String, Any>>
                 } else {
                     result
                 }
             } else {
-                @Suppress("UNCHECKED_CAST")
-                var propTraversal = compiled.traversal as GraphTraversal<Any, Any>
-                if (castFunction != null) {
-                    propTraversal = propTraversal.map { 
-                        val v = it.get()
-                        if (v is Number) castFunction(v) else v
-                    } as GraphTraversal<Any, Any>
-                }
-                result.sideEffect(
-                    AnonymousTraversal.select<Any, Any>(VariableBinding.stepLabel(instanceName))
-                        .property(graphKey, propTraversal)
-                ) as GraphTraversal<Vertex, Map<String, Any>>
+                setScalarProperty(
+                    result, instanceName, graphKey, compiled,
+                    expressionSupport.resolveExpressionType(property.value), numericType, unsetOnNull = false
+                )
             }
         }
 
         for (property in listProps) {
             val graphKey = expressionSupport.engine.resolvePropertyGraphKey(className, property.propertyName)
             val listResult = expressionSupport.compilePropertyExpression(property.value, matchedInstanceNames)!!
-            val castFunction = getNumericCastFunction(className, property.propertyName)
+            val numericType = getNumericType(className, property.propertyName)
 
             @Suppress("UNCHECKED_CAST")
-            var listTraversal = listResult.traversal as GraphTraversal<Any, Any>
-            if (castFunction != null) {
-                listTraversal = listTraversal.map { 
-                    val v = it.get()
-                    if (v is Number) castFunction(v) else v 
-                } as GraphTraversal<Any, Any>
-            }
+            val listTraversal = castTraversal(nonNull(listResult.traversal as GraphTraversal<Any, Any>), numericType)
 
             val valueLabel = compilationContext.getUniqueId()
             result = result.sideEffect(
@@ -197,37 +187,91 @@ internal class GraphModificationApplier(
             if (expressionSupport.isCollectionType(propType)) {
                 val listResult = expressionSupport.compilePropertyExpression(property.value, matchedInstanceNames)
                 if (listResult != null) { 
-                    result = setListPropertyViaSideEffect(result, name, graphKey, listResult, getNumericCastFunction(className, property.propertyName)) 
+                    result = setListPropertyViaSideEffect(result, name, graphKey, listResult, getNumericType(className, property.propertyName)) 
                 }
             } else {
                 val compiled = expressionSupport.compilePropertyExpression(property.value, matchedInstanceNames)!!
-                val castFunction = getNumericCastFunction(className, property.propertyName)
+                val numericType = getNumericType(className, property.propertyName)
                 result = if (compiled is CompilationResult.ValueResult) {
                     if (compiled.value != null) {
-                        val finalValue = if (castFunction != null && compiled.value is Number) castFunction(compiled.value) else compiled.value
                         result.sideEffect(
-                            AnonymousTraversal.select<Any, Any>(stepLabel).property(graphKey, finalValue)
+                            AnonymousTraversal.select<Any, Any>(stepLabel).property(graphKey, castConstant(compiled.value, numericType))
                         ) as GraphTraversal<Vertex, Map<String, Any>>
                     } else {
-                        result
+                        // `= null` unsets the property
+                        result.sideEffect(
+                            AnonymousTraversal.select<Any, Any>(stepLabel).properties<Any>(graphKey).drop()
+                        ) as GraphTraversal<Vertex, Map<String, Any>>
                     }
                 } else {
-                    @Suppress("UNCHECKED_CAST")
-                    var propTraversal = compiled.traversal as GraphTraversal<Any, Any>
-                    if (castFunction != null) {
-                        propTraversal = propTraversal.map { 
-                            val v = it.get()
-                            if (v is Number) castFunction(v) else v 
-                        } as GraphTraversal<Any, Any>
-                    }
-                    result.sideEffect(
-                        AnonymousTraversal.select<Any, Any>(stepLabel).property(graphKey, propTraversal)
-                    ) as GraphTraversal<Vertex, Map<String, Any>>
+                    setScalarProperty(result, name, graphKey, compiled, propType, numericType, unsetOnNull = true)
                 }
             }
         }
         return result
     }
+
+    /**
+     * Sets the scalar property [graphKey] of the vertex [instanceName] to the value of a computed
+     * expression, cast to [numericType]. An expression of a non-nullable type is assigned as
+     * `select(x).property(key, value)`. One of a nullable type (an optional property, a ternary
+     * with a `null` branch) may have no value or the value null; then the property is left unset,
+     * and on a matched object ([unsetOnNull]) an existing value is removed:
+     * `select(x).choose(value.is(neq(null)), property(key, value), properties(key).drop())`.
+     * The value is tested and assigned by two copies of the expression rather than labelled once
+     * and assigned from the label: an expression may end in a barrier (`size()` is a `count()`),
+     * which drops the path, so `select(x)` after it would find nothing.
+     *
+     * @param traversal The current traversal.
+     * @param instanceName The instance owning the property.
+     * @param graphKey The resolved graph property key.
+     * @param compiled The compiled value expression (a traversal result).
+     * @param valueType The expression's type (null when unknown: handled as nullable).
+     * @param numericType The property's numeric type the value is cast to, if any.
+     * @param unsetOnNull Whether a null value removes an existing value (matched objects).
+     * @return The traversal with the property assignment side-effect appended.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun setScalarProperty(
+        traversal: GraphTraversal<Vertex, Map<String, Any>>,
+        instanceName: String,
+        graphKey: String,
+        compiled: CompilationResult,
+        valueType: ValueType?,
+        numericType: GType?,
+        unsetOnNull: Boolean
+    ): GraphTraversal<Vertex, Map<String, Any>> {
+        val vertex = AnonymousTraversal.select<Any, Any>(VariableBinding.stepLabel(instanceName))
+        val value = compiled.traversal as GraphTraversal<Any, Any>
+        val update = if (!isNullable(valueType)) {
+            vertex.property(graphKey, castTraversal(value, numericType))
+        } else {
+            val present = nonNull(value.asAdmin().clone() as GraphTraversal<Any, Any>)
+            val castValue = castTraversal(nonNull(value), numericType)
+            if (unsetOnNull) {
+                vertex.choose(
+                    present,
+                    AnonymousTraversal.start<Any>().property(graphKey, castValue),
+                    AnonymousTraversal.properties<Vertex, Any>(graphKey).drop() as GraphTraversal<Any, Any>
+                )
+            } else {
+                vertex.filter(present).property(graphKey, castValue)
+            }
+        }
+        return traversal.sideEffect(update) as GraphTraversal<Vertex, Map<String, Any>>
+    }
+
+    /** Whether an expression of [type] may be null (an unknown type counts as nullable). */
+    private fun isNullable(type: ValueType?): Boolean = when (type) {
+        is ClassTypeRef -> type.isNullable
+        is GenericTypeRef -> type.isNullable ?: true
+        else -> true
+    }
+
+    /** Drops null values (an expression whose value is null assigns nothing). */
+    @Suppress("UNCHECKED_CAST")
+    private fun nonNull(traversal: GraphTraversal<Any, Any>): GraphTraversal<Any, Any> =
+        traversal.`is`(P.neq(null)) as GraphTraversal<Any, Any>
 
     /**
      * Replaces a list-typed property using a side-effect that drops existing values
@@ -237,6 +281,7 @@ internal class GraphModificationApplier(
      * @param instanceName The instance owning the property.
      * @param graphKey The resolved graph property key.
      * @param listResult The compiled list expression result.
+     * @param numericType The property's numeric type the elements are cast to, if any.
      * @return The traversal with the list property replacement side-effects appended.
      */
     @Suppress("UNCHECKED_CAST")
@@ -245,7 +290,7 @@ internal class GraphModificationApplier(
         instanceName: String,
         graphKey: String,
         listResult: CompilationResult,
-        castFunction: ((Number) -> Number)?
+        numericType: GType?
     ): GraphTraversal<Vertex, Map<String, Any>> {
         val stepLabel = VariableBinding.stepLabel(instanceName)
         var result = traversal
@@ -254,13 +299,7 @@ internal class GraphModificationApplier(
         ) as GraphTraversal<Vertex, Map<String, Any>>
 
         @Suppress("UNCHECKED_CAST")
-        var listTraversal = listResult.traversal as GraphTraversal<Any, Any>
-        if (castFunction != null) {
-            listTraversal = listTraversal.map { 
-                val v = it.get()
-                if (v is Number) castFunction(v) else v 
-            } as GraphTraversal<Any, Any>
-        }
+        val listTraversal = castTraversal(nonNull(listResult.traversal as GraphTraversal<Any, Any>), numericType)
 
         val valueLabel = compilationContext.getUniqueId()
         result = result.sideEffect(
@@ -290,16 +329,37 @@ internal class GraphModificationApplier(
         return find(className)
     }
 
-    private fun getNumericCastFunction(className: String?, propertyName: String): ((Number) -> Number)? {
+    /** The numeric type of a property (int, long, float, double), or null for other properties. */
+    private fun getNumericType(className: String?, propertyName: String): GType? {
         val propData = findPropertyInHierarchy(className, propertyName) ?: return null
         return when (propData.primitiveType) {
-            "int" -> { n: Number -> n.toInt() }
-            "long" -> { n: Number -> n.toLong() }
-            "float" -> { n: Number -> n.toFloat() }
-            "double" -> { n: Number -> n.toDouble() }
+            "int" -> GType.INT
+            "long" -> GType.LONG
+            "float" -> GType.FLOAT
+            "double" -> GType.DOUBLE
             else -> null
         }
     }
+
+    /** Casts a constant known at compile time to the property's numeric type, on the client. */
+    private fun castConstant(value: Any, numericType: GType?): Any {
+        if (numericType == null || value !is Number) return value
+        return when (numericType) {
+            GType.INT -> value.toInt()
+            GType.LONG -> value.toLong()
+            GType.FLOAT -> value.toFloat()
+            else -> value.toDouble()
+        }
+    }
+
+    /**
+     * Casts every value of [traversal] to the property's numeric type with Gremlin's `asNumber`
+     * step, not a lambda step: the engine compiles to pure Gremlin, so that it also runs against
+     * remote graph databases.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun castTraversal(traversal: GraphTraversal<Any, Any>, numericType: GType?): GraphTraversal<Any, Any> =
+        if (numericType == null) traversal else traversal.asNumber(numericType) as GraphTraversal<Any, Any>
 
     /**
      * Adds `.sideEffect(addE(...).to(...))` steps for each create link.

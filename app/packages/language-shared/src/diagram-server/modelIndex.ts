@@ -36,7 +36,10 @@ export class GModelIndex extends BaseGModelIndex {
             for (const node of AstUtils.streamAst(rootNode)) {
                 if (idRegistry.hasId(node)) {
                     const id = idRegistry.getId(node);
-                    this.idToAstNode.set(id, node);
+                    // Elements are looked up by their normalized id, so a registry that adds a
+                    // fragment to every id (e.g. to tell several diagrams of one model apart)
+                    // still finds the node behind each element.
+                    this.idToAstNode.set(this.normalizeId(id), node);
                     this.astNodeToId.set(node, id);
                 }
             }
@@ -50,8 +53,19 @@ export class GModelIndex extends BaseGModelIndex {
      * @returns the corresponding AST node, or undefined if not found
      */
     getAstNode(node: GModelElement): AstNode | undefined {
-        const normalizedId = this.normalizeId(node.id);
-        return this.idToAstNode.get(normalizedId);
+        return this.getAstNodeById(node.id);
+    }
+
+    /**
+     * Gets the AST node behind an element id, which need not belong to an element of the
+     * current graph model: any id the model id registry assigned to the node, or one derived
+     * from it, finds it.
+     *
+     * @param id the element id
+     * @returns the corresponding AST node, or undefined if not found
+     */
+    getAstNodeById(id: string): AstNode | undefined {
+        return this.idToAstNode.get(this.normalizeId(id));
     }
 
     /**

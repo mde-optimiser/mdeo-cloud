@@ -23,6 +23,11 @@ data class RebalanceTransfer(
  * each model may be used in more than one transformation (i.e., selected as a parent
  * multiple times per generation), so the actual transformation counts per node from the
  * last generation are used together with solution counts to pick which solutions to move.
+ *
+ * Only population members are balanced: the references it is given are the coordinator's
+ * tracked ones, which never include the replicas a crossover batch copies to other nodes
+ * ([com.mdeo.optimizer.evaluation.NodeBatch.replicas]). Those exist for one batch only and are
+ * neither counted nor moved.
  */
 object PopulationRebalancer {
 

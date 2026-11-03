@@ -60,7 +60,8 @@ class FileFunctionRegistry(
             parameters = parameters,
             returnType = ast.types[func.returnType],
             ownerClass = ownerClass,
-            jvmMethodName = jvmMethodName
+            jvmMethodName = jvmMethodName,
+            hasDefaults = func.parameters.any { it.defaultValue != null }
         )
 
         localFunctions[func.name] = definition
@@ -156,6 +157,11 @@ class FileFunctionRegistry(
                 for (func in ast.functions) {
                     val jvmName = fileLookup[func.name] ?: func.name
                     linkedRegistry.registerLocalFunction(func, ast, ownerClassName, jvmName)
+                }
+
+                for (record in ast.records) {
+                    val jvmName = fileLookup[record.name] ?: record.name
+                    linkedRegistry.registerLocalFunction(record.toConstructor(), ast, ownerClassName, jvmName)
                 }
 
                 for (import in ast.imports) {

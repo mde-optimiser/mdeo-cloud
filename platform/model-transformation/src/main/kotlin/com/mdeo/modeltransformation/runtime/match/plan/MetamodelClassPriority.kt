@@ -1,6 +1,7 @@
 package com.mdeo.modeltransformation.runtime.match.plan
 
 import com.mdeo.metamodel.data.MetamodelData
+import java.util.Collections
 
 /**
  * Builds a pseudo-composition DAG from the metamodel, used to derive per-instance
@@ -13,6 +14,18 @@ import com.mdeo.metamodel.data.MetamodelData
 internal object MetamodelClassPriority {
 
     private const val CONTAINMENT_OPERATOR = "<>->"
+
+    private val dagMemo = MetamodelMemo { Collections.unmodifiableSet(computePseudoCompositionDag(it)) }
+
+    /**
+     * Returns [computePseudoCompositionDag] of [metamodelData], computed once per metamodel.
+     *
+     * The DAG depends only on the metamodel, but the planner needs it for every match plan; on a
+     * metamodel of a few dozen classes and associations computing it took over a millisecond,
+     * more than many matches themselves. See [MetamodelMemo] for why the cache never needs
+     * invalidating. The returned set is unmodifiable, since every caller shares it.
+     */
+    fun pseudoCompositionDag(metamodelData: MetamodelData): Set<Pair<String, String>> = dagMemo[metamodelData]
 
     /**
      * Builds a cycle-free directed pseudo-composition DAG from the metamodel.

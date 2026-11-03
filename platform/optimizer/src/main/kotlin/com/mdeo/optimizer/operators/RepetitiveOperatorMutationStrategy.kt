@@ -107,6 +107,15 @@ class RepetitiveOperatorMutationStrategy(
             operatorSelectionStrategy.flushTriedOperators()
         }
 
+        // An attempt that failed after changing the graph leaves it half-done. When it was the
+        // last one, the result is the last clean state: the child's own after an applied
+        // operator, otherwise a copy of the parent's.
+        if (copyNeededBeforeNextAttempt && solution.modelGraph !== cleanGraph) {
+            val dirtyGraph = solution.modelGraph
+            solution.modelGraph = if (anyOperatorApplied) cleanGraph else cleanGraph.deepCopy()
+            dirtyGraph.close()
+        }
+
         solution.lastMutationAttempts = attemptCount
         solution.lastSkipCount = skipCount
         solution.recordTransformationStep(stepTransformations)

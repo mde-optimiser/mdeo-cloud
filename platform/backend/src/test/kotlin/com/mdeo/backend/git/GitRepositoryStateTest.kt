@@ -13,6 +13,7 @@ import org.jetbrains.exposed.v1.jdbc.*
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.testcontainers.junit.jupiter.Container
 import org.testcontainers.junit.jupiter.Testcontainers
+import org.testcontainers.postgresql.PostgreSQLContainer
 import org.testcontainers.utility.DockerImageName
 import java.time.Instant
 import java.util.UUID
@@ -38,7 +39,7 @@ import kotlin.uuid.toKotlinUuid
 class GitRepositoryStateTest {
 
     @Container
-    private val postgres = KPostgreSQLContainer(DockerImageName.parse("postgres:17-alpine"))
+    private val postgres = PostgreSQLContainer(DockerImageName.parse("postgres:17-alpine"))
 
     private lateinit var fileService: FileService
     private lateinit var gitRepositoryService: GitRepositoryService

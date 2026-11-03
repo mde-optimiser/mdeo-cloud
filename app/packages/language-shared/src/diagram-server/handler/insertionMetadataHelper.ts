@@ -41,6 +41,9 @@ export interface InsertedElementMetadata {
  * @param insertions The insert specifications describing what is being added
  * @param insertedElements Metadata descriptors for each newly inserted element
  * @param currentMetadata The current graph metadata (for id change renames)
+ * @param mapId Maps the id of an inserted element (and of the endpoints of an inserted edge) to
+ *        the id its metadata is stored under, e.g. the id the element has in the diagram that
+ *        is currently shown. Ids are used unchanged when omitted.
  * @returns Complete metadata edits, or `undefined` if no metadata changes are needed
  */
 export function computeInsertionMetadata(
@@ -48,9 +51,14 @@ export function computeInsertionMetadata(
     idProvider: ModelIdProvider,
     insertions: InsertSpecification[],
     insertedElements: InsertedElementMetadata[],
-    currentMetadata: GraphMetadata
+    currentMetadata: GraphMetadata,
+    mapId: (id: string) => string = (id) => id
 ): MetadataEdits | undefined {
-    const { insertedIds, idChanges, resolveId } = computeInsertIds(rootNode, idProvider, insertions);
+    const { insertedIds, idChanges, resolveId: resolveInsertedId } = computeInsertIds(rootNode, idProvider, insertions);
+    const resolveId = (node: AstNode): string | undefined => {
+        const resolved = resolveInsertedId(node);
+        return resolved != undefined ? mapId(resolved) : undefined;
+    };
 
     const renameEdits = buildIdChangeMetadataEdits(idChanges, currentMetadata);
 
@@ -58,10 +66,11 @@ export function computeInsertionMetadata(
     const edgeEdits: Record<string, Partial<EdgeMetadata>> = {};
 
     for (const desc of insertedElements) {
-        const id = insertedIds.get(desc.element);
-        if (id == undefined) {
+        const insertedId = insertedIds.get(desc.element);
+        if (insertedId == undefined) {
             continue;
         }
+        const id = mapId(insertedId);
 
         if (desc.node != undefined) {
             nodeEdits[id] = {

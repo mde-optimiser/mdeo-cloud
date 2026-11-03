@@ -1,7 +1,7 @@
 import { Settings2 } from "lucide";
 import { convertIcon } from "@mdeo/language-common";
 import type { ExternalReferenceAdditionalServices } from "@mdeo/language-common";
-import { CONFIG_PLUGIN_REQUEST_KEY } from "@mdeo/service-config-common";
+import { CONFIG_DIAGNOSTICS_REQUEST_KEY, CONFIG_PLUGIN_REQUEST_KEY } from "@mdeo/service-config-common";
 import {
     parseServiceConfigFromEnv,
     type ServiceConfig,
@@ -39,7 +39,8 @@ initializePluginContext();
 
 const { configOptimizationPluginProvider, createOptimizationContributionPlugin } =
     await import("@mdeo/language-config-optimization");
-const { optimizationRequestHandler } = await import("./handler/optimizationRequestHandler.js");
+const { optimizationRequestHandler, optimizationDiagnosticsRequestHandler } =
+    await import("./handler/optimizationRequestHandler.js");
 
 /**
  * Plugin definition for the config-optimization service.
@@ -84,7 +85,8 @@ const configOptimizationLanguageConfig: LanguageServiceConfig<ExternalReferenceA
         [AST_HANDLER_KEY]: astHandler
     },
     requestHandlers: {
-        [CONFIG_PLUGIN_REQUEST_KEY]: optimizationRequestHandler
+        [CONFIG_PLUGIN_REQUEST_KEY]: optimizationRequestHandler,
+        [CONFIG_DIAGNOSTICS_REQUEST_KEY]: optimizationDiagnosticsRequestHandler
     }
 };
 

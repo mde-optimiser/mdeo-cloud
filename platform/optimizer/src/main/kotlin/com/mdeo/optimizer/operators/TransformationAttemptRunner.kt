@@ -1,6 +1,7 @@
 package com.mdeo.optimizer.operators
 
 import com.mdeo.modeltransformation.ast.TransformationOperator
+import com.mdeo.modeltransformation.runtime.ModelArgument
 import com.mdeo.modeltransformation.runtime.TransformationEngine
 import com.mdeo.modeltransformation.runtime.TransformationExecutionResult
 import com.mdeo.optimizer.solution.Solution
@@ -47,22 +48,34 @@ class TransformationAttemptRunner {
      * Attempts to apply the given [operator] to the solution's model graph.
      *
      * Creates a [TransformationEngine] in non-deterministic mode and runs the
-     * compiled transformation AST against the solution's model graph. On success
-     * the graph is modified in place; on failure the graph may have been partially
-     * modified (see [TransformationAttemptResult.Failure.changesWereMade]).
+     * compiled transformation AST against the solution's model graph, with the operator's
+     * [TransformationOperator.arguments] bound to its inputs and [models] (the donors of a
+     * crossover) to its model inputs. On success the graph is modified in place; on failure
+     * the graph may have been partially modified (see
+     * [TransformationAttemptResult.Failure.changesWereMade]). Model inputs never remain in the
+     * graph after the attempt, whatever its outcome.
      *
      * @param solution The candidate solution (model graph modified in place on success).
      * @param operator The compiled [TransformationOperator] to apply.
+     * @param models The models of the operator's model inputs, by input name; empty for a mutation.
      * @return [TransformationAttemptResult.Applied] on success, or
      *   [TransformationAttemptResult.Failure] with [TransformationAttemptResult.Failure.isDeterministic]
      *   set accordingly.
      */
-    fun tryApply(solution: Solution, operator: TransformationOperator): TransformationAttemptResult {
+    fun tryApply(
+        solution: Solution,
+        operator: TransformationOperator,
+        models: Map<String, ModelArgument> = emptyMap()
+    ): TransformationAttemptResult {
         return try {
             val engine = TransformationEngine.create(
                 solution.modelGraph, operator.ast, deterministic = false
             )
-            val result = engine.execute()
+            val result = if (operator.arguments.isEmpty() && models.isEmpty()) {
+                engine.execute()
+            } else {
+                engine.execute(operator.arguments, models)
+            }
 
             when (result) {
                 is TransformationExecutionResult.Success -> TransformationAttemptResult.Applied

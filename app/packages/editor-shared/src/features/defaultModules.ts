@@ -24,6 +24,7 @@ import { decorationModule } from "./decoration/featureModule.js";
 import { editorSettingsModule } from "./editor-settings/editorSettingsModule.js";
 import { toolStateModule } from "./tool-state/featureModule.js";
 import { copyPasteModule } from "./copy-paste/featureModule.js";
+import { choiceDialogModule } from "./choice-dialog/featureModule.js";
 import { sharedImport } from "../sharedImport.js";
 
 const { standaloneCopyPasteModule, standaloneSelectModule } = sharedImport("@eclipse-glsp/client");
@@ -59,6 +60,7 @@ export const DEFAULT_MODULES = [
     decorationModule,
     toolStateModule,
     copyPasteModule,
+    choiceDialogModule,
     standaloneCopyPasteModule,
     standaloneSelectModule
 ];

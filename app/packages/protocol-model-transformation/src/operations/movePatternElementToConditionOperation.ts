@@ -4,8 +4,9 @@ import type { Operation } from "@eclipse-glsp/protocol";
  * Identifier of the destination of a {@link MovePatternElementToConditionOperation}.
  *
  * Either the reserved value {@link MAIN_PATTERN_TARGET}, one of the reserved values for
- * creating a new block, or the index of an existing condition block within its pattern,
- * as a string.
+ * creating a new block, the index of an existing condition block within its pattern, as a
+ * string, or a model scope block destination ({@link MODEL_BLOCK_TARGET_PREFIX},
+ * {@link NEW_MODEL_BLOCK_TARGET_PREFIX}).
  */
 export type MoveConditionTarget = string;
 
@@ -23,6 +24,18 @@ export const NEW_FORBID_TARGET = "new-forbid";
  * Destination value creating a new `require` block for the moved elements.
  */
 export const NEW_REQUIRE_TARGET = "new-require";
+
+/**
+ * Prefix of a destination naming an existing model scope block (`in donor { … }`) of the
+ * pattern: followed by the block's index among the pattern's scope blocks, e.g. `in:0`.
+ */
+export const MODEL_BLOCK_TARGET_PREFIX = "in:";
+
+/**
+ * Prefix of a destination creating a new model scope block for the moved elements: followed by
+ * the name of the model value, e.g. `in-new:donor`.
+ */
+export const NEW_MODEL_BLOCK_TARGET_PREFIX = "in-new:";
 
 /**
  * Operation moving a pattern element — together with everything connected to it — into

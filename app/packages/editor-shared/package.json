@@ -33,14 +33,14 @@
         "@mdeo/editor-common": "^0.2.11"
     },
     "devDependencies": {
-        "@eclipse-glsp/client": "^2.7.0",
-        "@eclipse-glsp/protocol": "^2.7.0",
-        "@eclipse-glsp/sprotty": "^2.7.0",
+        "@eclipse-glsp/client": "^2.8.0",
+        "@eclipse-glsp/protocol": "^2.8.0",
+        "@eclipse-glsp/sprotty": "^2.8.0",
         "@mdeo/protocol-common": "^0.2.11",
         "inversify": "^6.2.2",
-        "lucide": "^1.31.0",
+        "lucide": "^1.63.0",
         "minisearch": "^7.2.0",
         "snabbdom": "~3.5.1",
-        "vscode-languageserver-types": "~3.17.5"
+        "vscode-languageserver-types": "3.18.4"
     }
 }

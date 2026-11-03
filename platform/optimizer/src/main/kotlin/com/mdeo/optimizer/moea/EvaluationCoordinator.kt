@@ -1,5 +1,6 @@
 package com.mdeo.optimizer.moea
 
+import com.mdeo.optimizer.evaluation.CrossoverTask
 import com.mdeo.optimizer.evaluation.EvaluationFailedException
 import com.mdeo.optimizer.evaluation.EvaluationResult
 import com.mdeo.optimizer.evaluation.EvaluationTask
@@ -8,6 +9,7 @@ import com.mdeo.optimizer.evaluation.MutationTask
 import com.mdeo.optimizer.evaluation.NodeBatch
 import com.mdeo.optimizer.evaluation.ResultStatus
 import com.mdeo.optimizer.evaluation.WorkerSolutionRef
+import com.mdeo.optimizer.metrics.CrossoverGenerationMetrics
 import kotlinx.coroutines.runBlocking
 import org.moeaframework.core.Solution
 import org.moeaframework.core.population.Population
@@ -33,13 +35,24 @@ data class LastTransformationInfo(
  * [MutationEvaluator] contract, managing solution references and lifecycle.
  *
  * Each evaluation batch is handled uniformly: solutions marked with
- * [DelegatingVariation.NEEDS_MUTATION_KEY] produce [MutationTask]s, while
+ * [DelegatingVariation.NEEDS_MUTATION_KEY] produce [MutationTask]s, or [CrossoverTask]s when
+ * they come from a [DelegatingCrossoverVariation] group that attempts a crossover, while
  * uninitialized solutions (no [WorkerSolutionRef]) are created via
  * [MutationEvaluator.initialize] and then evaluated via [EvaluationTask]s.
- * Both task types are bundled into [NodeBatch]es per worker so that all
+ * All task types are bundled into [NodeBatch]es per worker so that all
  * fitness evaluation—including initial population—benefits from the same
  * timeout protection and lifecycle mechanisms. Coroutine calls are bridged
  * with [runBlocking] because MOEA Framework invokes callbacks synchronously.
+ *
+ * Every offspring task has a task id, and its result is matched to the offspring by that id: one
+ * parent can be the parent of several offspring of one batch (selected several times, or the
+ * primary of one child and a donor of another), so its id identifies no offspring.
+ *
+ * A crossover task runs on its primary parent's node. Donors living on other nodes are
+ * replicated there for the batch ([MutationEvaluator.replicateSolutions]) and listed in that
+ * node's [NodeBatch.replicas], which the node drops after the batch. Replicas are never added to
+ * the tracked references, so [PopulationRebalancer] never sees them and they are never discarded
+ * through the population lifecycle. A single-node run never replicates.
  *
  * @param evaluator The mutation evaluator that performs the actual work (local or federated).
  */
@@ -67,6 +80,16 @@ class EvaluationCoordinator(
     private var lastSkippedOperatorSlots = 0
     private var lastAppliedPerNode: Map<String, Int> = emptyMap()
     private var lastSkippedPerNode: Map<String, Int> = emptyMap()
+    private var lastCrossover = CrossoverGenerationMetrics()
+    private var lastReplicatedCount = 0
+
+    /**
+     * The number of batches dispatched so far. A step of an algorithm that dispatched no batch
+     * (a steady-state step that inserts an offspring evaluated earlier) leaves it unchanged, so
+     * that per-generation metrics do not count the previous batch twice.
+     */
+    var batchCount: Int = 0
+        private set
 
     /**
      * Identifies solutions removed from the population since the last iteration,
@@ -159,6 +182,8 @@ class EvaluationCoordinator(
         lastSkippedOperatorSlots = 0
         lastAppliedPerNode = emptyMap()
         lastSkippedPerNode = emptyMap()
+        lastCrossover = CrossoverGenerationMetrics()
+        lastReplicatedCount = 0
     }
 
     /**
@@ -198,16 +223,31 @@ class EvaluationCoordinator(
     fun getLastRebalancedCount(): Int = lastRebalancedCount
 
     /**
+     * Returns the crossovers of the last batch.
+     *
+     * @return Crossovers attempted, succeeded and fallen back to copies, and per-operator successes.
+     */
+    fun getLastCrossoverInfo(): CrossoverGenerationMetrics = lastCrossover
+
+    /**
+     * Returns the number of donor copies made for the last batch ([NodeBatch.replicas]).
+     *
+     * @return The number of replicas; zero for a single node.
+     */
+    fun getLastReplicatedCount(): Int = lastReplicatedCount
+
+    /**
      * Unified evaluation handler that processes both initialization and generation
      * solutions in a single dispatch to [MutationEvaluator.executeNodeBatches].
      *
      * Solutions are partitioned into two groups:
-     * - **Mutation solutions**: offspring from [DelegatingVariation] with
-     *   [DelegatingVariation.NEEDS_MUTATION_KEY] set — these produce [MutationTask]s.
+     * - **Offspring**: from [DelegatingVariation] or [DelegatingCrossoverVariation], with
+     *   [DelegatingVariation.NEEDS_MUTATION_KEY] set — these produce [MutationTask]s, or
+     *   [CrossoverTask]s for the children of a group that attempts a crossover.
      * - **Uninitialized solutions**: solutions without a [WorkerSolutionRef] — these are
      *   created via [MutationEvaluator.initialize] and then evaluated via [EvaluationTask]s.
      *
-     * Both task types are dispatched together, ensuring that all fitness evaluation
+     * All task types are dispatched together, ensuring that all fitness evaluation
      * (including initial population) benefits from the same timeout protection and
      * lifecycle mechanisms as generation mutations.
      *
@@ -215,12 +255,12 @@ class EvaluationCoordinator(
      */
     private fun handleEvaluation(solutions: List<Solution>) {
         val uninitializedSolutions = mutableListOf<Solution>()
-        val mutationSolutions = mutableListOf<Solution>()
+        val offspringSolutions = mutableListOf<Solution>()
 
         for (solution in solutions) {
             val needsMutation = solution.getAttribute(DelegatingVariation.NEEDS_MUTATION_KEY) == true
             if (needsMutation) {
-                mutationSolutions.add(solution)
+                offspringSolutions.add(solution)
             } else {
                 uninitializedSolutions.add(solution)
             }
@@ -251,7 +291,7 @@ class EvaluationCoordinator(
             }
         }
 
-        val mutationTasks = buildMutationTasks(mutationSolutions)
+        val offspringTasks = buildOffspringTasks(offspringSolutions)
 
         val rebalancePlan = pendingRebalancePlan
         pendingRebalancePlan = emptyList()
@@ -262,13 +302,27 @@ class EvaluationCoordinator(
         // current batch (no deferral needed because the push has already delivered the data).
         val rebalanceDiscardsByNode = runBlocking { evaluator.pushRebalanceSolutions(rebalancePlan) }
 
+        // Donors of crossover tasks on other nodes are copied to the primary's node for this
+        // batch; the destination drops them afterwards. Planned against the references of this
+        // batch: during it every solution is still where the population says (a rebalanced one
+        // leaves its source only after the batch).
+        val replication = planReplication(offspringTasks.crossoverTasks, rebalancePlan)
+        if (replication.isNotEmpty()) {
+            runBlocking { evaluator.replicateSolutions(replication) }
+        }
+        val replicasByNode = replication.groupBy({ it.destinationNodeId }, { it.solutionIds })
+            .mapValues { (_, ids) -> ids.flatten() }
+
         val discards = pendingDiscards.toList()
         pendingDiscards.clear()
 
         val allDiscards = discards +
             rebalanceDiscardsByNode.entries.flatMap { (nodeId, ids) -> ids.map { WorkerSolutionRef(nodeId, it) } }
 
-        val batches = buildNodeBatches(mutationTasks, evaluationTasks, allDiscards)
+        val batches = buildNodeBatches(
+            offspringTasks.mutationTasks, evaluationTasks, allDiscards,
+            offspringTasks.crossoverTasks, replicasByNode
+        )
         val results = runBlocking { evaluator.executeNodeBatches(batches) }
 
         val evaluationFailure = results.firstOrNull { it.status == ResultStatus.HARD_FAILURE }
@@ -282,13 +336,17 @@ class EvaluationCoordinator(
         val populationBySolutionId = buildPopulationLookup()
         applyRebalanceUpdates(rebalancePlan, populationBySolutionId)
 
-        val mutationResultsByParent = mutableMapOf<String, MutableList<EvaluationResult>>()
+        val offspringResultsByTask = mutableMapOf<String, EvaluationResult>()
+        // Results of an evaluator that does not echo task ids, matched by parent as before them.
+        val untaggedResultsByParent = mutableMapOf<String, MutableList<EvaluationResult>>()
         val evalResultsBySolution = mutableMapOf<String, EvaluationResult>()
         for (result in results) {
-            if (result.parentSolutionId == result.newSolutionId) {
+            if (result.taskId.isNotEmpty()) {
+                offspringResultsByTask[result.taskId] = result
+            } else if (result.parentSolutionId == result.newSolutionId) {
                 evalResultsBySolution[result.parentSolutionId] = result
             } else {
-                mutationResultsByParent.getOrPut(result.parentSolutionId) { mutableListOf() }.add(result)
+                untaggedResultsByParent.getOrPut(result.parentSolutionId) { mutableListOf() }.add(result)
             }
         }
 
@@ -302,10 +360,10 @@ class EvaluationCoordinator(
             }
         }
 
-        for (solution in mutationSolutions) {
-            val parentRef = solution.getAttribute(DelegatingVariation.PARENT_REF_KEY) as? WorkerSolutionRef
-            val resultQueue = parentRef?.let { mutationResultsByParent[it.solutionId] }
-            val result = resultQueue?.removeFirstOrNull()
+        for (solution in offspringSolutions) {
+            val result = offspringTasks.taskIdBySolution[solution]?.let { offspringResultsByTask[it] }
+                ?: (solution.getAttribute(DelegatingVariation.PARENT_REF_KEY) as? WorkerSolutionRef)
+                    ?.let { untaggedResultsByParent[it.solutionId]?.removeFirstOrNull() }
             if (result != null && result.status == ResultStatus.SUCCESS) {
                 val newRef = WorkerSolutionRef(nodeId = result.workerNodeId, solutionId = result.newSolutionId)
                 applyFitness(solution, result.objectives, result.constraints)
@@ -316,47 +374,128 @@ class EvaluationCoordinator(
             }
         }
 
+        batchCount++
         lastBatchSize = results.size
         lastBatchPerNode = results.filter { it.status == ResultStatus.SUCCESS }.groupBy { it.workerNodeId }.mapValues { it.value.size }
         lastRebalancedCount = rebalancePlan.sumOf { it.solutionIds.size }
+        lastReplicatedCount = replication.sumOf { it.solutionIds.size }
         lastAppliedTransformations = results.sumOf { it.executedTransformations }
         lastSkippedOperatorSlots = results.sumOf { it.skippedOperatorSlots }
         lastAppliedPerNode = results.groupBy { it.workerNodeId }.mapValues { entry -> entry.value.sumOf { it.executedTransformations } }
         lastSkippedPerNode = results.groupBy { it.workerNodeId }.mapValues { entry -> entry.value.sumOf { it.skippedOperatorSlots } }
+        lastCrossover = crossoverMetrics(results)
     }
 
     /**
-     * Extracts [MutationTask]s from the offspring solutions, using their stored parent refs.
-     * Solutions missing a parent ref are skipped with a warning.
+     * The tasks of a batch's offspring and the task id of each offspring.
+     *
+     * @param mutationTasks Tasks of mutation offspring and of crossover children whose group
+     *   attempts no crossover.
+     * @param crossoverTasks Tasks of crossover children whose group attempts a crossover.
+     * @param taskIdBySolution The task id of every offspring that got a task (by identity).
+     */
+    private class OffspringTasks(
+        val mutationTasks: List<MutationTask>,
+        val crossoverTasks: List<CrossoverTask>,
+        val taskIdBySolution: java.util.IdentityHashMap<Solution, String>
+    )
+
+    /**
+     * Builds one task per offspring from its attributes: a [CrossoverTask] for a child of a
+     * [DelegatingCrossoverVariation] group that attempts a crossover, a [MutationTask] of the
+     * primary (or only) parent otherwise. A child whose group attempts no crossover is thereby
+     * exactly a mutation offspring. Offspring without a parent reference are skipped with a
+     * warning (and penalised).
      *
      * @param solutions Offspring solutions produced by the variation operator.
-     * @return One [MutationTask] per solution that has a valid parent ref.
+     * @return The tasks and the task id of each offspring.
      */
-    private fun buildMutationTasks(solutions: List<Solution>): List<MutationTask> {
-        return solutions.mapNotNull { solution ->
+    private fun buildOffspringTasks(solutions: List<Solution>): OffspringTasks {
+        val mutationTasks = mutableListOf<MutationTask>()
+        val crossoverTasks = mutableListOf<CrossoverTask>()
+        val taskIds = java.util.IdentityHashMap<Solution, String>()
+        for (solution in solutions) {
             val parentRef = solution.getAttribute(DelegatingVariation.PARENT_REF_KEY) as? WorkerSolutionRef
-            if (parentRef != null) {
-                MutationTask(solutionId = parentRef.solutionId, workerNodeId = parentRef.nodeId)
-            } else {
+            if (parentRef == null) {
                 logger.warn("Solution missing parent reference during generation phase")
-                null
+                continue
+            }
+            @Suppress("UNCHECKED_CAST")
+            val donors = solution.getAttribute(DelegatingCrossoverVariation.DONOR_REFS_KEY) as? List<WorkerSolutionRef>
+            val attempt = solution.getAttribute(DelegatingCrossoverVariation.ATTEMPT_CROSSOVER_KEY) == true
+            if (donors != null && attempt) {
+                val task = CrossoverTask(newTaskId(), parentRef, donors.toList(), attemptCrossover = true)
+                crossoverTasks.add(task)
+                taskIds[solution] = task.taskId
+            } else {
+                val task = MutationTask(solutionId = parentRef.solutionId, workerNodeId = parentRef.nodeId, taskId = newTaskId())
+                mutationTasks.add(task)
+                taskIds[solution] = task.taskId
             }
         }
+        return OffspringTasks(mutationTasks, crossoverTasks, taskIds)
     }
 
     /**
-     * Assembles one [NodeBatch] per worker node, combining mutation tasks, evaluation tasks,
-     * and all pending discards.
+     * Plans the donor copies a batch needs: every donor of a [CrossoverTask] that is not on the
+     * task's node, once per destination node. A donor the [rebalancePlan] moves to that very node
+     * in this batch is not copied: it arrives there anyway and stays.
+     *
+     * @param tasks The batch's crossover tasks.
+     * @param rebalancePlan The batch's rebalancing transfers.
+     * @return One transfer per (source, destination) pair, in replicate mode.
+     */
+    private fun planReplication(
+        tasks: List<CrossoverTask>,
+        rebalancePlan: List<RebalanceTransfer>
+    ): List<RebalanceTransfer> {
+        if (tasks.isEmpty()) return emptyList()
+        val relocated = rebalancePlan.flatMap { transfer -> transfer.solutionIds.map { it to transfer.destinationNodeId } }.toSet()
+        val copies = linkedMapOf<Pair<String, String>, LinkedHashSet<String>>()
+        for (task in tasks) {
+            val destination = task.workerNodeId
+            for (donor in task.donors) {
+                if (donor.nodeId == destination || (donor.solutionId to destination) in relocated) continue
+                copies.getOrPut(donor.nodeId to destination) { linkedSetOf() }.add(donor.solutionId)
+            }
+        }
+        return copies.map { (nodes, ids) -> RebalanceTransfer(ids.toList(), nodes.first, nodes.second) }
+    }
+
+    /**
+     * Counts the crossovers of a batch's results, per child.
+     */
+    private fun crossoverMetrics(results: List<EvaluationResult>): CrossoverGenerationMetrics {
+        val attempted = results.filter { it.crossoverAttempted }
+        if (attempted.isEmpty()) return CrossoverGenerationMetrics()
+        val applied = attempted.mapNotNull { it.crossoverOperator }
+        return CrossoverGenerationMetrics(
+            attempted = attempted.size,
+            succeeded = applied.size,
+            fellBack = attempted.size - applied.size,
+            perOperator = applied.groupingBy { it }.eachCount().toSortedMap()
+        )
+    }
+
+    private fun newTaskId(): String = java.util.UUID.randomUUID().toString()
+
+    /**
+     * Assembles one [NodeBatch] per worker node, combining mutation, crossover and evaluation
+     * tasks, the replicas copied to the node for this batch, and all pending discards.
      *
      * @param mutationTasks Tasks to dispatch this generation.
      * @param evaluationTasks Evaluation-only tasks (e.g. initial population fitness evaluation).
      * @param discards All discards for this generation (regular + rebalance-source).
+     * @param crossoverTasks Crossover tasks, each dispatched to its primary's node.
+     * @param replicasByNode Donor copies made for this batch, by destination node.
      * @return One [NodeBatch] per node in [MutationEvaluator.getNodeIds].
      */
     private fun buildNodeBatches(
         mutationTasks: List<MutationTask>,
         evaluationTasks: List<EvaluationTask>,
-        discards: List<WorkerSolutionRef>
+        discards: List<WorkerSolutionRef>,
+        crossoverTasks: List<CrossoverTask> = emptyList(),
+        replicasByNode: Map<String, List<String>> = emptyMap()
     ): List<NodeBatch> {
         val discardsByNode = discards.groupBy({ it.nodeId }, { it.solutionId })
         return evaluator.getNodeIds().map { nodeId ->
@@ -364,7 +503,9 @@ class EvaluationCoordinator(
                 nodeId = nodeId,
                 tasks = mutationTasks.filter { it.workerNodeId == nodeId },
                 evaluationTasks = evaluationTasks.filter { it.workerNodeId == nodeId },
-                discards = discardsByNode[nodeId] ?: emptyList()
+                discards = discardsByNode[nodeId] ?: emptyList(),
+                crossoverTasks = crossoverTasks.filter { it.workerNodeId == nodeId },
+                replicas = replicasByNode[nodeId] ?: emptyList()
             )
         }
     }

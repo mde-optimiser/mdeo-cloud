@@ -58,7 +58,8 @@ data class ResolvedPlugin(
  * @property languageId The language ID that this contribution plugin is associated with
  * @property description Brief description of what this contribution plugin provides
  * @property additionalKeywords Optional array of additional keywords that this contribution plugin introduces
- * @property serverContributionPlugins Server contribution plugins as arbitrary JSON objects
+ * @property serverContributionPlugins Server contribution plugins as arbitrary JSON objects.
+ *            Each payload carries its own `id` and, when it declares any, its `sessions`.
  */
 @Serializable
 data class BackendContributionPlugin(
@@ -197,13 +198,17 @@ data class FileSource(
  *
  * @property project Project ID the file/directory belongs to
  * @property source Source data (version, content, and path), only present for files, absent for directories
- * @property contributionPlugins Server contribution plugins associated with this language
+ * @property contributionPlugins Server contribution plugins associated with this language; left out
+ *           when the service is sent [contributionHash] alone
+ * @property contributionHash Identifies [contributionPlugins]. A service that already holds the set
+ *           under this hash is sent the hash alone, see `ContributionDelivery` in the backend.
  */
 @Serializable
 data class FileDataComputeRequest(
     val project: String,
     val source: FileSource? = null,
-    val contributionPlugins: List<JsonObject> = emptyList()
+    val contributionPlugins: List<JsonObject>? = null,
+    val contributionHash: String? = null
 )
 
 /**
@@ -281,26 +286,31 @@ data class FileDataResponse(
 )
 
 /**
- * Request payload for language plugin requests.
+ * Request payload for one-shot plugin requests.
  * This is a general request mechanism that forwards the body to the plugin.
  *
  * @property project Project ID the request belongs to
  * @property body Arbitrary JSON body to be forwarded to the plugin
- * @property contributionPlugins Server contribution plugins associated with this language
+ * @property contributionPlugins Server contribution plugins of the addressed language; left out
+ *           when the service is sent [contributionHash] alone, and always absent on a request
+ *           addressed at a contribution, which is served by the plugin that ships it
+ * @property contributionHash Identifies [contributionPlugins]. A service that already holds the set
+ *           under this hash is sent the hash alone, see `ContributionDelivery` in the backend.
  */
 @Serializable
-data class LanguagePluginRequest(
+data class PluginRequest(
     val project: String,
     val body: JsonElement,
-    val contributionPlugins: List<JsonObject> = emptyList()
+    val contributionPlugins: List<JsonObject>? = null,
+    val contributionHash: String? = null
 )
 
 /**
- * Response from language plugin request.
+ * Response from a one-shot plugin request.
  *
  * @property data Response data as JSON
  */
 @Serializable
-data class LanguagePluginResponse(
+data class PluginResponse(
     val data: JsonElement
 )

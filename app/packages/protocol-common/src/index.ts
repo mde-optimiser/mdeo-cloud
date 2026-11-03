@@ -16,3 +16,4 @@ export * from "./operations/triggerActionOperation.js";
 export * from "./operations/updateRoutingInformationOperation.js";
 export * from "./createEdgeSchema.js";
 export * from "./metadataTypes.js";
+export * from "./edgeLabelGeometry.js";

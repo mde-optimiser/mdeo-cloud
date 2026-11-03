@@ -14,6 +14,16 @@ import { createJsonrpcGLSPClient } from "../protocol/glsp.js";
 import type { MessageConnection } from "vscode-jsonrpc";
 
 /**
+ * The message connection type of the GLSP server's own vscode-jsonrpc copy.
+ *
+ * GLSP pins vscode-jsonrpc 8.2.0 while Langium's language server runs on 9.x, so the two
+ * MessageConnection types differ only in their private declarations. At runtime GLSP is always
+ * handed the Langium connection, and every message type sent over it is created from the plugin
+ * context's vscode-jsonrpc (see createJsonrpcGLSPClient), so both sides of a call use the same copy.
+ */
+type GLSPMessageConnection = JsonRpcServerInstance["clientConnection"];
+
+/**
  * Additional services provided by GLSP integration in Langium shared services.
  */
 export interface GLSPSharedAdditionalServices {
@@ -116,7 +126,8 @@ function createLauncher(services: LangiumSharedGLSPServices, context: PluginCont
      */
     class CustomJsonRPCClientProxy extends JsonrpcClientProxy {
         override process(message: ActionMessage): void {
-            this.clientConnection?.sendNotification(JsonrpcGLSPClient.ActionMessageNotification, message);
+            const clientConnection = this.clientConnection as MessageConnection | undefined;
+            clientConnection?.sendNotification(JsonrpcGLSPClient.ActionMessageNotification, message);
         }
     }
 
@@ -136,7 +147,7 @@ function createLauncher(services: LangiumSharedGLSPServices, context: PluginCont
          */
         protected override run(startParams: CustomGLSPServerLauncherOptions): MaybePromise<void> {
             const connection = startParams.connection;
-            this.createServerInstance(connection);
+            this.createServerInstance(connection as unknown as GLSPMessageConnection);
         }
 
         /**
@@ -146,7 +157,7 @@ function createLauncher(services: LangiumSharedGLSPServices, context: PluginCont
          * @param serverInstance The server instance containing the connection and server
          */
         protected override configureClientConnection(serverInstance: JsonRpcServerInstance): void {
-            const clientConnection = serverInstance.clientConnection;
+            const clientConnection = serverInstance.clientConnection as unknown as MessageConnection;
             const server = serverInstance.server;
 
             clientConnection.onRequest(JsonrpcGLSPClient.InitializeRequest.method, (params) =>
@@ -163,7 +174,7 @@ function createLauncher(services: LangiumSharedGLSPServices, context: PluginCont
             });
         }
 
-        protected override createJsonRpcModule(clientConnection: MessageConnection): ContainerModule {
+        protected override createJsonRpcModule(clientConnection: GLSPMessageConnection): ContainerModule {
             return new ContainerModule((bind) => {
                 bind(GLSPClientProxy).toDynamicValue((ctx) => {
                     const proxy = ctx.container.resolve(CustomJsonRPCClientProxy);

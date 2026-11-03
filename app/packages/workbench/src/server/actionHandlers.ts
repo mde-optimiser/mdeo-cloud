@@ -1,4 +1,4 @@
-import type { Connection } from "vscode-languageserver/browser.js";
+import type { Connection } from "vscode-languageserver/browser";
 import type { LangiumSharedCoreServices, LangiumCoreServices } from "langium";
 import { createActionProtocol, getServicesByLanguageId } from "@mdeo/language-common";
 import type { ActionHandlerRegistryAdditionalServices } from "@mdeo/language-shared";

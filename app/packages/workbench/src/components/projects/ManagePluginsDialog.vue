@@ -62,7 +62,7 @@
     </AlertDialog>
 </template>
 <script setup lang="ts">
-import { ref, computed, inject, watch } from "vue";
+import { ref, shallowRef, computed, inject, watch } from "vue";
 import { Plus, Trash2, Check } from "@lucide/vue";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -99,7 +99,7 @@ const { backendApi, plugins: installedPlugins } = inject(workbenchStateKey)!;
 const selectedPluginId = ref<string | null>(null);
 const isProcessing = ref(false);
 const isRemoveDialogOpen = ref(false);
-const allPlugins = ref<Plugin[]>([]);
+const allPlugins = shallowRef<Plugin[]>([]);
 
 const selectedPlugin = computed(() => {
     if (selectedPluginId.value == undefined) {

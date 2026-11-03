@@ -102,6 +102,11 @@ const modelTransformationLanguagePlugin: LanguagePlugin = {
             ...defaultMonarchTokenProvider,
             keywords: [
                 "using",
+                "import",
+                "as",
+                "in",
+                "out",
+                "call",
                 "match",
                 "if",
                 "then",

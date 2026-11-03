@@ -23,7 +23,8 @@ import {
     type FileImportType,
     type MetaModelType,
     type MultiplicityType,
-    type PropertyType
+    type PropertyType,
+    type ViewType
 } from "../grammar/metamodelTypes.js";
 import { resolveClassChain } from "../features/semanticInformation.js";
 import { sharedImport } from "@mdeo/language-shared";
@@ -99,6 +100,46 @@ export class MetamodelValidator {
         this.validateClassEnumNameUniqueness(metaModel, accept);
         this.validateNoCyclicImports(metaModel, accept);
         this.validateNoClassHierarchyCycles(metaModel, accept);
+        this.validateViews(metaModel, accept);
+    }
+
+    /**
+     * Validates the views of a metamodel: view names are unique, and a view lists each class or
+     * enum at most once.
+     *
+     * @param metaModel The metamodel to validate
+     * @param accept The validation acceptor for reporting issues
+     */
+    private validateViews(metaModel: MetaModelType, accept: ValidationAcceptor): void {
+        const viewsByName = new MultiMap<string, ViewType>();
+        for (const view of metaModel.views ?? []) {
+            if (view.name) {
+                viewsByName.add(view.name, view);
+            }
+
+            const seen = new Set<AstNode>();
+            for (const entry of view.entries ?? []) {
+                const element = entry.element?.ref;
+                if (element == undefined) {
+                    continue;
+                }
+                if (seen.has(element)) {
+                    accept("warning", `'${entry.element.$refText}' is already part of view '${view.name}'.`, {
+                        node: entry,
+                        property: "element"
+                    });
+                }
+                seen.add(element);
+            }
+        }
+
+        for (const [name, views] of viewsByName.entriesGroupedByKey()) {
+            if (views.length > 1) {
+                for (const view of views) {
+                    accept("error", `Duplicate view name: '${name}'.`, { node: view, property: "name" });
+                }
+            }
+        }
     }
 
     /**

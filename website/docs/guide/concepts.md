@@ -83,7 +83,8 @@ The four modelling concepts, in the order you meet them:
   inheritance, and associations with multiplicities and composition.
 - A **model** is an instance of a metamodel: named objects with property values, linked together.
 - A **model transformation** is a rule that matches a fragment of a model and rewrites it. During a
-  search, transformations are the mutation operators — the moves the algorithm may make.
+  search, transformations are the mutation and crossover operators — the moves the algorithm may
+  make.
 - An **objective** is a function that scores a model. Minimised or maximised, several at a time.
   A **constraint** is the same kind of function, but returning `0` when satisfied and a larger value
   the worse the violation is.
@@ -91,6 +92,6 @@ The four modelling concepts, in the order you meet them:
 ## Search
 
 Optimisation uses multi-objective evolutionary algorithms — NSGA-II by default. A population of
-models is mutated by applying transformations, each candidate is scored by the objective functions,
-and the best trade-offs survive. The result is not one answer but a **Pareto front**: the set of
+models is mutated by applying transformations, optionally after a crossover that combines several
+parents, each candidate is scored by the objective functions, and the best trade-offs survive. The result is not one answer but a **Pareto front**: the set of
 solutions where improving one objective necessarily worsens another.

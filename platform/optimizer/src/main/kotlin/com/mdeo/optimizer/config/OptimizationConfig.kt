@@ -1,8 +1,10 @@
 package com.mdeo.optimizer.config
 
+import com.mdeo.modeltransformation.runtime.EnumLiteral
 import com.mdeo.optimizer.rulegen.MutationRuleSpec
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * Top-level optimizer execution payload, normalised from config problem/goal/search/solver/runtime sections.
@@ -29,11 +31,11 @@ data class ProblemConfig(
 )
 
 /**
- * Goal section: objectives, constraints, and optional multiplicty refinements.
+ * Goal section: objectives, constraints, and optional multiplicity refinements.
  *
  * @param objectives Objective functions to optimise.
  * @param constraints Constraint functions that must be satisfied.
- * @param refinements Optional metamodel refinements used for rule generation.
+ * @param refinements Tighter association end bounds the generated mutation operators keep.
  */
 @Serializable
 data class GoalConfig(
@@ -84,17 +86,13 @@ data class ConstraintConfig(
 )
 
 /**
- * Multiplicity refinement that tightens the lower or upper bound of a metamodel reference
- * for the purpose of rule generation.
+ * Multiplicity refinement that tightens the bounds of an association end for the search.
  *
- * When a non-empty list of refinements is passed to
- * [com.mdeo.optimizer.rulegen.MutationRuleGenerator.generate], a second generation pass is
- * performed using a modified [com.mdeo.optimizer.rulegen.MetamodelInfo] where the specified
- * reference multiplicities are replaced by the values declared here.  Rules produced in the
- * second pass are prefixed with `"S_"` to distinguish them from the base rules.
+ * The generated mutation operators are built against the metamodel with every refinement
+ * applied, so they keep the refined bounds; the initial model must already satisfy them.
  *
- * @param className The metamodel class that owns the reference.
- * @param fieldName The reference (field) name to refine.
+ * @param className The class declaring the association end.
+ * @param fieldName The association end to refine.
  * @param lower     The tightened lower bound (>= original lower).
  * @param upper     The tightened upper bound (<= original upper, or -1 for unbounded).
  */
@@ -106,24 +104,156 @@ data class RefinementConfig(
     val upper: Int
 )
 
-/** Search section: mutation transformation configuration. */
+/**
+ * Search section: the operators that vary solutions.
+ *
+ * @param mutations Mutation operators: change one solution.
+ * @param crossovers Crossover operators: change a copy of one parent using others as read-only
+ *   model inputs. Only used with [VariationType.GENETIC].
+ */
 @Serializable
 data class SearchConfig(
-    val mutations: MutationsConfig
+    val mutations: MutationsConfig,
+    val crossovers: CrossoversConfig = CrossoversConfig()
 )
 
 /**
  * Mutation operator source configuration.
  *
- * @param usingPaths Paths to hand-written transformation files.
+ * @param operators Hand-written transformation files (`using "path.mt" [with { … }]`), each its own
+ *   operator, also when two name the same file.
  * @param generate Auto-generation specs; when non-empty, [com.mdeo.optimizer.rulegen.MutationRuleGenerator]
- *   synthesises additional operators from the metamodel and merges them with [usingPaths].
+ *   synthesises additional operators from the metamodel and merges them with [operators].
  */
 @Serializable
 data class MutationsConfig(
-    val usingPaths: List<String> = emptyList(),
+    val operators: List<OperatorRef> = emptyList(),
     val generate: List<MutationRuleSpec> = emptyList()
 )
+
+/**
+ * Crossover operator source configuration (`search { crossovers { using "path.mt" } }`).
+ *
+ * @param operators Hand-written crossover transformation files: their required inputs are model
+ *   inputs only (`in donor: model`, or one `in donors: List<model>`), the other parents of a group.
+ */
+@Serializable
+data class CrossoversConfig(
+    val operators: List<OperatorRef> = emptyList()
+)
+
+/**
+ * One hand-written operator of the config: a transformation file and the values its inputs are
+ * given (`using "./move-component.mt" with { maxCandidates = 4 }`).
+ *
+ * Operators are identified by their index in the list of all operators of their kind sorted by
+ * [path] and then [canonicalArguments] ([com.mdeo.optimizer.operators.OperatorCatalog]): stable,
+ * identical on every node, and distinct for two entries of one file with different arguments.
+ *
+ * @param path Absolute project path of the `.mt` file (for a generated mutation, its rule name).
+ * @param arguments Values of the file's scalar, enum and collection inputs, by input name; the
+ *   others take their defaults. Bound like the arguments of a `call`.
+ */
+@Serializable
+data class OperatorRef(
+    val path: String,
+    val arguments: Map<String, ConfigLiteral> = emptyMap()
+) {
+    /**
+     * The arguments sorted by name as `name = value`, joined by `, `; empty without arguments.
+     * The second sort key of operator ids.
+     */
+    val canonicalArguments: String
+        get() = arguments.entries.sortedBy { it.key }.joinToString(", ") { (name, value) -> "$name = ${value.render()}" }
+
+    /** The operator for people: the file's base name and its arguments, e.g. `move-component.mt (maxCandidates = 4)`. */
+    val label: String
+        get() {
+            val name = path.substringAfterLast('/')
+            return if (arguments.isEmpty()) name else "$name ($canonicalArguments)"
+        }
+
+    /** The arguments as the engine takes them ([com.mdeo.modeltransformation.runtime.TransformationEngine.execute]). */
+    fun engineArguments(): Map<String, Any?> = arguments.mapValues { (_, value) -> value.toEngineValue() }
+}
+
+/**
+ * A literal of an operator argument in the config, as written: the kind is the literal's, not the
+ * parameter's (an int literal stays [IntValue] for a `double` input; the engine converts it).
+ */
+@Serializable
+sealed class ConfigLiteral {
+
+    /** The literal in config syntax (`4`, `4L`, `2.5f`, `2.5`, `"a"`, `true`, `Kind.SERVICE`, `[a, b]`). */
+    abstract fun render(): String
+
+    /** The value passed to the engine for this literal. */
+    abstract fun toEngineValue(): Any?
+
+    /** An `int` literal. */
+    @Serializable
+    @SerialName("int")
+    data class IntValue(val value: Int) : ConfigLiteral() {
+        override fun render(): String = value.toString()
+        override fun toEngineValue(): Any = value
+    }
+
+    /** A `long` literal (`42L`). */
+    @Serializable
+    @SerialName("long")
+    data class LongValue(val value: Long) : ConfigLiteral() {
+        override fun render(): String = "${value}L"
+        override fun toEngineValue(): Any = value
+    }
+
+    /** A `float` literal (`2.5f`). */
+    @Serializable
+    @SerialName("float")
+    data class FloatValue(val value: Float) : ConfigLiteral() {
+        override fun render(): String = "${value}f"
+        override fun toEngineValue(): Any = value
+    }
+
+    /** A `double` literal. */
+    @Serializable
+    @SerialName("double")
+    data class DoubleValue(val value: Double) : ConfigLiteral() {
+        override fun render(): String = value.toString()
+        override fun toEngineValue(): Any = value
+    }
+
+    /** A `string` literal. */
+    @Serializable
+    @SerialName("string")
+    data class StringValue(val value: String) : ConfigLiteral() {
+        override fun render(): String = JsonPrimitive(value).toString()
+        override fun toEngineValue(): Any = value
+    }
+
+    /** `true` or `false`. */
+    @Serializable
+    @SerialName("boolean")
+    data class BooleanValue(val value: Boolean) : ConfigLiteral() {
+        override fun render(): String = value.toString()
+        override fun toEngineValue(): Any = value
+    }
+
+    /** An enum literal of the problem metamodel (`Kind.SERVICE`). */
+    @Serializable
+    @SerialName("enum")
+    data class EnumValue(val enumName: String, val literal: String) : ConfigLiteral() {
+        override fun render(): String = "$enumName.$literal"
+        override fun toEngineValue(): Any = EnumLiteral(enumName, literal)
+    }
+
+    /** A list literal (`[a, b]`) for a `List<T>` or `Set<T>` input; the engine de-duplicates for a set. */
+    @Serializable
+    @SerialName("list")
+    data class ListValue(val elements: List<ConfigLiteral>) : ConfigLiteral() {
+        override fun render(): String = elements.joinToString(", ", "[", "]") { it.render() }
+        override fun toEngineValue(): Any = elements.map { it.toEngineValue() }
+    }
+}
 
 /**
  * The underlying solver framework to use.
@@ -162,6 +292,7 @@ enum class AlgorithmType {
  * @param population Population size.
  * @param variation Variation operator type.
  * @param mutation Mutation configuration.
+ * @param crossover Crossover configuration, used with [VariationType.GENETIC].
  * @param bisections Bisections for PESA2/PAES archive grid.
  * @param archiveSize Archive capacity for PESA2/PAES.
  */
@@ -170,13 +301,46 @@ data class AlgorithmParameters(
     val population: Int = 40,
     val variation: VariationType = VariationType.MUTATION,
     val mutation: MutationParameters = MutationParameters(),
+    val crossover: CrossoverParameters = CrossoverParameters(),
     val bisections: Int? = null,
     val archiveSize: Int? = null
 )
 
-/** Variation operator type. */
+/**
+ * How offspring are made.
+ *
+ * - [MUTATION]: every offspring is a mutated copy of one parent.
+ * - [GENETIC]: parents are selected in groups of [CrossoverParameters.parents]; every group yields
+ *   one child per parent (a crossover of that parent with the others, or a copy of it), and every
+ *   child is then mutated like an offspring of [MUTATION].
+ */
 @Serializable
-enum class VariationType { MUTATION, GENETIC, PROBABILISTIC }
+enum class VariationType { MUTATION, GENETIC }
+
+/**
+ * Crossover parameters (`crossover { rate, parents, strategy }`).
+ *
+ * @param rate Probability, in `[0, 1]`, that crossover is attempted for a group of parents;
+ *   otherwise every child of the group is a copy of its parent (and is still mutated).
+ * @param parents Parents per group, at least 2.
+ * @param children Children per group: always [parents] (one child per parent); kept so the
+ *   payload states it.
+ * @param strategy How a crossover operator is chosen for a child.
+ */
+@Serializable
+data class CrossoverParameters(
+    val rate: Double = 0.9,
+    val parents: Int = 2,
+    val children: Int = 2,
+    val strategy: CrossoverStrategy = CrossoverStrategy.RANDOM
+)
+
+/** How a crossover operator is chosen for a child. */
+@Serializable
+enum class CrossoverStrategy {
+    /** Uniformly among the operators that accept the group's parent count; another untried one if it fails. */
+    RANDOM
+}
 
 /**
  * Mutation operator parameters.

@@ -9,7 +9,8 @@ script language itself.
 
 ::: info Not yet used by a bundled plugin
 None of the bundled plugins contributes to the script language today. The mechanism is
-implemented and resolved on every service start; this page documents the payload it expects.
+implemented end to end — contributions are resolved on every service start and compiled into
+every script execution and optimizer run — and this page documents the payload it expects.
 :::
 
 ## The payload
@@ -80,7 +81,26 @@ signature. Additional signatures get names of your choosing.
 | `parameters` | Ordered `{ name, type }` list |
 | `returnType` | A `ValueType`, or the void marker for a function returning nothing |
 | `generics` | Optional list of type parameter names, e.g. `["T"]` |
-| `isVarArgs` | Optional; the last parameter accepts any number of arguments |
+
+A contributed function cannot take a variable number of arguments; a signature with `isVarArgs` is
+refused.
+
+### Default values
+
+A `ContributedFunctionSignature` may carry `defaultValues`: typed expressions by parameter name,
+whose type indices refer to the contribution's `types`. A call may leave such a parameter out,
+also by passing later ones by name, and the script evaluates the default at the call, after the
+arguments it was given. A default may refer to the parameters before it. This also holds for
+external implementations, so their service is always sent every argument. A record field declares
+its default as `defaultValue` in the same form.
+
+```json
+"area": { "signatures": { "": {
+  "signature": { "parameters": [{ "name": "w", "type": … }, { "name": "h", "type": … }], "returnType": … },
+  "implementation": { "kind": "external", "operation": "area" },
+  "defaultValues": { "h": { "kind": "doubleLiteral", "evalType": 0, "value": "1.0" } }
+} } }
+```
 
 ### Implementations are data, not code
 
@@ -94,6 +114,156 @@ user-written function.
 
 The practical consequence: write the function in the script language first, let the language produce
 its typed AST, and ship that.
+
+### Implementations outside the platform
+
+Some functions cannot reasonably be written as a typed AST: they wrap a solver, an index, a
+library, or state that has to outlive a single call. For those, an implementation can name an
+**operation** that the contribution's own plugin service answers instead:
+
+```json
+{
+  "id": "routing",
+  "type": "script-language-contribution",
+  "types": [],
+  "functions": {
+    "shortestTour": {
+      "signatures": {
+        "": {
+          "signature": {
+            "parameters": [{ "name": "stops", "type": { "package": "builtin", "type": "List", "isNullable": false,
+                             "typeArgs": { "T": { "package": "builtin", "type": "string", "isNullable": false } } } }],
+            "returnType": { "kind": "void" }
+          },
+          "implementation": { "kind": "external", "operation": "shortestTour" }
+        }
+      }
+    }
+  },
+  "expressions": {},
+  "sessions": { "functions": { "protocol": "script-functions", "versions": [1] } }
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `kind` | Always `"external"` |
+| `operation` | The operation name your service dispatches on. The platform passes it through untouched |
+| `model` | `"none"` (the default), or `"readonly"` to send the model the script runs on. Either way the model is readonly |
+
+A call to such a function looks exactly like a call to any other function in a script. The
+compiler emits a stub with the same JVM signature, and the stub sends the call over the
+`script-functions` [session](/develop/sessions) the contribution declares.
+
+**Write the service in Kotlin.** You don't write this payload by hand.
+[Kotlin plugin services](/develop/kotlin-plugin-service) declare the function and implement it in
+one place, and the module builds the payload and answers the session:
+
+```kotlin
+val routing = scriptContribution("routing") {
+    function("shortestTour") {
+        parameter("stops", listOfString)
+        returns(listOfString)
+        implementation { call -> solve(call.argument<List<String>>(0)) }
+    }
+}
+```
+
+What travels on the session is specified in
+[The `script-functions` protocol](/develop/script-functions-protocol).
+
+#### Records and opaque classes
+
+External functions can take and return classes their contribution defines, declared in the
+payload's `classes`:
+
+```json
+"classes": {
+  "Point": { "kind": "record", "fields": [
+    { "name": "x", "type": { "package": "builtin", "type": "double", "isNullable": false } },
+    { "name": "label", "type": { "package": "builtin", "type": "string", "isNullable": false } }
+  ] },
+  "Index": { "kind": "opaque" }
+}
+```
+
+Signatures and fields refer to them as `{ "package": "contrib/<contribution id>", "type": "Point" }`.
+
+| Kind | Scripts can | Scripts cannot |
+| --- | --- | --- |
+| `record` | Create one by calling its name like a function (`Point(1.0, label = "a")`), read and assign fields, copy it with `with`, compare by content with `==`, pass it to the contribution's functions | — |
+| `opaque` | Hold it and pass it back to the contribution's functions | Create one, access any member |
+
+A contributed record behaves exactly like a [record a script declares](/plugins/script#records),
+including [default values](#default-values) for its fields. A record field holds a scalar, a string,
+a model instance or enum value, a record of the same contribution, or a collection of those; no
+field may be named `with`, and no two fields may share a name. Anything else — an opaque class, a
+class of another contribution — is rejected when the contribution is resolved. So is a signature
+that names a contributed class its contribution does not define, a class with the name of a builtin
+type or of a class another contribution defines, and a record with the name of a contributed
+function.
+
+#### Arguments are *in*
+
+Arguments are **copied** to the service, and nothing the service does to them comes back:
+
+- **The script's values never change.** An operation gets every collection as a readonly view;
+  trying to change one fails the call. A record the operation gets is a copy of the script's.
+  Everything an operation computes reaches the script through its return value.
+- **Identity survives.** The same collection passed twice is one object on the service, a
+  collection that contains itself still does, and returning an argument returns that very
+  collection to the script.
+- **A result is checked before it is used.** A reference to an unknown collection, instance or
+  class rejects the whole result, and the script sees an error. An operation that throws fails the
+  call the same way.
+- **Unchanged collections are not sent twice.** Every collection keeps one id and a mutation
+  counter for the whole session; a collection that has not changed since the service last saw it
+  is sent as just its id.
+
+Collections the service creates and returns become the collection type the signature declares.
+
+#### What cannot cross
+
+Version 1 of the protocol carries scalars, strings, instances of the script's model, enum values
+of the script's metamodel, the contribution's records and opaque handles, and collections of them.
+An enum value travels as its enum and entry name and needs no model; one that comes back is the
+script's own entry, so `==` compares it as expected. A call passed a model instance gets the model, readonly, whether or not the function
+declares `model: "readonly"`. Refused outright:
+
+| Refused | When |
+| --- | --- |
+| A lambda anywhere in a parameter, result or record field type | When the contribution is declared; the script language also rejects it when resolving contributions. A lambda is code in the execution process and cannot be sent |
+| A mutable collection type (`List`, `Set`, `Map`, …) as a parameter | Likewise. An operation cannot change its arguments, so parameters are declared with the read-only types (`ReadonlyList`, …) |
+| An external implementation without a `script-functions` session | When the script language resolves contributions |
+| Any other object | When the call is made, with an error naming the function |
+
+A run whose contributions declare external functions checks that every one of their sessions can
+be resolved **before** it starts, and fails with a message naming the contribution otherwise.
+
+## How a contribution reaches execution
+
+Contributed functions are not compiled per file. The script frontend merges every function of
+every contribution enabled in a project into a single **root typed AST**, served as the
+`typed-ast` file data of the project root:
+
+```
+GET /api/projects/{projectId}/file-data/typed-ast?language=script
+```
+
+Both execution services fetch that document once per run and hand it to the compiler alongside
+the user's own files:
+
+| Service | Fetches with | Hands to |
+| --- | --- | --- |
+| `script-execution` | `BackendApiService.getPluginAst` | `CompilationInput(files, pluginAst)` |
+| `optimizer-execution` | `OptimizerApiClient.getPluginAst` | the same input, inside each worker subprocess |
+
+The compiler emits the contributed functions into the same generated class as the user's
+functions, so a call to a contributed function costs exactly what a call to a script function
+costs. Overloads are keyed by their signature name; a contribution with a single signature uses
+`FunctionSignature.DEFAULT_SIGNATURE`.
+
+A project with no contributions simply gets no document, and compilation proceeds unchanged.
 
 ## Contributed expressions
 
@@ -163,7 +333,7 @@ type system only has to know about one thing.
 ## Resolution and errors
 
 At service creation the script language filters the contributions with
-`ScriptContributionPlugin.is`, then resolves them. Three conditions are rejected outright:
+`ScriptContributionPlugin.is`, then resolves them. These conditions are rejected outright:
 
 | Error | Cause |
 | --- | --- |
@@ -171,6 +341,11 @@ At service creation the script language filters the contributions with
 | `Expression rule '…' not found in plugin grammar.` | `ruleName` is not in the serialised grammar |
 | `Expression interface '…' not found in plugin grammar.` | `interfaceName` is not in the serialised grammar |
 | `Duplicate function or expression name '…' contributed by plugins.` | Two contributions claim the same global name |
+| `… in contribution '…' is a lambda, which cannot cross the boundary to a plugin's service.` | A lambda in the signature of an external implementation or in a record field |
+| `… in contribution '…' is a '…', but an external function cannot change its arguments.` | A parameter of an external implementation with a mutable collection type |
+| `… in contribution '…' has type '…', which cannot be sent to or from a plugin's service.` | A type the protocol cannot carry in an external signature or a record field |
+| `… in contribution '…' refers to class '…' of '…', which the contribution does not define.` | A contributed class of another contribution, or one that does not exist |
+| `Contribution '…' declares external implementations for … but no 'script-functions' session.` | An external implementation without a session to answer it |
 
 The last one is worth planning for: the global namespace is shared across every contribution enabled
 in a project, and you do not control which other plugins a user enables. Prefix names that are not
@@ -197,7 +372,8 @@ for inference and validation rules on the contributed node types, and `rules` fo
 - [ ] Every `ruleName` and `interfaceName` present in `grammar`
 - [ ] Contributed interfaces extend `BaseExtension`
 - [ ] Terminals declared with `createExternalTerminalRule`
-- [ ] Implementations supplied as typed ASTs, not as code
+- [ ] Implementations supplied as typed ASTs, or as external operations answered by a [Kotlin plugin service](/develop/kotlin-plugin-service)
+- [ ] A `script-functions` session declared and served for every external implementation
 - [ ] Global names unlikely to collide with another plugin's
 
 ## See also

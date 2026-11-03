@@ -1,21 +1,29 @@
-import type { ELK, ElkExtendedEdge, ElkNode } from "elkjs";
+import type { ELK } from "elkjs";
 import { sharedImport } from "../sharedImport.js";
-import type { ActionDispatcher, GModelRoot } from "@eclipse-glsp/server";
+import type { ActionDispatcher, GModelElement, GModelRoot } from "@eclipse-glsp/server";
 import type { ModelState } from "./modelState.js";
 import type { EdgeLayoutMetadata, LayoutOperation, NodePositionMetadata } from "@mdeo/protocol-common";
 import type { MetadataEdits } from "./handler/operationHandlerCommand.js";
+import type {
+    EdgeLabelSpec,
+    LayoutAlgorithm,
+    LayoutInput,
+    LayoutInputEdge,
+    LayoutPoint,
+    LayoutResult
+} from "./layout/layoutModel.js";
+import { layoutHierarchy, type HierarchicalLayoutResult } from "./layout/hierarchicalLayout.js";
+import { snapLayout, type SnapOptions } from "./layout/layoutSnapping.js";
+import { anchorValue, toSegmentRoute } from "./layout/orthogonalRoute.js";
+import { layoutForcePositions, layoutLayered, type ElkOptions } from "./layout/elkAlgorithms.js";
+import { routeOrthogonally } from "./layout/simpleOrthogonalRouter.js";
+import { layoutTala, type TalaOptions } from "./layout/talaAlgorithm.js";
+import { joinSharedEdgeEnds } from "./layout/joinSharedEdgeEnds.js";
 
 /**
  * The grid size used for rounding positions and routing points during layout.
  */
-const GRID_SIZE = 10;
-
-/**
- * Rounds a value to the nearest grid position.
- */
-function roundToGrid(value: number): number {
-    return Math.round(value / GRID_SIZE) * GRID_SIZE;
-}
+export const LAYOUT_GRID_SIZE = 10;
 
 /**
  * Alignment options for a node, determining which point of the node is snapped to the grid.
@@ -33,7 +41,6 @@ export interface NodeAlignment {
 
 const { injectable, inject } = sharedImport("inversify");
 const { ModelState: ModelStateKey, ActionDispatcher: ActionDispatcherKey } = sharedImport("@eclipse-glsp/server");
-const { Point } = sharedImport("@eclipse-glsp/protocol");
 const elkjs = sharedImport("elkjs");
 
 /**
@@ -42,7 +49,11 @@ const elkjs = sharedImport("elkjs");
 const Elk = elkjs.default as unknown as typeof elkjs.default.default;
 
 /**
- * Base implementation of a layout engine using ELK
+ * Base implementation of a layout engine.
+ *
+ * Pipeline: {@link buildInput} (language specific) → algorithm (layered / tala / force, applied bottom up per
+ * container level) → {@link joinSharedEdgeEnds} → write-back into metadata edits (node positions relative to their
+ * container, edge anchors plus orthogonal interior routing points, everything snapped consistently to the grid).
  */
 @injectable()
 export abstract class BaseLayoutEngine {
@@ -72,52 +83,113 @@ export abstract class BaseLayoutEngine {
      */
     async layout(operation: LayoutOperation): Promise<MetadataEdits> {
         const root = this.modelState.root;
-        const elkNode = this.transformToElk(root, operation);
-        const elkLayout = await this.elk.layout(elkNode);
-        return this.extractMetadata(elkLayout);
+        const input = this.buildInput(root, operation);
+        const algorithm: LayoutAlgorithm = operation.algorithm ?? "layered";
+        const hierarchical = await layoutHierarchy(
+            input,
+            (level, containerId) => this.layoutLevel(algorithm, level, containerId),
+            this.snapOptions()
+        );
+        const joined = this.postProcess(input, hierarchical.result);
+        return this.writeBack(input, hierarchical, joined);
     }
 
     /**
-     * Transforms the given model to an ELK node for layouting
+     * Builds the neutral layout input from the model.
      *
      * @param model the model to transform
-     * @param operation the layout operation, provides layout options and bounds
-     * @return the transformed ELK node
+     * @param operation the layout operation, provides the client-measured bounds
+     * @returns the layout input
      */
-    protected abstract transformToElk(model: GModelRoot, operation: LayoutOperation): ElkNode;
+    protected abstract buildInput(model: GModelRoot, operation: LayoutOperation): LayoutInput;
 
     /**
-     * Extracts layout metadata from the given ELK graph after layouting
+     * Additional ELK layered options for a level, e.g. spacings.
      *
-     * @param graph the ELK graph to extract metadata from
-     * @returns the extracted metadata edits
+     * @param _containerId the container whose children are laid out, undefined for the top level
+     * @returns the options
      */
-    protected async extractMetadata(graph: ElkNode): Promise<MetadataEdits> {
-        const currentMetadata = await this.modelState.getValidatedMetadata();
-        const edits: Required<MetadataEdits> = {
-            nodes: {},
-            edges: {}
-        };
-        const traverse = (node: ElkNode) => {
-            if (node.id in currentMetadata.nodes) {
-                const nodeMeta = this.extractNodeMetadata(node);
-                if (nodeMeta != undefined) {
-                    edits.nodes[node.id] = { meta: nodeMeta };
+    protected layeredOptions(_containerId: string | undefined): ElkOptions {
+        return {};
+    }
+
+    /**
+     * Additional options for the force layout of a level.
+     *
+     * @param _containerId the container whose children are laid out, undefined for the top level
+     * @returns the options
+     */
+    protected forceOptions(_containerId: string | undefined): ElkOptions {
+        return {};
+    }
+
+    /**
+     * Additional options for TALA of a level.
+     *
+     * @param _containerId the container whose children are laid out, undefined for the top level
+     * @returns the options
+     */
+    protected talaOptions(_containerId: string | undefined): TalaOptions {
+        return {};
+    }
+
+    /**
+     * Lays out one flat level with the given algorithm.
+     *
+     * @param algorithm the algorithm
+     * @param level the flat level
+     * @param containerId the container whose children are laid out, undefined for the top level
+     * @returns the layout result of the level
+     */
+    protected async layoutLevel(
+        algorithm: LayoutAlgorithm,
+        level: LayoutInput,
+        containerId: string | undefined
+    ): Promise<LayoutResult> {
+        if (level.nodes.length === 0) {
+            return { nodes: new Map(), edges: new Map() };
+        }
+        switch (algorithm) {
+            case "tala":
+                try {
+                    return layoutTala(level, this.talaOptions(containerId));
+                } catch (error) {
+                    // orthoflow unavailable, or TALA gave up on every seed: fall back to the layered layout
+                    // eslint-disable-next-line no-console
+                    console.error("TALA layout failed, using the layered layout instead", error);
+                    return layoutLayered(this.elk, level, this.layeredOptions(containerId));
                 }
+            case "force": {
+                const positions = await layoutForcePositions(this.elk, level, this.forceOptions(containerId));
+                return routeOrthogonally(level, positions);
             }
-            for (const edge of node.edges ?? []) {
-                if (!(edge.id in currentMetadata.edges)) {
-                    continue;
-                }
-                const edgeMeta = this.extractEdgeMetadata(edge as ElkExtendedEdge);
-                edits.edges[edge.id] = { meta: edgeMeta };
-            }
-            for (const child of node.children ?? []) {
-                traverse(child);
-            }
+            case "layered":
+            default:
+                return layoutLayered(this.elk, level, this.layeredOptions(containerId));
+        }
+    }
+
+    /**
+     * Post-processes the absolute layout result: joins edge ends with identical end labels.
+     *
+     * @param input the layout input
+     * @param result the absolute layout result
+     * @returns the post-processed result
+     */
+    protected postProcess(input: LayoutInput, result: LayoutResult): LayoutResult {
+        return joinSharedEdgeEnds(input, result, { grid: LAYOUT_GRID_SIZE });
+    }
+
+    /**
+     * Returns the snap options used for all levels.
+     *
+     * @returns the snap options
+     */
+    protected snapOptions(): SnapOptions {
+        return {
+            grid: LAYOUT_GRID_SIZE,
+            alignment: (nodeId) => this.getNodeAlignment(nodeId)
         };
-        traverse(graph);
-        return edits;
     }
 
     /**
@@ -133,80 +205,171 @@ export abstract class BaseLayoutEngine {
     }
 
     /**
-     * Extracts position metadata from the given ELK node, rounding the position to the grid.
-     * The point that is rounded is determined by the node's alignment (see {@link getNodeAlignment}).
+     * Converts the absolute result into metadata edits. Every level is snapped (again, idempotently) in its own local
+     * coordinates, which are the coordinates the client uses for the metadata of the level's nodes and edges.
      *
-     * @param node the ELK node to extract metadata from
-     * @returns the extracted position metadata, or undefined if no metadata is available
+     * @param input the layout input
+     * @param hierarchical the hierarchical layout result (frames and levels)
+     * @param result the final absolute result
+     * @returns the metadata edits
      */
-    protected extractNodeMetadata(node: ElkNode): NodePositionMetadata | undefined {
-        if (node.x == undefined || node.y == undefined) {
-            return undefined;
+    protected async writeBack(
+        input: LayoutInput,
+        hierarchical: HierarchicalLayoutResult,
+        result: LayoutResult
+    ): Promise<MetadataEdits> {
+        const currentMetadata = await this.modelState.getValidatedMetadata();
+        const edits: Required<MetadataEdits> = { nodes: {}, edges: {} };
+        const snap = this.snapOptions();
+
+        const levels = new Map<string, { nodeIds: string[]; edges: LayoutInputEdge[] }>();
+        const levelOf = (id: string) => {
+            if (!levels.has(id)) levels.set(id, { nodeIds: [], edges: [] });
+            return levels.get(id)!;
+        };
+        for (const [nodeId, level] of hierarchical.nodeLevel) {
+            levelOf(level).nodeIds.push(nodeId);
         }
-        const { vAlign, hAlign } = this.getNodeAlignment(node.id);
-        const width = node.width ?? 0;
-        const height = node.height ?? 0;
-
-        let anchorX = node.x;
-        if (hAlign === "center") {
-            anchorX += width / 2;
-        } else if (hAlign === "right") {
-            anchorX += width;
-        }
-
-        let anchorY = node.y;
-        if (vAlign === "center") {
-            anchorY += height / 2;
-        } else if (vAlign === "bottom") {
-            anchorY += height;
-        }
-
-        const roundedAnchorX = roundToGrid(anchorX);
-        const roundedAnchorY = roundToGrid(anchorY);
-
-        let x = roundedAnchorX;
-        if (hAlign === "center") {
-            x -= width / 2;
-        } else if (hAlign === "right") {
-            x -= width;
+        for (const edge of input.edges) {
+            const level = hierarchical.edgeLevel.get(edge.id);
+            if (level != undefined) {
+                levelOf(level).edges.push(edge);
+            }
         }
 
-        let y = roundedAnchorY;
-        if (vAlign === "center") {
-            y -= height / 2;
-        } else if (vAlign === "bottom") {
-            y -= height;
+        for (const [levelId, level] of levels) {
+            const origin = hierarchical.frames.get(levelId)?.origin ?? { x: 0, y: 0 };
+            const toLocal = (p: LayoutPoint) => ({ x: p.x - origin.x, y: p.y - origin.y });
+            const local: LayoutResult = { nodes: new Map(), edges: new Map() };
+            for (const nodeId of level.nodeIds) {
+                const node = result.nodes.get(nodeId);
+                if (node != undefined) {
+                    local.nodes.set(nodeId, { ...node, ...toLocal(node) });
+                }
+            }
+            for (const edge of level.edges) {
+                const route = result.edges.get(edge.id);
+                if (route != undefined) {
+                    local.edges.set(edge.id, { points: route.points.map(toLocal) });
+                }
+            }
+            const snapped = snapLayout(local, level.edges, snap);
+            for (const [nodeId, node] of snapped.nodes) {
+                if (nodeId in currentMetadata.nodes) {
+                    const meta: NodePositionMetadata = { position: { x: node.x, y: node.y } };
+                    edits.nodes[nodeId] = { meta };
+                }
+            }
+            for (const edge of level.edges) {
+                if (!(edge.id in currentMetadata.edges)) {
+                    continue;
+                }
+                edits.edges[edge.id] = {
+                    meta: this.edgeMetadata(snapped, edge.id, edge.sourceId, edge.targetId)
+                };
+            }
         }
 
-        return { position: { x, y } };
+        // edges that were not laid out (e.g. crossing container borders) are routed by the client
+        for (const edge of input.edges) {
+            if (!hierarchical.edgeLevel.has(edge.id) && edge.id in currentMetadata.edges) {
+                edits.edges[edge.id] = {
+                    meta: { routingPoints: [], sourceAnchor: undefined, targetAnchor: undefined }
+                };
+            }
+        }
+        return edits;
     }
 
     /**
-     * Extracts layout metadata from the given ELK edge, rounding all routing points to the grid.
+     * Creates the edge metadata of a laid out edge: explicit anchors plus the interior points of the route.
      *
-     * @param edge the ELK edge to extract metadata from
-     * @returns the extracted edge layout metadata
+     * @param result the (local, snapped) result
+     * @param edgeId the edge id
+     * @param sourceId the source node id
+     * @param targetId the target node id
+     * @returns the edge metadata
      */
-    protected extractEdgeMetadata(edge: ElkExtendedEdge): EdgeLayoutMetadata {
-        const section = edge.sections?.[0];
-        if (section?.bendPoints == undefined) {
-            return {
-                routingPoints: [],
-                sourceAnchor: undefined,
-                targetAnchor: undefined
-            };
+    protected edgeMetadata(
+        result: LayoutResult,
+        edgeId: string,
+        sourceId: string,
+        targetId: string
+    ): EdgeLayoutMetadata {
+        const points = result.edges.get(edgeId)?.points;
+        const source = result.nodes.get(sourceId);
+        const target = result.nodes.get(targetId);
+        const empty: EdgeLayoutMetadata = { routingPoints: [], sourceAnchor: undefined, targetAnchor: undefined };
+        if (points == undefined || points.length < 2 || source == undefined || target == undefined) {
+            return empty;
         }
-        const points =
-            section.bendPoints.length > 0
-                ? section.bendPoints.map((pt) => ({ x: roundToGrid(pt.x), y: roundToGrid(pt.y) }))
-                : [Point.linear(section.startPoint, section.endPoint, 0.5)].map((pt) => ({
-                      x: roundToGrid(pt.x),
-                      y: roundToGrid(pt.y)
-                  }));
+        const route = toSegmentRoute(points, source, target);
+        if (route == undefined) {
+            return empty;
+        }
+        const first = route.segments[0].coord;
+        const last = route.segments.at(-1)!.coord;
         return {
-            routingPoints: points,
-            sourceAnchor: undefined,
-            targetAnchor: undefined
+            routingPoints: points.slice(1, -1).map((p) => ({ x: p.x, y: p.y })),
+            sourceAnchor: { side: route.sourceSide, value: anchorValue(route.sourceSide, first, source) },
+            targetAnchor: { side: route.targetSide, value: anchorValue(route.targetSide, last, target) }
         };
+    }
+
+    /**
+     * Returns the text of a label node: the text of the first descendant with a text.
+     *
+     * @param element the label node
+     * @returns the text, empty if there is none
+     */
+    protected labelText(element: GModelElement): string {
+        const stack: GModelElement[] = [element];
+        while (stack.length > 0) {
+            const current = stack.shift()!;
+            const text = (current as { text?: unknown }).text;
+            if (typeof text === "string") {
+                return text;
+            }
+            stack.push(...current.children);
+        }
+        return "";
+    }
+
+    /**
+     * Creates the label spec of a label node from the client-measured bounds.
+     *
+     * @param element the label node
+     * @param end where on the edge the label is placed
+     * @param side the side of the line the client renders the label on
+     * @param bounds the client-measured bounds
+     * @returns the label spec
+     */
+    protected labelSpec(
+        element: GModelElement,
+        end: EdgeLabelSpec["end"],
+        side: EdgeLabelSpec["side"],
+        bounds: LayoutOperation["bounds"]
+    ): EdgeLabelSpec {
+        const size = bounds[element.id];
+        return {
+            id: element.id,
+            end,
+            side,
+            width: Math.max(0, size?.width ?? 0),
+            height: Math.max(0, size?.height ?? 0),
+            text: this.labelText(element)
+        };
+    }
+
+    /**
+     * Returns the client-measured size of an element (0 if unknown).
+     *
+     * @param id the element id
+     * @param bounds the bounds of the layout operation
+     * @returns the size
+     */
+    protected sizeOf(id: string, bounds: LayoutOperation["bounds"]): { width: number; height: number } {
+        const size = bounds[id];
+        return { width: Math.max(0, size?.width ?? 0), height: Math.max(0, size?.height ?? 0) };
     }
 }

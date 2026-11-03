@@ -3,7 +3,7 @@ import type { URI } from "vscode-uri";
 import type { LangiumInstance } from "../langium/langiumInstance.js";
 import type { ServerApi } from "../service/serverApi.js";
 import type { ServiceAdditionalServices } from "../langium/types.js";
-import type { ServerContributionPlugin } from "@mdeo/plugin";
+import type { PluginTarget, ServerContributionPlugin } from "@mdeo/plugin";
 
 /**
  * Handler for file data computation requests
@@ -67,6 +67,12 @@ export interface FileDataContext<T = object> {
      * Useful for handlers that need to inspect or forward plugin configurations.
      */
     contributionPlugins: ServerContributionPlugin[];
+
+    /**
+     * Aborts when the caller's deadline passes or the caller goes away. Nobody waits for the result
+     * after that, so pass it to anything long-running. Calls through {@link serverApi} use it already.
+     */
+    signal: AbortSignal;
 }
 
 /**
@@ -103,6 +109,65 @@ export interface RequestContext<T = object> {
      * The contribution plugins active for this request.
      */
     contributionPlugins: ServerContributionPlugin[];
+
+    /**
+     * Aborts when the caller's deadline passes or the caller goes away. Nobody waits for the result
+     * after that, so pass it to anything long-running. Calls through {@link serverApi} use it already.
+     */
+    signal: AbortSignal;
+}
+
+/**
+ * Handler for a one-shot request addressed at a target that owns no Langium instance.
+ *
+ * A contribution extends somebody else's language and has no instance of its own, so its
+ * handlers get the platform's context alone. Language plugins register through
+ * `LanguageServiceConfig.requestHandlers` instead, which also hands them an instance.
+ *
+ * @template T The return type of the handler
+ */
+export type TargetRequestHandler<T = unknown> = (context: TargetRequestContext) => Promise<T | null>;
+
+/**
+ * Context provided to a {@link TargetRequestHandler}.
+ */
+export interface TargetRequestContext {
+    /**
+     * The request body data
+     */
+    body: unknown;
+
+    /**
+     * The JWT token extracted from the Authorization header.
+     * Use this to forward authorization when calling downstream services.
+     */
+    jwt: string;
+
+    /**
+     * The project the request was made for.
+     */
+    projectId: string;
+
+    /**
+     * The addressed target.
+     */
+    target: PluginTarget;
+
+    /**
+     * The request handler key, the last segment of the address.
+     */
+    key: string;
+
+    /**
+     * Server API for accessing backend endpoints
+     */
+    serverApi: ServerApi;
+
+    /**
+     * Aborts when the caller's deadline passes or the caller goes away. Nobody waits for the result
+     * after that, so pass it to anything long-running. Calls through {@link serverApi} use it already.
+     */
+    signal: AbortSignal;
 }
 
 /**

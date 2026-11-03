@@ -4,6 +4,7 @@ import com.mdeo.execution.common.api.BackendApiClient
 import com.mdeo.metamodel.data.MetamodelData
 import com.mdeo.modeltransformation.ast.TypedAst
 import com.mdeo.metamodel.data.ModelData
+import com.mdeo.metamodel.data.load
 import com.mdeo.modeltransformation.ast.statements.TypedTransformationStatement
 import com.mdeo.modeltransformation.ast.statements.TypedTransformationStatementSerializer
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternElement
@@ -99,7 +100,7 @@ class TransformationApiClient(baseUrl: String) : BackendApiClient(
     }
 
     /**
-     * Fetches the metamodel data for a metamodel file.
+     * Fetches the metamodel data for a metamodel file, merged with the metamodel files it imports.
      *
      * @param projectId UUID of the project
      * @param filePath Path to the metamodel file
@@ -107,6 +108,15 @@ class TransformationApiClient(baseUrl: String) : BackendApiClient(
      * @return MetamodelData or null if not found/error
      */
     suspend fun getMetamodelData(
+        projectId: String,
+        filePath: String,
+        jwtToken: String
+    ): MetamodelData? = MetamodelData.load(filePath) { getMetamodelFileData(projectId, it, jwtToken) }
+
+    /**
+     * Fetches the metamodel data of one metamodel file, without the files it imports.
+     */
+    private suspend fun getMetamodelFileData(
         projectId: String,
         filePath: String,
         jwtToken: String

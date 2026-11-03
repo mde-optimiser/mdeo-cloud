@@ -1,11 +1,16 @@
 # Plugin manifest reference
 
 The manifest is the entire external contract of a plugin. The backend fetches it with `GET /` when the
-plugin is registered and whenever an administrator refreshes it.
+plugin is registered, whenever an administrator refreshes it, and whenever the plugin's
+`X-Mdeo-Manifest-Fingerprint` changes — which the backend sees on every answer and also asks for every
+`PLUGIN_MANIFEST_CHECK_SECONDS`.
 
 In TypeScript the shape is `Plugin` from `@mdeo/plugin`. A service builds a `ServicePluginDefinition`
 — the same thing without `url` and `default`, which the backend fills in — and `@mdeo/service-common`
 serialises it.
+
+A [Kotlin plugin service](/develop/kotlin-plugin-service) builds it from a `PluginDefinition`
+instead, which writes `languagePlugins` as empty and fills in each contribution's `id` and `sessions`.
 
 ## `Plugin`
 
@@ -79,6 +84,7 @@ const icon = convertIcon(Network);
 | `icon` | icon node | ✅ | Icon shown for files of this language |
 | `isGenerated` | boolean | ✅ | Marks a language whose files the platform produces rather than the user |
 | `documentationUrl` | string | — | Documentation for the language. The workbench shows a question mark next to the editor title actions which opens it in a new tab; omit it and no such button appears |
+| `sessions` | object | — | [Sessions](/develop/sessions) this language accepts, keyed by session name. Callers reach them at `lang:<id>`, so a language that declares sessions needs an id an address can carry, or the manifest is refused with `PluginManifestInvalid` |
 
 ### Relative paths and versioning
 
@@ -86,8 +92,8 @@ Write asset paths **relative**, as `"language.js"`. `buildManifest` rewrites the
 `static/<version>/language.js` when `SERVICE_VERSION` is set, and to `static/language.js` otherwise.
 The backend then resolves them against the plugin's URL.
 
-This is why plugins must be refreshed after an upgrade: a stored manifest points at the old version
-segment.
+This is why the backend fetches the manifest again after a redeploy: a stored manifest points at the
+old version segment. See [After an upgrade](/guide/deployment#after-an-upgrade).
 
 ### `graphicalEditorPlugin`
 
@@ -143,8 +149,15 @@ The grammar itself comes from the payload.
 
 ### `ServerContributionPlugin`
 
-The base type has one field, `id`. Everything else is defined by the language being extended, which
-type-guards on a `type` discriminator:
+The base type has two platform-owned fields, and everything else is defined by the language being
+extended, which type-guards on a `type` discriminator:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `id` | string | Contribution id, unique **within a project**. This is the address callers write as `contrib:<id>`; a plugin whose id is already taken is refused with `PluginContributionIdConflict`. An id that is not letters, digits, `_`, `.` and `-` starting with a letter or digit, or one declared twice in the manifest, makes the backend refuse the manifest with `PluginManifestInvalid` |
+| `sessions` | object | [Sessions](/develop/sessions) this contribution accepts, keyed by session name. Callers reach them at `contrib:<id>`, so a contribution that declares sessions needs an id, or the manifest is refused with `PluginManifestInvalid` |
+
+The discriminators of the bundled languages:
 
 | Target | `type` | Payload type |
 | --- | --- | --- |

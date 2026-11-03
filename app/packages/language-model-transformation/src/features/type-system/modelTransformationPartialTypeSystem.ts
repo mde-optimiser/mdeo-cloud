@@ -20,6 +20,13 @@ import {
     WhileExpressionStatement,
     PatternObjectInstance,
     WhereClause,
+    TransformationParameter,
+    CallOutput,
+    CallArgument,
+    ForInVariable,
+    ForInStatement,
+    AssignmentStatement,
+    PatternCollectionAppend,
     type LambdaExpressionType,
     type PatternPropertyAssignmentType
 } from "../../grammar/modelTransformationTypes.js";
@@ -31,6 +38,25 @@ import {
     type MultiplicityType
 } from "@mdeo/language-metamodel";
 import { ModelTransformationLambdaScope } from "./modelTransformationLambdaScope.js";
+
+/**
+ * The collection types of the standard library (maps excluded).
+ */
+const COLLECTION_TYPE_NAMES: ReadonlySet<string> = new Set([
+    "Iterable",
+    "ReadonlyCollection",
+    "ReadonlyOrderedCollection",
+    "ReadonlyList",
+    "ReadonlySet",
+    "ReadonlyBag",
+    "ReadonlyOrderedSet",
+    "Collection",
+    "OrderedCollection",
+    "List",
+    "Set",
+    "Bag",
+    "OrderedSet"
+]);
 
 /**
  * Types configuration for the Model Transformation partial type system.
@@ -91,6 +117,243 @@ export class ModelTransformationPartialTypeSystem extends PartialTypeSystem<
         this.registerControlFlowValidationRules();
         this.registerWhereClauseValidationRule();
         this.registerPatternObjectInstanceInferenceRule();
+        this.registerTransformationParameterRules();
+        this.registerCallRules();
+        this.registerCollectionRules();
+    }
+
+    /**
+     * Returns the element type of a collection type (its type argument `T`), or undefined when
+     * the type is not a collection.
+     *
+     * @param type The type
+     * @returns The element type
+     */
+    private elementTypeOf(type: Type): Type | undefined {
+        const typeArgs = (type as { details?: { typeArgs?: Map<string, Type> } }).details?.typeArgs;
+        if (!(typeArgs instanceof Map) || !this.isCollectionType(type)) {
+            return undefined;
+        }
+        return typeArgs.get("T");
+    }
+
+    /**
+     * Whether a type is one of the collection types of the standard library (or a subtype).
+     *
+     * @param type The type
+     * @returns True for collections
+     */
+    private isCollectionType(type: Type): boolean {
+        const definition = (type as { definition?: { package?: string; type?: string } }).definition;
+        if (definition?.package !== "builtin") {
+            return false;
+        }
+        return COLLECTION_TYPE_NAMES.has(definition.type ?? "");
+    }
+
+    /**
+     * Whether a value of one type can be passed where another is expected. Collections are
+     * compared by kind and element type, so a `List<Service>` can be passed for a
+     * `List<Component>` (the callee cannot add to an input).
+     *
+     * @param valueType The type of the value
+     * @param targetType The expected type
+     * @returns True if assignable
+     */
+    private isAssignableValue(valueType: Type, targetType: Type): boolean {
+        if (this.assignability.isAssignable(valueType, targetType)) {
+            return true;
+        }
+        const valueElement = this.elementTypeOf(valueType);
+        const targetElement = this.elementTypeOf(targetType);
+        if (valueElement == undefined || targetElement == undefined) {
+            return false;
+        }
+        const kind = (type: Type) => (type as { definition?: { type?: string } }).definition?.type;
+        const sameKind = kind(valueType) === kind(targetType) || kind(targetType) === "Collection";
+        return sameKind && this.assignability.isAssignable(valueElement, targetElement);
+    }
+
+    /**
+     * Registers the rules of collections: the type of a `for … in` loop variable, the
+     * collection the loop runs over, assignments outside patterns and `+=`.
+     */
+    private registerCollectionRules(): void {
+        this.registerInferenceRule(ForInVariable, (node) => {
+            const statement = node.$container as { collection?: BaseExpressionType } | undefined;
+            const problem = (location: string) => ({
+                $problem: this.inferenceProblem,
+                languageNode: node,
+                location,
+                subProblems: []
+            });
+            if (statement?.collection == undefined) {
+                return problem("The loop has no collection.");
+            }
+            const collectionType = this.inference.inferType(statement.collection);
+            if (Array.isArray(collectionType)) {
+                return collectionType[0];
+            }
+            return this.elementTypeOf(collectionType) ?? problem("The loop does not run over a collection.");
+        });
+
+        this.registerValidationRule(ForInStatement, (node, accept) => {
+            if (node.collection == undefined) {
+                return;
+            }
+            const collectionType = this.inference.inferType(node.collection);
+            if (Array.isArray(collectionType)) {
+                return;
+            }
+            if (this.elementTypeOf(collectionType) == undefined) {
+                accept({
+                    languageNode: node.collection,
+                    message: `'for … in' runs over a collection (a List or Set); this expression is of type '${collectionType.getName()}'.`,
+                    severity: "error"
+                });
+            }
+        });
+
+        this.registerValidationRule(AssignmentStatement, (node, accept) => {
+            if (node.operator === "+=") {
+                this.validateAppend(node, accept);
+                return;
+            }
+            const variableRef = node.variable?.ref;
+            if (node.value == undefined || variableRef == undefined) {
+                return;
+            }
+            const valueType = this.inference.inferType(node.value);
+            const variableType = this.inference.inferType(variableRef);
+            if (Array.isArray(valueType) || Array.isArray(variableType)) {
+                return;
+            }
+            if (!this.isAssignableValue(valueType, variableType)) {
+                accept({
+                    languageNode: node,
+                    message: `Value type '${valueType.getName()}' is not assignable to variable type '${variableType.getName()}'.`,
+                    severity: "error"
+                });
+            }
+        });
+
+        this.registerValidationRule(PatternCollectionAppend, (node, accept) => this.validateAppend(node, accept));
+    }
+
+    /**
+     * Validates `name += value`: the target is a collection, and the value is an element of it
+     * (or a collection of such elements, which are all added).
+     *
+     * @param node The append (a pattern element or an assignment statement)
+     * @param accept The validation problem acceptor
+     */
+    private validateAppend(
+        node: { variable?: { ref?: unknown }; value?: BaseExpressionType },
+        accept: ValidationProblemAcceptor<TypirLangiumSpecifics>
+    ): void {
+        const variableRef = node.variable?.ref;
+        if (node.value == undefined || variableRef == undefined) {
+            return;
+        }
+        const variableType = this.inference.inferType(variableRef as never);
+        const valueType = this.inference.inferType(node.value);
+        if (Array.isArray(variableType) || Array.isArray(valueType)) {
+            return;
+        }
+        const elementType = this.elementTypeOf(variableType);
+        if (elementType == undefined) {
+            accept({
+                languageNode: node as never,
+                message: `'+=' adds to a collection; '${(variableRef as { name?: string }).name}' is of type '${variableType.getName()}'.`,
+                severity: "error"
+            });
+            return;
+        }
+        if (
+            this.assignability.isAssignable(valueType, elementType) ||
+            this.isAssignableValue(valueType, variableType)
+        ) {
+            return;
+        }
+        accept({
+            languageNode: node.value,
+            message: `A value of type '${valueType.getName()}' cannot be added to '${(variableRef as { name?: string }).name}' of type '${variableType.getName()}'.`,
+            severity: "error"
+        });
+    }
+
+    /**
+     * Registers the rules for the header parameters: a parameter has its declared type,
+     * and a default value must be assignable to it.
+     */
+    private registerTransformationParameterRules(): void {
+        this.registerInferenceRule(TransformationParameter, (node) => {
+            if (node.type != undefined) {
+                return node.type;
+            }
+            return {
+                $problem: this.inferenceProblem,
+                languageNode: node,
+                location: "Parameter has no type.",
+                subProblems: []
+            };
+        });
+
+        this.registerValidationRule(TransformationParameter, (node, accept) => {
+            if (node.defaultValue == undefined || node.type == undefined) {
+                return;
+            }
+            const valueType = this.inference.inferType(node.defaultValue);
+            const declaredType = this.inference.inferType(node.type);
+            if (Array.isArray(valueType) || Array.isArray(declaredType)) {
+                return;
+            }
+            if (!this.assignability.isAssignable(valueType, declaredType)) {
+                accept({
+                    languageNode: node.defaultValue,
+                    message: `Default value of type '${valueType.getName()}' is not assignable to parameter '${node.name}' of type '${declaredType.getName()}'.`,
+                    severity: "error"
+                });
+            }
+        });
+    }
+
+    /**
+     * Registers the rules for calls: an output has the type of the callee parameter it binds,
+     * and an argument must be assignable to the type of its parameter.
+     */
+    private registerCallRules(): void {
+        this.registerInferenceRule(CallOutput, (node) => {
+            const parameterType = node.parameter?.ref?.type;
+            if (parameterType != undefined) {
+                return parameterType;
+            }
+            return {
+                $problem: this.inferenceProblem,
+                languageNode: node,
+                location: "The output's parameter cannot be resolved.",
+                subProblems: []
+            };
+        });
+
+        this.registerValidationRule(CallArgument, (node, accept) => {
+            const parameter = node.parameter?.ref;
+            if (node.value == undefined || parameter?.type == undefined) {
+                return;
+            }
+            const valueType = this.inference.inferType(node.value);
+            const parameterType = this.inference.inferType(parameter.type);
+            if (Array.isArray(valueType) || Array.isArray(parameterType)) {
+                return;
+            }
+            if (!this.isAssignableValue(valueType, parameterType)) {
+                accept({
+                    languageNode: node.value,
+                    message: `Argument of type '${valueType.getName()}' is not assignable to parameter '${parameter.name}' of type '${parameterType.getName()}'.`,
+                    severity: "error"
+                });
+            }
+        });
     }
 
     /**
@@ -343,7 +606,7 @@ export class ModelTransformationPartialTypeSystem extends PartialTypeSystem<
                 return;
             }
 
-            if (!this.assignability.isAssignable(valueType, variableType)) {
+            if (!this.isAssignableValue(valueType, variableType)) {
                 accept({
                     languageNode: node,
                     message: `Value type '${valueType.getName()}' is not assignable to variable type '${variableType.getName()}'.`,

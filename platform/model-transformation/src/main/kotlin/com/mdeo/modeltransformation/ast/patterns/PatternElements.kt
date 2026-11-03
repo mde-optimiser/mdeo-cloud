@@ -46,6 +46,22 @@ data class TypedPatternVariableReassignment(
 )
 
 /**
+ * Addition of a value to a collection output within a transformation pattern (`name += value`).
+ *
+ * The value is computed with the match, after its modifications (so it can be an object the
+ * pattern creates), and added to the collection bound to [name] in the scope declaring it. In a
+ * `for match` every match adds its value. A collection-typed value adds all its elements.
+ *
+ * @param name Name of the collection output.
+ * @param value The value expression.
+ */
+@Serializable
+data class TypedPatternCollectionAppend(
+    val name: String,
+    @Contextual val value: TypedExpression
+)
+
+/**
  * Property assignment within a pattern object instance.
  *
  * Represents either an assignment (setting a property value) or a comparison
@@ -83,13 +99,20 @@ data class TypedPatternPropertyAssignment(
  *                  matched node with the same name, allowing property assignments and comparisons on
  *                  already matched nodes.
  * @param properties Property assignments for this object instance.
+ * @param model The name of the model value (a `model` input, or a loop variable over a
+ *   `List<model>` input) whose model the object lives in, when it is declared or referenced inside
+ *   a scope block `in donor { ... }` (also within a `forbid`/`require` block inside one, or one
+ *   inside such a block); null for an object of the implicit model the transformation runs on.
+ *   Objects of a model input are read-only: they are only matched, never created, deleted or
+ *   assigned, and links never connect objects of different models.
  */
 @Serializable
 data class TypedPatternObjectInstance(
     val modifier: String? = null,
     val name: String,
     val className: String? = null,
-    val properties: List<TypedPatternPropertyAssignment>
+    val properties: List<TypedPatternPropertyAssignment>,
+    val model: String? = null
 )
 
 /**

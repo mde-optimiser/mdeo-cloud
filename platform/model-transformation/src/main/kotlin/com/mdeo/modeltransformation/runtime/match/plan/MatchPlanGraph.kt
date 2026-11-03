@@ -63,8 +63,8 @@ internal data class PendingCondition(
  *           as computed by [computeVariableVarDeps].
  * @property instancePriorities Greedy traversal-priority score per instance name, as
  *           computed by [computeInstancePriorities].  Higher = more selective.
- * @property injectivePairs All pairs of same-class main-pattern instances that must be
- *           bound to distinct vertices, as computed by [computeInjectivePairs].
+ * @property injectivePairs All pairs of main-pattern instances that must be bound to
+ *           distinct vertices, as computed by [computeInjectivePairs].
  * @property metamodelData The metamodel used for association lookups and BFS ordering
  *           inside application conditions.
  * @property costModel Model-sensitive branching-factor estimates, or `null` when no
@@ -90,7 +90,7 @@ internal class MatchPlanGraph(
     val variableNodeDeps: Map<String, Set<String>>,
     val variableVarDeps: Map<String, Set<String>>,
     val instancePriorities: Map<String, Int>,
-    val injectivePairs: List<Pair<String, String>>,
+    val injectivePairs: List<InjectivePair>,
     val metamodelData: MetamodelData,
     private val statistics: ModelStatistics?,
     val getVertexId: (String) -> Any?,
@@ -301,7 +301,7 @@ internal class MatchPlanGraph(
             metamodelData: MetamodelData,
             statistics: ModelStatistics?
         ): MatchPlanGraph {
-            val pseudoCompositionDag = MetamodelClassPriority.computePseudoCompositionDag(metamodelData)
+            val pseudoCompositionDag = MetamodelClassPriority.pseudoCompositionDag(metamodelData)
             val instances = mergeInstancesByName(elements.matchableInstances + elements.deleteInstances)
             val links = elements.matchableLinks + elements.deleteLinks
 
@@ -334,7 +334,7 @@ internal class MatchPlanGraph(
                 variableNodeDeps = computeVariableNodeDeps(variables, variableNames, nodeAnalyzer),
                 variableVarDeps = computeVariableVarDeps(variables, variableNames, nodeAnalyzer),
                 instancePriorities = computeInstancePriorities(instances, links, pseudoCompositionDag),
-                injectivePairs = computeInjectivePairs(instances),
+                injectivePairs = computeInjectivePairs(instances) { name -> getVertexId(name) != null },
                 metamodelData = metamodelData,
                 statistics = statistics,
                 getVertexId = getVertexId,

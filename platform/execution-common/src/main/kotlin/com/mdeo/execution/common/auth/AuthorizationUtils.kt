@@ -1,5 +1,6 @@
 package com.mdeo.execution.common.auth
 
+import com.mdeo.common.transport.respondError
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.response.*
@@ -93,5 +94,5 @@ fun validateProjectIdMatch(
  * @param result The denied authorization result
  */
 suspend fun ApplicationCall.respondAuthError(result: AuthorizationResult.Denied) {
-    respond(result.status, mapOf("error" to result.message))
+    respondError(result.status, result.message)
 }

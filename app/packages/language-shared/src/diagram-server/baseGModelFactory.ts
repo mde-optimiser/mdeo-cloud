@@ -50,10 +50,22 @@ export abstract class BaseGModelFactory<T extends AstNode> implements GModelFact
         if (sourceModel == undefined) {
             return;
         }
-        const idRegistry = new DefaultModelIdRegistry(sourceModel, this.modelIdProvider);
+        const idRegistry = this.createIdRegistry(sourceModel);
         const gRoot = await this.createModelInternal(sourceModel, idRegistry);
         this.modelIndex.indexSourceModelRoot(sourceModel, idRegistry);
         this.modelState.updateRoot(gRoot);
+    }
+
+    /**
+     * Creates the registry that assigns the ids of the graph model elements.
+     * The registry is also used to index the source model, so the ids the graph model is built
+     * with are the ids the index answers with.
+     *
+     * @param sourceModel the source AST model
+     * @returns the model ID registry
+     */
+    protected createIdRegistry(sourceModel: T): ModelIdRegistry {
+        return new DefaultModelIdRegistry(sourceModel, this.modelIdProvider);
     }
 
     /**

@@ -1,0 +1,171 @@
+{
+ "types": [
+  {
+   "kind": "void"
+  },
+  {
+   "package": "builtin",
+   "type": "string",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "double",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "boolean",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "Any",
+   "isNullable": true
+  }
+ ],
+ "metamodelPath": "/metamodel/shop.mm",
+ "statements": [
+  {
+   "kind": "ifCall",
+   "call": {
+    "kind": "call",
+    "callee": "/optimize/scenarios/killer.mt",
+    "name": "killer",
+    "arguments": [],
+    "outputs": []
+   },
+   "thenBlock": [
+    {
+     "kind": "match",
+     "pattern": {
+      "elements": [
+       {
+        "kind": "objectInstance",
+        "objectInstance": {
+         "modifier": "create",
+         "name": "c1",
+         "className": "Container",
+         "properties": [
+          {
+           "propertyName": "name",
+           "operator": "=",
+           "value": {
+            "kind": "stringLiteral",
+            "evalType": 1,
+            "value": "then ran"
+           }
+          }
+         ]
+        }
+       }
+      ]
+     }
+    }
+   ],
+   "elseBlock": [
+    {
+     "kind": "match",
+     "pattern": {
+      "elements": [
+       {
+        "kind": "objectInstance",
+        "objectInstance": {
+         "modifier": "create",
+         "name": "c2",
+         "className": "Container",
+         "properties": [
+          {
+           "propertyName": "name",
+           "operator": "=",
+           "value": {
+            "kind": "stringLiteral",
+            "evalType": 1,
+            "value": "else ran"
+           }
+          }
+         ]
+        }
+       }
+      ]
+     }
+    }
+   ]
+  }
+ ],
+ "signature": {
+  "name": "call-if-killing.mt",
+  "parameters": []
+ },
+ "callees": {
+  "/optimize/scenarios/killer.mt": {
+   "types": [
+    {
+     "kind": "void"
+    },
+    {
+     "package": "builtin",
+     "type": "string",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "double",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "boolean",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "Any",
+     "isNullable": true
+    }
+   ],
+   "metamodelPath": "/metamodel/base.mm",
+   "statements": [
+    {
+     "kind": "match",
+     "pattern": {
+      "elements": [
+       {
+        "kind": "objectInstance",
+        "objectInstance": {
+         "name": "c",
+         "className": "Container",
+         "properties": [
+          {
+           "propertyName": "name",
+           "operator": "=",
+           "value": {
+            "kind": "stringLiteral",
+            "evalType": 1,
+            "value": "killed"
+           }
+          }
+         ]
+        }
+       }
+      ]
+     }
+    },
+    {
+     "kind": "stop",
+     "keyword": "kill"
+    }
+   ],
+   "signature": {
+    "name": "killer.mt",
+    "parameters": []
+   }
+  }
+ }
+}

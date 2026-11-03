@@ -1,7 +1,6 @@
 import {
     DefaultScope,
     type BoundScope,
-    type ControlFlowEntry,
     type Scope,
     type ScopeEntry,
     type ScopeLocalInitialization,
@@ -25,7 +24,6 @@ export class ModelTransformationLambdaScope extends DefaultScope<TypirLangiumSpe
      *
      * @param parent The parent scope containing this lambda scope.
      * @param entriesProvider Function that provides the scope entries (parameters).
-     * @param controlFlowEntriesProvider Function that provides control flow entries.
      * @param localInitializations Initial values for locally initialized entries.
      * @param languageNode The lambda expression AST node.
      * @param lambdaTypeInference The result of lambda type inference.
@@ -33,12 +31,11 @@ export class ModelTransformationLambdaScope extends DefaultScope<TypirLangiumSpe
     constructor(
         parent: BoundScope<TypirLangiumSpecifics> | undefined,
         entriesProvider: (scope: Scope<TypirLangiumSpecifics>) => ScopeEntry<TypirLangiumSpecifics>[],
-        controlFlowEntriesProvider: (scope: Scope<TypirLangiumSpecifics>) => ControlFlowEntry<TypirLangiumSpecifics>[],
         localInitializations: ScopeLocalInitialization[],
         languageNode: TypirLangiumSpecifics["LanguageType"] | undefined,
         lambdaTypeInference: LambdaTypeInferenceResult<TypirLangiumSpecifics>
     ) {
-        super(parent, entriesProvider, controlFlowEntriesProvider, localInitializations, languageNode);
+        super(parent, entriesProvider, localInitializations, languageNode);
         this.lambdaTypeInference = lambdaTypeInference;
     }
 }

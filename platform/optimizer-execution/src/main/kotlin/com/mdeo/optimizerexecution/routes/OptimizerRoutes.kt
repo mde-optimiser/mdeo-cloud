@@ -1,11 +1,11 @@
 package com.mdeo.optimizerexecution.routes
 
+import com.mdeo.common.auth.Scopes
 import com.mdeo.execution.common.auth.*
 import com.mdeo.execution.common.routes.*
 import com.mdeo.execution.common.routes.ErrorResponses.respondBadRequest
 import com.mdeo.execution.common.routes.ErrorResponses.respondInternalError
 import com.mdeo.execution.common.routes.RouteUtils.getUuidParam
-import com.mdeo.execution.common.service.ExecutionScopes
 import com.mdeo.optimizerexecution.service.OptimizerExecutionService
 import io.ktor.http.*
 import io.ktor.server.auth.*
@@ -38,7 +38,7 @@ fun Route.optimizerRoutes(executionService: OptimizerExecutionService) {
  */
 private fun Route.createOptimizationExecutionRoute(executionService: OptimizerExecutionService) {
     post {
-        val authResult = call.requireScope(ExecutionScopes.EXECUTION_WRITE)
+        val authResult = call.requireScope(Scopes.PLUGIN_EXECUTION_START)
         if (authResult is AuthorizationResult.Denied) {
             call.respondAuthError(authResult)
             return@post

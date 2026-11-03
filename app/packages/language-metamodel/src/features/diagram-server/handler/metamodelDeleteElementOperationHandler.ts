@@ -27,8 +27,12 @@ import type { ContextActionRequestContext } from "@mdeo/language-shared";
 import type { ContextItem } from "@mdeo/protocol-common";
 import { isImportedElement } from "./metamodelHandlerUtils.js";
 import { GAssociationMultiplicityNode } from "../model/associationMultiplicityNode.js";
+import { ConfirmViewDeletionAction, MetamodelElementType } from "@mdeo/protocol-metamodel";
+import { MetamodelViewState } from "../metamodelViews.js";
+import { MetamodelViewEdits } from "../metamodelViewEdits.js";
+import type { PartialMetaModel } from "../../../grammar/metamodelPartialTypes.js";
 
-const { injectable } = sharedImport("inversify");
+const { injectable, inject } = sharedImport("inversify");
 const { AstUtils } = sharedImport("langium");
 
 /**
@@ -37,9 +41,18 @@ const { AstUtils } = sharedImport("langium");
 @injectable()
 export class MetamodelDeleteNodeOperationHandler extends BaseDeleteElementOperationHandler {
     /**
+     * Which view the diagram shows.
+     */
+    @inject(MetamodelViewState)
+    protected viewState!: MetamodelViewState;
+
+    /**
      * Returns a delete context item only for local (non-imported) nodes.
      * Edges are excluded entirely to reduce context-menu clutter — associations and
      * inheritance edges can still be deleted via keyboard or toolbar actions.
+     *
+     * Inside a view, deleting a class or enum asks first whether it is only removed from the
+     * view or deleted from the metamodel.
      *
      * @param element The selected diagram element
      * @param context Additional request context
@@ -50,11 +63,18 @@ export class MetamodelDeleteNodeOperationHandler extends BaseDeleteElementOperat
             return [];
         }
 
-        if (isImportedElement(element)) {
-            return [];
+        const items = super.getContextItems(element, context);
+        const view = this.viewState.resolveActiveView(this.modelState.sourceModel as PartialMetaModel | undefined);
+        if (
+            view == undefined ||
+            (element.type !== MetamodelElementType.NODE_CLASS && element.type !== MetamodelElementType.NODE_ENUM)
+        ) {
+            return items;
         }
-
-        return super.getContextItems(element, context);
+        return items.map((item) => ({
+            ...item,
+            action: ConfirmViewDeletionAction.create([element.id], [element.id], view.name)
+        }));
     }
 
     protected override async executeDelete(operation: DeleteElementOperation): Promise<DeleteOperationResult> {
@@ -268,6 +288,13 @@ export class MetamodelDeleteNodeOperationHandler extends BaseDeleteElementOperat
         edits.push(...(await this.createDeleteExtensionsEdits(extensions)));
 
         edits.push(...(await this.createDeleteMultiplicitiesEdits(multiplicities)));
+
+        const deletedMembers = new Set<AstNode>(
+            nodesToDelete.filter(
+                (node) => this.reflection.isInstance(node, Class) || this.reflection.isInstance(node, Enum)
+            )
+        );
+        edits.push(...new MetamodelViewEdits(this.modelState).removeFromAllViews(deletedMembers));
 
         return this.mergeWorkspaceEdits(edits);
     }

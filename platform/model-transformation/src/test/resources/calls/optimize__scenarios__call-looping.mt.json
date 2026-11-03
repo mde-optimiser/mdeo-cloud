@@ -1,0 +1,526 @@
+{
+ "types": [
+  {
+   "kind": "void"
+  },
+  {
+   "package": "builtin",
+   "type": "string",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "double",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "boolean",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "Any",
+   "isNullable": true
+  },
+  {
+   "isNullable": false,
+   "parameters": [
+    {
+     "name": "param0",
+     "type": {
+      "package": "class/metamodel/base.mm",
+      "type": "Container",
+      "isNullable": false,
+      "typeArgs": {}
+     }
+    }
+   ],
+   "returnType": {
+    "package": "builtin",
+    "type": "boolean",
+    "isNullable": false,
+    "typeArgs": {}
+   }
+  },
+  {
+   "package": "class/metamodel/base.mm",
+   "type": "Container",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "Collection",
+   "isNullable": false,
+   "typeArgs": {
+    "T": {
+     "package": "class/metamodel/base.mm",
+     "type": "Container",
+     "isNullable": false,
+     "typeArgs": {}
+    }
+   }
+  },
+  {
+   "package": "builtin",
+   "type": "Set",
+   "isNullable": false,
+   "typeArgs": {
+    "T": {
+     "package": "class/metamodel/base.mm",
+     "type": "Container",
+     "isNullable": false,
+     "typeArgs": {}
+    }
+   }
+  },
+  {
+   "package": "class/metamodel/base.mm",
+   "type": "Placement",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "int",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "class/metamodel/base.mm",
+   "type": "Container",
+   "isNullable": true,
+   "typeArgs": {}
+  }
+ ],
+ "metamodelPath": "/metamodel/shop.mm",
+ "statements": [
+  {
+   "kind": "match",
+   "pattern": {
+    "elements": [
+     {
+      "kind": "objectInstance",
+      "objectInstance": {
+       "name": "p",
+       "className": "Placement",
+       "properties": []
+      }
+     }
+    ]
+   }
+  },
+  {
+   "kind": "forIn",
+   "variable": "named",
+   "collection": {
+    "kind": "memberCall",
+    "evalType": 7,
+    "expression": {
+     "kind": "memberAccess",
+     "evalType": 8,
+     "expression": {
+      "kind": "identifier",
+      "evalType": 9,
+      "name": "p",
+      "scope": 1
+     },
+     "member": "candidates",
+     "isNullChaining": false
+    },
+    "member": "filter",
+    "isNullChaining": false,
+    "arguments": [
+     {
+      "value": {
+       "kind": "lambda",
+       "evalType": 5,
+       "parameters": [
+        "c"
+       ],
+       "body": {
+        "kind": "binary",
+        "evalType": 3,
+        "operator": "==",
+        "left": {
+         "kind": "memberAccess",
+         "evalType": 1,
+         "expression": {
+          "kind": "identifier",
+          "evalType": 6,
+          "name": "c",
+          "scope": 3
+         },
+         "member": "name",
+         "isNullChaining": false
+        },
+        "right": {
+         "kind": "stringLiteral",
+         "evalType": 1,
+         "value": "c"
+        }
+       }
+      },
+      "parameterType": 5
+     }
+    ],
+    "overload": ""
+   },
+   "doBlock": [
+    {
+     "kind": "match",
+     "pattern": {
+      "elements": [
+       {
+        "kind": "objectInstance",
+        "objectInstance": {
+         "name": "named",
+         "properties": [
+          {
+           "propertyName": "name",
+           "operator": "=",
+           "value": {
+            "kind": "stringLiteral",
+            "evalType": 1,
+            "value": "filtered"
+           }
+          }
+         ]
+        }
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "kind": "forIn",
+   "variable": "candidate",
+   "collection": {
+    "kind": "memberCall",
+    "evalType": 7,
+    "expression": {
+     "kind": "memberAccess",
+     "evalType": 8,
+     "expression": {
+      "kind": "identifier",
+      "evalType": 9,
+      "name": "p",
+      "scope": 1
+     },
+     "member": "candidates",
+     "isNullChaining": false
+    },
+    "member": "filter",
+    "isNullChaining": false,
+    "arguments": [
+     {
+      "value": {
+       "kind": "lambda",
+       "evalType": 5,
+       "parameters": [
+        "c"
+       ],
+       "body": {
+        "kind": "binary",
+        "evalType": 3,
+        "operator": "!=",
+        "left": {
+         "kind": "memberAccess",
+         "evalType": 1,
+         "expression": {
+          "kind": "identifier",
+          "evalType": 6,
+          "name": "c",
+          "scope": 3
+         },
+         "member": "name",
+         "isNullChaining": false
+        },
+        "right": {
+         "kind": "stringLiteral",
+         "evalType": 1,
+         "value": "filtered"
+        }
+       }
+      },
+      "parameterType": 5
+     }
+    ],
+    "overload": ""
+   },
+   "doBlock": [
+    {
+     "kind": "match",
+     "pattern": {
+      "elements": [
+       {
+        "kind": "objectInstance",
+        "objectInstance": {
+         "name": "candidate",
+         "properties": [
+          {
+           "propertyName": "name",
+           "operator": "=",
+           "value": {
+            "kind": "stringLiteral",
+            "evalType": 1,
+            "value": "candidate"
+           }
+          }
+         ]
+        }
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "kind": "call",
+   "callee": "/optimize/scenarios/pick-candidate.mt",
+   "name": "pickCandidate",
+   "arguments": [
+    {
+     "name": "placement",
+     "value": {
+      "kind": "identifier",
+      "evalType": 9,
+      "name": "p",
+      "scope": 1
+     }
+    }
+   ],
+   "outputs": [
+    {
+     "parameter": "picked",
+     "name": "chosen"
+    },
+    {
+     "parameter": "seen",
+     "name": "n"
+    }
+   ]
+  },
+  {
+   "kind": "match",
+   "pattern": {
+    "elements": [
+     {
+      "kind": "objectInstance",
+      "objectInstance": {
+       "modifier": "create",
+       "name": "log",
+       "className": "Container",
+       "properties": [
+        {
+         "propertyName": "name",
+         "operator": "=",
+         "value": {
+          "kind": "binary",
+          "evalType": 1,
+          "operator": "+",
+          "left": {
+           "kind": "stringLiteral",
+           "evalType": 1,
+           "value": "seen "
+          },
+          "right": {
+           "kind": "identifier",
+           "evalType": 10,
+           "name": "n",
+           "scope": 1
+          }
+         }
+        }
+       ]
+      }
+     },
+     {
+      "kind": "whereClause",
+      "whereClause": {
+       "expression": {
+        "kind": "binary",
+        "evalType": 3,
+        "operator": "!=",
+        "left": {
+         "kind": "identifier",
+         "evalType": 11,
+         "name": "chosen",
+         "scope": 1
+        },
+        "right": {
+         "kind": "nullLiteral",
+         "evalType": 4
+        }
+       }
+      }
+     }
+    ]
+   }
+  }
+ ],
+ "signature": {
+  "name": "call-looping.mt",
+  "parameters": []
+ },
+ "callees": {
+  "/optimize/scenarios/pick-candidate.mt": {
+   "types": [
+    {
+     "kind": "void"
+    },
+    {
+     "package": "builtin",
+     "type": "string",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "double",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "boolean",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "Any",
+     "isNullable": true
+    },
+    {
+     "package": "builtin",
+     "type": "int",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "Set",
+     "isNullable": false,
+     "typeArgs": {
+      "T": {
+       "package": "class/metamodel/base.mm",
+       "type": "Container",
+       "isNullable": false,
+       "typeArgs": {}
+      }
+     }
+    },
+    {
+     "package": "class/metamodel/base.mm",
+     "type": "Placement",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "class/metamodel/base.mm",
+     "type": "Container",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "class/metamodel/base.mm",
+     "type": "Container",
+     "isNullable": true,
+     "typeArgs": {}
+    }
+   ],
+   "metamodelPath": "/metamodel/base.mm",
+   "statements": [
+    {
+     "kind": "assignment",
+     "name": "seen",
+     "operator": "=",
+     "value": {
+      "kind": "intLiteral",
+      "evalType": 5,
+      "value": "0"
+     }
+    },
+    {
+     "kind": "forIn",
+     "variable": "candidate",
+     "collection": {
+      "kind": "memberAccess",
+      "evalType": 6,
+      "expression": {
+       "kind": "identifier",
+       "evalType": 7,
+       "name": "placement",
+       "scope": 1
+      },
+      "member": "candidates",
+      "isNullChaining": false
+     },
+     "doBlock": [
+      {
+       "kind": "assignment",
+       "name": "picked",
+       "operator": "=",
+       "value": {
+        "kind": "identifier",
+        "evalType": 8,
+        "name": "candidate",
+        "scope": 2
+       }
+      },
+      {
+       "kind": "assignment",
+       "name": "seen",
+       "operator": "=",
+       "value": {
+        "kind": "binary",
+        "evalType": 5,
+        "operator": "+",
+        "left": {
+         "kind": "identifier",
+         "evalType": 5,
+         "name": "seen",
+         "scope": 1
+        },
+        "right": {
+         "kind": "intLiteral",
+         "evalType": 5,
+         "value": "1"
+        }
+       }
+      }
+     ]
+    }
+   ],
+   "signature": {
+    "name": "pick-candidate.mt",
+    "parameters": [
+     {
+      "name": "placement",
+      "direction": "in",
+      "type": 7,
+      "isElement": true
+     },
+     {
+      "name": "picked",
+      "direction": "out",
+      "type": 9,
+      "isElement": true
+     },
+     {
+      "name": "seen",
+      "direction": "out",
+      "type": 5,
+      "isElement": false
+     }
+    ]
+   }
+  }
+ }
+}

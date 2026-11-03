@@ -3,7 +3,7 @@ import {
     BrowserMessageReader,
     BrowserMessageWriter,
     type RequestMessage
-} from "vscode-languageserver/browser.js";
+} from "vscode-languageserver/browser";
 import * as langium from "langium";
 import * as langiumLsp from "langium/lsp";
 import * as langiumGrammar from "langium/grammar";
@@ -19,6 +19,8 @@ import * as vscodeJsonrpc from "vscode-jsonrpc";
 import * as vscodeLanguageserverTypes from "vscode-languageserver-types";
 import * as vscodeLanguageserverProtocol from "vscode-languageserver-protocol";
 import * as elkjs from "elkjs/lib/elk.bundled.js";
+import * as orthoflow from "orthoflow";
+import orthoflowWasmUrl from "orthoflow/orthoflow.wasm?url";
 import type { ServerPlugin } from "@/data/plugin/serverPlugin";
 import type { DefaultSharedModuleContext } from "langium/lsp";
 import {
@@ -52,6 +54,14 @@ const messageWriter = new BrowserMessageWriter(self);
 // @ts-expect-error define document because otherwise elkjs will not work in a webworker
 globalThis.document = null;
 
+// the TALA layout (orthoflow) is WebAssembly, loaded once; the diagrams work without it, only TALA is unavailable
+try {
+    await orthoflow.init(orthoflowWasmUrl);
+} catch (error) {
+    // eslint-disable-next-line no-console
+    console.error("Failed to load orthoflow, the TALA layout is not available", error);
+}
+
 const pluginContext = {
     langium,
     "langium/lsp": langiumLsp,
@@ -67,7 +77,8 @@ const pluginContext = {
     "vscode-jsonrpc": vscodeJsonrpc,
     "vscode-languageserver-types": vscodeLanguageserverTypes,
     "vscode-languageserver-protocol": vscodeLanguageserverProtocol,
-    elkjs
+    elkjs,
+    orthoflow: orthoflow.isInitialized() ? orthoflow : undefined
 };
 
 initializePluginContext(pluginContext);

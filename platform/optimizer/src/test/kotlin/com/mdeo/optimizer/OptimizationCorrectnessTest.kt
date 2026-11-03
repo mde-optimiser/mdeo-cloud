@@ -381,10 +381,10 @@ class OptimizationCorrectnessTest {
             ),
             search = SearchConfig(
                 mutations = MutationsConfig(
-                    usingPaths = listOf(
+                    operators = listOf(
                         "/transformation/addRoom.mt",
                         "/transformation/deleteRoom.mt"
-                    )
+                    ).map { OperatorRef(it) }
                 )
             ),
             solver = SolverConfig(
@@ -481,10 +481,10 @@ class OptimizationCorrectnessTest {
             ),
             search = SearchConfig(
                 mutations = MutationsConfig(
-                    usingPaths = listOf(
+                    operators = listOf(
                         "/transformation/addRoom.mt",
                         "/transformation/deleteRoom.mt"
-                    )
+                    ).map { OperatorRef(it) }
                 )
             ),
             solver = SolverConfig(

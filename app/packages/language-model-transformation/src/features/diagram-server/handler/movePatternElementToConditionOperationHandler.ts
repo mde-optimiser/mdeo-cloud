@@ -1,16 +1,26 @@
 import { BaseOperationHandler, OperationHandlerCommand, sharedImport } from "@mdeo/language-shared";
 import type { Command } from "@eclipse-glsp/server";
+import type { AstNode } from "langium";
 import {
     MovePatternElementToConditionOperation,
     MAIN_PATTERN_TARGET,
     NEW_FORBID_TARGET,
-    NEW_REQUIRE_TARGET
+    NEW_REQUIRE_TARGET,
+    MODEL_BLOCK_TARGET_PREFIX,
+    NEW_MODEL_BLOCK_TARGET_PREFIX
 } from "@mdeo/protocol-model-transformation";
 import type { WorkspaceEdit } from "vscode-languageserver-types";
-import { PatternApplicationCondition, type PatternType } from "../../../grammar/modelTransformationTypes.js";
-import { patternConditions } from "../modelTransformationPatternUtils.js";
+import {
+    PatternApplicationCondition,
+    PatternModelScope,
+    type PatternModelScopeType,
+    type PatternType
+} from "../../../grammar/modelTransformationTypes.js";
+import { findContainingModelScope, patternConditions, patternModelScopes } from "../modelTransformationPatternUtils.js";
 import {
     canEnterCondition,
+    canEnterModel,
+    visibleModelValues,
     containerBraces,
     movableComponent,
     removedCstNodes,
@@ -21,8 +31,18 @@ import {
 const { injectable } = sharedImport("inversify");
 
 /**
+ * Where a move takes the elements: into an existing pattern or block, into a new condition
+ * block, or into a new model scope block for a model value (a `model` input or a loop variable).
+ */
+type MoveDestination =
+    | { kind: "existing"; container: PatternElementContainer }
+    | { kind: "new"; conditionKind: ConditionKind }
+    | { kind: "new-model"; model: AstNode };
+
+/**
  * Handler that moves a pattern element into another application condition block, into a new
- * block, or back into the enclosing match pattern.
+ * block, or back into the enclosing match pattern — and, for input models, into an existing or
+ * a new model scope block (`in donor { … }`) or out of one into the transformed model.
  *
  * Because a block is a graph of its own, an element never travels alone: the whole connected
  * component it belongs to inside its current container is moved with it. Moving a node out of
@@ -78,7 +98,29 @@ export class MovePatternElementToConditionOperationHandler extends BaseOperation
         if (target === undefined) {
             return undefined;
         }
-        if (this.entersCondition(target) && !canEnterCondition(movable.elements, movable.container, this.reflection)) {
+        if (
+            target.kind === "new-model" ||
+            (target.kind === "existing" && this.reflection.isInstance(target.container, PatternModelScope))
+        ) {
+            // into a scope block: the input model must be able to hold the component
+            const model =
+                target.kind === "new-model" ? target.model : (target.container as PatternModelScopeType).model?.ref;
+            if (model == undefined || !canEnterModel(movable.elements, model, this.reflection)) {
+                return undefined;
+            }
+        } else if (findContainingModelScope(astNode, this.reflection) != undefined) {
+            // out of a scope block: only back to the transformed model, which must hold it too
+            if (
+                target.kind !== "existing" ||
+                target.container !== movable.pattern ||
+                !canEnterModel(movable.elements, undefined, this.reflection)
+            ) {
+                return undefined;
+            }
+        } else if (
+            this.entersCondition(target) &&
+            !canEnterCondition(movable.elements, movable.container, this.reflection)
+        ) {
             return undefined;
         }
 
@@ -96,7 +138,13 @@ export class MovePatternElementToConditionOperationHandler extends BaseOperation
         const insertion =
             target.kind === "new"
                 ? this.insertNewBlock(movable.pattern, target.conditionKind, movedText)
-                : this.insertIntoExisting(target.container, movedText);
+                : target.kind === "new-model"
+                  ? this.insertNewBlock(
+                        movable.pattern,
+                        `in ${(target.model as unknown as { name: string }).name}`,
+                        movedText
+                    )
+                  : this.insertIntoExisting(target.container, movedText);
         if (insertion == undefined) {
             return undefined;
         }
@@ -111,10 +159,11 @@ export class MovePatternElementToConditionOperationHandler extends BaseOperation
      * @param target The resolved destination
      * @returns `true` when the component would end up inside a block
      */
-    private entersCondition(
-        target: { kind: "existing"; container: PatternElementContainer } | { kind: "new"; conditionKind: ConditionKind }
-    ): boolean {
-        return target.kind === "new" || this.reflection.isInstance(target.container, PatternApplicationCondition);
+    private entersCondition(target: MoveDestination): boolean {
+        return (
+            target.kind === "new" ||
+            (target.kind === "existing" && this.reflection.isInstance(target.container, PatternApplicationCondition))
+        );
     }
 
     /**
@@ -130,10 +179,20 @@ export class MovePatternElementToConditionOperationHandler extends BaseOperation
         pattern: PatternType,
         container: PatternElementContainer,
         target: string
-    ):
-        | { kind: "existing"; container: PatternElementContainer }
-        | { kind: "new"; conditionKind: ConditionKind }
-        | undefined {
+    ): MoveDestination | undefined {
+        if (target.startsWith(MODEL_BLOCK_TARGET_PREFIX)) {
+            const index = Number.parseInt(target.slice(MODEL_BLOCK_TARGET_PREFIX.length), 10);
+            const scopes = patternModelScopes(pattern, this.reflection);
+            const scope = Number.isNaN(index) ? undefined : scopes[index];
+            return scope == undefined || scope === container ? undefined : { kind: "existing", container: scope };
+        }
+        if (target.startsWith(NEW_MODEL_BLOCK_TARGET_PREFIX)) {
+            const name = target.slice(NEW_MODEL_BLOCK_TARGET_PREFIX.length);
+            const model = visibleModelValues(pattern, this.reflection).find(
+                (value) => (value as { name?: string }).name === name
+            );
+            return model == undefined ? undefined : { kind: "new-model", model };
+        }
         if (target === MAIN_PATTERN_TARGET) {
             return container === pattern ? undefined : { kind: "existing", container: pattern };
         }
@@ -169,16 +228,16 @@ export class MovePatternElementToConditionOperationHandler extends BaseOperation
     }
 
     /**
-     * Builds the edit creating a new condition block that holds the moved elements.
+     * Builds the edit creating a new block that holds the moved elements.
      *
      * @param pattern The pattern the block is appended to
-     * @param conditionKind Whether a `forbid` or a `require` block is created
+     * @param header The block's header: `forbid`, `require` or `in model`
      * @param movedText The source text of the moved elements
      * @returns The workspace edit, or `undefined` when the pattern has no braces
      */
     private insertNewBlock(
         pattern: PatternType,
-        conditionKind: ConditionKind,
+        header: ConditionKind | `in ${string}`,
         movedText: string[]
     ): WorkspaceEdit | undefined {
         const braces = containerBraces(pattern);
@@ -187,6 +246,6 @@ export class MovePatternElementToConditionOperationHandler extends BaseOperation
         }
 
         const body = movedText.map((text) => `    ${text}`).join("\n");
-        return this.insertIntoScope(braces.open, braces.close, true, `${conditionKind} {\n${body}\n}`);
+        return this.insertIntoScope(braces.open, braces.close, true, `${header} {\n${body}\n}`);
     }
 }

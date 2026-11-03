@@ -302,12 +302,41 @@ export const ClassEnumOrAssociation = createType("ClassEnumOrAssociation").types
 export type ClassEnumOrAssociationType = ASTType<typeof ClassEnumOrAssociation>;
 
 /**
+ * Entry of a view: a class or enum shown in it.
+ */
+export const ViewEntry = createInterface("ViewEntry").attrs({
+    element: Ref(() => ClassOrEnum)
+});
+
+/**
+ * Type representing a ViewEntry AST node.
+ */
+export type ViewEntryType = ASTType<typeof ViewEntry>;
+
+/**
+ * View definition.
+ * A named subset of the classes and enums of the metamodel, shown as a diagram of its own.
+ * The associations and inheritance relations between the listed elements are part of the view
+ * without being listed.
+ */
+export const View = createInterface("View").attrs({
+    name: String,
+    entries: [ViewEntry]
+});
+
+/**
+ * Type representing a View AST node.
+ */
+export type ViewType = ASTType<typeof View>;
+
+/**
  * The root MetaModel type.
- * Contains imports, class definitions, enums, and associations.
+ * Contains imports, class definitions, enums, associations, and views.
  */
 export const MetaModel = createInterface("MetaModel").attrs({
     imports: [FileImport],
-    elements: [ClassEnumOrAssociation]
+    elements: [ClassEnumOrAssociation],
+    views: [View]
 });
 
 /**

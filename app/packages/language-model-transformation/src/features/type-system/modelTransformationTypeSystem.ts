@@ -35,6 +35,7 @@ import { modelTransformationDoubleType } from "../stdlib/primitives/double.js";
 import { modelTransformationFloatType } from "../stdlib/primitives/float.js";
 import { modelTransformationIntType } from "../stdlib/primitives/int.js";
 import { modelTransformationLongType } from "../stdlib/primitives/long.js";
+import { modelTransformationModelType } from "../stdlib/primitives/model.js";
 import { modelTransformationStringType } from "../stdlib/primitives/string.js";
 
 const { AstUtils } = sharedImport("langium");
@@ -64,7 +65,8 @@ export class ModelTransformationTypeSystem extends ExpressionTypeSystem<TypirLan
                     ModelTransformationListType,
                     ModelTransformationSetType,
                     ModelTransformationBagType,
-                    ModelTransformationOrderedSetType
+                    ModelTransformationOrderedSetType,
+                    modelTransformationModelType
                 ],
                 lambdaSuperTypes: [{ package: "builtin", type: ModelTransformationAnyType.name }],
                 createListType: (elementType) => typeRef("builtin", "List").withTypeArgs({ T: elementType }).build()

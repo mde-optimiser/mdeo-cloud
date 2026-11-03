@@ -8,7 +8,11 @@ import {
     ForMatchStatement,
     IfExpressionStatement,
     WhileExpressionStatement,
-    StopStatement
+    StopStatement,
+    CallStatement,
+    IfCallStatement,
+    ForInStatement,
+    AssignmentStatement
 } from "../../grammar/modelTransformationTypes.js";
 import type {
     ModelTransformationType,
@@ -21,10 +25,17 @@ import type {
     IfExpressionStatementType,
     WhileExpressionStatementType,
     StopStatementType,
+    CallStatementType,
+    IfCallStatementType,
+    ForInStatementType,
+    AssignmentStatementType,
     PatternType,
-    ElseIfBranchType
+    ElseIfBranchType,
+    TransformationParameterType
 } from "../../grammar/modelTransformationTypes.js";
+import type { AstNode } from "langium";
 import { ModelTransformationIdGenerator } from "./modelTransformationIdGenerator.js";
+import { primaryEndNodeId } from "./modelTransformationHeader.js";
 
 /**
  * A start node marking the single entry point of the transformation.
@@ -38,6 +49,10 @@ export interface ControlFlowStartNode {
      * Unique node ID.
      */
     readonly id: string;
+    /**
+     * The `in` declarations of the transformation, which the start node lists.
+     */
+    readonly inputs: readonly TransformationParameterType[];
 }
 
 /**
@@ -58,6 +73,17 @@ export interface ControlFlowEndNode {
      * - "kill" — hard termination via kill statement.
      */
     readonly endKind: "stop" | "kill";
+    /**
+     * The `out` declarations of the transformation, which every successful end ("stop") lists;
+     * empty for "kill", which discards the result.
+     */
+    readonly outputs: readonly TransformationParameterType[];
+    /**
+     * Whether this is the primary successful end (see {@link primaryEndNodeId}): the end whose
+     * output rows carry the ids of the declarations themselves, so that validation markers of an
+     * output and new output rows go there.
+     */
+    readonly primary: boolean;
 }
 
 /**
@@ -122,10 +148,34 @@ export interface ControlFlowMergeNode {
 }
 
 /**
+ * A statement shown as its text: a call of another transformation (the flow continues after it
+ * when the callee succeeds; for `if call` it branches into "success" and "failure"), the head
+ * of a `for … in` loop, or an assignment outside a pattern.
+ */
+export interface ControlFlowCallNode {
+    readonly kind: "call";
+    readonly id: string;
+    readonly text: string;
+    /**
+     * What the node stands for: a call, a loop head or an assignment.
+     */
+    readonly variant: "call" | "loop" | "assignment";
+    /**
+     * For calls: the id of the editable label holding the call's text.
+     */
+    readonly labelId?: string;
+}
+
+/**
  * Discriminated union of all supported control-flow node kinds.
  */
 export type ControlFlowNode =
-    ControlFlowStartNode | ControlFlowEndNode | ControlFlowMatchNode | ControlFlowSplitNode | ControlFlowMergeNode;
+    | ControlFlowStartNode
+    | ControlFlowEndNode
+    | ControlFlowMatchNode
+    | ControlFlowSplitNode
+    | ControlFlowMergeNode
+    | ControlFlowCallNode;
 
 /**
  * A directed edge in the control-flow graph.
@@ -165,7 +215,7 @@ export interface ControlFlowEdge {
  * The control-flow graph extracted from a ModelTransformationType.
  *
  * The graph captures only the outer activity-diagram structure:
- * - start / end nodes
+ * - start / end nodes, with the inputs (start) and outputs (successful ends) they list
  * - match nodes (with the raw pattern AST node for consumer-side rendering)
  * - split / merge nodes for expression-based branching
  * - directed edges with optional labels
@@ -253,23 +303,45 @@ export class ModelTransformationControlFlowConverter {
         this.nodes = [];
         this.edges = [];
 
+        const parameters = (this.model.parameters ?? []).filter((parameter) => parameter != undefined);
+        const inputs = parameters.filter((parameter) => parameter.direction === "in");
+        const outputs = parameters.filter((parameter) => parameter.direction === "out");
+
         const startNodeId = "start";
-        this.pushNode({ kind: "start", id: startNodeId });
+        this.pushNode({ kind: "start", id: startNodeId, inputs });
 
         const statements = this.model.statements ?? [];
         const result = this.processStatements(statements, startNodeId, undefined);
 
         if (result.lastNodeId != undefined) {
             const endNodeId = "implicit_end";
-            this.pushNode({ kind: "end", id: endNodeId, endKind: "stop" });
+            this.pushEnd(endNodeId, "stop");
             this.pushEdge(result.lastNodeId, endNodeId, result.exitLabel);
         }
+
+        // every successful end lists the outputs; one of them is the primary one
+        const primary = primaryEndNodeId(
+            this.nodes.filter((node) => node.kind === "end" && node.endKind === "stop").map((node) => node.id)
+        );
+        this.nodes = this.nodes.map((node) =>
+            node.kind === "end" && node.endKind === "stop" ? { ...node, outputs, primary: node.id === primary } : node
+        );
 
         return {
             startNodeId,
             nodes: [...this.nodes],
             edges: [...this.edges]
         };
+    }
+
+    /**
+     * Appends an end node; its outputs are filled in once the whole graph is known.
+     *
+     * @param id The node ID.
+     * @param endKind Whether the transformation stops (successfully) or is killed.
+     */
+    private pushEnd(id: string, endKind: "stop" | "kill"): void {
+        this.pushNode({ kind: "end", id, endKind, outputs: [], primary: false });
     }
 
     /**
@@ -427,7 +499,185 @@ export class ModelTransformationControlFlowConverter {
                 incomingLabelElementId
             );
         }
+        if (this.reflection.isInstance(stmt, CallStatement)) {
+            return this.processCallStatement(
+                stmt as CallStatementType,
+                previousNodeId,
+                incomingLabel,
+                incomingLabelElementId
+            );
+        }
+        if (this.reflection.isInstance(stmt, IfCallStatement)) {
+            return this.processIfCallStatement(
+                stmt as IfCallStatementType,
+                previousNodeId,
+                incomingLabel,
+                incomingLabelElementId
+            );
+        }
+        if (this.reflection.isInstance(stmt, ForInStatement)) {
+            return this.processForInStatement(
+                stmt as ForInStatementType,
+                previousNodeId,
+                incomingLabel,
+                incomingLabelElementId
+            );
+        }
+        if (this.reflection.isInstance(stmt, AssignmentStatement)) {
+            return this.processTextStatement(
+                stmt as AssignmentStatementType,
+                "assignment",
+                previousNodeId,
+                incomingLabel,
+                incomingLabelElementId
+            );
+        }
         return { lastNodeId: previousNodeId };
+    }
+
+    /**
+     * Returns the source text of a node on one line.
+     *
+     * @param node The AST node
+     * @param fallback The text when the node has no source text
+     * @returns The text
+     */
+    private textOf(node: AstNode | undefined, fallback: string): string {
+        return (node?.$cstNode?.text ?? fallback).replace(/\s+/g, " ").trim();
+    }
+
+    /**
+     * Pushes a call node for a call statement (on its own or the call of an `if call`).
+     *
+     * @param call The call statement
+     * @returns The node's id
+     */
+    private pushCallNode(call: CallStatementType): string {
+        const nodeId = this.idRegistry.getId(call);
+        const text = this.textOf(call, `call ${call.callee?.$refText ?? ""}()`);
+        this.pushNode({ kind: "call", id: nodeId, text, variant: "call", labelId: `${nodeId}__text` });
+        return nodeId;
+    }
+
+    /**
+     * Processes a statement shown as a node with its text (an assignment).
+     *
+     * @param stmt The statement.
+     * @param variant What the node stands for.
+     * @param previousNodeId The predecessor node ID.
+     * @param incomingLabel Optional label for the incoming edge.
+     * @param incomingLabelElementId Optional GModel label element ID (factory-only).
+     * @returns Traversal result with the node as the last node.
+     */
+    private processTextStatement(
+        stmt: AssignmentStatementType,
+        variant: "assignment",
+        previousNodeId: string,
+        incomingLabel: string | undefined,
+        incomingLabelElementId?: string
+    ): TraversalResult {
+        const nodeId = this.idRegistry.getId(stmt);
+        this.pushNode({ kind: "call", id: nodeId, text: this.textOf(stmt, "="), variant });
+        this.pushEdge(previousNodeId, nodeId, incomingLabel, incomingLabelElementId);
+        return { lastNodeId: nodeId };
+    }
+
+    /**
+     * Processes an `if call`: the call node branches into "success" (the then block, with the
+     * outputs bound) and "failure" (the else block), which join in a merge node, like the
+     * branches of `if match`.
+     *
+     * @param stmt The if-call statement.
+     * @param previousNodeId The predecessor node ID.
+     * @param incomingLabel Optional label for the incoming edge.
+     * @param incomingLabelElementId Optional GModel label element ID (factory-only).
+     * @returns Traversal result ending at the merge node, or undefined if all branches terminate.
+     */
+    private processIfCallStatement(
+        stmt: IfCallStatementType,
+        previousNodeId: string,
+        incomingLabel: string | undefined,
+        incomingLabelElementId?: string
+    ): TraversalResult {
+        const stmtId = this.idRegistry.getId(stmt);
+        const call = stmt.ifBlock?.call;
+        let callNodeId: string;
+        if (call != undefined) {
+            callNodeId = this.pushCallNode(call);
+        } else {
+            callNodeId = `${stmtId}_no-call`;
+            this.pushNode({ kind: "call", id: callNodeId, text: "call ?", variant: "call" });
+        }
+        this.pushEdge(previousNodeId, callNodeId, incomingLabel, incomingLabelElementId);
+
+        const thenResult = this.processBranch(stmt.ifBlock?.thenBlock?.statements ?? [], callNodeId, "success");
+        const elseResult = this.processBranch(stmt.elseBlock?.statements ?? [], callNodeId, "failure");
+
+        if (thenResult.lastNodeId != undefined || elseResult.lastNodeId != undefined) {
+            const mergeNodeId = ModelTransformationIdGenerator.mergeNode(stmtId);
+            this.pushNode({ kind: "merge", id: mergeNodeId });
+            if (thenResult.lastNodeId != undefined) {
+                this.pushEdge(thenResult.lastNodeId, mergeNodeId, thenResult.exitLabel, thenResult.exitLabelElementId);
+            }
+            if (elseResult.lastNodeId != undefined) {
+                this.pushEdge(elseResult.lastNodeId, mergeNodeId, elseResult.exitLabel, elseResult.exitLabelElementId);
+            }
+            return { lastNodeId: mergeNodeId };
+        }
+        return { lastNodeId: undefined };
+    }
+
+    /**
+     * Processes a `for … in` loop: a node with the loop's head, its body on an "each" edge that
+     * loops back to it (a self-loop when the body is empty), like `for match`.
+     *
+     * @param stmt The for-in statement.
+     * @param previousNodeId The predecessor node ID.
+     * @param incomingLabel Optional label for the incoming edge.
+     * @param incomingLabelElementId Optional GModel label element ID (factory-only).
+     * @returns Traversal result with the loop node as the exit point.
+     */
+    private processForInStatement(
+        stmt: ForInStatementType,
+        previousNodeId: string,
+        incomingLabel: string | undefined,
+        incomingLabelElementId?: string
+    ): TraversalResult {
+        const nodeId = this.idRegistry.getId(stmt);
+        const text = `for ${stmt.variable?.name ?? "?"} in ${this.textOf(stmt.collection, "?")}`;
+        this.pushNode({ kind: "call", id: nodeId, text, variant: "loop" });
+        this.pushEdge(previousNodeId, nodeId, incomingLabel, incomingLabelElementId);
+
+        const doStatements = stmt.doBlock?.statements ?? [];
+        if (doStatements.length > 0) {
+            const doResult = this.processBranch(doStatements, nodeId, "each");
+            if (doResult.lastNodeId != undefined) {
+                this.pushEdge(doResult.lastNodeId, nodeId);
+            }
+        } else {
+            this.pushEdge(nodeId, nodeId, "each");
+        }
+        return { lastNodeId: nodeId };
+    }
+
+    /**
+     * Processes a call of another transformation: one node showing the call, on the main flow.
+     *
+     * @param stmt The call statement.
+     * @param previousNodeId The predecessor node ID.
+     * @param incomingLabel Optional label for the incoming edge.
+     * @param incomingLabelElementId Optional GModel label element ID (factory-only).
+     * @returns Traversal result with the call node as the last node.
+     */
+    private processCallStatement(
+        stmt: CallStatementType,
+        previousNodeId: string,
+        incomingLabel: string | undefined,
+        incomingLabelElementId?: string
+    ): TraversalResult {
+        const nodeId = this.pushCallNode(stmt);
+        this.pushEdge(previousNodeId, nodeId, incomingLabel, incomingLabelElementId);
+        return { lastNodeId: nodeId };
     }
 
     /**
@@ -804,7 +1054,7 @@ export class ModelTransformationControlFlowConverter {
     ): TraversalResult {
         const nodeId = this.idRegistry.getId(stmt);
         const endKind: "stop" | "kill" = stmt.keyword === "kill" ? "kill" : "stop";
-        this.pushNode({ kind: "end", id: nodeId, endKind });
+        this.pushEnd(nodeId, endKind);
         this.pushEdge(previousNodeId, nodeId, incomingLabel, incomingLabelElementId);
         return { lastNodeId: undefined };
     }

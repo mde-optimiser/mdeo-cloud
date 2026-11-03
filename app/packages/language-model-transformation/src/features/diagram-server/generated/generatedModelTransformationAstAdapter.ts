@@ -16,6 +16,7 @@ import type {
     TypedPatternApplicationCondition
 } from "../../../plugin/typedAst.js";
 import type { PartialGeneratedModelTransformation } from "../../../grammar/generatedModelTransformationPartialTypes.js";
+import { RenderedExpression } from "../../../grammar/generatedModelTransformationTypes.js";
 import type { ModelTransformationType } from "../../../grammar/modelTransformationTypes.js";
 
 type SyntheticNode = {
@@ -499,7 +500,7 @@ function resolveInstanceTarget(
 
 function expressionNode(expression: TypedExpression): SyntheticNode {
     return {
-        $type: "IdentifierExpression",
+        $type: RenderedExpression.name,
         $cstNode: {
             text: renderTypedExpression(expression)
         }

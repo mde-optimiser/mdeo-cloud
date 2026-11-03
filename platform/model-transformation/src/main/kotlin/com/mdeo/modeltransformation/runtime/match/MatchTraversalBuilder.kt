@@ -21,11 +21,19 @@ import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.`__` as Anonymou
  * applied sequentially to build an efficient traversal with early constraint pruning.
  *
  * Post-match filters are handled by the caller ([MatchExecutor]).
+ *
+ * While model inputs are loaded ([models] not null), the scan of every pattern object is filtered
+ * by the object's model slot ([com.mdeo.modeltransformation.graph.ModelGraph.filterModelSlot]),
+ * right after its class filter; without model inputs no such step is emitted, and the traversal is
+ * exactly the one without the feature.
+ *
+ * @param models The model slots of the pattern's objects, or null when no model input is loaded.
  */
 internal class MatchTraversalBuilder(
     private val expressionSupport: ExpressionSupport,
     private val compilationContext: CompilationContext,
-    private val engine: TransformationEngine
+    private val engine: TransformationEngine,
+    private val models: PatternModels? = null
 ) {
     private val anchorLabel = MATCH_ANCHOR_LABEL
 
@@ -84,7 +92,21 @@ internal class MatchTraversalBuilder(
                 "VertexScan for '${step.instanceName}' has neither vertexId nor className"
             )
         }
-        return scanned.`as`(VariableBinding.stepLabel(step.instanceName)) as GraphTraversal<Vertex, Vertex>
+        return scanned.applyModelFilter(step.instanceName)
+            .`as`(VariableBinding.stepLabel(step.instanceName)) as GraphTraversal<Vertex, Vertex>
+    }
+
+    /**
+     * Keeps only the vertices of the model of the pattern object [instanceName], while model
+     * inputs are loaded; otherwise returns the traversal unchanged. A name that is no object of
+     * the pattern (a bound object an expression reads) is not filtered.
+     *
+     * @param instanceName The scanned object.
+     * @return The traversal, filtered by model when needed.
+     */
+    private fun <S, E> GraphTraversal<S, E>.applyModelFilter(instanceName: String): GraphTraversal<S, E> {
+        val slot = models?.slotOf(instanceName) ?: return this
+        return engine.modelGraph.filterModelSlot(this, slot)
     }
 
     /**
@@ -243,7 +265,7 @@ internal class MatchTraversalBuilder(
     private fun conditionBuilder(step: BaseStep.ApplicationCondition): MatchTraversalBuilder {
         if (step.localNames.isEmpty()) return this
         val scope = compilationContext.currentScope.conditionScope(step.localNames)
-        return MatchTraversalBuilder(expressionSupport.withScope(scope), compilationContext.withScope(scope), engine)
+        return MatchTraversalBuilder(expressionSupport.withScope(scope), compilationContext.withScope(scope), engine, models)
     }
 
     /**
@@ -290,7 +312,7 @@ internal class MatchTraversalBuilder(
                         else -> throw IllegalStateException(
                             "VertexScan for '${step.instanceName}' has neither vertexId nor className"
                         )
-                    }
+                    }.applyModelFilter(step.instanceName)
                     val nodeLabel = VariableBinding.stepLabel(step.instanceName)
                     val labeled = if (nodeLabel in neededLabels) {
                         v.`as`(nodeLabel) as GraphTraversal<Any, Any>
@@ -521,10 +543,12 @@ internal class MatchTraversalBuilder(
         step: BaseStep.VariableBinding
     ): GraphTraversal<Vertex, Vertex> {
         val anchorTraversal = AnonymousTraversal.`as`<Any>(anchorLabel)
+        val value = step.variable.variable.value
         val result: CompilationResult = engine.expressionCompilerRegistry.compile(
-            step.variable.variable.value, compilationContext, anchorTraversal
+            value, compilationContext, anchorTraversal
         )
-        val bound = t.map(result.traversal).`as`(step.variableLabel) as GraphTraversal<Vertex, Vertex>
+        val bound = t.map(collectedIfCollection(result.traversal, value, engine))
+            .`as`(step.variableLabel) as GraphTraversal<Vertex, Vertex>
         if (step.isReassignment) {
             val name = step.variable.variable.name
             expressionSupport.context.variableScope.findDeclaringScope(name)
@@ -627,7 +651,15 @@ internal class MatchTraversalBuilder(
     ): GraphTraversal<Vertex, Vertex> {
         val labelA = VariableBinding.stepLabel(step.instanceNameA)
         val labelB = VariableBinding.stepLabel(step.instanceNameB)
-        return t.where(labelA, P.neq(labelB)) as GraphTraversal<Vertex, Vertex>
+        val exactClass = step.exactClassOfA
+            ?: return t.where(labelA, P.neq(labelB)) as GraphTraversal<Vertex, Vertex>
+        // A bound object: only an element of exactly A's class must differ from it.
+        return t.filter(
+            AnonymousTraversal.or<Any>(
+                AnonymousTraversal.select<Any, Any>(labelA).not(AnonymousTraversal.hasLabel<Any>(exactClass)),
+                AnonymousTraversal.where<Any>(labelA, P.neq(labelB))
+            )
+        ) as GraphTraversal<Vertex, Vertex>
     }
 
     /**
@@ -708,6 +740,31 @@ internal class MatchTraversalBuilder(
                 "Unsupported property comparison operator: '$operator'. " +
                 "Expected one of: ==, !=, <, >, <=, >="
             )
+        }
+    }
+
+    companion object {
+        /**
+         * Wraps the compiled traversal of a collection-typed [expression] so that it yields the
+         * whole collection as one list (a `map` step keeps only the first result of its
+         * traversal); other traversals are returned as they are.
+         *
+         * @param traversal The compiled traversal.
+         * @param expression The expression it was compiled from.
+         * @param engine The engine, for the expression's type.
+         * @return The traversal to map with.
+         */
+        @Suppress("UNCHECKED_CAST")
+        fun collectedIfCollection(
+            traversal: GraphTraversal<*, *>,
+            expression: com.mdeo.expression.ast.expressions.TypedExpression,
+            engine: TransformationEngine
+        ): GraphTraversal<Any, Any> {
+            val compiled = traversal as GraphTraversal<Any, Any>
+            if (!engine.isCollectionType(expression.evalType)) {
+                return compiled
+            }
+            return compiled.unfold<Any>().fold() as GraphTraversal<Any, Any>
         }
     }
 }

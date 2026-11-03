@@ -58,6 +58,16 @@ export class ExpressionConfig {
     readonly callExpressionGenericArgsRuleName: string;
 
     /**
+     * The name for the NamedArgument type.
+     */
+    readonly namedArgumentTypeName: string;
+
+    /**
+     * The name for the NamedArgument rule.
+     */
+    readonly namedArgumentRuleName: string;
+
+    /**
      * The name for the MemberAccessExpression type.
      */
     readonly memberAccessExpressionTypeName: string;
@@ -243,6 +253,8 @@ export class ExpressionConfig {
         this.callExpressionTypeName = prefix + "CallExpression";
         this.callExpressionGenericArgsTypeName = prefix + "CallExpressionGenericArgs";
         this.callExpressionGenericArgsRuleName = prefix + "CallExpressionGenericArgsRule";
+        this.namedArgumentTypeName = prefix + "NamedArgument";
+        this.namedArgumentRuleName = prefix + "NamedArgumentRule";
         this.memberAccessExpressionTypeName = prefix + "MemberAccessExpression";
         this.memberCallExpressionTypeName = prefix + "MemberCallExpression";
         this.postfixExpressionRuleName = prefix + "PostfixExpressionRule";

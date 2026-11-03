@@ -1,5 +1,7 @@
 package com.mdeo.backend.service
 
+import com.mdeo.common.transport.CompressedResponses
+import com.mdeo.common.transport.describeErrorResponse
 import com.mdeo.backend.database.DataDependenciesTable
 import com.mdeo.backend.database.FileDependenciesTable
 import com.mdeo.backend.database.FileDataComputationsTable
@@ -7,11 +9,14 @@ import com.mdeo.backend.database.FileDataTable
 import com.mdeo.backend.database.FilesTable
 import com.mdeo.common.model.*
 import com.mdeo.common.model.FileType
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonElement
 import org.jetbrains.exposed.v1.jdbc.*
 import org.jetbrains.exposed.v1.core.*
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
@@ -19,7 +24,6 @@ import org.slf4j.LoggerFactory
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
-import java.net.http.HttpResponse
 import java.time.Duration
 import java.time.Instant
 import java.util.*
@@ -35,6 +39,23 @@ import kotlin.uuid.toKotlinUuid
 class FileDataService(services: InjectedServices) : BaseService(), InjectedServices by services {
     private val logger = LoggerFactory.getLogger(FileDataService::class.java)
     private val json = Json { ignoreUnknownKeys = true }
+    /**
+     * Where shared computations run, apart from the requests waiting for them.
+     */
+    private val computationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /**
+     * Cancels every computation still running, as the backend shuts down.
+     */
+    fun close() {
+        computationScope.cancel()
+    }
+    private val flights = ComputationFlights<FileDataTarget, ApiResult<RawFileData>>(computationScope)
+
+    /**
+     * One piece of file data, as computations are shared by it.
+     */
+    private data class FileDataTarget(val projectId: UUID, val path: String, val key: String)
 
     /**
      * File data configuration settings 
@@ -43,7 +64,7 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
 
     private val httpClient by lazy {
         HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(10))
+            .connectTimeout(Duration.ofSeconds(config.timeouts.connectSeconds))
             .version(if (config.plugin.forceHttp1) HttpClient.Version.HTTP_1_1 else HttpClient.Version.HTTP_2)
             .build()
     }
@@ -57,14 +78,23 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
      * @param path The normalized path to the file (optional if language is provided)
      * @param languageId The language ID (optional if path is provided, assumes root path)
      * @param key The data key (e.g., "ast")
+     * @param callerComputationId The file data computation the request comes from, when a plugin
+     *        asks for this data while computing other data
+     * @param deadline How long the caller is still willing to wait, if it said so
      * @return ApiResult containing the computed data with version or an error
      */
     suspend fun getFileData(
         projectId: UUID,
         path: String?,
         languageId: String?,
-        key: String
-    ): ApiResult<FileDataResponse> {
+        key: String,
+        callerComputationId: UUID? = null,
+        deadline: CallerDeadline? = null
+    ): ApiResult<RawFileData> {
+        // The key becomes a segment of the URL the plugin is called at.
+        if (!PluginTarget.isAddressSegment(key)) {
+            return fileDataFailure(ErrorCodes.BAD_REQUEST, "Not a file data key: '$key'")
+        }
         val normalizedPath = when {
             path != null -> normalizePath(path)
             languageId != null -> normalizePath("/")
@@ -74,7 +104,37 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
             )
         }
 
-        val computingCheck = transaction {
+        cachedFileData(projectId, normalizedPath, key)?.let { return success(it) }
+
+        // Requests for the same data while it is being computed wait for that computation. It is
+        // shared, so it waits on the plugin as long as the backend allows rather than as long as the
+        // request that started it happens to; each request only stops waiting at its own deadline.
+        val shared = suspend {
+            flights.run(FileDataTarget(projectId, normalizedPath, key), callerComputationId) { computationId ->
+                // Another computation may have finished between the check above and taking the flight.
+                cachedFileData(projectId, normalizedPath, key)?.let { success(it) }
+                    ?: computeFileData(projectId, normalizedPath, languageId, key, computationId)
+            }
+        }
+        if (deadline == null) return shared()
+        val waited = if (deadline.isExpired) null else withTimeoutOrNull(deadline.remaining().toMillis()) { shared() }
+        return waited
+            ?: fileDataFailure(
+                ErrorCodes.DEADLINE_EXCEEDED,
+                "$normalizedPath:$key was not ready before the caller's deadline"
+            )
+    }
+
+    /**
+     * Returns the stored data for a file and key, if it is still current.
+     *
+     * @param projectId The UUID of the project
+     * @param normalizedPath The normalized file path
+     * @param key The data key
+     * @return The data with its source version, or null when there is none or it is outdated
+     */
+    private fun cachedFileData(projectId: UUID, normalizedPath: String, key: String): RawFileData? {
+        val row = transaction {
             FileDataTable.selectAll()
                 .where {
                     (FileDataTable.projectId eq projectId.toKotlinUuid()) and
@@ -82,17 +142,29 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
                             (FileDataTable.dataKey eq key)
                 }
                 .firstOrNull()
-        }
+        } ?: return null
 
-        if (computingCheck != null && isDataCurrent(projectId, computingCheck)) {
-            val cachedJson: JsonElement = computingCheck[FileDataTable.data]
-            return success(
-                FileDataResponse(
-                    data = cachedJson,
-                    version = computingCheck[FileDataTable.sourceVersion]
-                )
-            )
-        }
+        if (!isDataCurrent(projectId, row)) return null
+        return RawFileData(json = row[FileDataTable.data], version = row[FileDataTable.sourceVersion])
+    }
+
+    /**
+     * Computes file data with the responsible plugin and stores it.
+     *
+     * @param projectId The UUID of the project
+     * @param normalizedPath The normalized file path
+     * @param languageId The language ID, when the data is addressed by language
+     * @param key The data key
+     * @param computationId The id the computation is recorded and its token issued under
+     * @return The computed data, or an error
+     */
+    private suspend fun computeFileData(
+        projectId: UUID,
+        normalizedPath: String,
+        languageId: String?,
+        key: String,
+        computationId: UUID
+    ): ApiResult<RawFileData> {
 
         val fileRow = transaction {
             FilesTable.selectAll()
@@ -147,17 +219,17 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
                 "Plugin URL not found"
             )
 
-        val contributionPlugins = pluginService.getContributionPluginsForLanguage(projectId, languagePlugin.id)
+        val contributions = ContributionSet(pluginService.getContributionPluginsForLanguage(projectId, languagePlugin.id))
 
         // Recorded before the plugin is called so the token below is backed by a computation that is
         // already visible to token verification, and removed again as soon as the call is done.
-        val computationId = beginComputation(projectId, normalizedPath, key)
+        beginComputation(projectId, normalizedPath, key, computationId)
 
         try {
             val token = jwtService.generateFileDataComputationToken(projectId, computationId)
 
             val computedData =
-                computeFromPlugin(pluginUrl, languagePlugin.id, key, projectId, fileSource, token, contributionPlugins)
+                computeFromPlugin(pluginId, pluginUrl, languagePlugin.id, key, projectId, fileSource, token, contributions)
 
             storeFileData(projectId, normalizedPath, key, computedData, fileSource?.version)
 
@@ -176,17 +248,25 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
                 )
             }
 
-            return success(
-                FileDataResponse(
-                    data = computedData.data,
-                    version = fileSource?.version ?: -1
-                )
-            )
-        } catch (e: Exception) {
-            logger.error("Failed to compute file data for $normalizedPath:$key", e)
+            return success(RawFileData(json = computedData.data.toString(), version = fileSource?.version ?: -1))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: java.net.http.HttpTimeoutException) {
+            logger.error("Plugin did not compute $normalizedPath:$key in time", e)
             return fileDataFailure(
                 ErrorCodes.FILE_DATA_COMPUTATION_FAILED,
-                "Failed to compute file data: ${e.message}"
+                "The plugin did not compute $normalizedPath:$key within ${fileDataConfig.computationTimeoutSeconds} seconds"
+            )
+        } catch (e: PluginAnswerException) {
+            logger.error("Failed to compute file data for $normalizedPath:$key: ${e.message}")
+            return fileDataFailure(ErrorCodes.FILE_DATA_COMPUTATION_FAILED, "Failed to compute file data: ${e.message}")
+        } catch (e: Exception) {
+            logger.error("Failed to compute file data for $normalizedPath:$key", e)
+            // Any other exception may name internal addresses or quote a plugin's raw answer; the log
+            // keeps it, the caller is told only what failed.
+            return fileDataFailure(
+                ErrorCodes.FILE_DATA_COMPUTATION_FAILED,
+                "Failed to compute $key data for $normalizedPath"
             )
         } finally {
             endComputation(computationId)
@@ -203,12 +283,11 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
      * @param projectId The UUID of the project
      * @param path The normalized path of the file being computed
      * @param key The data key being computed
-     * @return The UUID of the recorded computation
+     * @param computationId The UUID to record the computation under
      */
-    private fun beginComputation(projectId: UUID, path: String, key: String): UUID {
-        val computationId = UUID.randomUUID()
+    private fun beginComputation(projectId: UUID, path: String, key: String, computationId: UUID) {
         val now = Instant.now()
-        val staleBefore = now.minusSeconds(fileDataConfig.computationTimeoutSeconds)
+        val staleBefore = now.minusSeconds(fileDataConfig.computationBindingSeconds)
 
         transaction {
             FileDataComputationsTable.deleteWhere { startedAt less staleBefore }
@@ -221,8 +300,6 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
                 it[startedAt] = now
             }
         }
-
-        return computationId
     }
 
     /**
@@ -236,163 +313,43 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
                 FileDataComputationsTable.deleteWhere { id eq computationId.toKotlinUuid() }
             }
         } catch (e: Exception) {
-            // The row is ignored once it is older than the computation timeout, so a failure here
+            // The row is ignored once it is older than the computation binding, so a failure here
             // delays the token becoming unusable rather than leaving it valid indefinitely.
             logger.warn("Failed to clear file data computation $computationId", e)
         }
     }
 
     /**
-     * Checks if cached file data is still current based on transitive version checking.
+     * Checks if cached file data is still current, and deletes it when it is not.
+     *
+     * Data is current when its source file still has the version it was computed from, and every
+     * file and data dependency — of the data itself and, transitively, of every data it depends
+     * on — still has the version recorded for it. All of that is one query, however deep the
+     * dependencies go.
      */
     private fun isDataCurrent(projectId: UUID, row: ResultRow): Boolean {
         val path = row[FileDataTable.path]
         val dataKey = row[FileDataTable.dataKey]
+        val sourceVersion = row[FileDataTable.sourceVersion]
 
-        if (!checkSourceFileVersion(projectId, row)) {
-            deleteFileData(projectId, path, dataKey)
-            return false
-        }
-
-        if (!checkFileDependencies(projectId, path, dataKey)) {
-            deleteFileData(projectId, path, dataKey)
-            return false
-        }
-
-        if (!checkDataDependenciesTransitively(projectId, path, dataKey)) {
-            deleteFileData(projectId, path, dataKey)
-            return false
-        }
-
-        return true
-    }
-
-    /**
-     * Checks if the source file version matches the cached version.
-     */
-    private fun checkSourceFileVersion(projectId: UUID, row: ResultRow): Boolean {
-        val cachedSourceVersion = row[FileDataTable.sourceVersion]
-        val path = row[FileDataTable.path]
-
-        val currentVersion = transaction {
-            FilesTable.selectAll()
-                .where { (FilesTable.projectId eq projectId.toKotlinUuid()) and (FilesTable.path eq path) }
-                .firstOrNull()
-                ?.get(FilesTable.version)
-        } ?: return false
-
-        return currentVersion == cachedSourceVersion
-    }
-
-    /**
-     * Checks all file dependencies using a single LEFT JOIN query.
-     */
-    private fun checkFileDependencies(projectId: UUID, path: String, dataKey: String): Boolean {
-        return transaction {
-            val results = FileDependenciesTable
-                .leftJoin(
-                    FilesTable,
-                    { FileDependenciesTable.dependencyPath },
-                    { FilesTable.path },
-                    additionalConstraint = { FilesTable.projectId eq projectId.toKotlinUuid() }
+        val current = transaction {
+            exec(
+                VALIDITY_QUERY,
+                listOf(
+                    TextColumnType() to projectId.toString(),
+                    TextColumnType() to path,
+                    IntegerColumnType() to sourceVersion,
+                    TextColumnType() to projectId.toString(),
+                    TextColumnType() to path,
+                    TextColumnType() to dataKey
                 )
-                .selectAll()
-                .where {
-                    (FileDependenciesTable.projectId eq projectId.toKotlinUuid()) and
-                            (FileDependenciesTable.path eq path) and
-                            (FileDependenciesTable.dataKey eq dataKey)
-                }
-
-            for (result in results) {
-                val expectedVersion = result[FileDependenciesTable.dependencyVersion]
-                val currentVersion = result.getOrNull(FilesTable.version)
-
-                if (currentVersion == null || currentVersion != expectedVersion) {
-                    return@transaction false
-                }
-            }
-
-            true
-        }
-    }
-
-    /**
-     * Checks data dependencies transitively using a queue-based approach.
-     * Data dependencies can themselves have file and data dependencies that must be checked.
-     */
-    private fun checkDataDependenciesTransitively(projectId: UUID, path: String, dataKey: String): Boolean {
-        val queue = ArrayDeque<DataKey>()
-        val visited = mutableSetOf<DataKey>()
-
-        val initialDeps = getDataDependenciesWithVersionCheck(projectId, path, dataKey)
-            ?: return false
-
-        queue.addAll(initialDeps)
-
-        while (queue.isNotEmpty()) {
-            val current = queue.removeFirst()
-
-            if (!visited.add(current)) {
-                continue
-            }
-
-            if (!checkFileDependencies(projectId, current.path, current.key)) {
-                return false
-            }
-
-            val deps = getDataDependenciesWithVersionCheck(projectId, current.path, current.key)
-                ?: return false
-
-            queue.addAll(deps)
+            ) { resultSet -> resultSet.next() && resultSet.getBoolean(1) } ?: false
         }
 
-        return true
-    }
-
-    /**
-     * Fetches data dependencies for a given file data entry and validates their versions.
-     * Returns null if any version check fails, otherwise returns the list of dependencies.
-     */
-    private fun getDataDependenciesWithVersionCheck(
-        projectId: UUID,
-        path: String,
-        dataKey: String
-    ): List<DataKey>? {
-        return transaction {
-            val results = DataDependenciesTable
-                .leftJoin(
-                    FilesTable,
-                    { DataDependenciesTable.dependencyPath },
-                    { FilesTable.path },
-                    additionalConstraint = { FilesTable.projectId eq projectId.toKotlinUuid() }
-                )
-                .selectAll()
-                .where {
-                    (DataDependenciesTable.projectId eq projectId.toKotlinUuid()) and
-                            (DataDependenciesTable.path eq path) and
-                            (DataDependenciesTable.dataKey eq dataKey)
-                }
-
-            val dependencies = mutableListOf<DataKey>()
-
-            for (result in results) {
-                val expectedVersion = result[DataDependenciesTable.dependencyVersion]
-                val currentVersion = result.getOrNull(FilesTable.version)
-
-                if (currentVersion == null || currentVersion != expectedVersion) {
-                    return@transaction null
-                }
-
-                dependencies.add(
-                    DataKey(
-                        result[DataDependenciesTable.dependencyPath],
-                        result[DataDependenciesTable.dependencyKey]
-                    )
-                )
-            }
-
-            dependencies
+        if (!current) {
+            deleteFileData(projectId, path, dataKey)
         }
+        return current
     }
 
     /**
@@ -401,50 +358,59 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
      * For files, fileSource contains version, content, and path.
      * For directories, fileSource is null.
      *
+     * @param pluginId The plugin, whose answer shows whether its manifest changed
      * @param pluginUrl Base URL of the plugin
      * @param languageId The language identifier for routing the request
      * @param key The data key to compute (e.g., "ast")
      * @param project Project UUID
      * @param fileSource Source data with version, content, and path (null for directories)
      * @param token JWT token for authentication
-     * @param contributionPlugins List of contribution plugins to send to the plugin
+     * @param contributions The contribution plugins the plugin needs, sent as a hash when it holds them
      * @return Computed data response from the plugin
      */
     private suspend fun computeFromPlugin(
+        pluginId: UUID,
         pluginUrl: String,
         languageId: String,
         key: String,
         project: UUID,
         fileSource: FileSource?,
         token: String,
-        contributionPlugins: List<JsonObject>
+        contributions: ContributionSet
     ): FileDataComputeResponse {
         return withContext(Dispatchers.IO) {
-            val requestBody = json.encodeToString(
-                FileDataComputeRequest(
-                    project = project.toString(),
-                    source = fileSource,
-                    contributionPlugins = contributionPlugins
-                )
-            )
-
+            val timeout = Duration.ofSeconds(fileDataConfig.computationTimeoutSeconds)
             val dataUrl = URI.create(pluginUrl).resolve("data/$languageId/$key")
 
-            val request = HttpRequest.newBuilder()
-                .uri(dataUrl)
-                .header("Content-Type", "application/json")
-                .header("Authorization", "Bearer $token")
-                .POST(HttpRequest.BodyPublishers.ofString(requestBody))
-                .timeout(Duration.ofSeconds(fileDataConfig.computationTimeoutSeconds))
-                .build()
+            val response = ContributionDelivery.send(pluginUrl) { includePayloads ->
+                val requestBody = json.encodeToString(
+                    FileDataComputeRequest(
+                        project = project.toString(),
+                        source = fileSource,
+                        contributionPlugins = contributions.plugins.takeIf { includePayloads },
+                        contributionHash = contributions.hash
+                    )
+                )
 
-            val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+                val request = CompressedResponses.accept(HttpRequest.newBuilder())
+                    .uri(dataUrl)
+                    .header("Content-Type", "application/json")
+                    .header("Authorization", "Bearer $token")
+                    .header(CallerDeadline.HEADER, CallerDeadline.headerValue(timeout))
+                    .POST(HttpRequest.BodyPublishers.ofString(requestBody))
+                    .timeout(timeout)
+                    .build()
+
+                httpClient.send(request, CompressedResponses.ofByteArray())
+            }
+            pluginService.observeManifestFingerprint(pluginId, response)
+            val responseText = String(response.body(), Charsets.UTF_8)
 
             if (response.statusCode() != 200) {
-                throw RuntimeException("Plugin returned status ${response.statusCode()}: ${response.body()}")
+                throw PluginAnswerException("Plugin returned ${describeErrorResponse(response.statusCode(), responseText)}")
             }
 
-            json.decodeFromString<FileDataComputeResponse>(response.body())
+            json.decodeFromString<FileDataComputeResponse>(responseText)
         }
     }
 
@@ -471,7 +437,7 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
                 it[FileDataTable.projectId] = projectId.toKotlinUuid()
                 it[FileDataTable.path] = path
                 it[FileDataTable.dataKey] = key
-                it[FileDataTable.data] = response.data
+                it[FileDataTable.data] = response.data.toString()
                 it[FileDataTable.sourceVersion] = sourceVersion ?: -1
                 it[FileDataTable.createdAt] = now
                 it[FileDataTable.updatedAt] = now
@@ -541,6 +507,58 @@ class FileDataService(services: InjectedServices) : BaseService(), InjectedServi
 }
 
 /**
- * Data class representing a file data key (path + key combination).
+ * File data as stored: the JSON text of the data, and the version of the source it was computed from.
+ *
+ * @property json The data, as JSON text
+ * @property version The source file version, -1 for data computed for a directory
  */
-private data class DataKey(val path: String, val key: String)
+class RawFileData(val json: String, val version: Int?) {
+    /**
+     * The response body of a file data request, `{"data": …, "version": …}`, built without parsing
+     * the data.
+     */
+    fun toResponseJson(): String = """{"data":$json,"version":${version ?: "null"}}"""
+}
+
+/**
+ * Whether one piece of file data is current, in a single statement.
+ *
+ * Parameters: project id, path and source version for the source check, then project id, path and
+ * data key for the dependency walk. The recursive part collects the data itself and everything it
+ * depends on; the data is stale if any of those has a file or data dependency whose file changed.
+ */
+private val VALIDITY_QUERY = """
+    SELECT
+      EXISTS (
+        SELECT 1 FROM files f
+        WHERE f.project_id = CAST(? AS uuid) AND f.path = ? AND f.version = ?
+      )
+      AND NOT EXISTS (
+        WITH RECURSIVE nodes(project_id, path, data_key) AS (
+            SELECT CAST(? AS uuid), CAST(? AS varchar), CAST(? AS varchar)
+          UNION
+            SELECT dd.project_id, dd.dependency_path, dd.dependency_key
+            FROM data_dependencies dd
+            JOIN nodes n ON dd.project_id = n.project_id AND dd.path = n.path AND dd.data_key = n.data_key
+        )
+        SELECT 1 FROM nodes n
+        WHERE EXISTS (
+            SELECT 1 FROM file_dependencies d
+            LEFT JOIN files f ON f.project_id = d.project_id AND f.path = d.dependency_path
+            WHERE d.project_id = n.project_id AND d.path = n.path AND d.data_key = n.data_key
+              AND (f.version IS NULL OR f.version <> d.dependency_version)
+          )
+          OR EXISTS (
+            SELECT 1 FROM data_dependencies d
+            LEFT JOIN files f ON f.project_id = d.project_id AND f.path = d.dependency_path
+            WHERE d.project_id = n.project_id AND d.path = n.path AND d.data_key = n.data_key
+              AND (f.version IS NULL OR f.version <> d.dependency_version)
+          )
+      )
+""".trimIndent()
+
+/**
+ * A plugin answered a file data request with an error. The message holds only what
+ * [describeErrorResponse] lets through, so it may be passed on to the caller.
+ */
+private class PluginAnswerException(message: String) : RuntimeException(message)

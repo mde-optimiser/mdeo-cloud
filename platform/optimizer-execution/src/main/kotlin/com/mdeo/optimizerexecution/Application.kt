@@ -1,5 +1,8 @@
 package com.mdeo.optimizerexecution
 
+import com.mdeo.common.transport.MAX_SERVICE_WEBSOCKET_MESSAGE_BYTES
+import com.mdeo.common.transport.installDeflate
+import com.mdeo.common.transport.installHttpCompression
 import com.mdeo.execution.common.auth.configureJwtAuth
 import com.mdeo.execution.common.config.configureExecutionTransport
 import com.mdeo.execution.common.config.configureSerialization
@@ -50,21 +53,28 @@ fun Application.module(appConfig: AppConfig) {
 
     val apiClient = OptimizerApiClient(appConfig.backendApiUrl)
     val orchestratorRegistry = OrchestratorRegistry()
-    val workerService = WorkerService(appConfig.workerThreads, appConfig.scriptTimeoutMs, appConfig.transformationTimeoutMs, appConfig.serverPort)
+    val workerService = WorkerService(
+        appConfig.workerThreads, appConfig.scriptTimeoutMs, appConfig.transformationTimeoutMs, appConfig.serverPort,
+        backendApiUrl = appConfig.backendApiUrl,
+        sessionConnectTimeoutMillis = appConfig.sessionConnectTimeoutMillis
+    )
     val executionService = OptimizerExecutionService(apiClient, this, appConfig, orchestratorRegistry, workerService)
 
     monitor.subscribe(ApplicationStopped) {
         runBlocking { workerService.close() }
         databaseFactory.close()
-        apiClient.close()
+        apiClient.closeAll()
     }
 
     install(CallLogging) { level = Level.INFO }
     install(WebSockets) {
         pingPeriodMillis = 30_000L
         timeoutMillis = 15_000L
+        maxFrameSize = MAX_SERVICE_WEBSOCKET_MESSAGE_BYTES
+        extensions { installDeflate(MAX_SERVICE_WEBSOCKET_MESSAGE_BYTES) }
     }
     configureSerialization()
+    installHttpCompression()
     configureStatusPages()
     configureJwtAuth(appConfig.backendApiUrl, appConfig.jwtIssuer)
     configureExecutionTransport(appConfig.backendApiUrl, appConfig.jwtIssuer)

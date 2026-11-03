@@ -9,6 +9,7 @@ import com.mdeo.backend.config.GitConfig
 import com.mdeo.backend.config.JwtConfig
 import com.mdeo.backend.config.PluginConfig
 import com.mdeo.backend.config.SessionConfig
+import com.mdeo.backend.config.TimeoutConfig
 import com.mdeo.backend.database.DatabaseFactory
 import com.mdeo.backend.database.ProjectsTable
 import com.mdeo.backend.service.AuthRateLimiter
@@ -17,7 +18,7 @@ import com.mdeo.backend.service.FileDataService
 import com.mdeo.backend.service.FileService
 import com.mdeo.backend.service.InjectedServices
 import com.mdeo.backend.service.JwtService
-import com.mdeo.backend.service.LanguagePluginRequestService
+import com.mdeo.backend.service.PluginRequestService
 import com.mdeo.backend.service.MetadataService
 import com.mdeo.backend.service.OAuthCodeService
 import com.mdeo.backend.service.PersonalAccessTokenService
@@ -38,9 +39,9 @@ import org.eclipse.jgit.lib.ObjectId
 import org.eclipse.jgit.lib.PersonIdent
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
-import org.testcontainers.containers.PostgreSQLContainer
 import org.testcontainers.junit.jupiter.Container
 import org.testcontainers.junit.jupiter.Testcontainers
+import org.testcontainers.postgresql.PostgreSQLContainer
 import org.testcontainers.utility.DockerImageName
 import java.time.Instant
 import java.util.UUID
@@ -51,13 +52,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlin.uuid.toKotlinUuid
-
-/**
- * Kotlin cannot instantiate Testcontainers' self-typed generic containers directly
- * (`PostgreSQLContainer<Nothing>` is as close as the type system gets and does not compile calls
- * that return `SELF`), so a trivially self-typed subclass is the standard way to use it from Kotlin.
- */
-internal class KPostgreSQLContainer(image: DockerImageName) : PostgreSQLContainer<KPostgreSQLContainer>(image)
 
 /**
  * Regression test for the race [GitRepositoryService.applyCommitToProject]'s per-file
@@ -75,7 +69,7 @@ internal class KPostgreSQLContainer(image: DockerImageName) : PostgreSQLContaine
 class GitRepositoryServiceConcurrencyTest {
 
     @Container
-    private val postgres = KPostgreSQLContainer(DockerImageName.parse("postgres:17-alpine"))
+    private val postgres = PostgreSQLContainer(DockerImageName.parse("postgres:17-alpine"))
 
     private lateinit var fileService: FileService
     private lateinit var gitRepositoryService: GitRepositoryService
@@ -286,7 +280,8 @@ internal class TestServices : InjectedServices {
             maxPushPackSizeBytes = 100L * 1024 * 1024, maxProjectStorageBytes = 2L * 1024 * 1024 * 1024,
             sshPort = 2222, oauthClientId = "test", oauthCodeTtlSeconds = 300,
             oauthAuthorizePath = "/oauth/authorize", oauthTokenPath = "/api/oauth/token"
-        )
+        ),
+        timeouts = TimeoutConfig()
     )
     override val fileService: FileService by lazy { FileService(this) }
     override val pluginService: PluginService by lazy { PluginService(this) }
@@ -298,7 +293,7 @@ internal class TestServices : InjectedServices {
     override val fileDataService: FileDataService get() = error("not needed by this test")
     override val executionService: ExecutionService get() = error("not needed by this test")
     override val webSocketNotificationService: WebSocketNotificationService get() = error("not needed by this test")
-    override val languagePluginRequestService: LanguagePluginRequestService get() = error("not needed by this test")
+    override val pluginRequestService: PluginRequestService get() = error("not needed by this test")
     override val authRateLimiter: AuthRateLimiter get() = error("not needed by this test")
     override val personalAccessTokenService: PersonalAccessTokenService get() = error("not needed by this test")
     override val sshKeyService: SshKeyService get() = error("not needed by this test")

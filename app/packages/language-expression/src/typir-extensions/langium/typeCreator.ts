@@ -37,10 +37,19 @@ export function generateTypeCreator<Specifics extends TypirLangiumSpecifics>(): 
 
         protected override invalidateTypesOfDocument(documentKey: string): void {
             super.invalidateTypesOfDocument(documentKey);
-            (this.documentTypeDefinitionMap.get(documentKey) ?? []).forEach((classTypeToRemove) =>
-                this.typeDefinition.removeClassType(classTypeToRemove)
-            );
+            const removedDefinitions = this.documentTypeDefinitionMap.get(documentKey) ?? [];
+            removedDefinitions.forEach((classTypeToRemove) => this.typeDefinition.removeClassType(classTypeToRemove));
             this.documentTypeDefinitionMap.delete(documentKey);
+            if (removedDefinitions.length > 0) {
+                // The class types of a metamodel are registered by the first document that imports
+                // it, but every other document importing the same metamodel uses them too, and its
+                // cached inferences (and those of the metamodel's own nodes) still point to the
+                // instances just removed from the graph. Such a type is assignable to nothing, not
+                // even to the fresh instance of the same class, so a call argument typed in one file
+                // would no longer match the parameter of another. Typir clears its cache the same
+                // way when an inference rule is removed.
+                this.typir.caching.LanguageNodeInference.cacheClear();
+            }
         }
 
         override onAddedType(newType: Type): void {

@@ -88,6 +88,29 @@ export namespace NodeLayoutMetadataUtil {
     }
 
     /**
+     * Checks if the given object is a valid NodeLayoutMetadata for a node that has no default
+     * size, i.e. one that may legitimately store nothing but a position (see {@link verify}).
+     *
+     * This is the check to apply to validated metadata: {@link isValid} requires a preferred
+     * width, which such a node only has once it was resized by hand.
+     *
+     * @param obj The object to validate
+     * @returns True if the object has a valid position and valid optional preferred sizes
+     */
+    export function isValidWithOptionalSize(obj: unknown): obj is NodeLayoutMetadata {
+        if (typeof obj !== "object" || obj === null) {
+            return false;
+        }
+
+        const meta = obj as Partial<NodeLayoutMetadata>;
+        return (
+            isValidPoint(meta.position) &&
+            (meta.prefWidth === undefined || typeof meta.prefWidth === "number") &&
+            (meta.prefHeight === undefined || typeof meta.prefHeight === "number")
+        );
+    }
+
+    /**
      * Creates a default NodeLayoutMetadata with the given position.
      *
      * @param x The x coordinate
@@ -123,16 +146,11 @@ export namespace NodeLayoutMetadataUtil {
             return undefined;
         }
 
-        const meta = (typeof obj === "object" && obj !== null ? obj : {}) as Partial<NodeLayoutMetadata>;
-
-        if (
-            defaultPrefWidth === undefined &&
-            meta.prefWidth === undefined &&
-            isValidPoint(meta.position) &&
-            (meta.prefHeight === undefined || typeof meta.prefHeight === "number")
-        ) {
+        if (defaultPrefWidth === undefined && isValidWithOptionalSize(obj)) {
             return undefined;
         }
+
+        const meta = (typeof obj === "object" && obj !== null ? obj : {}) as Partial<NodeLayoutMetadata>;
 
         const position = meta.position && isValidPoint(meta.position) ? meta.position : { x: 0, y: 0 };
         const prefWidth = typeof meta.prefWidth === "number" ? meta.prefWidth : defaultPrefWidth;

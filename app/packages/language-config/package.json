@@ -22,11 +22,11 @@
     "dependencies": {
         "@mdeo/language-common": "^0.2.11",
         "@mdeo/language-shared": "^0.2.11",
-        "lucide": "^1.31.0"
+        "lucide": "^1.63.0"
     },
     "devDependencies": {
         "@mdeo/plugin": "^0.2.11",
-        "langium": "~4.2.4",
-        "prettier": "^3.9.6"
+        "langium": "~4.4.0",
+        "prettier": "^3.9.10"
     }
 }

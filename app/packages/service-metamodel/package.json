@@ -30,11 +30,11 @@
         "@mdeo/plugin": "^0.2.11",
         "@mdeo/protocol-metamodel": "^0.2.11",
         "@mdeo/service-common": "^0.2.11",
-        "lucide": "^1.31.0"
+        "lucide": "^1.63.0"
     },
     "devDependencies": {
         "@types/node": "^25.9.5",
-        "tsx": "^4.23.12",
-        "vite": "^8.2.1"
+        "tsx": "^4.23.15",
+        "vite": "^8.3.5"
     }
 }

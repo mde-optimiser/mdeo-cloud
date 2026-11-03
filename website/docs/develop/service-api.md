@@ -5,7 +5,99 @@ Every plugin service exposes the same endpoints, implemented by `startLanguageSe
 for debugging, and for anyone implementing a plugin service in another stack.
 
 All endpoints except `GET /` and the static assets require a JWT issued by the backend, presented as
-`Authorization: Bearer <token>`, and are checked against a scope.
+`Authorization: Bearer <token>`, and are checked against a scope (see [Scopes](#scopes)).
+
+A caller can say how long it is willing to wait by sending `X-Mdeo-Timeout-Ms` with the
+milliseconds it has left. The backend sends it with every plugin request, never more than its own
+configured maximum. A file data computation is shared by every request waiting for the same data, so
+the plugin always gets the configured maximum for it; each request only stops waiting at its own
+deadline and leaves the computation to the others. A handler sees the limit as `context.signal`, which
+aborts when the time is up or the caller disconnects; every `serverApi` call made while handling the
+request is aborted with it and passes the remaining time on to the backend. A handler that fails
+after its deadline passed is answered with `504`.
+
+Responses larger than 1 KiB are **compressed** with gzip or deflate when the caller sends
+`Accept-Encoding`, and a request body sent with `Content-Encoding: gzip` or `deflate` is accepted.
+The backend, the execution services and the workbench proxy compress the same way, and WebSocket
+connections negotiate `permessage-deflate`. A service implemented in another stack should do the
+same: the platform's payloads are JSON that shrinks by an order of magnitude.
+
+Limits apply to what a body or message inflates to, not to its compressed size, so a small
+compressed body cannot expand past them. Request bodies may inflate to 64 MiB, the same as a plain
+body. WebSocket messages between services may be 512 MiB; the browser's connection to the backend
+takes 64 MiB. A peer that exceeds a WebSocket limit is disconnected with close code `1009`.
+
+## Errors
+
+Every service of the platform reports a failure the same way. Over HTTP, an error status comes with
+
+```json
+{ "error": { "code": "NotFound", "message": "Unknown language: sql" } }
+```
+
+and an error message on a WebSocket carries the same object in its `error` field, as in
+`{"messageType": "exec/error", "requestId": "…", "error": {"code": …, "message": …}}`. The code is
+one of `ErrorCodes` (`@mdeo/plugin`, and `com.mdeo.common.model.ErrorCodes` in Kotlin). The general
+codes follow the status: `BadRequest` (400), `Unauthenticated` (401), `Forbidden` (403), `NotFound`
+(404), `Conflict` (409), `Internal` (500), `Unavailable` (502, 503) and `DeadlineExceeded` (504).
+An area can use a more specific code, such as `FileNotFound` or `ExecutionNotFound`. The message is
+for people and may change; branch on the code.
+
+`errorResponse(status, message, code?)` from `@mdeo/plugin` builds the body in TypeScript, and
+`call.respondError(status, message, code?)` from the Kotlin `common` module answers with it. A
+service built on `@mdeo/service-common` or the Kotlin plugin service module answers unknown routes,
+unreadable bodies and uncaught handler errors in this shape too.
+
+A `5xx` answer says only that something went wrong inside; what went wrong is logged. A `4xx`
+message, and the message an execution handler fails with, are shown to the user as they are, so they
+must not carry internal detail such as addresses or stack traces. When the backend passes a failure
+on, it passes on only the message of an answer in this shape, never the raw body.
+
+[Sessions](/develop/sessions) are
+the exception: what travels on them is a protocol the plugin defines, and they are refused with
+WebSocket close codes.
+
+## Scopes
+
+Each scope grants exactly one capability, and every service serving that capability checks the same
+scope, so a token passed on from one hop to the next is accepted for the same thing at each. The
+constants are `Scopes` in `@mdeo/plugin` and `com.mdeo.common.auth.Scopes` in Kotlin. Scopes checked
+by plugin and execution services start with `plugin:`; the others are checked by the backend.
+
+| Scope | Grants | Checked by |
+| --- | --- | --- |
+| `files:read` | Reading the project's files | Backend |
+| `file-data:read` | Reading computed file data | Backend |
+| `execution:write` | Reporting an execution's state and metadata | Backend |
+| `session:open` | Getting the token that opens a [session](/develop/sessions) | Backend |
+| `session:contributions:read` | Reading which contribution plugins a `lang:` session loads | Backend |
+| `plugin:file-data:compute` | `POST /data/:languageId/:key` | Plugin service |
+| `plugin:request:send` | `POST /request/:kind/:targetId/:key`, directly or through the backend | Backend, plugin service |
+| `plugin:execution:start` | Starting an execution | Plugin service, execution service |
+| `plugin:execution:read` | An execution's summary and result files | Plugin service, execution service |
+| `plugin:execution:cancel` | Cancelling an execution | Plugin service, execution service |
+| `plugin:execution:delete` | Deleting an execution | Plugin service, execution service |
+| `plugin:session:connect` | Opening a session | Plugin service |
+
+The backend issues one token per purpose. It carries the scope for that purpose plus what the
+handler needs to do its work:
+
+| Token | Scopes |
+| --- | --- |
+| Plugin request, from the workbench or a plugin that does not delegate | `plugin:request:send`, `files:read`, `file-data:read`; bound to the caller's file data computation when it has one |
+| File data computation | `plugin:file-data:compute`, `files:read`, `file-data:read`, `plugin:request:send` |
+| Execution run, kept by the execution for its lifetime | `plugin:execution:start`, `files:read`, `file-data:read`, `plugin:request:send`, `session:open`, `execution:write` |
+| Reading, cancelling or deleting an execution | the one `plugin:execution:*` scope, `files:read`, `file-data:read`, `plugin:request:send` |
+| Session | `plugin:session:connect`, plus `session:contributions:read` for a `lang:` target |
+
+A service never mints a token of its own. A plugin request sent through the backend reaches the
+target plugin with a new plugin request token, which can read the project and nothing else, whatever
+the caller's token may do. A caller that hands its work over sets `X-Mdeo-Delegate-Token: true`
+(`sendPluginRequest(…, { delegate: true })`), and the backend then forwards the caller's own token
+instead. That is how the config plugin passes an execution on to the contribution plugin that runs
+it: the run token reaches the contribution plugin, and that plugin's execution service accepts it
+through `plugin:execution:start`. Delegating trusts the target plugin with everything the token
+grants, so delegate only the work the token was issued for.
 
 ## `GET /`
 
@@ -29,7 +121,7 @@ requires.
 Computes [file data](/guide/concepts#file-data). Called by the backend when a cached entry is missing
 or has been invalidated.
 
-**Scope:** `file-data:read`
+**Scope:** `plugin:file-data:compute`
 
 ```json
 {
@@ -47,6 +139,15 @@ or has been invalidated.
 the contribution plugins active for the project, and is part of the key under which the service pools
 its Langium instances.
 
+**Contribution hashes.** Every request also carries `contributionHash`, which identifies the
+contribution set. A service that answers with the header `X-Mdeo-Contribution-Hashes` tells the
+backend it keeps sets by hash; from then on the backend sends `contributionHash` without
+`contributionPlugins`. A service that does not hold the set a hash stands for — after a restart, or
+when the set changed — answers `409` with `X-Mdeo-Contributions-Unknown`, and the backend sends the
+request again with the payloads. This applies to `/data`, `/request` and `/executions` alike, and
+`@mdeo/service-common` does all of it; a service in another stack can ignore it and always receives
+the payloads.
+
 ```json
 {
   "data": { },
@@ -58,13 +159,31 @@ its Langium instances.
 The dependency lists are what let the backend invalidate correctly. Anything a handler reads through
 `context.serverApi` is tracked automatically and merged into whatever the handler returns.
 
-Responses: `404` for an unknown language or an unregistered data key, `403` for a missing scope.
+File data read through `context.serverApi.getFileData` is cached for the rest of the request, and
+reads started together — a `Promise.all` over several files — reach the backend as one
+`POST /api/projects/{projectId}/file-data-batch` request with `{"requests": [{"path", "key"}]}`. The
+backend computes the entries concurrently and answers `{"results": [...]}` in request order, each
+either `{"data", "version"}` or `{"error": {"code", "message"}}`, so one failing entry does not fail the others.
+The backend answers at most 256 entries per request, the first ones; `serverApi` asks again for the
+rest.
 
-## `POST /request/:languageId/:key`
+Responses:
 
-An arbitrary language-specific request. Registered only if the service has `requestHandlers`.
+| Status | When |
+| --- | --- |
+| `403` | The token lacks the scope |
+| `404` | Unknown language, or no handler for the data key |
+| `409` | Only a contribution hash was sent, and this service does not hold that set; the answer carries `X-Mdeo-Contributions-Unknown` and the backend sends the request again with the payloads |
+| `503` | Every Langium instance stayed busy for `LANGIUM_ACQUIRE_TIMEOUT_MS` |
+| `504` | The caller's deadline passed |
 
-**Scope:** `file-data:read`
+## `POST /request/:kind/:targetId/:key`
+
+An arbitrary request, addressed at a [plugin target](./sessions.md#addressing-a-target): `lang:<id>` or
+`contrib:<id>`, written into the path as two segments the same way a session address is. Both kinds
+answer on this one channel, so a contribution is called exactly like a language plugin.
+
+**Scope:** `plugin:request:send`
 
 ```json
 {
@@ -74,14 +193,43 @@ An arbitrary language-specific request. Registered only if the service has `requ
 }
 ```
 
-The response is `{ "data": … }`, or `{ "data": null }` when the handler produced nothing.
+`contributionPlugins` carries the project's contributions for the addressed language. A request
+addressed at a contribution carries none: it is served by the plugin that ships that contribution,
+which already holds it.
+
+The response is `{ "data": … }`, or `{ "data": null }` when the handler produced nothing. It fails
+with the same statuses as `/data`.
 
 This is the channel the config language uses to talk to its contribution plugins: `config` to compute
 section data, and the `config-execution-*` keys to manage runs.
 
+A `lang:` request is served on a Langium instance of that language, registered in a language's
+`requestHandlers`. A target that owns no instance — every contribution — registers in the service's
+`requests` map instead, keyed by address and then by request key:
+
+```ts
+requests: {
+    "contrib:my-contribution": {
+        version: async ({ body, serverApi, signal }) => ({ version: "1.4.0" })
+    }
+}
+```
+
+In a Kotlin plugin service the same handlers are declared on the contribution itself, see
+[Kotlin plugin services](./kotlin-plugin-service.md#one-shot-requests).
+
+### When to use a request, and when a session
+
+A request is one call with one answer and nothing kept afterwards. A
+[session](./sessions.md) is a connection that stays open and may hold state between messages.
+Reach for a request when there is nothing to remember — asking a service what it offers, or for
+something the workbench needs before any run exists — and for a session when there is.
+
 ## `POST /:languageId/executions`
 
 Starts an execution. Registered only if the service has `executionHandlers`.
+
+**Scope:** `plugin:execution:start`
 
 ```json
 {
@@ -107,12 +255,24 @@ action.
 | `GET /:languageId/executions/:executionId/files` | The result file tree |
 | `GET /:languageId/executions/:executionId/files/*` | One result file |
 | `POST /:languageId/executions/:executionId/cancel` | Cancel a running execution |
+| `DELETE /:languageId/executions/:executionId` | Delete an execution and its results |
+
+The summary and file reads need `plugin:execution:read`, cancelling needs `plugin:execution:cancel`,
+and deleting needs `plugin:execution:delete`. The same scopes authorize the same requests on the
+`/ws/executions` WebSocket.
 
 ## WebSocket
 
-An execution WebSocket server is attached to the same HTTP server. It carries progress updates from
-the execution service to the backend and on to the workbench, so a long-running optimisation reports
-generations as it produces them rather than only at the end.
+Two WebSocket endpoints are attached to the same HTTP server, dispatched by path:
+
+| Path | Purpose |
+| --- | --- |
+| `/ws/executions` | Execution results and progress, read by the backend on a connection it keeps between requests |
+| `/ws/sessions/:kind/:targetId/:name` | A [session](/develop/sessions): a long-lived binary connection between one execution and one plugin target |
+
+The execution endpoint authorizes each request on the connection separately, because one
+connection is shared by unrelated callers. A session authorizes once, at the handshake, because
+one connection *is* one conversation.
 
 ## Configuration
 
@@ -125,8 +285,15 @@ generations as it produces them rather than only at the end.
 | `BACKEND_API_URL` | `http://localhost:8080/api` | Backend base URL for the `ServerApi` |
 | `JWT_ISSUER` | `mdeo-platform` | Expected issuer of incoming tokens |
 | `MAX_LANGIUM_INSTANCES` | `5` | Size of the Langium instance pool |
+| `MAX_SESSION_INSTANCES` | `2` | How many pool instances open sessions may hold at once |
+| `MAX_SESSIONS` | `64` | How many sessions may be open at once, on every target together |
+| `MAX_CONTRIBUTION_SETS` | `64` | How many contribution sets the service remembers by hash; a forgotten set is sent again |
+| `LANGIUM_ACQUIRE_TIMEOUT_MS` | `30000` | How long a request waits for a free instance before failing |
 | `MAX_REQUEST_BODY_BYTES` | 64 MiB | Upper bound on a request body; file contents travel in the body |
 | `SERVICE_VERSION` | — | When set, static assets are served under `/static/<version>/` |
+
+A numeric variable set to something that is not a whole number in its range stops the service at
+startup.
 
 Language-specific variables are read by the plugin itself — for example
 `SCRIPT_EXECUTION_SERVICE_URL` and `MODEL_TRANSFORMATION_EXECUTION_SERVICE_URL`.
@@ -140,3 +307,8 @@ no document survives into the next one.
 
 This is why `MAX_LANGIUM_INSTANCES` is a memory-versus-concurrency trade-off rather than a
 straightforward throughput setting.
+
+A [session](/develop/sessions) on a language target takes its instance *out* of the pool for the
+lifetime of the connection, so it is governed by its own budget rather than by this one. A
+request that finds every instance held now fails after `LANGIUM_ACQUIRE_TIMEOUT_MS` instead of
+waiting indefinitely.

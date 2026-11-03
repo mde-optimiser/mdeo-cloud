@@ -7,7 +7,13 @@ import type {
     ConfigExecutionFilesResponse
 } from "@mdeo/service-config-common";
 import type { MdeoServices } from "@mdeo/language-config-mdeo";
-import type { ClassMutationData, EdgeMutationData, MutationsBlockData } from "./mdeoRequestTypes.js";
+import type {
+    ClassMutationData,
+    EdgeMutationData,
+    MutationsBlockData,
+    OperatorRefData,
+    SearchSectionData
+} from "./mdeoRequestTypes.js";
 
 /**
  * URL of the optimizer-execution backend service.
@@ -94,11 +100,32 @@ function buildGenerateSpecs(
  * Transforms the frontend MutationsBlockData into the shape expected by the Kotlin
  * MutationsConfig: replaces classMutations/edgeMutations with a `generate` list.
  */
-function buildMutationsPayload(mutations: MutationsBlockData): { usingPaths: string[]; generate: MutationRuleSpec[] } {
+function buildMutationsPayload(mutations: MutationsBlockData): {
+    operators: OperatorRefData[];
+    generate: MutationRuleSpec[];
+} {
     return {
-        usingPaths: mutations.usingPaths,
+        operators: mutations.operators,
         generate: buildGenerateSpecs(mutations.classMutations, mutations.edgeMutations)
     };
+}
+
+/**
+ * Transforms the frontend SearchSectionData into the shape of the Kotlin SearchConfig: the
+ * mutations block as {@link buildMutationsPayload} converts it, the crossovers block as it is.
+ *
+ * @param search The search section data of the config plugin request
+ * @returns The `search` part of the OptimizationConfig
+ */
+export function buildSearchConfig(search: SearchSectionData): Record<string, unknown> {
+    const result: Record<string, unknown> = {};
+    if (search.mutations != undefined) {
+        result.mutations = buildMutationsPayload(search.mutations);
+    }
+    if (search.crossovers != undefined) {
+        result.crossovers = search.crossovers;
+    }
+    return result;
 }
 
 /**
@@ -109,8 +136,8 @@ function buildMutationsPayload(mutations: MutationsBlockData): { usingPaths: str
  * into the OptimizationConfig payload expected by the optimizer-execution backend.
  *
  * The search.mutations block is transformed from the frontend shape
- * (usingPaths + classMutations + edgeMutations) into the Kotlin MutationsConfig shape
- * (usingPaths + generate).
+ * (operators + classMutations + edgeMutations) into the Kotlin MutationsConfig shape
+ * (operators + generate); search.crossovers is passed on as it is.
  */
 export const mdeoExecutionRequestHandler: RequestHandler<ExecuteResponse, MdeoServices> = async (context) => {
     const body = context.body as Partial<ConfigExecutionPluginRequestBody>;
@@ -142,10 +169,7 @@ export const mdeoExecutionRequestHandler: RequestHandler<ExecuteResponse, MdeoSe
         throw new Error("Missing 'solver' section in config file data");
     }
 
-    const rawSearch = mdeoData.search as { mutations?: MutationsBlockData };
-    const transformedSearch = rawSearch?.mutations
-        ? { mutations: buildMutationsPayload(rawSearch.mutations) }
-        : rawSearch;
+    const transformedSearch = buildSearchConfig(mdeoData.search as SearchSectionData);
 
     const requestBody = {
         executionId: body.executionId,

@@ -3,6 +3,7 @@ import type { VNode } from "snabbdom";
 import { sharedImport, GNodeView, type GNode } from "@mdeo/editor-shared";
 import type { GEndNode } from "../model/endNode.js";
 import { EndNodeKind } from "@mdeo/protocol-model-transformation";
+import { hasDeclarationRows, renderDeclarationText } from "./declarationText.js";
 
 const { injectable } = sharedImport("inversify");
 const { html } = sharedImport("@eclipse-glsp/sprotty");
@@ -13,6 +14,8 @@ const { html } = sharedImport("@eclipse-glsp/sprotty");
  * - STOP: Filled circle with hollow outer ring (bullseye)
  * - KILL: X mark (cross)
  * Uses HTML divs so the bounding box correctly includes the border (box-border).
+ * A successful end of a transformation with outputs lists them below the bullseye, as plain
+ * text.
  */
 @injectable()
 export class GEndNodeView extends GNodeView {
@@ -30,26 +33,37 @@ export class GEndNodeView extends GNodeView {
      * Renders the end node based on its kind.
      *
      * @param model The node model
-     * @param _context The rendering context
+     * @param context The rendering context
+     * @param children The child elements (the compartment of output rows, if any)
      * @returns The rendered VNode
      */
     protected override renderForeignElement(
         model: Readonly<GNode>,
-        _context: RenderingContext,
-        _children: readonly GModelElement[]
+        context: RenderingContext,
+        children: readonly GModelElement[]
     ): VNode {
         const endModel = model as GEndNode;
-        return endModel.kind === EndNodeKind.KILL ? this.renderKillNode() : this.renderStopNode();
+        if (endModel.kind === EndNodeKind.KILL) {
+            return this.renderKillNode();
+        }
+        if (hasDeclarationRows(children)) {
+            return renderDeclarationText(
+                this.renderStopNode(GEndNodeView.OUTER_RADIUS * 2),
+                context,
+                children,
+                "below"
+            );
+        }
+        return this.renderStopNode(GEndNodeView.OUTER_RADIUS * 2);
     }
 
     /**
      * Renders a stop node as a bullseye (outer ring div + inner filled circle div).
      *
+     * @param outerDiameter The diameter of the outer ring
      * @returns VNode for the stop node
      */
-    private renderStopNode(): VNode {
-        const outerDiameter = GEndNodeView.OUTER_RADIUS * 2;
-
+    private renderStopNode(outerDiameter: number): VNode {
         const innerCircle = html("div", {
             class: {
                 "bg-foreground": true,

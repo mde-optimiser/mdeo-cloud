@@ -1,5 +1,6 @@
 package com.mdeo.optimizer.guidance
 
+import com.mdeo.metamodel.Model
 import com.mdeo.optimizer.solution.Solution
 
 /**
@@ -20,6 +21,17 @@ interface GuidanceFunction {
      * @return The computed fitness value.
      */
     fun computeFitness(solution: Solution): Double
+
+    /**
+     * Computes the fitness value with [model], the solution's model built at most once for all
+     * guidance functions of one evaluation. Functions that read the solution's model override
+     * this to share it instead of building their own; the default ignores it.
+     *
+     * @param solution The candidate solution to evaluate.
+     * @param model The solution's model, shared by the guidance functions of this evaluation.
+     * @return The computed fitness value.
+     */
+    fun computeFitness(solution: Solution, model: Lazy<Model>): Double = computeFitness(solution)
 
     /**
      * Human-readable name of this guidance function.

@@ -24,7 +24,7 @@
         "LICENSES"
     ],
     "devDependencies": {
-        "@eclipse-glsp/protocol": "^2.7.0",
+        "@eclipse-glsp/protocol": "^2.8.0",
         "@mdeo/protocol-common": "^0.2.11"
     }
 }

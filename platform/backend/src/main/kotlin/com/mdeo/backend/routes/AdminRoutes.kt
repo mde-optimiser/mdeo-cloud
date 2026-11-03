@@ -1,5 +1,6 @@
 package com.mdeo.backend.routes
 
+import com.mdeo.common.transport.respondError
 import com.mdeo.backend.plugins.*
 import com.mdeo.backend.service.UserService
 import com.mdeo.common.model.*
@@ -25,7 +26,7 @@ fun Route.adminRoutes(userService: UserService) {
          */
         put("/users/{userId}/password") {
             if (!call.isAdmin()) {
-                call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Admin access required"))
+                call.respondError(HttpStatusCode.Forbidden, "Admin access required")
                 return@put
             }
             
@@ -33,7 +34,7 @@ fun Route.adminRoutes(userService: UserService) {
                 try { UUID.fromString(it) } catch (e: Exception) { null }
             }
             if (userId == null) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid user ID"))
+                call.respondError(HttpStatusCode.BadRequest, "Invalid user ID")
                 return@put
             }
             
@@ -41,7 +42,7 @@ fun Route.adminRoutes(userService: UserService) {
             
             val changed = userService.adminChangePassword(userId, request.newPassword)
             if (!changed) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "User not found"))
+                call.respondError(HttpStatusCode.BadRequest, "User not found")
                 return@put
             }
             
@@ -59,7 +60,7 @@ fun Route.adminRoutes(userService: UserService) {
         put("/password") {
             val session = call.getUserSession()
             if (session == null) {
-                call.respond(HttpStatusCode.Unauthorized)
+                call.respondError(HttpStatusCode.Unauthorized, "Not authenticated")
                 return@put
             }
             
@@ -67,7 +68,7 @@ fun Route.adminRoutes(userService: UserService) {
             
             val userId = try { UUID.fromString(session.userId) } catch (e: Exception) { null }
             if (userId == null) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid user ID"))
+                call.respondError(HttpStatusCode.BadRequest, "Invalid user ID")
                 return@put
             }
             
@@ -78,7 +79,7 @@ fun Route.adminRoutes(userService: UserService) {
             )
             
             if (!changed) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Current password is incorrect"))
+                call.respondError(HttpStatusCode.BadRequest, "Current password is incorrect")
                 return@put
             }
             

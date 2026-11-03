@@ -34,7 +34,8 @@ import {
     type IfMatchStatementType,
     type WhileMatchStatementType,
     type UntilMatchStatementType,
-    type ForMatchStatementType
+    type ForMatchStatementType,
+    type PatternModelScopeType
 } from "../../../grammar/modelTransformationTypes.js";
 import {
     ModelTransformationElementType,
@@ -43,7 +44,12 @@ import {
 } from "@mdeo/protocol-model-transformation";
 import type { ModelTransformationMetadataManager } from "../modelTransformationMetadataManager.js";
 import type { ModelTransformationGModelFactory } from "../modelTransformationGModelFactory.js";
-import { findContainingCondition } from "../modelTransformationPatternUtils.js";
+import {
+    findContainingCondition,
+    findContainingModelScope,
+    patternModelScopes
+} from "../modelTransformationPatternUtils.js";
+import { containerBraces, visibleModelValues } from "../modelTransformationConditionMoves.js";
 import type { WorkspaceEdit } from "vscode-languageserver-types";
 import {
     Class,
@@ -83,6 +89,12 @@ const { AstUtils } = sharedImport("langium");
  *
  * For persist and delete modes, also provides "add instance" palette items that insert
  * a reference/delete for a previously declared instance.
+ *
+ * The toolbox may name an input model to create in (`args.model`, see
+ * {@link ModelTransformationToolboxArgs}): a new instance then goes into a scope block
+ * `in model { … }` of the target pattern — an existing one of that model, else a new one, inside
+ * a new `forbid` / `require` block in those modes. An input model is read-only, so the create and
+ * delete modes act like persist there, and "add instance" offers the objects of that model.
  */
 @injectable()
 export class CreatePatternInstanceOperationHandler
@@ -103,7 +115,9 @@ export class CreatePatternInstanceOperationHandler
      * Creates a new pattern instance in the target match node.
      *
      * @param operation The create node operation, carrying args.className / args.modifier
-     *   for new instances, or args.instanceName / args.actionType for add-instance items.
+     *   for new instances, or args.instanceName / args.actionType for add-instance items, and
+     *   args.model for an instance of an input model (only when that model is visible at the
+     *   target pattern: a loop variable inside its loop).
      */
     override async createNode(operation: CreateNodeOperation): Promise<CreateNodeResult | undefined> {
         if (operation.elementTypeId !== ModelTransformationElementType.NODE_PATTERN_INSTANCE) {
@@ -122,12 +136,40 @@ export class CreatePatternInstanceOperationHandler
 
         const actionType = operation.args?.actionType as string | undefined;
         const instanceName = operation.args?.instanceName as string | undefined;
-        const modifier = operation.args?.modifier as NodeCreationMode | undefined;
+        const model = this.targetModel(operation.args);
+        const modifier = this.effectiveMode(operation.args?.modifier as NodeCreationMode | undefined, model);
 
         let workspaceEdit: WorkspaceEdit;
         let insertedNode: AstNode;
+        let container: AstNode = pattern;
 
-        if (actionType === "add-instance" && instanceName) {
+        if (model != undefined) {
+            // the model must be visible here: a loop variable only inside its loop
+            if (
+                !visibleModelValues(pattern, this.reflection).some(
+                    (value) => (value as { name?: string }).name === model
+                )
+            ) {
+                return undefined;
+            }
+            const conditionKind = this.getConditionKind(modifier);
+            if (actionType === "add-instance" && instanceName) {
+                insertedNode = this.createReferenceAst(instanceName);
+            } else {
+                const className = operation.args?.className as string | undefined;
+                if (!className) {
+                    return undefined;
+                }
+                insertedNode = await this.createPatternObjectInstanceAst(className, PatternModifierKind.NONE);
+            }
+            if (conditionKind != undefined && actionType !== "add-instance") {
+                workspaceEdit = await this.insertIntoNewCondition(pattern, conditionKind, insertedNode, model);
+            } else {
+                const scope = this.findModelScope(pattern, model);
+                workspaceEdit = await this.insertIntoModel(pattern, scope, model, insertedNode);
+                container = scope ?? pattern;
+            }
+        } else if (actionType === "add-instance" && instanceName) {
             if (modifier === NodeCreationMode.DELETE) {
                 const deleteNode = this.createDeleteAst(instanceName);
                 workspaceEdit = await this.insertIntoPattern(pattern, deleteNode);
@@ -162,7 +204,7 @@ export class CreatePatternInstanceOperationHandler
             workspaceEdit,
             insertSpecifications: [
                 {
-                    container: pattern,
+                    container,
                     property: "elements",
                     elements: [insertedNode]
                 }
@@ -186,25 +228,30 @@ export class CreatePatternInstanceOperationHandler
      * @param args Args from the toolbox request, including `mode` (NodeCreationMode value).
      */
     async getToolboxItems(args: Args | undefined): Promise<GroupedToolboxItem[]> {
-        const mode = (args?.mode as NodeCreationMode | undefined) ?? NodeCreationMode.PERSIST;
+        const model = this.targetModel(args);
+        const mode = this.effectiveMode(args?.mode as NodeCreationMode | undefined, model);
         const classes = this.getAvailableClasses(mode !== NodeCreationMode.CREATE);
         const items: GroupedToolboxItem[] = [];
+        const modelArgs: Args = model != undefined ? { model } : {};
+        const modelIdPart = model != undefined ? `in-${model}-` : "";
 
         for (const classInfo of classes) {
             const ghostElement = await this.createNewInstanceGhostElement(
                 classInfo.name,
-                this.modifierStringToKind(mode)
+                this.modifierStringToKind(mode),
+                model
             );
             items.push({
                 item: {
-                    id: `create-pattern-instance-${mode}-${classInfo.name}`,
+                    id: `create-pattern-instance-${mode}-${modelIdPart}${classInfo.name}`,
                     sortString: classInfo.name,
                     label: classInfo.name,
                     actions: [
                         TriggerNodeCreationAction.create(ModelTransformationElementType.NODE_PATTERN_INSTANCE, {
                             args: {
                                 className: classInfo.name,
-                                modifier: mode
+                                modifier: mode,
+                                ...modelArgs
                             },
                             ghostElement
                         })
@@ -215,7 +262,7 @@ export class CreatePatternInstanceOperationHandler
         }
 
         if (mode === NodeCreationMode.PERSIST || mode === NodeCreationMode.DELETE) {
-            const existingInstances = this.getAllPatternObjectInstances();
+            const existingInstances = this.getAllPatternObjectInstances(model);
             const isDeleteMode = mode === NodeCreationMode.DELETE;
             for (const instance of existingInstances) {
                 const name = instance.name;
@@ -224,11 +271,11 @@ export class CreatePatternInstanceOperationHandler
                 }
 
                 const addModifierKind = isDeleteMode ? PatternModifierKind.DELETE : PatternModifierKind.NONE;
-                const ghostElement = this.createAddInstanceGhostElement(name, addModifierKind);
+                const ghostElement = this.createAddInstanceGhostElement(name, addModifierKind, model);
                 const label = isDeleteMode ? `delete ${name}` : name;
                 items.push({
                     item: {
-                        id: `add-instance-${mode}-${name}`,
+                        id: `add-instance-${mode}-${modelIdPart}${name}`,
                         sortString: name,
                         label,
                         actions: [
@@ -236,7 +283,8 @@ export class CreatePatternInstanceOperationHandler
                                 args: {
                                     instanceName: name,
                                     modifier: mode,
-                                    actionType: "add-instance"
+                                    actionType: "add-instance",
+                                    ...modelArgs
                                 },
                                 ghostElement
                             })
@@ -491,13 +539,16 @@ export class CreatePatternInstanceOperationHandler
      * @param pattern The pattern receiving the new block
      * @param conditionKind Whether a `forbid` or a `require` block is created
      * @param element The instance the block holds
+     * @param model The input model the instance belongs to, if any: the block then holds a
+     *   scope block of that model (`forbid { in donor { … } }`)
      * @returns A workspace edit inserting the new block
      * @throws {Error} If the pattern has no CST node
      */
     private async insertIntoNewCondition(
         pattern: PatternType,
         conditionKind: "forbid" | "require",
-        element: AstNode
+        element: AstNode,
+        model?: string
     ): Promise<WorkspaceEdit> {
         const serialized = await this.serializeNode(element);
         const patternCst = pattern.$cstNode as CompositeCstNode | undefined;
@@ -508,11 +559,112 @@ export class CreatePatternInstanceOperationHandler
         const openBrace = content[0]!;
         const closeBrace = content[content.length - 1]!;
         const hasContent = (pattern.elements?.length ?? 0) > 0;
-        const body = serialized
+        const body = model != undefined ? this.block(`in ${this.serializeName(model)}`, serialized) : serialized;
+        return this.insertIntoScope(openBrace, closeBrace, hasContent, this.block(conditionKind, body));
+    }
+
+    /**
+     * Inserts a new pattern element into a scope block of an input model: into the given
+     * existing block, or into a new block `in model { … }` appended to the pattern.
+     *
+     * @param pattern The target pattern
+     * @param scope The pattern's scope block of that model, if it has one
+     * @param model The name of the model value
+     * @param element The AST node to serialize and insert
+     * @returns A workspace edit inserting the element
+     * @throws {Error} If the pattern or the block is not backed by source text
+     */
+    private async insertIntoModel(
+        pattern: PatternType,
+        scope: PatternModelScopeType | undefined,
+        model: string,
+        element: AstNode
+    ): Promise<WorkspaceEdit> {
+        if (scope == undefined) {
+            const serialized = await this.serializeNode(element);
+            const braces = containerBraces(pattern);
+            if (braces == undefined) {
+                throw new Error("Pattern has no CST node; cannot insert element.");
+            }
+            const hasContent = (pattern.elements?.length ?? 0) > 0;
+            return this.insertIntoScope(
+                braces.open,
+                braces.close,
+                hasContent,
+                this.block(`in ${this.serializeName(model)}`, serialized)
+            );
+        }
+        const braces = containerBraces(scope);
+        if (braces == undefined) {
+            throw new Error("Scope block has no CST node; cannot insert element.");
+        }
+        const serialized = await this.serializeNode(element);
+        return this.insertIntoScope(braces.open, braces.close, (scope.elements?.length ?? 0) > 0, serialized);
+    }
+
+    /**
+     * Writes a block: its header and its body, indented, in braces.
+     *
+     * @param header The block's header, e.g. `forbid` or `in donor`
+     * @param body The block's content
+     * @returns The block's text
+     */
+    private block(header: string, body: string): string {
+        const indented = body
             .split("\n")
             .map((line) => `    ${line}`)
             .join("\n");
-        return this.insertIntoScope(openBrace, closeBrace, hasContent, `${conditionKind} {\n${body}\n}`);
+        return `${header} {\n${indented}\n}`;
+    }
+
+    /**
+     * Writes a name as an identifier of the language (in backticks when it has to be).
+     *
+     * @param name The name
+     * @returns The identifier
+     */
+    private serializeName(name: string): string {
+        return this.modelState.languageServices.AstSerializer.serializePrimitive({ value: name }, ID);
+    }
+
+    /**
+     * Returns the scope block of a model declared directly in a pattern (not in one of its
+     * condition blocks), the first one when there are several.
+     *
+     * @param pattern The pattern
+     * @param model The name of the model value
+     * @returns The block, or undefined when the pattern has none for that model
+     */
+    private findModelScope(pattern: PatternType, model: string): PatternModelScopeType | undefined {
+        return patternModelScopes(pattern, this.reflection).find(
+            (scope) => (scope.model?.ref?.name ?? scope.model?.$refText) === model
+        );
+    }
+
+    /**
+     * Returns the input model the toolbox creates in, from its arguments.
+     *
+     * @param args The toolbox or operation arguments
+     * @returns The name of the model value, or undefined for the transformed model
+     */
+    private targetModel(args: Args | undefined): string | undefined {
+        const model = args?.model;
+        return typeof model === "string" && model.length > 0 ? model : undefined;
+    }
+
+    /**
+     * Returns the creation mode that applies: an input model is read-only, so creating and
+     * deleting act like persist there.
+     *
+     * @param mode The mode selected in the toolbox
+     * @param model The input model created in, if any
+     * @returns The mode
+     */
+    private effectiveMode(mode: NodeCreationMode | undefined, model: string | undefined): NodeCreationMode {
+        if (model != undefined && (mode === NodeCreationMode.CREATE || mode === NodeCreationMode.DELETE)) {
+            return NodeCreationMode.PERSIST;
+        }
+        return mode ?? NodeCreationMode.PERSIST;
     }
 
     /**
@@ -655,16 +807,19 @@ export class CreatePatternInstanceOperationHandler
     }
 
     /**
-     * Returns the PatternObjectInstances that can be referenced from a match pattern.
+     * Returns the PatternObjectInstances of a model that can be referenced from a match pattern.
      *
      * Instances declared in an application condition block are left out: their names belong to
      * the block's own graph and cannot be named from anywhere else, so referencing one would
-     * only produce an unresolvable reference.
+     * only produce an unresolvable reference. So are the instances of other models: an object of
+     * an input model is referenced only in a scope block of that model, an object of the
+     * transformed model only outside scope blocks.
      *
+     * @param model The input model, or undefined for the transformed model
      * @returns The referenceable `PatternObjectInstance` AST nodes of the entire source model,
      *   or an empty array when the source model is unavailable
      */
-    private getAllPatternObjectInstances(): PatternObjectInstanceType[] {
+    private getAllPatternObjectInstances(model: string | undefined): PatternObjectInstanceType[] {
         const sourceModel = this.modelState.sourceModel as ModelTransformationType;
         if (!sourceModel) return [];
 
@@ -674,7 +829,12 @@ export class CreatePatternInstanceOperationHandler
                 this.reflection.isInstance(node, PatternObjectInstance) &&
                 findContainingCondition(node, this.reflection) == undefined
             ) {
-                instances.push(node as PatternObjectInstanceType);
+                const scope = findContainingModelScope(node, this.reflection);
+                const instanceModel =
+                    scope != undefined ? (scope.model?.ref?.name ?? scope.model?.$refText) : undefined;
+                if (instanceModel === model) {
+                    instances.push(node as PatternObjectInstanceType);
+                }
             }
         }
         return instances;
@@ -686,11 +846,13 @@ export class CreatePatternInstanceOperationHandler
      *
      * @param className The class name used to derive the default instance name (`new<ClassName>`)
      * @param modifier The modifier kind applied to the new instance
+     * @param model The input model the instance is created in, if any
      * @returns A `GhostElement` wrapping a preview `GPatternInstanceNode`
      */
     private async createNewInstanceGhostElement(
         className: string,
-        modifier: PatternModifierKind
+        modifier: PatternModifierKind,
+        model?: string
     ): Promise<GhostElement> {
         const nodeId = "__ghost_pattern_instance";
         const instance = await this.createPatternObjectInstanceAst(className, modifier);
@@ -699,9 +861,29 @@ export class CreatePatternInstanceOperationHandler
             instance,
             idRegistry.getId(instance),
             this.metadataManager.getDefaultMetadata({ type: ModelTransformationElementType.NODE_PATTERN_INSTANCE }),
-            idRegistry
+            idRegistry,
+            undefined,
+            this.ghostScope(model)
         );
         return { template, dynamic: true };
+    }
+
+    /**
+     * Returns a stand-in for a scope block of the given model, so that a ghost element carries
+     * the stereotype (`«in donor»`) of the block it will be created in.
+     *
+     * @param model The input model, if any
+     * @returns The stand-in, or undefined for the transformed model
+     */
+    private ghostScope(model: string | undefined): PatternModelScopeType | undefined {
+        if (model == undefined) {
+            return undefined;
+        }
+        return {
+            $type: "PatternModelScope",
+            model: { $refText: model },
+            elements: []
+        } as unknown as PatternModelScopeType;
     }
 
     /**
@@ -709,9 +891,14 @@ export class CreatePatternInstanceOperationHandler
      *
      * @param instanceName The name of the existing instance to reference or delete
      * @param modifier The modifier kind (NONE for persist/reference, DELETE for delete mode)
+     * @param model The input model the reference is created in, if any
      * @returns A `GhostElement` wrapping a preview `GPatternInstanceNode` without a type label
      */
-    private createAddInstanceGhostElement(instanceName: string, modifier: PatternModifierKind): GhostElement {
+    private createAddInstanceGhostElement(
+        instanceName: string,
+        modifier: PatternModifierKind,
+        model?: string
+    ): GhostElement {
         const nodeId = "__ghost_add_instance";
         const idRegistry = new PlaceholderModelIdRegistry(nodeId);
         const metadata = this.metadataManager.getDefaultMetadata({
@@ -720,7 +907,14 @@ export class CreatePatternInstanceOperationHandler
         const template =
             modifier === PatternModifierKind.DELETE
                 ? this.gModelFactory.createDeleteInstanceNode(instanceName, nodeId, metadata)
-                : this.gModelFactory.createReferenceInstanceNode(instanceName, nodeId, metadata, idRegistry);
+                : this.gModelFactory.createReferenceInstanceNode(
+                      instanceName,
+                      nodeId,
+                      metadata,
+                      idRegistry,
+                      undefined,
+                      this.ghostScope(model)
+                  );
         return { template, dynamic: true };
     }
 

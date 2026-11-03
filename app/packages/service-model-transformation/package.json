@@ -19,7 +19,8 @@
         "build:static": "vite build",
         "watch:static": "vite build --watch",
         "start": "node dist/index.js",
-        "watch": "tsx watch src/index.ts"
+        "watch": "tsx watch src/index.ts",
+        "generate:call-fixtures": "tsc -p scripts/tsconfig.json && node scripts/generate-call-fixtures.ts"
     },
     "dependencies": {
         "@mdeo/editor-model-transformation": "^0.2.11",
@@ -35,8 +36,8 @@
     },
     "devDependencies": {
         "@types/node": "^25.9.5",
-        "langium": "~4.2.4",
-        "tsx": "^4.23.12",
-        "vite": "^8.2.1"
+        "langium": "~4.4.0",
+        "tsx": "^4.23.15",
+        "vite": "^8.3.5"
     }
 }

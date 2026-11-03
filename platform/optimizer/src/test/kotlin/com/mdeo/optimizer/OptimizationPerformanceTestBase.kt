@@ -34,6 +34,7 @@ import com.mdeo.optimizer.config.MutationParameters
 import com.mdeo.optimizer.config.MutationStepConfig
 import com.mdeo.optimizer.config.MutationStrategy
 import com.mdeo.optimizer.config.MutationsConfig
+import com.mdeo.optimizer.config.OperatorRef
 import com.mdeo.optimizer.config.ObjectiveConfig
 import com.mdeo.optimizer.config.ObjectiveTendency
 import com.mdeo.optimizer.config.OptimizationConfig
@@ -318,10 +319,10 @@ abstract class OptimizationPerformanceTestBase {
         ),
         search = SearchConfig(
             mutations = MutationsConfig(
-                usingPaths = listOf(
+                operators = listOf(
                     "/transformation/addRoom.mt",
                     "/transformation/deleteRoom.mt"
-                )
+                ).map { OperatorRef(it) }
             )
         ),
         solver = SolverConfig(

@@ -1,0 +1,221 @@
+{
+ "types": [
+  {
+   "kind": "void"
+  },
+  {
+   "package": "builtin",
+   "type": "string",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "double",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "boolean",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "Any",
+   "isNullable": true
+  },
+  {
+   "package": "class/metamodel/shapes.mm",
+   "type": "Call",
+   "isNullable": false,
+   "typeArgs": {}
+  }
+ ],
+ "metamodelPath": "/metamodel/shapes.mm",
+ "statements": [
+  {
+   "kind": "match",
+   "pattern": {
+    "elements": [
+     {
+      "kind": "objectInstance",
+      "objectInstance": {
+       "name": "c",
+       "className": "Call",
+       "properties": [
+        {
+         "propertyName": "built",
+         "operator": "==",
+         "value": {
+          "kind": "stringLiteral",
+          "evalType": 1,
+          "value": "plain"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "kind": "call",
+   "callee": "/optimize/scenarios/reshape.mt",
+   "name": "reshape",
+   "arguments": [
+    {
+     "name": "rc",
+     "value": {
+      "kind": "identifier",
+      "evalType": 5,
+      "name": "c",
+      "scope": 1
+     }
+    }
+   ],
+   "outputs": []
+  },
+  {
+   "kind": "match",
+   "pattern": {
+    "elements": [
+     {
+      "kind": "objectInstance",
+      "objectInstance": {
+       "name": "c",
+       "properties": [
+        {
+         "propertyName": "shape",
+         "operator": "==",
+         "value": {
+          "kind": "stringLiteral",
+          "evalType": 1,
+          "value": "redirect"
+         }
+        },
+        {
+         "propertyName": "built",
+         "operator": "==",
+         "value": {
+          "kind": "stringLiteral",
+          "evalType": 1,
+          "value": "composed"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  }
+ ],
+ "signature": {
+  "name": "call-trap-reference-properties.mt",
+  "parameters": []
+ },
+ "callees": {
+  "/optimize/scenarios/reshape.mt": {
+   "types": [
+    {
+     "kind": "void"
+    },
+    {
+     "package": "builtin",
+     "type": "string",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "double",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "boolean",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "Any",
+     "isNullable": true
+    },
+    {
+     "package": "class/metamodel/shapes.mm",
+     "type": "Call",
+     "isNullable": false,
+     "typeArgs": {}
+    }
+   ],
+   "metamodelPath": "/metamodel/shapes.mm",
+   "statements": [
+    {
+     "kind": "match",
+     "pattern": {
+      "elements": [
+       {
+        "kind": "objectInstance",
+        "objectInstance": {
+         "name": "rc",
+         "properties": [
+          {
+           "propertyName": "shape",
+           "operator": "==",
+           "value": {
+            "kind": "stringLiteral",
+            "evalType": 1,
+            "value": "composed"
+           }
+          },
+          {
+           "propertyName": "built",
+           "operator": "==",
+           "value": {
+            "kind": "stringLiteral",
+            "evalType": 1,
+            "value": "plain"
+           }
+          },
+          {
+           "propertyName": "shape",
+           "operator": "=",
+           "value": {
+            "kind": "stringLiteral",
+            "evalType": 1,
+            "value": "redirect"
+           }
+          },
+          {
+           "propertyName": "built",
+           "operator": "=",
+           "value": {
+            "kind": "stringLiteral",
+            "evalType": 1,
+            "value": "composed"
+           }
+          }
+         ]
+        }
+       }
+      ]
+     }
+    }
+   ],
+   "signature": {
+    "name": "reshape.mt",
+    "parameters": [
+     {
+      "name": "rc",
+      "direction": "in",
+      "type": 5,
+      "isElement": true
+     }
+    ]
+   }
+  }
+ }
+}

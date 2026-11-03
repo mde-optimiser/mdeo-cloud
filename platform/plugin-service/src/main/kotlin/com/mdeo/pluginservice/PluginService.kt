@@ -1,0 +1,134 @@
+package com.mdeo.pluginservice
+
+import com.mdeo.common.transport.MAX_SERVICE_WEBSOCKET_MESSAGE_BYTES
+import com.mdeo.common.transport.SESSION_PING_PERIOD_SECONDS
+import com.mdeo.common.transport.SESSION_PONG_TIMEOUT_SECONDS
+import com.mdeo.common.transport.installDeflate
+import com.mdeo.common.transport.installHttpCompression
+import com.mdeo.common.transport.respondError
+import com.mdeo.pluginservice.request.requestEndpoint
+import com.mdeo.pluginservice.session.sessionEndpoint
+import io.ktor.http.*
+import io.ktor.server.application.*
+import io.ktor.server.engine.*
+import io.ktor.server.netty.*
+import io.ktor.server.plugins.*
+import io.ktor.server.plugins.statuspages.*
+import io.ktor.server.request.*
+import io.ktor.server.response.*
+import io.ktor.server.routing.*
+import io.ktor.server.websocket.*
+import org.slf4j.LoggerFactory
+import java.security.MessageDigest
+import kotlin.time.Duration.Companion.seconds
+
+/**
+ * Header every answer of a plugin service carries: a fingerprint of its manifest, by which the
+ * backend notices that the plugin was redeployed with a changed manifest.
+ */
+const val MANIFEST_FINGERPRINT_HEADER = "X-Mdeo-Manifest-Fingerprint"
+
+private val logger = LoggerFactory.getLogger("com.mdeo.pluginservice.PluginService")
+
+/**
+ * Installs everything a plugin service serves: the manifest at `GET /`, the one-shot request
+ * endpoint and the session endpoint.
+ *
+ * Use this to add a plugin service to an application you configure yourself, for example to add
+ * routes of your own. [runPluginService] starts a server with nothing else.
+ *
+ * @param definition What the plugin offers
+ * @param verifier Verifies session tokens; by default against the backend's published keys
+ * @param maxSessions How many sessions may be open at once
+ */
+fun Application.pluginService(
+    definition: PluginDefinition,
+    verifier: PluginTokenVerifier,
+    maxSessions: Int = PluginServiceConfig.DEFAULT_MAX_SESSIONS
+) {
+    val manifest = definition.manifest().toString()
+    val fingerprint = MessageDigest.getInstance("SHA-256").digest(manifest.toByteArray())
+        .joinToString("") { "%02x".format(it) }
+
+    installSessionWebSockets()
+
+    // Manifests, request bodies and answers are JSON, which compresses by an order of magnitude;
+    // a service that configured it itself keeps its own settings.
+    installHttpCompression()
+
+    // A route that fails answers in the platform's error shape, like every other service.
+    if (pluginOrNull(StatusPages) == null) {
+        install(StatusPages) {
+            exception<BadRequestException> { call, _ ->
+                call.respondError(HttpStatusCode.BadRequest, "The request could not be read")
+            }
+            exception<Throwable> { call, cause ->
+                logger.error("Unhandled exception", cause)
+                // The message of an exception nobody handled is for the log, not for the caller.
+                call.respondError(HttpStatusCode.InternalServerError, "Internal server error")
+            }
+        }
+    }
+
+    // Sent with every answer, so the backend notices a redeployed plugin and fetches its manifest again.
+    intercept(ApplicationCallPipeline.Plugins) {
+        call.response.header(MANIFEST_FINGERPRINT_HEADER, fingerprint)
+    }
+
+    routing {
+        get("/") {
+            call.respondText(manifest, ContentType.Application.Json)
+        }
+        requestEndpoint(definition.requests, verifier)
+        sessionEndpoint(definition.sessions, verifier, maxSessions)
+        // Matched only when no other route is, so an unknown route answers in the error shape too.
+        route("{...}") {
+            handle {
+                call.respondError(HttpStatusCode.NotFound, "Route ${call.request.httpMethod.value} ${call.request.path()} not found")
+            }
+        }
+    }
+}
+
+/**
+ * Installs the WebSockets plugin with the platform's keepalive settings, unless it is installed
+ * already.
+ *
+ * A peer that has not answered a ping within [SESSION_PONG_TIMEOUT_SECONDS] is disconnected.
+ */
+fun Application.installSessionWebSockets() {
+    if (pluginOrNull(WebSockets) != null) return
+    install(WebSockets) {
+        pingPeriod = SESSION_PING_PERIOD_SECONDS.seconds
+        timeout = SESSION_PONG_TIMEOUT_SECONDS.seconds
+        maxFrameSize = MAX_SERVICE_WEBSOCKET_MESSAGE_BYTES
+        masking = false
+        extensions { installDeflate(MAX_SERVICE_WEBSOCKET_MESSAGE_BYTES) }
+    }
+}
+
+/**
+ * Starts a plugin service.
+ *
+ * ```kotlin
+ * fun main() {
+ *     runPluginService(PluginDefinition(id = "routing-service", …, contributions = listOf(routing)))
+ * }
+ * ```
+ *
+ * @param definition What the plugin offers
+ * @param config Where to listen and how to reach the backend; read from the environment by default
+ * @param wait Whether to block until the server stops
+ * @return The running server
+ */
+fun runPluginService(
+    definition: PluginDefinition,
+    config: PluginServiceConfig = PluginServiceConfig.fromEnvironment(),
+    wait: Boolean = true
+): EmbeddedServer<NettyApplicationEngine, NettyApplicationEngine.Configuration> {
+    val verifier = JwksPluginTokenVerifier(config.backendApiUrl, config.jwtIssuer)
+    val server = embeddedServer(Netty, port = config.port, host = config.host) {
+        pluginService(definition, verifier, config.maxSessions)
+    }
+    return server.start(wait = wait)
+}

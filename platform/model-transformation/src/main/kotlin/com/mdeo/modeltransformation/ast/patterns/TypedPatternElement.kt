@@ -40,6 +40,18 @@ data class TypedPatternVariableReassignmentElement(
 ) : TypedPatternElement
 
 /**
+ * Pattern element containing an addition to a collection output.
+ *
+ * @param kind Always "collectionAppend" for this element type.
+ * @param append The addition.
+ */
+@Serializable
+data class TypedPatternCollectionAppendElement(
+    override val kind: String = "collectionAppend",
+    val append: TypedPatternCollectionAppend
+) : TypedPatternElement
+
+/**
  * Pattern element containing an object instance definition.
  *
  * @param kind Always "objectInstance" for this element type.

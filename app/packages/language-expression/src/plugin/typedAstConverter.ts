@@ -311,7 +311,7 @@ export abstract class TypedAstConverter {
     protected convertMemberCallExpression(
         expr: MemberCallExpressionType
     ): TypedMemberCallExpression | TypedExpressionCallExpression {
-        const convertedArgs = expr.arguments.map((arg) => this.convertExpression(arg));
+        const convertedArgs = this.convertCallArgumentValues(expr);
         const evalType = this.getTypeIndex(expr);
         const methodType = inferMethodAccess(expr, expr.expression, expr.member, this.typir);
         if (isCustomFunctionType(methodType)) {
@@ -320,6 +320,7 @@ export abstract class TypedAstConverter {
                 methodType,
                 expr.genericArgs?.typeArguments ?? [],
                 expr.arguments,
+                expr.namedArguments ?? [],
                 this.typir
             );
             if (callInfo == undefined) {
@@ -368,7 +369,7 @@ export abstract class TypedAstConverter {
         if (Array.isArray(expressionType)) {
             throw new Error("Cannot infer type for call expression");
         }
-        const convertedArgs = expr.arguments.map((arg) => this.convertExpression(arg));
+        const convertedArgs = this.convertCallArgumentValues(expr);
         const evalType = this.getTypeIndex(expr);
         if (isCustomFunctionType(expressionType)) {
             return this.convertFunctionCallExpression(expr, expressionType, convertedArgs, evalType);
@@ -414,6 +415,7 @@ export abstract class TypedAstConverter {
             functionType,
             expr.genericArgs?.typeArguments ?? [],
             expr.arguments,
+            expr.namedArguments ?? [],
             this.typir
         );
         if (callInfo == undefined) {
@@ -667,6 +669,19 @@ export abstract class TypedAstConverter {
     }
 
     /**
+     * Converts the argument expressions of a call, positional ones first and then named ones, which
+     * is the order they are written in.
+     *
+     * @param expr The call or member call expression
+     * @returns The converted argument expressions
+     */
+    protected convertCallArgumentValues(expr: CallExpressionType | MemberCallExpressionType): TypedExpression[] {
+        return [...expr.arguments, ...(expr.namedArguments ?? []).map((argument) => argument.value)].map((arg) =>
+            this.convertExpression(arg)
+        );
+    }
+
+    /**
      * Builds {@link TypedCallArgument} wrappers for function/method call arguments
      * using the resolved parameter types from overload resolution.
      *
@@ -679,12 +694,17 @@ export abstract class TypedAstConverter {
      */
     protected buildCallArguments(convertedArgs: TypedExpression[], callInfo: ResolvedCallInfo): TypedCallArgument[] {
         return convertedArgs.map((arg, index) => {
-            const paramIndex = callInfo.isVarArgs ? Math.min(index, callInfo.resolvedParameterTypes.length - 1) : index;
+            const parameter = callInfo.argumentParameterIndices[index] ?? index;
+            const paramIndex = callInfo.isVarArgs
+                ? Math.min(parameter, callInfo.resolvedParameterTypes.length - 1)
+                : parameter;
             const paramType =
                 paramIndex >= 0 && paramIndex < callInfo.resolvedParameterTypes.length
                     ? this.getTypeIndexForType(callInfo.resolvedParameterTypes[paramIndex]!)
                     : arg.evalType;
-            return { value: arg, parameterType: paramType };
+            return parameter === index
+                ? { value: arg, parameterType: paramType }
+                : { value: arg, parameterType: paramType, parameter };
         });
     }
 

@@ -8,15 +8,17 @@ import {
     type ActionExecutionRequest,
     type FileMenuActionData,
     parseUri,
-    FileCategory
+    FileCategory,
+    describeValidationErrors
 } from "@mdeo/language-common";
 import { sharedImport, type ActionHandler, resolveRelativePath, buildFileSelectTree } from "@mdeo/language-shared";
 import { isMetamodelCompatible } from "@mdeo/language-metamodel";
 import type { ExtendedLangiumSharedServices } from "@mdeo/language-common";
 import type { ModelTransformationType } from "../grammar/modelTransformationTypes.js";
+import { requiredInputs } from "../features/transformationDeclarations.js";
 import type { ModelType } from "@mdeo/language-model";
 
-const { URI } = sharedImport("langium");
+const { URI, UriUtils } = sharedImport("langium");
 
 /**
  * Input data collected from the model selection dialog.
@@ -79,6 +81,11 @@ export class RunModelTransformationActionHandler implements ActionHandler {
         const validationError = this.checkValidationErrors(URI.parse(data.uri).toString());
         if (validationError != undefined) {
             return this.createErrorPage(validationError);
+        }
+
+        const requiredInputsError = this.checkRequiredInputs(data.uri);
+        if (requiredInputsError != undefined) {
+            return this.createErrorPage(requiredInputsError);
         }
 
         const metamodelUri = await this.getTransformationMetamodelUri(data.uri);
@@ -159,21 +166,9 @@ export class RunModelTransformationActionHandler implements ActionHandler {
             }
         }
         const langiumDocuments = this.sharedServices.workspace.LangiumDocuments;
-        const filesWithErrors: string[] = [];
-        for (const uriStr of allUris) {
-            const doc = langiumDocuments.getDocument(URI.parse(uriStr));
-            if (doc == undefined) continue;
-            const hasErrors =
-                doc.parseResult.lexerErrors.length > 0 ||
-                doc.parseResult.parserErrors.length > 0 ||
-                (doc.diagnostics != undefined && doc.diagnostics.some((d) => (d.severity ?? 1) === 1));
-            if (hasErrors) {
-                filesWithErrors.push(URI.parse(uriStr).path);
-            }
-        }
-        if (filesWithErrors.length === 0) return undefined;
-        const fileList = filesWithErrors.map((p) => `\u2022 ${p.split("/").pop() ?? p}`).join("\n");
-        return `Cannot start execution. The following files have validation errors:\n${fileList}`;
+        return describeValidationErrors(
+            [...allUris].flatMap((uri) => langiumDocuments.getDocument(URI.parse(uri)) ?? [])
+        );
     }
 
     /**
@@ -182,6 +177,28 @@ export class RunModelTransformationActionHandler implements ActionHandler {
      * @param uri URI of the transformation file
      * @returns Absolute URI of the metamodel, or undefined if not found
      */
+    /**
+     * Checks that the transformation can run on its own: a transformation with required inputs
+     * only runs when another transformation calls it with arguments.
+     *
+     * @param uri The transformation's URI
+     * @returns A message explaining why it cannot run, or undefined
+     */
+    private checkRequiredInputs(uri: string): string | undefined {
+        const document = this.sharedServices.workspace.LangiumDocuments.getDocument(URI.parse(uri));
+        const root = document?.parseResult.value as ModelTransformationType | undefined;
+        const required = requiredInputs(root);
+        if (required.length === 0) {
+            return undefined;
+        }
+        const names = required.map((p) => `'${p.name}'`).join(", ");
+        const fileName = UriUtils.basename(URI.parse(uri));
+        return (
+            `'${fileName}' has required input${required.length > 1 ? "s" : ""} ${names}, so it cannot run on its own. ` +
+            `Import it into another transformation and call it there ('import "./${fileName}" as name', then 'call name(…)'), or give ${required.length > 1 ? "these inputs defaults" : "the input a default"}.`
+        );
+    }
+
     private async getTransformationMetamodelUri(uri: string): Promise<string | undefined> {
         const parsedUri = URI.parse(uri);
         const document = this.sharedServices.workspace.LangiumDocuments.getDocument(parsedUri);

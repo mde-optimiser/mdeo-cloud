@@ -1,0 +1,49 @@
+// A record is a data structure with named fields, declared like a constructor.
+record Point(x: double, y: double = 0.0)
+
+record Route(
+    name: string,
+    stops: List<Point> = emptyList<Point>(),
+    closed: boolean = false
+)
+
+// Parameters can have default values, which may use the parameters before them.
+fun scale(point: Point, factor: double, yFactor: double = factor): Point {
+    return Point(point.x * factor, point.y * yFactor)
+}
+
+fun length(route: Route): double {
+    var total = 0.0
+    var previous: Point? = null
+    for (stop in route.stops) {
+        if (previous != null) {
+            val dx = stop.x - previous!!.x
+            val dy = stop.y - previous!!.y
+            total = total + dx * dx + dy * dy
+        }
+        previous = stop
+    }
+    return total
+}
+
+fun planRoute(): double {
+    // A record is created by calling its name, positionally or with named arguments.
+    val route = Route("tour", closed = true)
+    route.stops.add(Point(1.0))
+    route.stops.add(Point(y = 2.0, x = 3.0))
+
+    // Fields are mutable, and `with` copies a record with some fields changed.
+    val start = route.stops.first()
+    start.y = 1.0
+    val shifted = start.with(x = start.x + 1.0)
+    route.stops.add(scale(shifted, 2.0))
+
+    // A `val` is assigned exactly once, possibly later on each branch.
+    val bonus: double
+    if (route.closed) {
+        bonus = 1.0
+    } else {
+        bonus = 0.0
+    }
+    return length(route) + bonus
+}

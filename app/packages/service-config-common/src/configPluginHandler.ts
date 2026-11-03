@@ -1,8 +1,8 @@
 import { TextDocument } from "langium";
 import type { LangiumDocument } from "langium";
-import { hasErrors } from "@mdeo/service-common";
-import type { RequestContext } from "@mdeo/service-common";
-import type { ConfigPluginRequestBody } from "./configPluginTypes.js";
+import { collectDiagnostics, findDependenciesWithErrors, hasErrors } from "@mdeo/service-common";
+import type { RequestContext, RequestHandler } from "@mdeo/service-common";
+import type { ConfigPluginDiagnosticsResponse, ConfigPluginRequestBody } from "./configPluginTypes.js";
 
 /**
  * Discriminated union returned by {@link buildConfigPluginDocument}.
@@ -66,10 +66,76 @@ export async function buildConfigPluginDocument<S extends object>(
     cleanup?: () => void
 ): Promise<ConfigPluginDocumentResult> {
     const requestBody = context.body as ConfigPluginRequestBody;
+    const document = await buildPartialDocument(context, languageKey, setup, cleanup);
+    if (document == undefined) {
+        return { type: "empty" };
+    }
+    if (hasErrors(document)) {
+        return { type: "error" };
+    }
+
+    const root = document.parseResult?.value as { sections?: any[] } | undefined;
+    if (root == undefined || !Array.isArray(root.sections)) {
+        return { type: "empty" };
+    }
+
+    return { type: "success", document, sections: root.sections, requestBody };
+}
+
+/**
+ * Creates the handler for {@link CONFIG_DIAGNOSTICS_REQUEST_KEY} requests of a contribution
+ * plugin: builds the partial config document as {@link buildConfigPluginDocument} does and
+ * reports its diagnostics.
+ *
+ * @param languageKey The language ID of the contribution plugin language
+ * @param setup Optional callback run before the document is built, as for {@link buildConfigPluginDocument}
+ * @param cleanup Optional callback run after the document is built, as for {@link buildConfigPluginDocument}
+ * @returns The request handler
+ */
+export function createConfigDiagnosticsRequestHandler<S extends object>(
+    languageKey: string,
+    setup?: (requestBody: ConfigPluginRequestBody, context: RequestContext<S>) => void,
+    cleanup?: (context: RequestContext<S>) => void
+): RequestHandler<ConfigPluginDiagnosticsResponse, S> {
+    return async (context) => {
+        const document = await buildPartialDocument(
+            context,
+            languageKey,
+            setup && ((requestBody) => setup(requestBody, context)),
+            cleanup && (() => cleanup(context))
+        );
+        const dependenciesWithErrors =
+            document == undefined
+                ? []
+                : await findDependenciesWithErrors(document.uri.path, context.services, context.serverApi);
+        return {
+            diagnostics: document == undefined ? [] : collectDiagnostics(document),
+            dependenciesWithErrors,
+            ...context.serverApi.getTrackedRequests()
+        };
+    };
+}
+
+/**
+ * Creates the partial config document of a request and builds and validates it.
+ *
+ * @param context The request context
+ * @param languageKey The language ID of the contribution plugin language
+ * @param setup Optional callback run before the document is built
+ * @param cleanup Optional callback run after the document is built, even if building fails
+ * @returns The built document, or undefined if the request has no text
+ */
+async function buildPartialDocument<S extends object>(
+    context: RequestContext<S>,
+    languageKey: string,
+    setup?: (requestBody: ConfigPluginRequestBody) => void,
+    cleanup?: () => void
+): Promise<LangiumDocument | undefined> {
+    const requestBody = context.body as ConfigPluginRequestBody;
     const text = requestBody?.text ?? "";
 
     if (!text.trim()) {
-        return { type: "empty" };
+        return undefined;
     }
 
     const textDocument = TextDocument.create(requestBody.configFileUri, languageKey, 0, text);
@@ -79,17 +145,8 @@ export async function buildConfigPluginDocument<S extends object>(
     try {
         setup?.(requestBody);
         await context.services.shared.workspace.DocumentBuilder.build([document], { validation: true });
-        if (hasErrors(document)) {
-            return { type: "error" };
-        }
     } finally {
         cleanup?.();
     }
-
-    const root = document.parseResult?.value as { sections?: any[] } | undefined;
-    if (root == undefined || !Array.isArray(root.sections)) {
-        return { type: "empty" };
-    }
-
-    return { type: "success", document, sections: root.sections, requestBody };
+    return document;
 }

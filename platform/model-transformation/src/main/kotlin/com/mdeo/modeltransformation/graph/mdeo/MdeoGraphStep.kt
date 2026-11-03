@@ -73,7 +73,9 @@ class MdeoGraphStep<S, E : Element>(
         val candidates = if (labels.size == 1) {
             graph.verticesWithLabel(labels[0])
         } else {
-            labels.flatMap { graph.verticesWithLabel(it) }
+            // Each bucket is shuffled on its own; joined in label order, the first candidate
+            // would always be of the first label that has one.
+            labels.flatMapTo(ArrayList()) { graph.verticesWithLabel(it) }.also { if (graph.isShuffled) it.shuffle() }
         }
         return filterToArray(candidates.iterator(), remaining)
     }

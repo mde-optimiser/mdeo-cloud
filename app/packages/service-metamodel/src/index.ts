@@ -38,7 +38,7 @@ const metamodelLanguagePlugin: LanguagePlugin = {
         languageConfiguration: defaultLanguageConfiguration,
         monarchTokensProvider: serializeMonarchTokensProvider({
             ...defaultMonarchTokenProvider,
-            keywords: ["class", "extends", "abstract", "import", "from", "as", "enum"]
+            keywords: ["class", "extends", "abstract", "import", "from", "as", "enum", "view"]
         })
     },
     isGenerated: false,

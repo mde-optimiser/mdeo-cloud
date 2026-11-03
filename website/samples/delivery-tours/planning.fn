@@ -1,0 +1,89 @@
+import { Point, Stop } from "./geometry.fn"
+import { Tour, visit, length, duration as minutes } from "./tours.fn"
+
+// The outcome of planning one tour.
+record Summary(
+    tour: string,
+    kilometres: double,
+    minutes: double,
+    late: boolean = false,
+    longest: Stop? = null
+)
+
+fun summarize(tour: Tour, deadline: double = 120.0): Summary {
+    // Named arguments can be passed in any order, after the positional ones.
+    val total = minutes(tour, toEnd = true, speed = 30.0)
+
+    // A `val` cannot be assigned again, but it can be assigned later: once on every branch.
+    val name: string
+    if (tour.stops.isEmpty()) {
+        name = tour.name + " (empty)"
+    } else {
+        name = tour.name
+    }
+
+    val summary = Summary(name, length(tour), total, late = total > deadline)
+    for (stop in tour.stops) {
+        // Record fields are mutable, and `?.` reads a field of a record that may be null.
+        if (stop.minutes > (summary.longest?.minutes ?? 0)) {
+            summary.longest = stop
+        }
+    }
+    return summary
+}
+
+fun tours(): List<Tour> {
+    val depot = Point(0.0)
+
+    // A record is created by calling its name, with positional or named arguments.
+    val north = Tour("north", depot)
+    visit(north, "bakery", 3.0, y = 4.0)
+    visit(north, "market", x = 6.0, y = 8.0, minutes = 45)
+
+    // `with` copies a record with some fields changed. Without a new list, the copy would share
+    // the stops of the original.
+    val south = north.with(
+        name = "south",
+        stops = emptyList<Stop>(),
+        end = Point(10.0)
+    )
+    visit(south, "harbour", 6.0, minutes = 20)
+
+    return listOf(north, south, Tour(name = "west", depot = depot))
+}
+
+fun plan(): string {
+    val summaries = tours().map((tour) => summarize(tour, deadline = 60.0))
+
+    var report = ""
+    for (summary in summaries.sortedBy(iterator = (it) => it.kilometres)) {
+        val longest = summary.longest?.name ?? "none"
+        report = report + summary.tour + ": " + summary.kilometres + " km, " + summary.minutes + " min"
+        if (summary.late) {
+            report = report + ", late"
+        }
+        report = report + ", longest stop " + longest + "\n"
+    }
+    return report
+}
+
+// Records are equal when they are the same record with equal fields, so a set keeps one of each.
+fun depots(): int {
+    val points = emptySet<Point>()
+    for (tour in tours()) {
+        points.add(tour.depot)
+        points.add(tour.end)
+    }
+    return points.size()
+}
+
+fun copies(): string {
+    val stop = Stop("bakery", Point(3.0, 4.0))
+    val same = Stop("bakery", Point(3.0, 4.0))
+    val later = stop.with(minutes = 30)
+
+    // `==` compares records by content, `===` by identity. A record prints its fields.
+    val equal = stop == same
+    val identical = stop === same
+    return "" + equal + " " + identical + " " + (stop == later) + " " + later
+}

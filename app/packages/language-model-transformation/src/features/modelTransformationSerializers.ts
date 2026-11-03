@@ -59,7 +59,31 @@ import {
     type PatternObjectInstanceReferenceType,
     PatternObjectInstanceReference,
     PatternApplicationCondition,
-    type PatternApplicationConditionType
+    type PatternApplicationConditionType,
+    TransformationParameter,
+    CallArgument,
+    CallOutput,
+    CallStatement,
+    TransformationFileImport,
+    PatternModelScope,
+    type TransformationParameterType,
+    type TransformationFileImportType,
+    type PatternModelScopeType,
+    type CallArgumentType,
+    type CallOutputType,
+    type CallStatementType,
+    PatternCollectionAppend,
+    IfCallConditionAndBlock,
+    IfCallStatement,
+    ForInVariable,
+    ForInStatement,
+    AssignmentStatement,
+    type PatternCollectionAppendType,
+    type IfCallConditionAndBlockType,
+    type IfCallStatementType,
+    type ForInVariableType,
+    type ForInStatementType,
+    type AssignmentStatementType
 } from "../grammar/modelTransformationTypes.js";
 
 const { doc } = sharedImport("prettier");
@@ -112,6 +136,7 @@ export function registerModelTransformationSerializers(services: ModelTransforma
     AstSerializer.registerNodeSerializer(PatternLink, (ctx) => printPatternLink(ctx));
     AstSerializer.registerNodeSerializer(WhereClause, (ctx) => printWhereClause(ctx));
     AstSerializer.registerNodeSerializer(PatternApplicationCondition, (ctx) => printPatternApplicationCondition(ctx));
+    AstSerializer.registerNodeSerializer(PatternModelScope, (ctx) => printPatternModelScope(ctx));
     AstSerializer.registerNodeSerializer(Pattern, (ctx) => printPattern(ctx));
 
     AstSerializer.registerNodeSerializer(StatementsScope, (ctx) => printStatementsScope(ctx));
@@ -129,6 +154,18 @@ export function registerModelTransformationSerializers(services: ModelTransforma
     AstSerializer.registerNodeSerializer(LambdaParameter, (ctx) => printLambdaParameter(ctx));
     AstSerializer.registerNodeSerializer(LambdaParameters, (ctx) => printLambdaParameters(ctx));
     AstSerializer.registerNodeSerializer(LambdaExpression, (ctx) => printLambdaExpression(ctx));
+
+    AstSerializer.registerNodeSerializer(TransformationParameter, (ctx) => printTransformationParameter(ctx));
+    AstSerializer.registerNodeSerializer(CallArgument, (ctx) => printCallArgument(ctx));
+    AstSerializer.registerNodeSerializer(CallOutput, (ctx) => printCallOutput(ctx));
+    AstSerializer.registerNodeSerializer(CallStatement, (ctx) => printCallStatement(ctx));
+    AstSerializer.registerNodeSerializer(PatternCollectionAppend, (ctx) => printPatternCollectionAppend(ctx));
+    AstSerializer.registerNodeSerializer(IfCallConditionAndBlock, (ctx) => printIfCallCondition(ctx));
+    AstSerializer.registerNodeSerializer(IfCallStatement, (ctx) => printIfCallStatement(ctx));
+    AstSerializer.registerNodeSerializer(ForInVariable, (ctx) => printForInVariable(ctx));
+    AstSerializer.registerNodeSerializer(ForInStatement, (ctx) => printForInStatement(ctx));
+    AstSerializer.registerNodeSerializer(AssignmentStatement, (ctx) => printAssignmentStatement(ctx));
+    AstSerializer.registerNodeSerializer(TransformationFileImport, (ctx) => printTransformationFileImport(ctx));
 
     AstSerializer.registerNodeSerializer(MetamodelFileImport, (ctx) => printMetamodelFileImport(ctx));
     AstSerializer.registerNodeSerializer(ModelTransformation, (ctx) => printModelTransformation(ctx));
@@ -163,6 +200,87 @@ function printPatternVariableReassignment(context: PrintContext<PatternVariableR
     const name = path.call((ref) => printReference(ref, ID), "variable");
     const value = path.call(print, "value");
     return [name, " = ", value];
+}
+
+/**
+ * Prints an addition to a collection inside a pattern.
+ *
+ * @param context The print context.
+ * @returns The formatted append (`name += value`).
+ */
+function printPatternCollectionAppend(context: PrintContext<PatternCollectionAppendType>): Doc {
+    const { path, print, printReference } = context;
+    return [path.call((ref) => printReference(ref, ID), "variable"), " += ", path.call(print, "value")];
+}
+
+/**
+ * Prints the call and then block of an if-call statement.
+ *
+ * @param context The print context.
+ * @returns The formatted condition (`call f(...) then { ... }`).
+ */
+function printIfCallCondition(context: PrintContext<IfCallConditionAndBlockType>): Doc {
+    const { path, print } = context;
+    return [path.call(print, "call"), " then ", path.call(print, "thenBlock")];
+}
+
+/**
+ * Prints an if-call statement.
+ *
+ * @param context The print context.
+ * @returns The formatted statement.
+ */
+function printIfCallStatement(context: PrintContext<IfCallStatementType>): Doc {
+    const { ctx, path, print } = context;
+    const docs: Doc[] = ["if ", path.call(print, "ifBlock")];
+    if (ctx.elseBlock != undefined) {
+        docs.push(" else ", path.call(print, "elseBlock"));
+    }
+    return docs;
+}
+
+/**
+ * Prints the variable of a for-in loop.
+ *
+ * @param context The print context.
+ * @returns The variable's name.
+ */
+function printForInVariable(context: PrintContext<ForInVariableType>): Doc {
+    const { ctx, printPrimitive, getPrimitive } = context;
+    return printPrimitive(getPrimitive(ctx, "name"), ID);
+}
+
+/**
+ * Prints a for-in loop.
+ *
+ * @param context The print context.
+ * @returns The formatted loop (`for x in xs do { ... }`).
+ */
+function printForInStatement(context: PrintContext<ForInStatementType>): Doc {
+    const { path, print } = context;
+    return [
+        "for ",
+        path.call(print, "variable"),
+        " in ",
+        path.call(print, "collection"),
+        " do ",
+        path.call(print, "doBlock")
+    ];
+}
+
+/**
+ * Prints an assignment outside a pattern.
+ *
+ * @param context The print context.
+ * @returns The formatted assignment (`name = value` or `name += value`).
+ */
+function printAssignmentStatement(context: PrintContext<AssignmentStatementType>): Doc {
+    const { ctx, path, print, printReference } = context;
+    return [
+        path.call((ref) => printReference(ref, ID), "variable"),
+        ` ${ctx.operator ?? "="} `,
+        path.call(print, "value")
+    ];
 }
 
 /**
@@ -311,6 +429,26 @@ function printPatternApplicationCondition(context: PrintContext<PatternApplicati
     }
 
     docs.push(" {");
+
+    const content = serializeNewlineSep(context, ["elements"], doc.builders);
+    if (content.length > 0) {
+        docs.push(indent([hardline, content]), hardline);
+    }
+
+    docs.push("}");
+
+    return group(docs);
+}
+
+/**
+ * Prints a model scope block (`in model { ... }`).
+ *
+ * @param context The print context.
+ * @returns The formatted scope block.
+ */
+function printPatternModelScope(context: PrintContext<PatternModelScopeType>): Doc {
+    const { path, printReference } = context;
+    const docs: Doc[] = ["in ", path.call((ref) => printReference(ref, ID), "model"), " {"];
 
     const content = serializeNewlineSep(context, ["elements"], doc.builders);
     if (content.length > 0) {
@@ -532,17 +670,121 @@ function printMetamodelFileImport(context: PrintContext<MetamodelFileImportType>
 }
 
 /**
- * Prints the root model transformation node.
+ * Prints a header declaration.
+ *
+ * @param context The print context.
+ * @returns The formatted parameter, e.g. `in maxCandidates: int = 0`.
+ */
+function printTransformationParameter(context: PrintContext<TransformationParameterType>): Doc {
+    const { ctx, printPrimitive, getPrimitive, path, print } = context;
+    const docs: Doc[] = [ctx.direction ?? "in", " ", printPrimitive(getPrimitive(ctx, "name"), ID), ": "];
+    docs.push(path.call(print, "type"));
+    if (ctx.defaultValue != undefined) {
+        docs.push(" = ", path.call(print, "defaultValue"));
+    }
+    return docs;
+}
+
+/**
+ * Prints a path import of another transformation.
+ *
+ * @param context The print context.
+ * @returns The formatted import, e.g. `import "./generic/move-component.mt" as moveComponent`.
+ */
+function printTransformationFileImport(context: PrintContext<TransformationFileImportType>): Doc {
+    const { ctx, printPrimitive, getPrimitive } = context;
+    return [
+        "import ",
+        printPrimitive(getPrimitive(ctx, "file"), STRING),
+        " as ",
+        printPrimitive(getPrimitive(ctx, "name"), ID)
+    ];
+}
+
+/**
+ * Prints a comma-separated list in parentheses that breaks one item per line when it does not
+ * fit on the line.
+ *
+ * @param items The printed items.
+ * @returns The formatted list.
+ */
+function printParenthesizedList(items: Doc[]): Doc {
+    if (items.length === 0) {
+        return "()";
+    }
+    return group(["(", indent([softline, join([",", line], items)]), softline, ")"]);
+}
+
+/**
+ * Prints a call argument.
+ *
+ * @param context The print context.
+ * @returns The formatted argument, e.g. `moved = m`.
+ */
+function printCallArgument(context: PrintContext<CallArgumentType>): Doc {
+    const { path, print, printReference } = context;
+    return [path.call((ref) => printReference(ref, ID), "parameter"), " = ", path.call(print, "value")];
+}
+
+/**
+ * Prints a call output.
+ *
+ * @param context The print context.
+ * @returns The formatted output, e.g. `moved: m`.
+ */
+function printCallOutput(context: PrintContext<CallOutputType>): Doc {
+    const { ctx, path, printReference, printPrimitive, getPrimitive } = context;
+    return [
+        path.call((ref) => printReference(ref, ID), "parameter"),
+        ": ",
+        printPrimitive(getPrimitive(ctx, "name"), ID)
+    ];
+}
+
+/**
+ * Prints a call statement.
+ *
+ * @param context The print context.
+ * @returns The formatted call, e.g. `call moveComponent(maxCandidates = 2) -> (moved: m)`.
+ */
+function printCallStatement(context: PrintContext<CallStatementType>): Doc {
+    const { ctx, path, print, printReference } = context;
+    const docs: Doc[] = [
+        "call ",
+        path.call((ref) => printReference(ref, ID), "callee"),
+        printParenthesizedList(path.map(print, "arguments"))
+    ];
+    if ((ctx.outputs ?? []).length > 0) {
+        docs.push(" -> ", printParenthesizedList(path.map(print, "outputs")));
+    }
+    return group(docs);
+}
+
+/**
+ * Prints the root model transformation node: the `using` line, the imports, the header
+ * declarations and the statements, separated by blank lines.
  *
  * @param context The print context.
  * @returns The formatted model transformation.
  */
 function printModelTransformation(context: PrintContext<ModelTransformationType>): Doc {
-    const { path, print } = context;
+    const { ctx, path, print } = context;
     const docs: Doc[] = [];
 
     docs.push(path.call(print, "import"));
     docs.push(hardline);
+
+    if ((ctx.imports ?? []).length > 0) {
+        docs.push(hardline);
+        docs.push(join(hardline, path.map(print, "imports")));
+        docs.push(hardline);
+    }
+
+    if ((ctx.parameters ?? []).length > 0) {
+        docs.push(hardline);
+        docs.push(join(hardline, path.map(print, "parameters")));
+        docs.push(hardline);
+    }
 
     const content = serializeNewlineSep(context, ["statements"], doc.builders);
     if (content.length > 0) {

@@ -5,7 +5,7 @@ import {
     getExportedEntitiesFromGlobalScope,
     getImportedEntitiesFromCurrentFile
 } from "@mdeo/language-shared";
-import type { AstNode, AstNodeDescriptionProvider, LangiumDocuments, ReferenceInfo, Scope } from "langium";
+import type { AstNodeDescriptionProvider, LangiumDocuments, ReferenceInfo, Scope } from "langium";
 import { getScopeFromMetamodelFile, resolveClassChain, type ClassType } from "@mdeo/language-metamodel";
 import {
     configOptimizationFileScopingConfig,
@@ -149,10 +149,11 @@ export class OptimizationScopeProvider extends DefaultScopeProvider {
 
     /**
      * Gets the scope for field references in refinements.
-     * Returns properties and association ends from the referenced class.
+     * Returns the association ends of the referenced class, including inherited ones so that the
+     * validator can point to the declaring class; attributes cannot be refined.
      *
      * @param context The reference context
-     * @returns Scope with class properties and association ends
+     * @returns Scope with the class's association ends
      */
     private getFieldScope(context: ReferenceInfo): Scope {
         const refinement = context.container as RefinementType;
@@ -164,16 +165,12 @@ export class OptimizationScopeProvider extends DefaultScopeProvider {
 
         const classChain = resolveClassChain(classRef, this.astReflection);
 
-        const properties = classChain.flatMap((cls) => cls.properties);
-
         const allAssociationEnds = classChain.flatMap((cls) => {
             return this.associationEndCache.getAssociationEndsForClass(cls);
         });
 
         const uniqueAssociationEnds = Array.from(new Map(allAssociationEnds.map((end) => [end.name, end])).values());
 
-        const allFields: AstNode[] = [...properties, ...uniqueAssociationEnds];
-
-        return this.createScopeForNodes(allFields);
+        return this.createScopeForNodes(uniqueAssociationEnds);
     }
 }

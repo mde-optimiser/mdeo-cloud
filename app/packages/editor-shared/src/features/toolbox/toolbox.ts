@@ -12,6 +12,7 @@ import type MiniSearch from "minisearch";
 import { sharedImport } from "../../sharedImport.js";
 import { ToolType, ToolboxGroupKey, type ToolDefinition, type ToolboxEditEntry } from "./toolboxTypes.js";
 import { generateToolboxView } from "./views/toolboxView.js";
+import { generateLayoutPanelView } from "./views/layoutPanelView.js";
 import { enableTool } from "./tools.js";
 import { ScrollViewState } from "./views/scrollView.js";
 import { PreviewRenderer } from "./previewRenderer.js";
@@ -20,6 +21,13 @@ import { CreateEdgeTool } from "../create-edge-tool/createEdgeTool.js";
 import { EditorSettingsManager } from "../editor-settings/editorSettingsManager.js";
 import { ToolStateManager } from "../tool-state/toolStateManager.js";
 import type { EditorSettings } from "@mdeo/editor-common";
+import type { LayoutAlgorithmKind } from "@mdeo/protocol-common";
+import {
+    LAYOUT_ALGORITHM_OPTIONS,
+    readDefaultLayoutAlgorithm,
+    writeDefaultLayoutAlgorithm,
+    type LayoutAlgorithmOption
+} from "./layoutAlgorithmPreference.js";
 
 const { injectable, inject } = sharedImport("inversify");
 const { html, TYPES } = sharedImport("@eclipse-glsp/sprotty");
@@ -69,6 +77,16 @@ export class Toolbox extends ToolPalette {
     public markers: Marker[] = [];
     public selectedItemIndex: number = 0;
     public searchDebounceTimeout?: number;
+
+    /**
+     * Whether the layout tool is active, i.e. the layout panel (algorithm choice) is shown instead of the bottom panel.
+     */
+    public layoutPanelOpen: boolean = false;
+
+    /**
+     * Listener leaving the layout tool on Escape, registered while it is active.
+     */
+    protected layoutPanelKeydown?: (event: KeyboardEvent) => void;
 
     /**
      * Indicates whether the toolbox is in layout-only mode, which affects available tools and palette items.
@@ -194,6 +212,17 @@ export class Toolbox extends ToolPalette {
      */
     protected generateMainContent(): VNode {
         return generateToolboxView(this);
+    }
+
+    /**
+     * Generates additional content shown right below the toolbar while the toolbox is open.
+     * Unlike {@link generateDetailsExtension}, the content stays visible whatever tool is
+     * active and in read-only mode. Override in subclasses to add such UI (e.g. a view switcher).
+     *
+     * @returns The VNode to render below the toolbar, undefined by default
+     */
+    generateToolbarExtension(): VNode | undefined {
+        return undefined;
     }
 
     /**
@@ -392,10 +421,94 @@ export class Toolbox extends ToolPalette {
     }
 
     /**
-     * Triggers diagram layout.
+     * Triggers diagram layout with the default algorithm and activates the layout tool (layout panel).
      */
     protected layoutDiagram(): void {
-        this.actionDispatcher.dispatch(LayoutAction.create());
+        if (this.toolType !== ToolType.POINTER) {
+            this.updateTool(ToolType.POINTER);
+        }
+        this.actionDispatcher.dispatch(LayoutAction.create(this.layoutAlgorithm));
+        this.openLayoutPanel();
+    }
+
+    /**
+     * The default layout algorithm of this diagram type (remembered in the browser).
+     */
+    get layoutAlgorithm(): LayoutAlgorithmKind {
+        return readDefaultLayoutAlgorithm(this.diagramType());
+    }
+
+    /**
+     * Returns the layout algorithms offered in the layout panel. Override to restrict them.
+     *
+     * @returns The algorithms
+     */
+    layoutAlgorithmOptions(): readonly LayoutAlgorithmOption[] {
+        return LAYOUT_ALGORITHM_OPTIONS;
+    }
+
+    /**
+     * Lays the diagram out with the given algorithm and makes it the default of this diagram type.
+     *
+     * @param algorithm The algorithm
+     */
+    selectLayoutAlgorithm(algorithm: LayoutAlgorithmKind): void {
+        writeDefaultLayoutAlgorithm(this.diagramType(), algorithm);
+        this.actionDispatcher.dispatch(LayoutAction.create(algorithm));
+        this.update();
+    }
+
+    /**
+     * Generates the layout panel, shown instead of the bottom panel while the layout tool is active.
+     *
+     * @returns The panel VNode, undefined while the layout tool is inactive or the bottom panel is hidden
+     */
+    generateLayoutPanel(): VNode | undefined {
+        return this.layoutPanelOpen && this.isBottomPanelOpen ? generateLayoutPanelView(this) : undefined;
+    }
+
+    /**
+     * Activates the layout tool: the layout panel replaces the bottom panel and the toolbar extension.
+     * The bottom panel toggle shows / hides it like the regular bottom panel; Escape or another tool leave it again.
+     */
+    openLayoutPanel(): void {
+        if (!this.layoutPanelOpen) {
+            this.layoutPanelOpen = true;
+            this.layoutPanelKeydown = (event: KeyboardEvent) => {
+                if (event.key === "Escape") {
+                    this.closeLayoutPanel();
+                }
+            };
+            document.addEventListener("keydown", this.layoutPanelKeydown, true);
+        }
+        this.update();
+    }
+
+    /**
+     * Leaves the layout tool.
+     */
+    closeLayoutPanel(): void {
+        if (this.layoutPanelKeydown != undefined) {
+            document.removeEventListener("keydown", this.layoutPanelKeydown, true);
+            this.layoutPanelKeydown = undefined;
+        }
+        if (this.layoutPanelOpen) {
+            this.layoutPanelOpen = false;
+            this.update();
+        }
+    }
+
+    /**
+     * Returns the diagram type of the editor, undefined if it is not known yet.
+     *
+     * @returns The diagram type
+     */
+    protected diagramType(): string | undefined {
+        try {
+            return this.editorContext.diagramType;
+        } catch {
+            return undefined;
+        }
     }
 
     /**
@@ -404,6 +517,7 @@ export class Toolbox extends ToolPalette {
      * @param tool The tool type to set
      */
     updateTool(tool: ToolType): void {
+        this.closeLayoutPanel();
         if (this.toolType === tool && tool !== ToolType.POINTER) {
             return;
         }
@@ -451,6 +565,7 @@ export class Toolbox extends ToolPalette {
         } else if (tool.id === ToolType.LAYOUT) {
             this.layoutDiagram();
         } else {
+            this.closeLayoutPanel();
             enableTool(this, tool.id);
         }
     }

@@ -1,0 +1,245 @@
+{
+ "types": [
+  {
+   "kind": "void"
+  },
+  {
+   "package": "builtin",
+   "type": "string",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "double",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "boolean",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "Any",
+   "isNullable": true
+  },
+  {
+   "package": "class/metamodel/base.mm",
+   "type": "Component",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "class/metamodel/base.mm",
+   "type": "Container",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "model",
+   "isNullable": false,
+   "typeArgs": {}
+  }
+ ],
+ "metamodelPath": "/metamodel/base.mm",
+ "statements": [
+  {
+   "kind": "forMatch",
+   "pattern": {
+    "elements": [
+     {
+      "kind": "objectInstance",
+      "objectInstance": {
+       "name": "dc",
+       "className": "Component",
+       "properties": [],
+       "model": "donor"
+      }
+     },
+     {
+      "kind": "objectInstance",
+      "objectInstance": {
+       "name": "dh",
+       "className": "Container",
+       "properties": [],
+       "model": "donor"
+      }
+     },
+     {
+      "kind": "link",
+      "link": {
+       "source": {
+        "objectName": "dc",
+        "propertyName": "host"
+       },
+       "target": {
+        "objectName": "dh"
+       }
+      }
+     },
+     {
+      "kind": "applicationCondition",
+      "condition": {
+       "negative": true,
+       "elements": [
+        {
+         "kind": "objectInstance",
+         "objectInstance": {
+          "name": "dh",
+          "properties": [
+           {
+            "propertyName": "name",
+            "operator": "==",
+            "value": {
+             "kind": "stringLiteral",
+             "evalType": 1,
+             "value": "nowhere"
+            }
+           }
+          ],
+          "model": "donor"
+         }
+        }
+       ]
+      }
+     },
+     {
+      "kind": "objectInstance",
+      "objectInstance": {
+       "name": "c",
+       "className": "Component",
+       "properties": [
+        {
+         "propertyName": "name",
+         "operator": "==",
+         "value": {
+          "kind": "memberAccess",
+          "evalType": 1,
+          "expression": {
+           "kind": "identifier",
+           "evalType": 5,
+           "name": "dc",
+           "scope": 2
+          },
+          "member": "name",
+          "isNullChaining": false
+         }
+        }
+       ]
+      }
+     },
+     {
+      "kind": "objectInstance",
+      "objectInstance": {
+       "name": "old",
+       "className": "Container",
+       "properties": []
+      }
+     },
+     {
+      "kind": "objectInstance",
+      "objectInstance": {
+       "name": "h",
+       "className": "Container",
+       "properties": [
+        {
+         "propertyName": "name",
+         "operator": "==",
+         "value": {
+          "kind": "memberAccess",
+          "evalType": 1,
+          "expression": {
+           "kind": "identifier",
+           "evalType": 6,
+           "name": "dh",
+           "scope": 2
+          },
+          "member": "name",
+          "isNullChaining": false
+         }
+        }
+       ]
+      }
+     },
+     {
+      "kind": "whereClause",
+      "whereClause": {
+       "expression": {
+        "kind": "binary",
+        "evalType": 3,
+        "operator": "!=",
+        "left": {
+         "kind": "memberAccess",
+         "evalType": 1,
+         "expression": {
+          "kind": "identifier",
+          "evalType": 6,
+          "name": "old",
+          "scope": 2
+         },
+         "member": "name",
+         "isNullChaining": false
+        },
+        "right": {
+         "kind": "memberAccess",
+         "evalType": 1,
+         "expression": {
+          "kind": "identifier",
+          "evalType": 6,
+          "name": "h",
+          "scope": 2
+         },
+         "member": "name",
+         "isNullChaining": false
+        }
+       }
+      }
+     },
+     {
+      "kind": "link",
+      "link": {
+       "modifier": "delete",
+       "source": {
+        "objectName": "c",
+        "propertyName": "host"
+       },
+       "target": {
+        "objectName": "old"
+       }
+      }
+     },
+     {
+      "kind": "link",
+      "link": {
+       "modifier": "create",
+       "source": {
+        "objectName": "c",
+        "propertyName": "host"
+       },
+       "target": {
+        "objectName": "h"
+       }
+      }
+     }
+    ]
+   },
+   "doBlock": []
+  }
+ ],
+ "signature": {
+  "name": "take-hosting.mt",
+  "parameters": [
+   {
+    "name": "donor",
+    "direction": "in",
+    "type": 7,
+    "isElement": false,
+    "isModel": true
+   }
+  ]
+ }
+}

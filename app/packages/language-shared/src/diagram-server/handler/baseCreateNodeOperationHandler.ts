@@ -63,9 +63,22 @@ export abstract class BaseCreateNodeOperationHandler extends BaseOperationHandle
             this.idProvider,
             result.insertSpecifications,
             result.insertedElements,
-            this.modelState.metadata
+            this.modelState.metadata,
+            (id) => this.mapInsertedId(id)
         );
         return new OperationHandlerCommand(this.modelState, result.workspaceEdit, metadata);
+    }
+
+    /**
+     * Maps the id of a newly inserted element to the id its metadata is stored under.
+     * Override when the diagram shows elements under other ids than the model id provider
+     * assigns, e.g. when one model is shown in several diagrams.
+     *
+     * @param id The id assigned by the model id provider
+     * @returns The id the metadata of the element is stored under
+     */
+    protected mapInsertedId(id: string): string {
+        return id;
     }
 
     /**

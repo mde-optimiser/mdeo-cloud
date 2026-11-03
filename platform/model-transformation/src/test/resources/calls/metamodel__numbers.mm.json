@@ -1,0 +1,103 @@
+{
+ "path": "/metamodel/numbers.mm",
+ "classes": [
+  {
+   "name": "Bag",
+   "isAbstract": false,
+   "extends": [],
+   "properties": [
+    {
+     "name": "name",
+     "multiplicity": {
+      "lower": 1,
+      "upper": 1
+     },
+     "primitiveType": "string"
+    },
+    {
+     "name": "i",
+     "multiplicity": {
+      "lower": 1,
+      "upper": 1
+     },
+     "primitiveType": "int"
+    },
+    {
+     "name": "l",
+     "multiplicity": {
+      "lower": 1,
+      "upper": 1
+     },
+     "primitiveType": "long"
+    },
+    {
+     "name": "f",
+     "multiplicity": {
+      "lower": 1,
+      "upper": 1
+     },
+     "primitiveType": "float"
+    },
+    {
+     "name": "d",
+     "multiplicity": {
+      "lower": 1,
+      "upper": 1
+     },
+     "primitiveType": "double"
+    },
+    {
+     "name": "maybe",
+     "multiplicity": {
+      "lower": 0,
+      "upper": 1
+     },
+     "primitiveType": "double"
+    },
+    {
+     "name": "ints",
+     "multiplicity": {
+      "lower": 0,
+      "upper": -1
+     },
+     "primitiveType": "int"
+    },
+    {
+     "name": "longs",
+     "multiplicity": {
+      "lower": 0,
+      "upper": -1
+     },
+     "primitiveType": "long"
+    },
+    {
+     "name": "floats",
+     "multiplicity": {
+      "lower": 0,
+      "upper": -1
+     },
+     "primitiveType": "float"
+    },
+    {
+     "name": "doubles",
+     "multiplicity": {
+      "lower": 0,
+      "upper": -1
+     },
+     "primitiveType": "double"
+    }
+   ]
+  },
+  {
+   "name": "Crate",
+   "isAbstract": false,
+   "extends": [
+    "Bag"
+   ],
+   "properties": []
+  }
+ ],
+ "enums": [],
+ "associations": [],
+ "importedMetamodelPaths": []
+}

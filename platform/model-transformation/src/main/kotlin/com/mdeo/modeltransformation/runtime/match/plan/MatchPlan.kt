@@ -198,10 +198,13 @@ internal sealed class BaseStep {
      * Emitted as early as possible — immediately after both instances are covered —
      * by `tryInlineInjectiveConstraints()`. Any remaining pairs are appended at the
      * end by `addInjectiveConstraints()`.
-     * Translated to `.where(labelA, P.neq(labelB))`.
+     * Translated to `.where(labelA, P.neq(labelB))`; with [exactClassOfA] (A is a pattern
+     * object of that class, B a bound object) to `.filter(or(select(labelA).not(hasLabel(class)),
+     * where(labelA, P.neq(labelB))))`: only a bound element of exactly A's class must differ.
      */
     data class InjectiveConstraint(
         val instanceNameA: String,
-        val instanceNameB: String
+        val instanceNameB: String,
+        val exactClassOfA: String? = null
     ) : BaseStep()
 }

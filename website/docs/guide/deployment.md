@@ -51,6 +51,14 @@ Images follow the naming scheme `${MDEO_IMAGE_PREFIX}/mdeo-<service>:${MDEO_IMAG
 | `PLUGIN_BASE_URL`, `INTERNAL_PLUGIN_BASE_URL` | How plugin URLs are resolved for the browser and for the backend respectively. |
 | `DEFAULT_PLUGIN_URLS` | Comma-separated plugin URLs registered at startup. |
 | `EXECUTION_TIMEOUT_MS` | Upper bound on a single execution. |
+| `FILE_DATA_COMPUTATION_TIMEOUT_SECONDS` | How long the backend waits for a plugin to compute file data. Default 300. |
+| `FILE_DATA_COMPUTATION_BINDING_SECONDS` | How long a running computation, and the token the plugin computes with, stays valid. Defaults to the computation timeout. |
+| `PLUGIN_REQUEST_TIMEOUT_SECONDS` | How long a one-shot request to a plugin may take. Default 300. |
+| `EXECUTION_START_TIMEOUT_SECONDS`, `EXECUTION_READ_TIMEOUT_SECONDS` | How long starting an execution, and reading, cancelling or deleting one, may take. Defaults 300 and 60. |
+| `PLUGIN_MANIFEST_CHECK_SECONDS` | How often every plugin is asked whether its manifest changed. Default 60; 0 checks only on the plugins' answers. |
+| `PLUGIN_MANIFEST_REFRESH_COOLDOWN_SECONDS` | How long the backend waits before fetching a changed manifest of the same plugin again after an attempt. Default 60. |
+| `PLUGIN_MANIFEST_TIMEOUT_SECONDS`, `SERVICE_CONNECT_TIMEOUT_SECONDS` | How long fetching a plugin manifest, and opening any connection to a service, may take. Defaults 30 and 10. The execution services read `SERVICE_CONNECT_TIMEOUT_SECONDS` too, for the plugin sessions their scripts call external functions over. |
+| `FILE_DATA_BATCH_CONCURRENCY` | How many entries of one file data batch are looked up at the same time. Default 16; keep it below `DATABASE_MAX_POOL_SIZE`. |
 
 The full list is in `infra/.env.example`.
 
@@ -66,15 +74,34 @@ single run.
 - **Optimiser nodes** are the component to add when runs are too slow. The `resources` block of a
   config file caps how much of the available capacity a single run may take (`threads`, `nodes`,
   `threadsPerNode`).
-- **Plugin services** are stateless apart from a pool of Langium instances. `MAX_LANGIUM_INSTANCES`
-  trades memory for the ability to serve concurrent requests with different plugin sets.
+- **Plugin services** keep no durable state. In memory they hold a pool of Langium instances, the
+  contribution sets they were sent by hash, and open sessions. A restart costs one `409` round trip
+  per contribution set and drops open sessions, which reconnect. `MAX_LANGIUM_INSTANCES` trades
+  memory for the ability to serve concurrent requests with different plugin sets.
 - **Databases** are already split per domain, so a heavy optimisation run does not contend with
   workbench traffic.
 
 ## After an upgrade
 
-::: danger
-Administrators must refresh all plugins (**Settings → Plugins**) after deploying a new version.
-Plugin manifests reference versioned static assets, and stale manifests make plugin loading fail in
-the workbench.
+Plugin manifests reference versioned static assets, and a stale manifest makes plugin loading fail
+in the workbench. The backend keeps them current by itself: every answer of a plugin service carries
+a fingerprint of its manifest, and the backend also asks every plugin for it once a minute
+(`PLUGIN_MANIFEST_CHECK_SECONDS`). When a redeployed service reports a different fingerprint, the
+backend fetches its manifest again in the background — at most a minute after the deploy.
+
+::: warning
+Plugin services built on an older `@mdeo/service-common`, which send no fingerprint, still need a
+manual refresh (**Settings → Plugins**) after an upgrade.
+:::
+
+::: warning
+Tokens carry [one scope per capability](/develop/service-api#scopes) since this release, and error
+responses share [one shape](/develop/service-api#errors). Upgrade the backend, the workbench and every
+plugin and execution service together, including plugin services a project builds itself on
+`@mdeo/service-common` or the Kotlin plugin service module. A service built before this release still
+accepts the tokens the backend issues, but it reports errors in the old shape: the backend passes its
+HTTP failures on without their message, and cannot read the errors an older execution service sends
+over its WebSocket at all, so those requests fail as `Unavailable`. Sessions and
+[external functions](/develop/script-contributions#implementations-outside-the-platform) need the
+new version on both sides.
 :::

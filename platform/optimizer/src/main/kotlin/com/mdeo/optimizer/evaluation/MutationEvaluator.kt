@@ -16,12 +16,18 @@ import com.mdeo.optimizer.moea.RebalanceTransfer
  * @param evaluationTasks Solutions on this node to evaluate without mutation
  *   (e.g. newly initialized solutions that only need fitness computation).
  * @param discards Solution IDs on this node to drop after evaluation.
+ * @param crossoverTasks Crossover children whose primary parent is on this node.
+ * @param replicas Solutions copied to this node for this batch only, as donors of its
+ *   [crossoverTasks] ([MutationEvaluator.replicateSolutions]). They are not population members of
+ *   this node: the node drops them after the batch, and the coordinator never tracks them.
  */
 data class NodeBatch(
     val nodeId: String,
     val tasks: List<MutationTask>,
     val evaluationTasks: List<EvaluationTask> = emptyList(),
-    val discards: List<String>
+    val discards: List<String>,
+    val crossoverTasks: List<CrossoverTask> = emptyList(),
+    val replicas: List<String> = emptyList()
 )
 
 /**
@@ -47,7 +53,8 @@ interface MutationEvaluator {
     /**
      * Executes one generation of work across all nodes in a single coordinated call.
      *
-     * Each [NodeBatch] carries mutation tasks and discards for one worker node.
+     * Each [NodeBatch] carries mutation, crossover and evaluation tasks and discards for one
+     * worker node.
      * Solution relocation is handled separately via [pushRebalanceSolutions] before
      * this method is called; any relocated solutions arrive asynchronously in worker
      * subprocesses and are awaited on demand.
@@ -70,6 +77,22 @@ interface MutationEvaluator {
      *   (and should therefore be discarded from the source in the next batch).
      */
     suspend fun pushRebalanceSolutions(transfers: List<RebalanceTransfer>): Map<String, List<String>> = emptyMap()
+
+    /**
+     * Copies solutions to other nodes for the next batch only: the replicate mode of
+     * [pushRebalanceSolutions]. The source keeps its solution (nothing is to be discarded there);
+     * the destination receives a replica that the next [NodeBatch] lists in [NodeBatch.replicas]
+     * and that the destination drops after that batch.
+     *
+     * Used for the donors of crossover tasks whose primary parent lives on another node. A
+     * single-node evaluator never needs it: all donors are local. The default therefore accepts
+     * only an empty plan.
+     *
+     * @param transfers The copies to make; [RebalanceTransfer.sourceNodeId] keeps its solutions.
+     */
+    suspend fun replicateSolutions(transfers: List<RebalanceTransfer>) {
+        require(transfers.isEmpty()) { "${this::class.simpleName} cannot replicate solutions between nodes" }
+    }
 
     /**
      * Fetches the serialized model for a solution stored on a worker node.

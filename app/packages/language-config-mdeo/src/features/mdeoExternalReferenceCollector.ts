@@ -9,7 +9,8 @@ import type { MdeoMetamodelResolver } from "./mdeoMetamodelResolver.js";
 /**
  * External reference collector for the config-mdeo language.
  * Collects URIs of model transformation files referenced via "using" paths
- * in the search section, so they can be loaded for scope resolution.
+ * in the mutations and crossovers blocks of the search section, so they can be loaded for
+ * scope resolution and validation.
  */
 export class MdeoExternalReferenceCollector implements ExternalReferenceCollector {
     private readonly metamodelResolver: MdeoMetamodelResolver;
@@ -42,9 +43,9 @@ export class MdeoExternalReferenceCollector implements ExternalReferenceCollecto
             for (const section of config.sections) {
                 if (section.$type === searchWrapperType) {
                     const searchSection = section as { $type?: string; content?: SearchSectionType };
-                    const mutations = searchSection.content?.mutations[0];
-                    if (mutations?.usingPaths != undefined) {
-                        for (const usingPath of mutations.usingPaths as UsingPathType[]) {
+                    const blocks = [searchSection.content?.mutations?.[0], searchSection.content?.crossovers?.[0]];
+                    for (const block of blocks) {
+                        for (const usingPath of (block?.usingPaths ?? []) as UsingPathType[]) {
                             if (usingPath.path != undefined) {
                                 uris.push(resolveRelativePath(doc, usingPath.path));
                             }

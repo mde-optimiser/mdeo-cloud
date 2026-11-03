@@ -4,6 +4,8 @@ import com.mdeo.modeltransformation.compiler.CompilationResult
 import com.mdeo.modeltransformation.compiler.VariableBinding
 import com.mdeo.modeltransformation.compiler.registry.GremlinTypeDefinition
 import com.mdeo.modeltransformation.compiler.registry.gremlinType
+import com.mdeo.modeltransformation.stdlib.contextMethod
+import com.mdeo.modeltransformation.stdlib.equalsTraversal
 import com.mdeo.modeltransformation.stdlib.lambdaMethod
 import com.mdeo.modeltransformation.stdlib.withLambdaParam
 import org.apache.tinkerpop.gremlin.process.traversal.P
@@ -24,6 +26,7 @@ import org.apache.tinkerpop.gremlin.structure.VertexProperty
  * - `sum()` - Returns the sum of all numeric elements
  * - `first()` - Returns the first element
  * - `last()` - Returns the last element
+ * - `includes(item)` - Returns true if an element equals the item (`==`)
  *
  * ## Lambda Methods
  * - `filter(predicate)` - Returns elements that satisfy the predicate
@@ -54,12 +57,30 @@ fun createCollectionType(): GremlinTypeDefinition {
             CompilationResult.of(traversal as GraphTraversal<Any, Any>)
         }
         .method("isEmpty", "", 0) { receiver, _ ->
-            val traversal = (receiver as GraphTraversal<Any, Any>).unfold<Any>().count().`is`(0L)
+            val traversal = (receiver as GraphTraversal<Any, Any>).unfold<Any>().count().choose(
+                AnonymousTraversal.`is`(P.eq(0L)),
+                AnonymousTraversal.constant<Any>(true),
+                AnonymousTraversal.constant<Any>(false)
+            )
             CompilationResult.of(traversal as GraphTraversal<Any, Any>)
         }
         .method("notEmpty", "", 0) { receiver, _ ->
-            val traversal = (receiver as GraphTraversal<Any, Any>).unfold<Any>().count().`is`(P.gt(0L))
+            val traversal = (receiver as GraphTraversal<Any, Any>).unfold<Any>().count().choose(
+                AnonymousTraversal.`is`(P.gt(0L)),
+                AnonymousTraversal.constant<Any>(true),
+                AnonymousTraversal.constant<Any>(false)
+            )
             CompilationResult.of(traversal as GraphTraversal<Any, Any>)
+        }
+        .contextMethod("includes", 1) { receiver, arguments, context, registry ->
+            val matching = (receiver as GraphTraversal<Any, Any>).unfold<Any>()
+                .filter(equalsTraversal(arguments.single(), context, registry).`is`(true))
+            val result = (matching.count() as GraphTraversal<Any, Long>).choose(
+                AnonymousTraversal.`is`(P.gt(0L)),
+                AnonymousTraversal.constant<Any>(true),
+                AnonymousTraversal.constant<Any>(false)
+            )
+            CompilationResult.of(result as GraphTraversal<Any, Any>)
         }
         .method("sum", "", 0) { receiver, _ ->
             val traversal = (receiver as GraphTraversal<Any, Any>).unfold<Any>().fold()

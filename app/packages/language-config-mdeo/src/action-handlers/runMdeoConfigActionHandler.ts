@@ -7,7 +7,7 @@ import type {
     FileMenuActionData,
     ExtendedLangiumSharedServices
 } from "@mdeo/language-common";
-import { FileCategory, parseUri } from "@mdeo/language-common";
+import { FileCategory, describeValidationErrors, parseUri } from "@mdeo/language-common";
 import { sharedImport, type ActionHandler } from "@mdeo/language-shared";
 
 const { URI } = sharedImport("langium");
@@ -70,21 +70,9 @@ export class RunMdeoConfigActionHandler implements ActionHandler {
             allUris.add(dep);
         }
         const langiumDocuments = this.sharedServices.workspace.LangiumDocuments;
-        const filesWithErrors: string[] = [];
-        for (const uriStr of allUris) {
-            const doc = langiumDocuments.getDocument(URI.parse(uriStr));
-            if (doc == undefined) continue;
-            const hasErrors =
-                doc.parseResult.lexerErrors.length > 0 ||
-                doc.parseResult.parserErrors.length > 0 ||
-                (doc.diagnostics != undefined && doc.diagnostics.some((d) => (d.severity ?? 1) === 1));
-            if (hasErrors) {
-                filesWithErrors.push(URI.parse(uriStr).path);
-            }
-        }
-        if (filesWithErrors.length === 0) return undefined;
-        const fileList = filesWithErrors.map((p) => `\u2022 ${p.split("/").pop() ?? p}`).join("\n");
-        return `Cannot start execution. The following files have validation errors:\n${fileList}`;
+        return describeValidationErrors(
+            [...allUris].flatMap((uri) => langiumDocuments.getDocument(URI.parse(uri)) ?? [])
+        );
     }
 
     private createExecutionRequest(data: unknown): ActionExecutionRequest | undefined {

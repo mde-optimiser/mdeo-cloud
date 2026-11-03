@@ -19,6 +19,7 @@ export const ModelTransformationCollectionType: ClassType = classTypeFrom(Readon
         "none",
         "one",
         "find",
-        "reject"
+        "reject",
+        "includes"
     )
     .build();

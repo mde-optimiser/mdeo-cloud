@@ -1,15 +1,20 @@
 package com.mdeo.script.compiler
 
 import com.mdeo.script.ast.TypedFunction
+import com.mdeo.expression.ast.expressions.TypedAssertNonNullExpression
 import com.mdeo.expression.ast.expressions.TypedBinaryExpression
 import com.mdeo.expression.ast.expressions.TypedCallExpression
 import com.mdeo.expression.ast.expressions.TypedExpression
+import com.mdeo.expression.ast.expressions.TypedExpressionCallExpression
+import com.mdeo.expression.ast.expressions.TypedExtensionCallExpression
+import com.mdeo.expression.ast.expressions.TypedListLiteralExpression
 import com.mdeo.expression.ast.expressions.TypedIdentifierExpression
 import com.mdeo.script.ast.expressions.TypedLambdaExpression
 import com.mdeo.expression.ast.expressions.TypedMemberAccessExpression
 import com.mdeo.expression.ast.expressions.TypedMemberCallExpression
 import com.mdeo.expression.ast.expressions.TypedTernaryExpression
 import com.mdeo.expression.ast.expressions.TypedTypeCastExpression
+import com.mdeo.expression.ast.expressions.TypedTypeCheckExpression
 import com.mdeo.expression.ast.expressions.TypedUnaryExpression
 import com.mdeo.expression.ast.statements.TypedAssignmentStatement
 import com.mdeo.expression.ast.statements.TypedExpressionStatement
@@ -356,6 +361,20 @@ class ScopeBuilder(
     }
 
     /**
+     * Builds the scope tree of the default values of a function's parameters, which are
+     * evaluated in the scope of the parameters themselves.
+     *
+     * @param defaultValues The default value expressions.
+     * @param paramsScope The pre-created scope for function parameters.
+     */
+    fun buildDefaultValuesScope(defaultValues: List<TypedExpression>, paramsScope: Scope) {
+        for (defaultValue in defaultValues) {
+            collectFromExpression(defaultValue, paramsScope)
+        }
+        analyzeWrittenVariables(paramsScope)
+    }
+
+    /**
      * Collects variable declarations and writes from a statement.
      * Recursively processes nested statements and expressions.
      *
@@ -414,7 +433,11 @@ class ScopeBuilder(
                 forParamsScope.declareVariable(statement.variableName, varType)
                 val iteratorType = ClassTypeRef("java.util", "Iterator", false)
                 forParamsScope.declareVariable("\$iterator\$${statement.variableName}", iteratorType)
-                collectFromExpression(statement.iterable, scope)
+                /*
+                 * The language server scopes the iterable inside the for statement, so a lambda
+                 * in it is one level below the enclosing scope, like the loop variable.
+                 */
+                collectFromExpression(statement.iterable, forParamsScope)
                 val forBodyScope = forParamsScope.createChild()
                 statementScopes[statement] = forBodyScope
                 for (bodyStmt in statement.body) {
@@ -513,9 +536,32 @@ class ScopeBuilder(
             }
 
             is TypedCallExpression -> {
+                if (expression is TypedExpressionCallExpression) {
+                    collectFromExpression(expression.expression, scope)
+                }
                 for (arg in expression.arguments) {
                     collectFromExpression(arg.value, scope)
                 }
+            }
+
+            is TypedExtensionCallExpression -> {
+                for (arg in expression.arguments) {
+                    collectFromExpression(arg.value, scope)
+                }
+            }
+
+            is TypedListLiteralExpression -> {
+                for (element in expression.elements) {
+                    collectFromExpression(element, scope)
+                }
+            }
+
+            is TypedAssertNonNullExpression -> {
+                collectFromExpression(expression.expression, scope)
+            }
+
+            is TypedTypeCheckExpression -> {
+                collectFromExpression(expression.expression, scope)
             }
 
             is TypedMemberAccessExpression -> {

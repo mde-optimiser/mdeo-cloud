@@ -24,6 +24,7 @@ import { ModelTransformationApplyLabelEditOperationHandler } from "./handler/mod
 import { AddPropertyValueComparisonOperationHandler } from "./handler/addPropertyValueComparisonOperationHandler.js";
 import { AddWhereClauseOperationHandler } from "./handler/addWhereClauseOperationHandler.js";
 import { AddVariableOperationHandler } from "./handler/addVariableOperationHandler.js";
+import { AddHeaderDeclarationOperationHandler } from "./handler/addHeaderDeclarationOperationHandler.js";
 import { ChangeLinkTypeOperationHandler } from "./handler/changeLinkTypeOperationHandler.js";
 import { ChangePatternElementModifierOperationHandler } from "./handler/changePatternElementModifierOperationHandler.js";
 import { InsertControlFlowStatementOperationHandler } from "./handler/insertControlFlowStatementOperationHandler.js";
@@ -77,6 +78,7 @@ export class ModelTransformationDiagramModule extends BaseDiagramModule {
         binding.add(AddPropertyValueComparisonOperationHandler);
         binding.add(AddWhereClauseOperationHandler);
         binding.add(AddVariableOperationHandler);
+        binding.add(AddHeaderDeclarationOperationHandler);
         binding.add(ChangeLinkTypeOperationHandler);
         binding.add(ChangePatternElementModifierOperationHandler);
         binding.add(InsertControlFlowStatementOperationHandler);

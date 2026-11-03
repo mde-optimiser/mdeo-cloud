@@ -3,9 +3,10 @@ import {
     type ReturnType,
     type TypedExpression,
     type TypedExtensionCallExpression,
-    type TypedExtensionCallArgument
+    type TypedExtensionCallArgument,
+    type TypedCallableBody
 } from "@mdeo/language-expression";
-import type { TypedFunction, TypedParameter, TypedLambdaExpression } from "@mdeo/language-script";
+import type { TypedLambdaExpression } from "@mdeo/language-script";
 
 /**
  * Script-specific extension of TypedAstMerger that adds support for
@@ -13,35 +14,26 @@ import type { TypedFunction, TypedParameter, TypedLambdaExpression } from "@mdeo
  */
 export class ScriptTypedAstMerger extends BaseTypedAstMerger {
     /**
-     * Remaps a function to use the global type indices.
+     * Remaps a contributed body, whose type indices refer to its contribution's own types array.
      *
-     * @param func The function to remap
-     * @param typesArray The original types array used by this function
-     * @returns A new function with remapped type indices
+     * @param body The body to remap
+     * @param typesArray The contribution's types array
+     * @returns The body with global type indices
      */
-    remapFunction(func: TypedFunction, typesArray: ReturnType[]): TypedFunction {
-        const mapping = this.indexTypesArray(typesArray);
-
-        return {
-            name: func.name,
-            parameters: func.parameters.map((p) => this.remapParameter(p, mapping)),
-            returnType: mapping.get(func.returnType)!,
-            body: this.remapCallableBody(func.body, mapping)
-        };
+    remapBody(body: TypedCallableBody, typesArray: ReturnType[]): TypedCallableBody {
+        return this.remapCallableBody(body, this.indexTypesArray(typesArray));
     }
 
     /**
-     * Remaps a parameter to use global type indices.
+     * Remaps a contributed expression, such as a default value, whose type indices refer to its
+     * contribution's own types array.
      *
-     * @param param The parameter to remap
-     * @param mapping The index mapping
-     * @returns A new parameter with remapped type index
+     * @param expression The expression to remap
+     * @param typesArray The contribution's types array
+     * @returns The expression with global type indices
      */
-    private remapParameter(param: TypedParameter, mapping: Map<number, number>): TypedParameter {
-        return {
-            name: param.name,
-            type: mapping.get(param.type)!
-        };
+    remapContributedExpression(expression: TypedExpression, typesArray: ReturnType[]): TypedExpression {
+        return this.remapExpression(expression, this.indexTypesArray(typesArray));
     }
 
     /**

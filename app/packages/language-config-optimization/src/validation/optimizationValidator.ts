@@ -8,9 +8,10 @@ import type {
 } from "langium";
 import type { ExtendedLangiumServices } from "@mdeo/language-common";
 import { resolveRelativeDocument, sharedImport } from "@mdeo/language-shared";
-import { MetaModel, isMetamodelCompatible } from "@mdeo/language-metamodel";
+import { MetaModel, isMetamodelCompatible, type AssociationEndType } from "@mdeo/language-metamodel";
 import { Model } from "@mdeo/language-model";
 import {
+    AssociationEnd,
     RangeMultiplicity,
     SingleMultiplicity,
     type ProblemSectionType,
@@ -24,6 +25,7 @@ import {
     type FunctionFileImportType
 } from "../grammar/optimizationTypes.js";
 import { findProblemSection, getMetamodelUri } from "../features/util.js";
+import { multiplicityBounds, refinementBoundsProblem, repeatedRefinements } from "./refinementBounds.js";
 import type { Range } from "vscode-languageserver-types";
 import { Script, type ScriptType } from "@mdeo/language-script";
 
@@ -83,8 +85,9 @@ export class OptimizationValidator {
 
     /**
      * Validates a refinement node.
-     * Checks that if a range multiplicity is used, the upper bound is >= the lower bound.
-     * Mirrors the multiplicity validation from the metamodel language.
+     * Checks that if a range multiplicity is used, the upper bound is >= the lower bound, mirroring
+     * the multiplicity validation from the metamodel language, and that the refinement names an
+     * association end on the class declaring it and only tightens the end's bounds.
      *
      * @param refinement The refinement node to validate
      * @param accept The validation acceptor for reporting diagnostics
@@ -92,6 +95,30 @@ export class OptimizationValidator {
     validateRefinement(refinement: RefinementType, accept: ValidationAcceptor): void {
         if (refinement.multiplicity) {
             this.validateMultiplicityRange(refinement.multiplicity, refinement, accept);
+        }
+        const field = refinement.field?.ref;
+        if (field == undefined || !this.services.shared.AstReflection.isInstance(field, AssociationEnd)) {
+            return;
+        }
+        const end = field as AssociationEndType;
+        const declaring = end.class?.ref;
+        const refined = refinement.class?.ref;
+        if (declaring != undefined && refined != undefined && declaring !== refined) {
+            accept("error", `'${end.name}' is declared on '${declaring.name}'; refine it there.`, {
+                node: refinement,
+                property: "class"
+            });
+            return;
+        }
+        if (refinement.multiplicity == undefined) {
+            return;
+        }
+        const problem = refinementBoundsProblem(
+            multiplicityBounds(refinement.multiplicity),
+            multiplicityBounds(end.multiplicity)
+        );
+        if (problem != undefined) {
+            accept("error", problem, { node: refinement, property: "multiplicity" });
         }
     }
 
@@ -127,6 +154,22 @@ export class OptimizationValidator {
         this.validateAtLeastOneObjective(goal, accept);
         this.validateObjectiveFunctions(goal, accept);
         this.validateConstraintFunctions(goal, accept);
+        this.validateDistinctRefinements(goal, accept);
+    }
+
+    /**
+     * Checks that no end is refined twice: the optimizer would reject the run.
+     *
+     * @param goal The goal section to check
+     * @param accept The validation acceptor
+     */
+    private validateDistinctRefinements(goal: GoalSectionType, accept: ValidationAcceptor): void {
+        const ends = goal.refinements.map((r) => `${r.class?.$refText}.${r.field?.$refText}`);
+        for (const i of repeatedRefinements(ends)) {
+            accept("error", `'${ends[i]}' is already refined; keep one refinement per end.`, {
+                node: goal.refinements[i]
+            });
+        }
     }
 
     /**

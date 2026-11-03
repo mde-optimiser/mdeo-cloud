@@ -1,15 +1,20 @@
+import { ErrorCodes } from "@mdeo/plugin";
+
 /**
  * Represents the result of an API operation that can either succeed or fail.
  */
 export type ApiResult<T, E = ApiError> = { success: true; value: T } | { success: false; error: E };
 
 /**
- * Common error codes that can occur across all API operations.
+ * Common error codes that can occur across all API operations: the general `ErrorCodes` of
+ * `@mdeo/plugin`.
  */
-export enum CommonErrorCode {
-    Unavailable = "Unavailable",
-    Unknown = "Unknown"
-}
+export const CommonErrorCode = ErrorCodes;
+
+/**
+ * One of the {@link CommonErrorCode} values.
+ */
+export type CommonErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];
 
 /**
  * Error codes specific to file system operations.
@@ -42,7 +47,16 @@ export enum PluginErrorCode {
     PluginNotFound = "PluginNotFound",
     PluginAlreadyExists = "PluginAlreadyExists",
     PluginAlreadyAddedToProject = "PluginAlreadyAddedToProject",
-    PluginNotAddedToProject = "PluginNotAddedToProject"
+    PluginNotAddedToProject = "PluginNotAddedToProject",
+    PluginContributionIdConflict = "PluginContributionIdConflict",
+    PluginManifestInvalid = "PluginManifestInvalid"
+}
+
+/**
+ * Error codes specific to plugin sessions.
+ */
+export enum SessionErrorCode {
+    SessionNotFound = "SessionNotFound"
 }
 
 /**
@@ -59,15 +73,22 @@ export enum FileDataErrorCode {
  */
 export enum ExecutionErrorCode {
     ExecutionNotFound = "ExecutionNotFound",
-    ExecutionNotCompleted = "ExecutionNotCompleted",
-    ExecutionAlreadyTerminal = "ExecutionAlreadyTerminal"
+    ExecutionAlreadyCompleted = "ExecutionAlreadyCompleted",
+    ExecutionInvalidState = "ExecutionInvalidState",
+    ExecutionPluginError = "ExecutionPluginError"
 }
 
 /**
  * Union of all possible error codes.
  */
 export type ApiErrorCode =
-    CommonErrorCode | FileSystemErrorCode | ProjectErrorCode | PluginErrorCode | FileDataErrorCode | ExecutionErrorCode;
+    | CommonErrorCode
+    | FileSystemErrorCode
+    | ProjectErrorCode
+    | PluginErrorCode
+    | SessionErrorCode
+    | FileDataErrorCode
+    | ExecutionErrorCode;
 
 /**
  * Base interface for API errors.

@@ -1,3 +1,5 @@
+import type { SessionTypes } from "./sessionType.js";
+
 /**
  * Language plugin configuration for language-specific contributions.
  */
@@ -26,4 +28,9 @@ export interface LanguageContributionPlugin {
  */
 export interface ServerContributionPlugin {
     id: string;
+    /**
+     * Sessions this contribution accepts, keyed by session name.
+     * Callers reach them at the `contrib:<id>` address.
+     */
+    sessions?: SessionTypes;
 }

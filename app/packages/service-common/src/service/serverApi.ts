@@ -1,5 +1,22 @@
+import { formatPluginTarget, PluginTargetKind, type PluginTarget, type ServerContributionPlugin } from "@mdeo/plugin";
+import { TIMEOUT_HEADER } from "../util/requestLimits.js";
 import type { DirectoryEntry } from "./types.js";
 import type { FileDependency, DataDependency, FileDataResult } from "../handler/types.js";
+
+/**
+ * Header asking the backend to hand the caller's own token to the plugin a request goes to.
+ */
+export const DELEGATE_TOKEN_HEADER = "x-mdeo-delegate-token";
+
+/**
+ * How a plugin request is sent.
+ */
+export interface PluginRequestOptions {
+    /**
+     * Whether the target plugin gets this request's own token instead of a read-only one.
+     */
+    delegate?: boolean;
+}
 
 /**
  * Tracked requests made during a file data computation
@@ -21,29 +38,30 @@ export interface FileData {
 }
 
 /**
- * Maximum number of characters of a failed response body included in an error message.
+ * Maximum number of characters of a reported error message included in an error message.
  */
-const MAX_ERROR_BODY_LENGTH = 500;
+const MAX_ERROR_MESSAGE_LENGTH = 500;
 
 /**
  * Describes a failed response for use in an error message.
  *
- * The body is included because the backend reports why a call failed in it, and without it a
- * failure deep in a computation is reduced to a bare status code that says nothing about its cause.
+ * The message the backend reported is included because without it a failure deep in a computation
+ * is reduced to a bare status code that says nothing about its cause.
  *
  * @param response The failed response
- * @returns The status, status text and (truncated) body of the response
+ * @returns The status, status text and (truncated) reported message of the response
  */
 async function describeFailedResponse(response: Response): Promise<string> {
-    let body: string;
+    let message: unknown;
     try {
-        body = (await response.text()).trim();
+        const body = (await response.json()) as { error?: { message?: unknown } };
+        message = body?.error?.message;
     } catch {
-        body = "";
+        message = undefined;
     }
-    const truncated = body.length > MAX_ERROR_BODY_LENGTH ? `${body.slice(0, MAX_ERROR_BODY_LENGTH)}...` : body;
-    return truncated.length > 0
-        ? `${response.status} ${response.statusText}: ${truncated}`
+    // Only a message the other side meant to report is passed on, never its raw body.
+    return typeof message === "string" && message.length > 0
+        ? `${response.status} ${response.statusText}: ${message.slice(0, MAX_ERROR_MESSAGE_LENGTH)}`
         : `${response.status} ${response.statusText}`;
 }
 
@@ -93,12 +111,36 @@ export interface ServerApi {
      * The backend forwards the request to the appropriate plugin service.
      * Contribution plugins are automatically determined server-side.
      *
+     * The target plugin gets a token that only reads the project and sends further plugin requests,
+     * unless `delegate` is set: then it gets this request's own token, with everything that token may
+     * do. Delegate only to hand over work the token was issued for, such as starting an execution.
+     *
      * @param languageId The language ID of the target plugin
      * @param key The request handler key
      * @param body The request body to forward
+     * @param options Whether to hand this request's token to the target plugin
      * @returns The response data from the plugin request handler
      */
-    sendPluginRequest(languageId: string, key: string, body: unknown): Promise<unknown>;
+    sendPluginRequest(languageId: string, key: string, body: unknown, options?: PluginRequestOptions): Promise<unknown>;
+
+    /**
+     * Sends a request to any plugin target's request handler via the backend proxy.
+     *
+     * The same channel as {@link sendPluginRequest}, addressed at a target rather than a language,
+     * so a contribution is reached exactly like a language plugin is.
+     *
+     * @param target The language or contribution to call
+     * @param key The request handler key
+     * @param body The request body to forward
+     * @param options Whether to hand this request's token to the target plugin
+     * @returns The response data from the plugin request handler
+     */
+    sendTargetRequest(
+        target: PluginTarget,
+        key: string,
+        body: unknown,
+        options?: PluginRequestOptions
+    ): Promise<unknown>;
 
     /**
      * Updates execution metadata in the backend.
@@ -108,6 +150,21 @@ export interface ServerApi {
      */
     updateExecutionMetadata(executionId: string, metadata: Record<string, unknown>): Promise<void>;
 }
+
+/**
+ * One file data request waiting to be sent.
+ */
+interface PendingFileData {
+    path: string;
+    key: string;
+    resolve(data: FileData): void;
+    reject(error: unknown): void;
+}
+
+/**
+ * One answer of a batch file data request.
+ */
+type FileDataBatchResult = { data: unknown; version: number } | { error: { code: string; message: string } };
 
 /**
  * Implementation of the ServerApi that communicates with the backend via HTTP.
@@ -130,6 +187,16 @@ export class HttpServerApi implements ServerApi {
     private project: string | undefined = undefined;
 
     /**
+     * Aborts every call when the request this API serves is abandoned
+     */
+    private signal: AbortSignal | undefined = undefined;
+
+    /**
+     * When the request this API serves stops being waited for, in epoch milliseconds
+     */
+    private deadline: number | undefined = undefined;
+
+    /**
      * Tracked file dependencies during current computation
      */
     private trackedFileDependencies: FileDependency[] = [];
@@ -138,6 +205,16 @@ export class HttpServerApi implements ServerApi {
      * Tracked data dependencies during current computation
      */
     private trackedDataDependencies: DataDependency[] = [];
+
+    /**
+     * File data requests made since the last flush, sent together
+     */
+    private pendingFileData: PendingFileData[] = [];
+
+    /**
+     * File data requests on their way, so asking twice for the same data sends one request
+     */
+    private readonly fileDataInFlight = new Map<string, Promise<FileData>>();
 
     /**
      * Cache of fetched file data by key
@@ -172,6 +249,18 @@ export class HttpServerApi implements ServerApi {
     }
 
     /**
+     * Ties every following call to the limits of the request being handled: calls are aborted with
+     * it, and pass the time it has left on to the backend.
+     *
+     * @param signal Aborts when the request is abandoned
+     * @param deadline When the caller stops waiting, in epoch milliseconds, if it said
+     */
+    setRequestLimits(signal: AbortSignal | undefined, deadline: number | undefined): void {
+        this.signal = signal;
+        this.deadline = deadline;
+    }
+
+    /**
      * Clears the JWT token and project context after request handling.
      * Further, it resets tracked requests.
      * Should be called after the request is complete to prevent token leakage and stale context.
@@ -179,6 +268,8 @@ export class HttpServerApi implements ServerApi {
     reset(): void {
         this.jwt = undefined;
         this.project = undefined;
+        this.signal = undefined;
+        this.deadline = undefined;
         this.trackedFileDependencies = [];
         this.trackedDataDependencies = [];
         this.fileDataCache.clear();
@@ -188,17 +279,22 @@ export class HttpServerApi implements ServerApi {
         if (!this.jwt) {
             throw new Error("JWT not set. Call setJwt() before making API requests.");
         }
-        return {
+        const headers: Record<string, string> = {
             Authorization: `Bearer ${this.jwt}`,
             "Content-Type": "application/json"
         };
+        if (this.deadline != undefined) {
+            headers[TIMEOUT_HEADER] = String(Math.max(1, this.deadline - Date.now()));
+        }
+        return headers;
     }
 
     async readFile(path: string): Promise<{ content: string; version: number }> {
         const encodedPath = encodeURIComponent(path);
         const response = await fetch(`${this.projectBackendUrl}/files/${encodedPath}`, {
             method: "GET",
-            headers: this.getAuthHeaders()
+            headers: this.getAuthHeaders(),
+            signal: this.signal
         });
 
         if (!response.ok) {
@@ -220,37 +316,140 @@ export class HttpServerApi implements ServerApi {
     }
 
     async getFileData(path: string, key: string): Promise<FileData> {
-        if (!this.fileDataCache.has(key)) {
-            this.fileDataCache.set(key, new Map());
+        const cached = this.fileDataCache.get(key)?.get(path);
+        if (cached != undefined) {
+            return cached;
         }
-        const keyCache = this.fileDataCache.get(key)!;
-        if (keyCache.has(path)) {
-            return keyCache.get(path)!;
+        const id = JSON.stringify([key, path]);
+        const inFlight = this.fileDataInFlight.get(id);
+        if (inFlight != undefined) {
+            return inFlight;
         }
+
+        // Requests made in the same tick, as a Promise.all over several files makes them, travel
+        // to the backend as one batch.
+        const request = new Promise<FileData>((resolve, reject) => {
+            this.pendingFileData.push({ path, key, resolve, reject });
+            if (this.pendingFileData.length === 1) {
+                queueMicrotask(() => void this.flushFileData());
+            }
+        });
+        this.fileDataInFlight.set(id, request);
+        try {
+            return await request;
+        } finally {
+            this.fileDataInFlight.delete(id);
+        }
+    }
+
+    /**
+     * Sends every file data request made since the last flush: alone when there is one, as batches
+     * otherwise.
+     */
+    private async flushFileData(): Promise<void> {
+        const pending = this.pendingFileData;
+        this.pendingFileData = [];
+        if (pending.length === 1) {
+            await this.settle(pending[0], () => this.fetchFileData(pending[0].path, pending[0].key));
+            return;
+        }
+        // The backend answers as many entries as it takes in one batch, in request order; the rest
+        // are asked for again, so how many that is stays the backend's decision.
+        let remaining = pending;
+        while (remaining.length > 0) {
+            let results: FileDataBatchResult[] | undefined;
+            try {
+                results = await this.fetchFileDataBatch(remaining);
+            } catch (error) {
+                remaining.forEach((entry) => entry.reject(error));
+                return;
+            }
+            if (results == undefined) {
+                // A backend without the batch endpoint gets the requests one by one.
+                await Promise.all(
+                    remaining.map((entry) => this.settle(entry, () => this.fetchFileData(entry.path, entry.key)))
+                );
+                return;
+            }
+            if (results.length === 0 || results.length > remaining.length) {
+                const error = new Error(
+                    `Failed to get file data: the backend answered ${results.length} of ${remaining.length} entries`
+                );
+                remaining.forEach((entry) => entry.reject(error));
+                return;
+            }
+            results.forEach((result, index) => {
+                const entry = remaining[index];
+                if ("error" in result) {
+                    entry.reject(
+                        new Error(
+                            `Failed to get file data ${entry.path}:${entry.key}: ${result.error.code}: ${result.error.message}`
+                        )
+                    );
+                } else {
+                    entry.resolve(this.remember(entry.path, entry.key, result));
+                }
+            });
+            remaining = remaining.slice(results.length);
+        }
+    }
+
+    private async settle(entry: PendingFileData, load: () => Promise<FileData>): Promise<void> {
+        try {
+            entry.resolve(await load());
+        } catch (error) {
+            entry.reject(error);
+        }
+    }
+
+    private async fetchFileData(path: string, key: string): Promise<FileData> {
         const encodedPath = encodeURIComponent(path);
         const encodedKey = encodeURIComponent(key);
         const response = await fetch(`${this.projectBackendUrl}/file-data/${encodedKey}?path=${encodedPath}`, {
             method: "GET",
-            headers: this.getAuthHeaders()
+            headers: this.getAuthHeaders(),
+            signal: this.signal
         });
 
         if (!response.ok) {
             throw new Error(`Failed to get file data ${path}:${key}: ${await describeFailedResponse(response)}`);
         }
 
-        const result = await response.json();
-        const fileData: FileData = {
-            data: result.data,
-            version: result.version
-        };
-        keyCache.set(path, fileData);
+        return this.remember(path, key, await response.json());
+    }
 
-        this.trackedDataDependencies.push({
-            path,
-            key,
-            version: result.version
+    /**
+     * Asks for several file data entries in one request.
+     *
+     * @returns The answers to the first entries, in request order, or undefined when the backend has
+     *          no batch endpoint
+     */
+    private async fetchFileDataBatch(entries: PendingFileData[]): Promise<FileDataBatchResult[] | undefined> {
+        const response = await fetch(`${this.projectBackendUrl}/file-data-batch`, {
+            method: "POST",
+            headers: this.getAuthHeaders(),
+            signal: this.signal,
+            body: JSON.stringify({ requests: entries.map(({ path, key }) => ({ path, key })) })
         });
+        if (response.status === 404 || response.status === 405) {
+            return undefined;
+        }
+        if (!response.ok) {
+            throw new Error(`Failed to get file data: ${await describeFailedResponse(response)}`);
+        }
+        return ((await response.json()) as { results: FileDataBatchResult[] }).results;
+    }
 
+    /**
+     * Caches a file data answer for the rest of the request and records it as a dependency.
+     */
+    private remember(path: string, key: string, result: { data: unknown; version: number }): FileData {
+        const fileData: FileData = { data: result.data, version: result.version };
+        if (!this.fileDataCache.has(key)) {
+            this.fileDataCache.set(key, new Map());
+        }
+        this.fileDataCache.get(key)!.set(path, fileData);
+        this.trackedDataDependencies.push({ path, key, version: result.version });
         return fileData;
     }
 
@@ -258,7 +457,8 @@ export class HttpServerApi implements ServerApi {
         const encodedPath = encodeURIComponent(path);
         const response = await fetch(`${this.projectBackendUrl}/files/dirs/${encodedPath}`, {
             method: "GET",
-            headers: this.getAuthHeaders()
+            headers: this.getAuthHeaders(),
+            signal: this.signal
         });
 
         if (!response.ok) {
@@ -284,23 +484,68 @@ export class HttpServerApi implements ServerApi {
         return this.fileDataCache.get(key) ?? new Map();
     }
 
-    async sendPluginRequest(languageId: string, key: string, body: any): Promise<unknown> {
-        const encodedLanguageId = encodeURIComponent(languageId);
+    async sendPluginRequest(
+        languageId: string,
+        key: string,
+        body: unknown,
+        options?: PluginRequestOptions
+    ): Promise<unknown> {
+        return this.sendTargetRequest({ kind: PluginTargetKind.LANGUAGE, id: languageId }, key, body, options);
+    }
+
+    async sendTargetRequest(
+        target: PluginTarget,
+        key: string,
+        body: unknown,
+        options?: PluginRequestOptions
+    ): Promise<unknown> {
+        const address = formatPluginTarget(target);
         const encodedKey = encodeURIComponent(key);
-        const response = await fetch(`${this.projectBackendUrl}/request/${encodedLanguageId}/${encodedKey}`, {
+        const headers: Record<string, string> = { ...(this.getAuthHeaders() as Record<string, string>) };
+        if (options?.delegate) {
+            headers[DELEGATE_TOKEN_HEADER] = "true";
+        }
+        const path = `request/${target.kind}/${encodeURIComponent(target.id)}/${encodedKey}`;
+        const response = await fetch(`${this.projectBackendUrl}/${path}`, {
             method: "POST",
-            headers: this.getAuthHeaders(),
+            headers,
+            signal: this.signal,
             body: JSON.stringify(body)
         });
 
         if (!response.ok) {
-            throw new Error(
-                `Plugin request failed for ${languageId}/${key}: ${await describeFailedResponse(response)}`
-            );
+            throw new Error(`Plugin request failed for ${address}/${key}: ${await describeFailedResponse(response)}`);
         }
 
         const result = await response.json();
         return result.data;
+    }
+
+    /**
+     * Fetches the contribution plugins a `lang:` session has to load.
+     *
+     * Requests carry these in their body because the backend relays them. A session is dialed
+     * directly, so they are fetched with the session token while the session opens.
+     *
+     * @param languageId The language the session addresses
+     * @param sessionName The session being opened
+     * @returns The contribution plugins registered for the language in the project
+     */
+    async getSessionContributionPlugins(languageId: string, sessionName: string): Promise<ServerContributionPlugin[]> {
+        const path = `sessions/lang/${encodeURIComponent(languageId)}/${encodeURIComponent(sessionName)}`;
+        const response = await fetch(`${this.projectBackendUrl}/${path}/contribution-plugins`, {
+            method: "GET",
+            headers: this.getAuthHeaders(),
+            signal: this.signal
+        });
+
+        if (!response.ok) {
+            throw new Error(
+                `Failed to fetch contribution plugins for lang:${languageId}: ${await describeFailedResponse(response)}`
+            );
+        }
+
+        return (await response.json()) as ServerContributionPlugin[];
     }
 
     async updateExecutionMetadata(executionId: string, metadata: Record<string, unknown>): Promise<void> {
@@ -308,6 +553,7 @@ export class HttpServerApi implements ServerApi {
         const response = await fetch(`${this.backendUrl}/executions/${encodedExecutionId}/metadata`, {
             method: "PATCH",
             headers: this.getAuthHeaders(),
+            signal: this.signal,
             body: JSON.stringify({ metadata })
         });
 

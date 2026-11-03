@@ -1,3 +1,4 @@
+import { errorCodeFor } from "@mdeo/plugin";
 import { ApiResult, CommonErrorCode } from "./apiResult";
 import { AuthApi } from "./areas/authApi";
 import { GitApi } from "./areas/gitApi";
@@ -133,7 +134,7 @@ export class BackendApi implements BackendApiCore {
             });
 
             if (!response.ok) {
-                return this.handleErrorResponse(response);
+                return this.parseErrorResponse(response);
             }
 
             return this.handleSuccessResponse<T>(response);
@@ -145,38 +146,30 @@ export class BackendApi implements BackendApiCore {
     /**
      * Parses an error response from the backend
      *
+     * Error responses carry `{"error": {"code", "message"}}`. The HTTP status only fills in when
+     * a response has no readable body.
+     *
      * @param response The HTTP response to parse
      * @returns An ApiResult containing the error information
      */
     async parseErrorResponse<E>(response: Response): Promise<ApiResult<never, E>> {
+        const fallback: ApiResult<never, E> = {
+            success: false,
+            error: { code: codeForStatus(response.status), message: fallbackMessageForStatus(response) } as E
+        };
+        let data: unknown;
         try {
-            const data = await response.json();
-            if (typeof data === "object" && "success" in data && !data.success) {
-                return data as ApiResult<never, E>;
-            }
-            if (typeof data === "object" && "error" in data) {
-                return { success: false, error: data.error };
-            }
-            return { success: false, error: { code: CommonErrorCode.Unknown, message: JSON.stringify(data) } as E };
+            data = await response.json();
         } catch {
-            return { success: false, error: { code: CommonErrorCode.Unknown, message: response.statusText } as E };
+            return fallback;
         }
-    }
-
-    private async handleErrorResponse<T>(response: Response): Promise<ApiResult<T, any>> {
-        if (response.status === 401) {
-            return {
-                success: false,
-                error: { code: CommonErrorCode.Unavailable, message: "Not authenticated" }
-            };
+        if (typeof data === "object" && data != null && "error" in data) {
+            const error = (data as { error: unknown }).error;
+            if (typeof error === "object" && error != null && "code" in error && "message" in error) {
+                return { success: false, error: error as E };
+            }
         }
-        if (response.status === 403) {
-            return {
-                success: false,
-                error: { code: CommonErrorCode.Unavailable, message: "Access denied" }
-            };
-        }
-        return this.parseErrorResponse(response);
+        return fallback;
     }
 
     private async handleSuccessResponse<T>(response: Response): Promise<ApiResult<T, any>> {
@@ -187,5 +180,33 @@ export class BackendApi implements BackendApiCore {
 
         const data = await response.json();
         return ApiResult.success(data as T);
+    }
+}
+
+/**
+ * The general error code for a status, used when an error response has no readable body. It is the
+ * mapping every service uses, so a code means the same whether a service or this fallback chose it.
+ *
+ * @param status The HTTP status
+ * @returns A common error code
+ */
+function codeForStatus(status: number): CommonErrorCode {
+    return errorCodeFor(status) as CommonErrorCode;
+}
+
+/**
+ * A message for an error response that has no readable body.
+ *
+ * @param response The HTTP response
+ * @returns A human-readable description
+ */
+function fallbackMessageForStatus(response: Response): string {
+    switch (response.status) {
+        case 401:
+            return "Not authenticated";
+        case 403:
+            return "Access denied";
+        default:
+            return response.statusText || `Request failed with status ${response.status}`;
     }
 }

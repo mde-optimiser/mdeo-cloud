@@ -1,0 +1,545 @@
+{
+ "types": [
+  {
+   "kind": "void"
+  },
+  {
+   "package": "builtin",
+   "type": "string",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "double",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "boolean",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "Any",
+   "isNullable": true
+  },
+  {
+   "package": "class/metamodel/numbers.mm",
+   "type": "Crate",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "int",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "class/metamodel/numbers.mm",
+   "type": "Bag",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "List",
+   "isNullable": false,
+   "typeArgs": {
+    "T": {
+     "package": "builtin",
+     "type": "int",
+     "isNullable": false,
+     "typeArgs": {}
+    }
+   }
+  }
+ ],
+ "metamodelPath": "/metamodel/numbers.mm",
+ "statements": [
+  {
+   "kind": "match",
+   "pattern": {
+    "elements": [
+     {
+      "kind": "objectInstance",
+      "objectInstance": {
+       "name": "seed",
+       "className": "Crate",
+       "properties": [
+        {
+         "propertyName": "name",
+         "operator": "==",
+         "value": {
+          "kind": "stringLiteral",
+          "evalType": 1,
+          "value": "seed"
+         }
+        }
+       ]
+      }
+     },
+     {
+      "kind": "objectInstance",
+      "objectInstance": {
+       "name": "later",
+       "className": "Bag",
+       "properties": [
+        {
+         "propertyName": "name",
+         "operator": "==",
+         "value": {
+          "kind": "stringLiteral",
+          "evalType": 1,
+          "value": "later"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "kind": "call",
+   "callee": "/optimize/scenarios/fill-bag.mt",
+   "name": "fillBag",
+   "arguments": [
+    {
+     "name": "target",
+     "value": {
+      "kind": "identifier",
+      "evalType": 5,
+      "name": "seed",
+      "scope": 1
+     }
+    }
+   ],
+   "outputs": []
+  },
+  {
+   "kind": "match",
+   "pattern": {
+    "elements": [
+     {
+      "kind": "objectInstance",
+      "objectInstance": {
+       "name": "other",
+       "className": "Bag",
+       "properties": [
+        {
+         "propertyName": "name",
+         "operator": "==",
+         "value": {
+          "kind": "stringLiteral",
+          "evalType": 1,
+          "value": "other"
+         }
+        }
+       ]
+      }
+     },
+     {
+      "kind": "objectInstance",
+      "objectInstance": {
+       "name": "later",
+       "properties": [
+        {
+         "propertyName": "i",
+         "operator": "=",
+         "value": {
+          "kind": "binary",
+          "evalType": 6,
+          "operator": "*",
+          "left": {
+           "kind": "memberAccess",
+           "evalType": 6,
+           "expression": {
+            "kind": "identifier",
+            "evalType": 7,
+            "name": "other",
+            "scope": 1
+           },
+           "member": "i",
+           "isNullChaining": false
+          },
+          "right": {
+           "kind": "intLiteral",
+           "evalType": 6,
+           "value": "3"
+          }
+         }
+        },
+        {
+         "propertyName": "l",
+         "operator": "=",
+         "value": {
+          "kind": "memberAccess",
+          "evalType": 6,
+          "expression": {
+           "kind": "identifier",
+           "evalType": 7,
+           "name": "other",
+           "scope": 1
+          },
+          "member": "i",
+          "isNullChaining": false
+         }
+        },
+        {
+         "propertyName": "ints",
+         "operator": "=",
+         "value": {
+          "kind": "listLiteral",
+          "evalType": 8,
+          "elements": [
+           {
+            "kind": "memberAccess",
+            "evalType": 6,
+            "expression": {
+             "kind": "identifier",
+             "evalType": 7,
+             "name": "other",
+             "scope": 1
+            },
+            "member": "i",
+            "isNullChaining": false
+           }
+          ]
+         }
+        },
+        {
+         "propertyName": "doubles",
+         "operator": "=",
+         "value": {
+          "kind": "listLiteral",
+          "evalType": 8,
+          "elements": [
+           {
+            "kind": "memberAccess",
+            "evalType": 6,
+            "expression": {
+             "kind": "identifier",
+             "evalType": 7,
+             "name": "other",
+             "scope": 1
+            },
+            "member": "i",
+            "isNullChaining": false
+           },
+           {
+            "kind": "intLiteral",
+            "evalType": 6,
+            "value": "1"
+           }
+          ]
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  }
+ ],
+ "signature": {
+  "name": "call-trap-reference-cast.mt",
+  "parameters": []
+ },
+ "callees": {
+  "/optimize/scenarios/fill-bag.mt": {
+   "types": [
+    {
+     "kind": "void"
+    },
+    {
+     "package": "builtin",
+     "type": "string",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "double",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "boolean",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "Any",
+     "isNullable": true
+    },
+    {
+     "package": "builtin",
+     "type": "int",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "class/metamodel/numbers.mm",
+     "type": "Bag",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "List",
+     "isNullable": false,
+     "typeArgs": {
+      "T": {
+       "package": "builtin",
+       "type": "int",
+       "isNullable": false,
+       "typeArgs": {}
+      }
+     }
+    },
+    {
+     "package": "class/metamodel/numbers.mm",
+     "type": "Crate",
+     "isNullable": false,
+     "typeArgs": {}
+    }
+   ],
+   "metamodelPath": "/metamodel/numbers.mm",
+   "statements": [
+    {
+     "kind": "match",
+     "pattern": {
+      "elements": [
+       {
+        "kind": "objectInstance",
+        "objectInstance": {
+         "name": "source",
+         "className": "Bag",
+         "properties": [
+          {
+           "propertyName": "name",
+           "operator": "==",
+           "value": {
+            "kind": "stringLiteral",
+            "evalType": 1,
+            "value": "other"
+           }
+          }
+         ]
+        }
+       },
+       {
+        "kind": "objectInstance",
+        "objectInstance": {
+         "name": "target",
+         "properties": [
+          {
+           "propertyName": "i",
+           "operator": "=",
+           "value": {
+            "kind": "binary",
+            "evalType": 5,
+            "operator": "+",
+            "left": {
+             "kind": "memberAccess",
+             "evalType": 5,
+             "expression": {
+              "kind": "identifier",
+              "evalType": 6,
+              "name": "source",
+              "scope": 1
+             },
+             "member": "i",
+             "isNullChaining": false
+            },
+            "right": {
+             "kind": "intLiteral",
+             "evalType": 5,
+             "value": "1"
+            }
+           }
+          },
+          {
+           "propertyName": "l",
+           "operator": "=",
+           "value": {
+            "kind": "memberAccess",
+            "evalType": 5,
+            "expression": {
+             "kind": "identifier",
+             "evalType": 6,
+             "name": "source",
+             "scope": 1
+            },
+            "member": "i",
+            "isNullChaining": false
+           }
+          },
+          {
+           "propertyName": "f",
+           "operator": "=",
+           "value": {
+            "kind": "memberAccess",
+            "evalType": 5,
+            "expression": {
+             "kind": "identifier",
+             "evalType": 6,
+             "name": "source",
+             "scope": 1
+            },
+            "member": "i",
+            "isNullChaining": false
+           }
+          },
+          {
+           "propertyName": "d",
+           "operator": "=",
+           "value": {
+            "kind": "memberAccess",
+            "evalType": 5,
+            "expression": {
+             "kind": "identifier",
+             "evalType": 6,
+             "name": "source",
+             "scope": 1
+            },
+            "member": "i",
+            "isNullChaining": false
+           }
+          },
+          {
+           "propertyName": "ints",
+           "operator": "=",
+           "value": {
+            "kind": "listLiteral",
+            "evalType": 7,
+            "elements": [
+             {
+              "kind": "memberAccess",
+              "evalType": 5,
+              "expression": {
+               "kind": "identifier",
+               "evalType": 6,
+               "name": "source",
+               "scope": 1
+              },
+              "member": "i",
+              "isNullChaining": false
+             },
+             {
+              "kind": "intLiteral",
+              "evalType": 5,
+              "value": "2"
+             }
+            ]
+           }
+          },
+          {
+           "propertyName": "longs",
+           "operator": "=",
+           "value": {
+            "kind": "listLiteral",
+            "evalType": 7,
+            "elements": [
+             {
+              "kind": "memberAccess",
+              "evalType": 5,
+              "expression": {
+               "kind": "identifier",
+               "evalType": 6,
+               "name": "source",
+               "scope": 1
+              },
+              "member": "i",
+              "isNullChaining": false
+             }
+            ]
+           }
+          },
+          {
+           "propertyName": "floats",
+           "operator": "=",
+           "value": {
+            "kind": "listLiteral",
+            "evalType": 7,
+            "elements": [
+             {
+              "kind": "memberAccess",
+              "evalType": 5,
+              "expression": {
+               "kind": "identifier",
+               "evalType": 6,
+               "name": "source",
+               "scope": 1
+              },
+              "member": "i",
+              "isNullChaining": false
+             }
+            ]
+           }
+          },
+          {
+           "propertyName": "doubles",
+           "operator": "=",
+           "value": {
+            "kind": "listLiteral",
+            "evalType": 7,
+            "elements": [
+             {
+              "kind": "memberAccess",
+              "evalType": 5,
+              "expression": {
+               "kind": "identifier",
+               "evalType": 6,
+               "name": "source",
+               "scope": 1
+              },
+              "member": "i",
+              "isNullChaining": false
+             }
+            ]
+           }
+          },
+          {
+           "propertyName": "maybe",
+           "operator": "=",
+           "value": {
+            "kind": "memberAccess",
+            "evalType": 5,
+            "expression": {
+             "kind": "identifier",
+             "evalType": 6,
+             "name": "source",
+             "scope": 1
+            },
+            "member": "i",
+            "isNullChaining": false
+           }
+          }
+         ]
+        }
+       }
+      ]
+     }
+    }
+   ],
+   "signature": {
+    "name": "fill-bag.mt",
+    "parameters": [
+     {
+      "name": "target",
+      "direction": "in",
+      "type": 8,
+      "isElement": true
+     }
+    ]
+   }
+  }
+ }
+}

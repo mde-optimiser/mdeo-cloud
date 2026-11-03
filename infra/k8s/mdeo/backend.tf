@@ -138,7 +138,7 @@ resource "kubernetes_deployment_v1" "backend" {
         # one pass (mirrors docker-compose depends_on: service_healthy).
         init_container {
           name  = "wait-for-plugins"
-          image = "busybox:1.36"
+          image = "busybox:1.38"
           command = [
             "sh", "-c",
             <<-EOT

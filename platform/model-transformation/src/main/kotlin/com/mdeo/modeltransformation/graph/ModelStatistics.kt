@@ -143,4 +143,12 @@ internal class GraphStatisticsCache(
     fun seedFrom(other: GraphStatisticsCache) {
         snapshot = other.snapshot
     }
+
+    /**
+     * Discards the snapshot, so that the next [get] recomputes it. For a change the vertex count
+     * does not reveal, such as removing as many vertices as were created since the snapshot.
+     */
+    fun invalidate() {
+        snapshot = null
+    }
 }

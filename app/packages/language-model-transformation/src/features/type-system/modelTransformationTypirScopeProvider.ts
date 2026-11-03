@@ -41,9 +41,18 @@ import {
     PatternObjectInstance,
     PatternVariable,
     PatternApplicationCondition,
-    type PatternApplicationConditionType
+    type PatternApplicationConditionType,
+    CallStatement,
+    IfCallConditionAndBlock,
+    ForInStatement,
+    type CallStatementType,
+    type CallOutputType,
+    type IfCallConditionAndBlockType,
+    type ForInStatementType,
+    type TransformationParameterType
 } from "../../grammar/modelTransformationTypes.js";
 import { ModelTransformationLambdaScope } from "./modelTransformationLambdaScope.js";
+import { TransformationDeclarationResolver, flattenModelScopes } from "../transformationDeclarations.js";
 
 /**
  * Type definition for scope creator functions.
@@ -105,6 +114,8 @@ export class ModelTransformationTypirScopeProvider extends BaseScopeProvider<
             [IfMatchConditionAndBlock.name, (node, parent) => this.createIfMatchConditionScope(node, parent)],
             [WhileMatchStatement.name, (node, parent) => this.createWhileMatchScope(node, parent)],
             [ForMatchStatement.name, (node, parent) => this.createForMatchScope(node, parent)],
+            [ForInStatement.name, (node, parent) => this.createForInScope(node, parent)],
+            [IfCallConditionAndBlock.name, (node, parent) => this.createIfCallConditionScope(node, parent)],
             [PatternApplicationCondition.name, (node, parent) => this.createApplicationConditionScope(node, parent)],
             [LambdaExpression.name, (node, parent) => this.createLambdaScope(node, parent)]
         ]);
@@ -123,6 +134,8 @@ export class ModelTransformationTypirScopeProvider extends BaseScopeProvider<
             this.reflection.isInstance(node, IfMatchConditionAndBlock) ||
             this.reflection.isInstance(node, WhileMatchStatement) ||
             this.reflection.isInstance(node, ForMatchStatement) ||
+            this.reflection.isInstance(node, ForInStatement) ||
+            this.reflection.isInstance(node, IfCallConditionAndBlock) ||
             this.reflection.isInstance(node, PatternApplicationCondition) ||
             this.reflection.isInstance(node, LambdaExpression)
         );
@@ -151,7 +164,8 @@ export class ModelTransformationTypirScopeProvider extends BaseScopeProvider<
 
     /**
      * Creates a scope for the root ModelTransformation node.
-     * This scope contains all top-level pattern matches and their variables.
+     * This scope contains the header parameters, all top-level pattern matches and
+     * their variables, and the outputs of top-level calls.
      *
      * @param node The ModelTransformation node.
      * @param parentScope The parent scope.
@@ -162,14 +176,27 @@ export class ModelTransformationTypirScopeProvider extends BaseScopeProvider<
         parentScope: BoundScope<TypirLangiumSpecifics> | undefined
     ): Scope<TypirLangiumSpecifics> {
         const enumInfos = this.extractEnumInfos(node);
+        // An optional element input that pins an object of the first pattern is that object:
+        // the object's own entry stands for it.
+        const declarations = new TransformationDeclarationResolver(
+            this.reflection,
+            this.typir.langium.LangiumServices.workspace.LangiumDocuments
+        );
+        const parameters = (node.parameters ?? []).filter(
+            (parameter) => declarations.getPinnedObject(parameter) == undefined
+        );
         return new DefaultScope<TypirLangiumSpecifics>(
             parentScope,
             (scope) => [
+                ...parameters.map((parameter) => this.createParameterEntry(parameter, scope)),
                 ...this.getStatementsScopeEntries(node, scope),
                 ...this.getEnumContainerScopeEntries(enumInfos, scope)
             ],
-            () => [],
-            [...this.getStatementsScopeInitializations(node), ...this.getEnumContainerInitializations(enumInfos)],
+            [
+                ...parameters.map((parameter) => ({ name: parameter.name, position: -1 })),
+                ...this.getStatementsScopeInitializations(node),
+                ...this.getEnumContainerInitializations(enumInfos)
+            ],
             node
         );
     }
@@ -273,6 +300,10 @@ export class ModelTransformationTypirScopeProvider extends BaseScopeProvider<
                 this.reflection.isInstance(statement, UntilMatchStatement)
             ) {
                 this.collectPatternEntries(statement.pattern, i, scope, entries);
+            } else if (this.reflection.isInstance(statement, CallStatement)) {
+                for (const output of (statement as CallStatementType).outputs ?? []) {
+                    entries.push(this.createCallOutputEntry(output, i, scope));
+                }
             }
         }
         return entries;
@@ -296,6 +327,10 @@ export class ModelTransformationTypirScopeProvider extends BaseScopeProvider<
                 this.reflection.isInstance(statement, UntilMatchStatement)
             ) {
                 this.collectPatternInitializations(statement.pattern, i, initializations);
+            } else if (this.reflection.isInstance(statement, CallStatement)) {
+                for (const output of (statement as CallStatementType).outputs ?? []) {
+                    initializations.push({ name: output.name, position: i });
+                }
             }
         }
 
@@ -317,7 +352,6 @@ export class ModelTransformationTypirScopeProvider extends BaseScopeProvider<
         return new DefaultScope<TypirLangiumSpecifics>(
             parentScope,
             (scope) => this.getStatementsScopeEntries(node, scope),
-            () => [],
             this.getStatementsScopeInitializations(node),
             node
         );
@@ -338,7 +372,6 @@ export class ModelTransformationTypirScopeProvider extends BaseScopeProvider<
         return new DefaultScope<TypirLangiumSpecifics>(
             parentScope,
             (scope) => this.collectPatternEntriesFromPattern(node.pattern, scope),
-            () => [],
             this.collectPatternInitializationsFromPattern(node.pattern),
             node
         );
@@ -359,7 +392,6 @@ export class ModelTransformationTypirScopeProvider extends BaseScopeProvider<
         return new DefaultScope<TypirLangiumSpecifics>(
             parentScope,
             (scope) => this.collectPatternEntriesFromPattern(node.pattern, scope),
-            () => [],
             this.collectPatternInitializationsFromPattern(node.pattern),
             node
         );
@@ -380,8 +412,58 @@ export class ModelTransformationTypirScopeProvider extends BaseScopeProvider<
         return new DefaultScope<TypirLangiumSpecifics>(
             parentScope,
             (scope) => this.collectPatternEntriesFromPattern(node.pattern, scope),
-            () => [],
             this.collectPatternInitializationsFromPattern(node.pattern),
+            node
+        );
+    }
+
+    /**
+     * Creates a scope for a for-in statement: the loop variable is visible in the do block.
+     *
+     * @param node The for-in statement node.
+     * @param parentScope The parent scope.
+     * @returns A new scope for the for-in statement.
+     */
+    private createForInScope(
+        node: ForInStatementType,
+        parentScope: BoundScope<TypirLangiumSpecifics> | undefined
+    ): Scope<TypirLangiumSpecifics> {
+        const variable = node.variable;
+        return new DefaultScope<TypirLangiumSpecifics>(
+            parentScope,
+            (scope) =>
+                variable?.name != undefined
+                    ? [
+                          {
+                              name: variable.name,
+                              position: -1,
+                              languageNode: variable,
+                              definingScope: scope,
+                              inferType: () => this.inference.inferType(variable)
+                          }
+                      ]
+                    : [],
+            variable?.name != undefined ? [{ name: variable.name, position: -1 }] : [],
+            node
+        );
+    }
+
+    /**
+     * Creates a scope for the call of an `if call`: its outputs are visible in the then block.
+     *
+     * @param node The if-call condition node.
+     * @param parentScope The parent scope.
+     * @returns A new scope for the condition.
+     */
+    private createIfCallConditionScope(
+        node: IfCallConditionAndBlockType,
+        parentScope: BoundScope<TypirLangiumSpecifics> | undefined
+    ): Scope<TypirLangiumSpecifics> {
+        const outputs = node.call?.outputs ?? [];
+        return new DefaultScope<TypirLangiumSpecifics>(
+            parentScope,
+            (scope) => outputs.map((output) => this.createCallOutputEntry(output, -1, scope)),
+            outputs.map((output) => ({ name: output.name, position: -1 })),
             node
         );
     }
@@ -407,16 +489,13 @@ export class ModelTransformationTypirScopeProvider extends BaseScopeProvider<
         node: PatternApplicationConditionType,
         parentScope: BoundScope<TypirLangiumSpecifics> | undefined
     ): Scope<TypirLangiumSpecifics> {
+        const instances = flattenModelScopes(this.reflection, node.elements ?? []).filter((element) =>
+            this.reflection.isInstance(element, PatternObjectInstance)
+        ) as PatternObjectInstanceType[];
         return new DefaultScope<TypirLangiumSpecifics>(
             parentScope,
-            (scope) =>
-                (node.elements ?? [])
-                    .filter((element) => this.reflection.isInstance(element, PatternObjectInstance))
-                    .map((element) => this.createObjectInstanceEntry(element as PatternObjectInstanceType, -1, scope)),
-            () => [],
-            (node.elements ?? [])
-                .filter((element) => this.reflection.isInstance(element, PatternObjectInstance))
-                .map((element) => ({ name: (element as PatternObjectInstanceType).name, position: -1 })),
+            (scope) => instances.map((element) => this.createObjectInstanceEntry(element, -1, scope)),
+            instances.map((element) => ({ name: element.name, position: -1 })),
             node
         );
     }
@@ -443,7 +522,6 @@ export class ModelTransformationTypirScopeProvider extends BaseScopeProvider<
         return new ModelTransformationLambdaScope(
             parentScope,
             (scope) => this.getLambdaScopeEntries(node, scope, lambdaTypeInference),
-            () => [],
             node.parameterList.parameters.map((param) => ({
                 name: param.name,
                 position: -1
@@ -491,7 +569,8 @@ export class ModelTransformationTypirScopeProvider extends BaseScopeProvider<
     }
 
     /**
-     * Collects pattern entries (object instances and variables) from a pattern.
+     * Collects pattern entries (object instances and variables) from a pattern, including those
+     * of its model scope blocks (which do not scope names).
      *
      * @param pattern The pattern to collect entries from.
      * @param position The position in the parent scope.
@@ -504,7 +583,7 @@ export class ModelTransformationTypirScopeProvider extends BaseScopeProvider<
         scope: Scope<TypirLangiumSpecifics>,
         entries: ScopeEntry<TypirLangiumSpecifics>[]
     ): void {
-        for (const element of pattern?.elements ?? []) {
+        for (const element of flattenModelScopes(this.reflection, pattern?.elements ?? [])) {
             if (this.reflection.isInstance(element, PatternObjectInstance)) {
                 entries.push(this.createObjectInstanceEntry(element, position, scope));
             } else if (this.reflection.isInstance(element, PatternVariable)) {
@@ -541,7 +620,7 @@ export class ModelTransformationTypirScopeProvider extends BaseScopeProvider<
         position: number,
         initializations: ScopeLocalInitialization[]
     ): void {
-        for (const element of pattern?.elements ?? []) {
+        for (const element of flattenModelScopes(this.reflection, pattern?.elements ?? [])) {
             if (this.reflection.isInstance(element, PatternObjectInstance)) {
                 initializations.push({ name: element.name, position });
             } else if (this.reflection.isInstance(element, PatternVariable)) {
@@ -585,6 +664,51 @@ export class ModelTransformationTypirScopeProvider extends BaseScopeProvider<
     }
 
     /**
+     * Creates a scope entry for a header parameter. Parameters are visible in the
+     * whole transformation, at the transformation's own level (where the engine binds them
+     * before the first statement).
+     *
+     * @param parameter The parameter node.
+     * @param scope The transformation scope.
+     * @returns A scope entry for the parameter.
+     */
+    private createParameterEntry(
+        parameter: TransformationParameterType,
+        scope: Scope<TypirLangiumSpecifics>
+    ): ScopeEntry<TypirLangiumSpecifics> {
+        return {
+            name: parameter.name,
+            position: -1,
+            languageNode: parameter,
+            definingScope: scope,
+            inferType: () => this.inference.inferType(parameter)
+        };
+    }
+
+    /**
+     * Creates a scope entry for an output of a call. Like the objects of a match, an output is
+     * visible to the statements after the call.
+     *
+     * @param output The call output node.
+     * @param position The position of the call in its block.
+     * @param scope The block's scope.
+     * @returns A scope entry for the output.
+     */
+    private createCallOutputEntry(
+        output: CallOutputType,
+        position: number,
+        scope: Scope<TypirLangiumSpecifics>
+    ): ScopeEntry<TypirLangiumSpecifics> {
+        return {
+            name: output.name,
+            position,
+            languageNode: output,
+            definingScope: scope,
+            inferType: () => this.inference.inferType(output)
+        };
+    }
+
+    /**
      * Creates a scope entry for a pattern variable.
      *
      * @param variable The pattern variable node.
@@ -617,12 +741,6 @@ export class ModelTransformationTypirScopeProvider extends BaseScopeProvider<
         parentScope: BoundScope<TypirLangiumSpecifics> | undefined,
         languageNode: TypirLangiumSpecifics["LanguageType"]
     ): Scope<TypirLangiumSpecifics> {
-        return new DefaultScope<TypirLangiumSpecifics>(
-            parentScope,
-            () => [],
-            () => [],
-            [],
-            languageNode
-        );
+        return new DefaultScope<TypirLangiumSpecifics>(parentScope, () => [], [], languageNode);
     }
 }

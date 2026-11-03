@@ -168,6 +168,26 @@ class FederatedMutationEvaluator(
     }
 
     /**
+     * The replicate mode of [pushRebalanceSolutions]: queues one [SolutionRelocation] with
+     * [SolutionRelocation.replicate] set per transfer for the source node's next batch. The source
+     * subprocess pushes copies of the donors to the destination, keeps its own solutions (no
+     * discard is planned for them), and the destination drops the copies after its batch, which
+     * lists them in [NodeWorkBatchRequest.replicas].
+     */
+    override suspend fun replicateSolutions(transfers: List<RebalanceTransfer>) {
+        for (transfer in transfers) {
+            val destWorker = requireWorker(transfer.destinationNodeId)
+            val relocation = SolutionRelocation(
+                destinationWorkerBaseUrl = destWorker.baseUrl,
+                executionId = executionId,
+                solutionIds = transfer.solutionIds,
+                replicate = true
+            )
+            pendingRelocations.getOrPut(transfer.sourceNodeId) { mutableListOf() }.add(relocation)
+        }
+    }
+
+    /**
      * Terminates all current worker subprocesses and clears ephemeral per-batch state,
      * making this evaluator ready for a fresh [initialize] call in the next batch.
      *
@@ -270,10 +290,19 @@ class FederatedMutationEvaluator(
         return try {
             val response = worker.executeNodeBatch(
                 executionId,
-                tasks = batch.tasks.map { BatchTask(it.solutionId) },
+                tasks = batch.tasks.map { BatchTask(it.solutionId, it.taskId) },
                 evaluationTasks = batch.evaluationTasks.map { BatchEvaluationTask(it.solutionId) },
                 discards = batch.discards,
-                relocations = relocations
+                relocations = relocations,
+                crossoverTasks = batch.crossoverTasks.map { task ->
+                    BatchCrossoverTask(
+                        taskId = task.taskId,
+                        primarySolutionId = task.primary.solutionId,
+                        donorSolutionIds = task.donors.map { it.solutionId },
+                        attemptCrossover = task.attemptCrossover
+                    )
+                },
+                replicas = batch.replicas
             )
             response.results.map { result ->
                 EvaluationResult(
@@ -285,7 +314,10 @@ class FederatedMutationEvaluator(
                     status = result.status,
                     executedTransformations = result.executedTransformations,
                     skippedOperatorSlots = result.skippedOperatorSlots,
-                    errorMessage = result.errorMessage
+                    errorMessage = result.errorMessage,
+                    taskId = result.taskId,
+                    crossoverAttempted = result.crossoverAttempted,
+                    crossoverOperator = result.crossoverOperator
                 )
             }
         } catch (e: Exception) {
@@ -301,7 +333,19 @@ class FederatedMutationEvaluator(
                     workerNodeId = batch.nodeId,
                     objectives = emptyList(),
                     constraints = emptyList(),
-                    status = ResultStatus.SOFT_FAILURE
+                    status = ResultStatus.SOFT_FAILURE,
+                    taskId = task.taskId
+                )
+            }
+            val crossoverFailures = batch.crossoverTasks.map { task ->
+                EvaluationResult(
+                    parentSolutionId = task.primary.solutionId,
+                    newSolutionId = "",
+                    workerNodeId = batch.nodeId,
+                    objectives = emptyList(),
+                    constraints = emptyList(),
+                    status = ResultStatus.SOFT_FAILURE,
+                    taskId = task.taskId
                 )
             }
             val evaluationFailures = batch.evaluationTasks.map { task ->
@@ -314,7 +358,7 @@ class FederatedMutationEvaluator(
                     status = ResultStatus.SOFT_FAILURE
                 )
             }
-            mutationFailures + evaluationFailures
+            mutationFailures + crossoverFailures + evaluationFailures
         }
     }
 

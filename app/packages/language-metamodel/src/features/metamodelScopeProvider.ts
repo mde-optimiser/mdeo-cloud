@@ -1,6 +1,6 @@
 import { sharedImport, createLocalScope } from "@mdeo/language-shared";
 import type { AstNodeDescriptionProvider, LangiumDocument, LangiumDocuments, ReferenceInfo, Scope } from "langium";
-import { Class, Enum, type MetaModelType } from "../grammar/metamodelTypes.js";
+import { Class, ClassOrEnum, Enum, type MetaModelType } from "../grammar/metamodelTypes.js";
 import type { AstReflection, ExtendedLangiumServices } from "@mdeo/language-common";
 import { getScopeFromMetamodelFile } from "./importHelpers.js";
 
@@ -54,7 +54,7 @@ export class MetamodelScopeProvider extends DefaultScopeProvider {
 
         const refType = this.astReflection.getReferenceType(referenceInfo);
 
-        if (refType === Class.name || refType === Enum.name) {
+        if (refType === Class.name || refType === Enum.name || refType === ClassOrEnum.name) {
             return this.getClassOrEnumScope(referenceInfo, document, model);
         }
 

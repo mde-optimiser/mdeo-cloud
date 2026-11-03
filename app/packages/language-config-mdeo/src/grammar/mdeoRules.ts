@@ -1,9 +1,35 @@
-import { createRule, or, many, ref, createExternalTerminalRule, group } from "@mdeo/language-common";
+import {
+    action,
+    createRule,
+    createTerminal,
+    or,
+    many,
+    optional,
+    ref,
+    createExternalTerminalRule,
+    group
+} from "@mdeo/language-common";
 import {
     SearchSection,
     SolverSection,
     MutationsBlock,
+    CrossoversBlock,
     UsingPath,
+    OperatorArguments,
+    OperatorArgument,
+    ConfigLiteral,
+    IntLiteral,
+    LongLiteral,
+    FloatLiteral,
+    DoubleLiteral,
+    StringLiteral,
+    BooleanLiteral,
+    NullLiteral,
+    EnumLiteral,
+    ListLiteral,
+    MetamodelEnum,
+    MetamodelEnumEntry,
+    CrossoverBlock,
     ClassMutation,
     EdgeMutation,
     MetamodelClass,
@@ -27,16 +53,245 @@ import {
  */
 const ID = createExternalTerminalRule<string>("ID");
 const INT = createExternalTerminalRule<number>("INT");
+const FLOAT = createExternalTerminalRule<number>("FLOAT");
 const STRING = createExternalTerminalRule<string>("STRING");
 const NEWLINE = createExternalTerminalRule<string>("NEWLINE");
 
 /**
+ * The digits of a floating point literal, as in the model transformation language: a fraction
+ * (`1.5`), a fraction with an exponent (`2.5E-3`) or an exponent alone (`1e3`).
+ */
+const FLOATING_POINT_DIGITS = /-?[0-9]+(?:\.[0-9]+(?:[eE][+-]?[0-9]+)?|[eE][+-]?[0-9]+)/.source;
+
+/**
+ * Long literal terminal (`42L`, `-1l`). Returns the literal as written.
+ */
+export const CONFIG_MDEO_LONG = createTerminal("CONFIG_MDEO_LONG")
+    .returns(String)
+    .as(/-?[0-9]+[Ll]/);
+
+/**
+ * Float literal terminal (`2.5f`, `2.5E-3F`). Returns the literal as written.
+ */
+export const CONFIG_MDEO_FLOAT = createTerminal("CONFIG_MDEO_FLOAT")
+    .returns(String)
+    .as(new RegExp(`${FLOATING_POINT_DIGITS}[Ff]`));
+
+/**
+ * Double literal terminal with its suffix (`2.5d`). A floating point literal without a suffix
+ * (`2.5`) is a double as well; it is lexed by the common FLOAT terminal.
+ */
+export const CONFIG_MDEO_DOUBLE = createTerminal("CONFIG_MDEO_DOUBLE")
+    .returns(String)
+    .as(new RegExp(`${FLOATING_POINT_DIGITS}[Dd]`));
+
+/**
+ * The terminals the MDEO grammar adds to the config language, for the number literals of
+ * operator arguments.
+ */
+export const MdeoTerminals = [CONFIG_MDEO_LONG, CONFIG_MDEO_FLOAT, CONFIG_MDEO_DOUBLE];
+
+/**
+ * A number written with or without a fraction, e.g. `0.9` or `1`.
+ */
+export const NumberRule = createRule("ConfigMdeoNumberRule")
+    .returns(Number)
+    .as(() => [or(FLOAT, INT)]);
+
+/**
+ * The word keywords of the MDEO sections that may also be the name of a transformation input
+ * (e.g. `size`, `step`, `rate`), so that `with { size = 3 }` parses.
+ */
+export const ARGUMENT_NAME_KEYWORDS = [
+    "using",
+    "with",
+    "create",
+    "delete",
+    "mutate",
+    "add",
+    "remove",
+    "mutations",
+    "crossovers",
+    "mutation",
+    "crossover",
+    "fixed",
+    "interval",
+    "step",
+    "strategy",
+    "selection",
+    "application",
+    "credit",
+    "repair",
+    "random",
+    "repetitive",
+    "default",
+    "archive",
+    "size",
+    "parameters",
+    "population",
+    "variation",
+    "genetic",
+    "rate",
+    "parents",
+    "bisections",
+    "termination",
+    "evolutions",
+    "time",
+    "delta",
+    "iterations",
+    "algorithm",
+    "batches",
+    "timeout",
+    "script",
+    "transformation",
+    "backend",
+    "resources",
+    "threads",
+    "nodes",
+    "threadsPerNode"
+] as const;
+
+/**
+ * The name of an operator argument: an identifier, or one of the {@link ARGUMENT_NAME_KEYWORDS}.
+ */
+export const ArgumentNameRule = createRule("ConfigMdeoArgumentNameRule")
+    .returns(String)
+    .as(() => [or(ID, ...ARGUMENT_NAME_KEYWORDS)]);
+
+/**
+ * Int literal: `4`, `-1`.
+ */
+export const IntLiteralRule = createRule("ConfigMdeoIntLiteralRule")
+    .returns(IntLiteral)
+    .as(({ set }) => [set("value", INT)]);
+
+/**
+ * Long literal: `42L`.
+ */
+export const LongLiteralRule = createRule("ConfigMdeoLongLiteralRule")
+    .returns(LongLiteral)
+    .as(({ set }) => [set("value", CONFIG_MDEO_LONG)]);
+
+/**
+ * Float literal: `2.5f`.
+ */
+export const FloatLiteralRule = createRule("ConfigMdeoFloatLiteralRule")
+    .returns(FloatLiteral)
+    .as(({ set }) => [set("value", CONFIG_MDEO_FLOAT)]);
+
+/**
+ * Double literal written with a suffix: `2.5d`.
+ */
+export const SuffixedDoubleLiteralRule = createRule("ConfigMdeoSuffixedDoubleLiteralRule")
+    .returns(DoubleLiteral)
+    .as(({ set }) => [set("value", CONFIG_MDEO_DOUBLE)]);
+
+/**
+ * The text of a double literal without a suffix (the FLOAT terminal converts to a number, the
+ * literal keeps its text).
+ */
+export const PlainDoubleTextRule = createRule("ConfigMdeoPlainDoubleTextRule")
+    .returns(String)
+    .as(() => [FLOAT]);
+
+/**
+ * Double literal written without a suffix: `2.5`, `1e3`.
+ */
+export const PlainDoubleLiteralRule = createRule("ConfigMdeoPlainDoubleLiteralRule")
+    .returns(DoubleLiteral)
+    .as(({ set }) => [set("value", PlainDoubleTextRule)]);
+
+/**
+ * String literal: `"fast"`.
+ */
+export const StringLiteralRule = createRule("ConfigMdeoStringLiteralRule")
+    .returns(StringLiteral)
+    .as(({ set }) => [set("value", STRING)]);
+
+/**
+ * Boolean literal: `true` / `false`.
+ */
+export const BooleanLiteralRule = createRule("ConfigMdeoBooleanLiteralRule")
+    .returns(BooleanLiteral)
+    .as(({ set }) => [set("value", "true", "false")]);
+
+/**
+ * `null`, which is not a valid argument (the validator says to leave the argument out instead).
+ */
+export const NullLiteralRule = createRule("ConfigMdeoNullLiteralRule")
+    .returns(NullLiteral)
+    .as(() => [action(NullLiteral, () => ["null"])]);
+
+/**
+ * Enum literal of the problem's metamodel: `Kind.SERVICE`.
+ */
+export const EnumLiteralRule = createRule("ConfigMdeoEnumLiteralRule")
+    .returns(EnumLiteral)
+    .as(({ set }) => [set("enum", ref(MetamodelEnum, ID)), ".", set("entry", ref(MetamodelEnumEntry, ID))]);
+
+/**
+ * List literal: `[1, 2]`, `[Kind.SERVICE, Kind.STORE]`, `[]`. Line breaks are allowed after
+ * `[` and `,` and before `]`.
+ */
+export const ListLiteralRule = createRule("ConfigMdeoListLiteralRule")
+    .returns(ListLiteral)
+    .as(({ add }) => [
+        "[",
+        many(NEWLINE),
+        optional(
+            add("elements", () => ConfigLiteralRule),
+            many(NEWLINE),
+            many(
+                ",",
+                many(NEWLINE),
+                add("elements", () => ConfigLiteralRule),
+                many(NEWLINE)
+            )
+        ),
+        "]"
+    ]);
+
+/**
+ * The value of an operator argument: a literal.
+ */
+export const ConfigLiteralRule = createRule("ConfigMdeoLiteralRule")
+    .returns(ConfigLiteral)
+    .as(() => [
+        or(
+            LongLiteralRule,
+            FloatLiteralRule,
+            SuffixedDoubleLiteralRule,
+            PlainDoubleLiteralRule,
+            IntLiteralRule,
+            StringLiteralRule,
+            BooleanLiteralRule,
+            NullLiteralRule,
+            EnumLiteralRule,
+            ListLiteralRule
+        )
+    ]);
+
+/**
+ * One operator argument: `name = literal`.
+ */
+export const OperatorArgumentRule = createRule("ConfigMdeoOperatorArgumentRule")
+    .returns(OperatorArgument)
+    .as(({ set }) => [set("name", ArgumentNameRule), "=", set("value", ConfigLiteralRule)]);
+
+/**
+ * The arguments block of a using entry: `with { name = literal … }`, one argument per line.
+ */
+export const OperatorArgumentsRule = createRule("ConfigMdeoOperatorArgumentsRule")
+    .returns(OperatorArguments)
+    .as(({ add }) => ["with", "{", many(NEWLINE), many(add("arguments", OperatorArgumentRule), many(NEWLINE)), "}"]);
+
+/**
  * Using path rule.
- * Matches: using "path/to/transformation.mt"
+ * Matches: using "path/to/transformation.mt" [with { name = literal … }]
  */
 export const UsingPathRule = createRule("ConfigMdeoUsingPathRule")
     .returns(UsingPath)
-    .as(({ set }) => ["using", set("path", STRING)]);
+    .as(({ set }) => ["using", set("path", STRING), optional(set("with", OperatorArgumentsRule))]);
 
 /**
  * Class mutation rule.
@@ -82,8 +337,17 @@ export const MutationsBlockRule = createRule("ConfigMdeoMutationsBlockRule")
     ]);
 
 /**
+ * Crossovers block rule.
+ * Matches the crossovers { ... } block inside search section: crossover operators, as using
+ * entries only (there are no generated crossover operators).
+ */
+export const CrossoversBlockRule = createRule("ConfigMdeoCrossoversBlockRule")
+    .returns(CrossoversBlock)
+    .as(({ add }) => ["crossovers", "{", many(NEWLINE), many(add("usingPaths", UsingPathRule), many(NEWLINE)), "}"]);
+
+/**
  * Search section content rule (without keyword).
- * Parses the search section with mutations block.
+ * Parses the search section with mutations and crossovers blocks.
  * The keyword will be added by the wrapper rule in language-config composition.
  * Syntax:
  *   {
@@ -92,11 +356,19 @@ export const MutationsBlockRule = createRule("ConfigMdeoMutationsBlockRule")
  *           create Test
  *           add Test.theEdge
  *       }
+ *       crossovers {
+ *           using "path" with { minShared = 2 }
+ *       }
  *   }
  */
 export const SearchSectionContentRule = createRule("SearchSectionContentRule")
     .returns(SearchSection)
-    .as(({ add }) => ["{", many(NEWLINE), many(add("mutations", MutationsBlockRule), many(NEWLINE)), "}"]);
+    .as(({ add }) => [
+        "{",
+        many(NEWLINE),
+        many(or(add("mutations", MutationsBlockRule), add("crossovers", CrossoversBlockRule)), many(NEWLINE)),
+        "}"
+    ]);
 
 /**
  * Bare integer step size.
@@ -181,12 +453,43 @@ export const ArchiveBlockRule = createRule("ConfigMdeoArchiveBlockRule")
     .as(({ add }) => ["archive", "{", many(NEWLINE), many(group("size", "=", add("size", INT)), many(NEWLINE)), "}"]);
 
 /**
+ * Crossover block rule.
+ * Represents the crossover configuration keys as a nested block (used with variation = genetic).
+ * Syntax:
+ *   crossover {
+ *       rate = 0.9
+ *       parents = 2
+ *       strategy = random
+ *   }
+ */
+export const CrossoverBlockRule = createRule("ConfigMdeoCrossoverBlockRule")
+    .returns(CrossoverBlock)
+    .as(({ add }) => [
+        "crossover",
+        "{",
+        many(NEWLINE),
+        many(
+            or(
+                group("rate", "=", add("rate", NumberRule)),
+                group("parents", "=", add("parents", INT)),
+                group("strategy", "=", add("strategy", "random"))
+            ),
+            many(NEWLINE)
+        ),
+        "}"
+    ]);
+
+/**
  * Algorithm parameters block rule.
  * Contains population, variation, and optional mutation / archive sub-blocks.
  * Syntax:
  *   parameters {
  *       population = 40
  *       variation = mutation
+ *       crossover {             (variation = genetic only)
+ *           rate = 0.9
+ *           parents = 2
+ *       }
  *       mutation {
  *           step = 1
  *           strategy = random
@@ -204,7 +507,8 @@ export const AlgorithmParametersBlockRule = createRule("ConfigMdeoAlgorithmParam
         many(
             or(
                 group("population", "=", add("population", INT)),
-                group("variation", "=", add("variation", "mutation", "genetic", "probabilistic")),
+                group("variation", "=", add("variation", "mutation", "genetic")),
+                add("crossover", CrossoverBlockRule),
                 add("mutation", MutationBlockRule),
                 group("bisections", "=", add("bisections", INT)),
                 add("archive", ArchiveBlockRule)

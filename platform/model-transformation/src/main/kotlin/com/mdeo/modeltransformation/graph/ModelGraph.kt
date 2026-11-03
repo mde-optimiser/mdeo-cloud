@@ -151,4 +151,105 @@ interface ModelGraph : AutoCloseable {
         className: String,
         stepLabel: String
     ): GraphTraversal<Vertex, Map<String, Any>>
+
+    // ---- Model inputs ----
+
+    /**
+     * The model-input slots whose models are loaded into this graph ([loadModelInput]): empty
+     * except during a run of a transformation with model inputs.
+     *
+     * While it is not empty, every pattern object a match scans for is filtered by its model
+     * ([filterModelSlot]): an object of the implicit model only matches vertices without a slot,
+     * one of a model input only vertices of that input's slot. That is a property of the run, not
+     * of the transformation: a callee without model inputs needs the implicit-model filter too
+     * while its caller's inputs are loaded. While it is empty, matching emits no slot step at all,
+     * so a run without model inputs pays nothing for the feature.
+     */
+    val modelInputSlots: Set<Int>
+
+    /**
+     * Loads [model] into this graph as the read-only model of model-input slot [slot], for the
+     * duration of one run (see [com.mdeo.modeltransformation.runtime.TransformationEngine.execute]).
+     *
+     * Every vertex of [model] is copied with its properties and the edges between its vertices,
+     * tagged with [slot] in [MODEL_SLOT_KEY], a hidden key that is not a metamodel property; the
+     * implicit model's vertices carry no slot. [model] itself is not changed. The copied vertices
+     * are registered in [nameRegistry] under names qualified by the slot ([modelInputName]), so
+     * they never collide with the implicit model's names. [statistics] include the loaded
+     * vertices and edges until [unloadModelInputs]: the match planner estimates from the counts of
+     * all loaded models together. That is adequate because statistics only order plan steps and
+     * never decide matches, and because the inputs of a crossover are models of the same
+     * population as the implicit one, which scale every count alike.
+     *
+     * Why one graph with tagged vertices rather than a graph per model: a match is a single
+     * Gremlin traversal over a single graph, and one pattern may join objects of several models
+     * (`where c.name == dc.name`), so all of them must be reachable from one traversal source.
+     * The tag is a vertex key rather than a label (the label is the class, which scans, the
+     * planner's statistics and `hasLabel` filters rely on) or an ID range (Tinker renumbers its
+     * vertices on every [resetNondeterminism]); it costs the implicit model nothing, as its
+     * vertices carry no tag. Links never cross models, so only scans need the filter, never
+     * edge walks.
+     *
+     * @param slot The slot, at least 1 and not loaded yet.
+     * @param model A model of this graph's metamodel (of either backend).
+     */
+    fun loadModelInput(slot: Int, model: ModelGraph)
+
+    /**
+     * Removes every loaded model input ([loadModelInput]): its vertices, its edges, its names in
+     * [nameRegistry] and its share of [statistics], so that the graph holds exactly its implicit
+     * model again, without a trace of the inputs. Does nothing when none is loaded.
+     */
+    fun unloadModelInputs()
+
+    /**
+     * Appends the filter that keeps only vertices of model slot [slot] ([IMPLICIT_MODEL_SLOT] for
+     * the implicit model) to [traversal], positioned at vertices. Only called while
+     * [modelInputSlots] is not empty.
+     *
+     * The default keeps vertices without a slot for the implicit model (`hasNot`) and those
+     * tagged with the slot otherwise; a backend whose vertices can report the implicit slot as a
+     * value filters with a plain `has` instead, which its graph step can fold into its scan.
+     *
+     * @param traversal The traversal, positioned at vertices.
+     * @param slot The model slot to keep.
+     * @return The filtered traversal.
+     */
+    @Suppress("UNCHECKED_CAST")
+    fun <S, E> filterModelSlot(traversal: GraphTraversal<S, E>, slot: Int): GraphTraversal<S, E> =
+        if (slot == IMPLICIT_MODEL_SLOT) traversal.hasNot(MODEL_SLOT_KEY) as GraphTraversal<S, E>
+        else traversal.has(MODEL_SLOT_KEY, slot) as GraphTraversal<S, E>
+
+    /**
+     * The model slot of [vertex]: the slot of the model input it was loaded for, or
+     * [IMPLICIT_MODEL_SLOT].
+     *
+     * @param vertex A vertex of this graph.
+     * @return Its slot.
+     */
+    fun modelSlotOf(vertex: Vertex): Int =
+        vertex.property<Int>(MODEL_SLOT_KEY).orElse(IMPLICIT_MODEL_SLOT)
+
+    companion object {
+        /**
+         * The vertex key holding the model-input slot of a loaded vertex. It is not a metamodel
+         * property (those are `prop_<index>`) and not an identifier, so no pattern can read or
+         * write it. (Not a TinkerPop hidden key `~…`: graphs refuse to store those.)
+         */
+        const val MODEL_SLOT_KEY = "@modelSlot"
+
+        /** The slot of the implicit model, the one a transformation runs on and changes. */
+        const val IMPLICIT_MODEL_SLOT = 0
+
+        /**
+         * The name under which an instance of a model input is registered while it is loaded:
+         * qualified by the slot with characters no instance name of a model has, so that it
+         * neither collides with nor is reused for a name of the implicit model.
+         *
+         * @param slot The model-input slot.
+         * @param name The instance's name in its own model.
+         * @return The qualified name.
+         */
+        fun modelInputName(slot: Int, name: String): String = "<model $slot>$name"
+    }
 }

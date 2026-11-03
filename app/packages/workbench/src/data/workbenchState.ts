@@ -106,9 +106,10 @@ export class WorkbenchState {
     readonly activeTab = ref<EditorTab>();
 
     /**
-     * Plugins loaded in the workbench
+     * Plugins loaded in the workbench. The map is only ever replaced as a whole, and its plugins
+     * hold editor objects that must not be wrapped in reactive proxies, so the ref is shallow.
      */
-    readonly plugins = ref<Map<string, WorkbenchPlugin>>(new Map());
+    readonly plugins = shallowRef<Map<string, WorkbenchPlugin>>(new Map());
 
     /**
      * The list of executions for the current project.
@@ -150,7 +151,7 @@ export class WorkbenchState {
      * File type plugins provided by any plugin
      */
     readonly languagePlugins = computed<ResolvedWorkbenchLanguagePlugin[]>(() => {
-        const plugins = [...this.plugins.value.values()] as WorkbenchPlugin[];
+        const plugins = [...this.plugins.value.values()];
         const contributionPluginsByLanguage = new Map<string, LanguageContributionPlugin[]>();
         for (const plugin of plugins) {
             for (const contributionPlugin of plugin.contributionPlugins) {

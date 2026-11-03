@@ -8,9 +8,9 @@ import org.jetbrains.exposed.v1.core.statements.StatementType
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
-import org.testcontainers.containers.PostgreSQLContainer
 import org.testcontainers.junit.jupiter.Container
 import org.testcontainers.junit.jupiter.Testcontainers
+import org.testcontainers.postgresql.PostgreSQLContainer
 import org.testcontainers.utility.DockerImageName
 import java.time.Instant
 import java.util.UUID
@@ -19,12 +19,6 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.uuid.toKotlinUuid
-
-/**
- * See [GitRepositoryServiceConcurrencyTest][com.mdeo.backend.git.GitRepositoryServiceConcurrencyTest]
- * for why this is a Testcontainers self-typed subclass rather than the generic container directly.
- */
-private class KPostgreSQLContainer(image: DockerImageName) : PostgreSQLContainer<KPostgreSQLContainer>(image)
 
 /**
  * Regression test for the version-counter backfill [DatabaseFactory.init] runs after creating the
@@ -39,7 +33,7 @@ private class KPostgreSQLContainer(image: DockerImageName) : PostgreSQLContainer
 class DatabaseFactoryBackfillTest {
 
     @Container
-    private val postgres = KPostgreSQLContainer(DockerImageName.parse("postgres:17-alpine"))
+    private val postgres = PostgreSQLContainer(DockerImageName.parse("postgres:17-alpine"))
 
     @AfterTest
     fun tearDown() {

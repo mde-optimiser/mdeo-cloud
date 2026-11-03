@@ -85,6 +85,8 @@ abstract class WorkerClient(val nodeId: String, val baseUrl: String) : AutoClose
      * @param evaluationTasks Evaluation-only tasks for fitness computation without mutation.
      * @param discards Solution IDs to discard after processing the batch.
      * @param relocations Solutions to push to other nodes before or during mutation.
+     * @param crossoverTasks Crossover tasks whose primary parent is on this node.
+     * @param replicas Donors pushed to this node for this batch only, dropped after it.
      * @return The batch response with evaluation results for each task.
      */
     suspend fun executeNodeBatch(
@@ -92,11 +94,13 @@ abstract class WorkerClient(val nodeId: String, val baseUrl: String) : AutoClose
         tasks: List<BatchTask>,
         evaluationTasks: List<BatchEvaluationTask> = emptyList(),
         discards: List<String>,
-        relocations: List<SolutionRelocation> = emptyList()
+        relocations: List<SolutionRelocation> = emptyList(),
+        crossoverTasks: List<BatchCrossoverTask> = emptyList(),
+        replicas: List<String> = emptyList()
     ): NodeWorkBatchResponse {
         val requestId = newRequestId()
         return sendAndReceive(
-            NodeWorkBatchRequest(requestId, tasks, evaluationTasks, discards, relocations)
+            NodeWorkBatchRequest(requestId, tasks, evaluationTasks, discards, relocations, crossoverTasks, replicas)
         ) as NodeWorkBatchResponse
     }
 

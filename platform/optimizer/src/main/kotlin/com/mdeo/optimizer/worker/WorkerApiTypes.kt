@@ -4,6 +4,7 @@ import com.mdeo.metamodel.data.MetamodelData
 import com.mdeo.metamodel.data.ModelData
 import com.mdeo.optimizer.config.GoalConfig
 import com.mdeo.optimizer.config.GraphBackendType
+import com.mdeo.optimizer.config.OperatorRef
 import com.mdeo.optimizer.config.RuntimeConfig
 import com.mdeo.optimizer.config.SolverConfig
 import com.mdeo.optimizer.evaluation.ResultStatus
@@ -19,12 +20,20 @@ import kotlinx.serialization.Serializable
  * @param executionId Unique identifier for the optimization execution.
  * @param metamodelData The metamodel that governs model structure.
  * @param initialModelData The seed model from which initial solutions derive.
- * @param transformationAstJsons Map of transformation path to its JSON-serialized
- *        [com.mdeo.modeltransformation.ast.TypedAst]. Workers deserialize these with
- *        the appropriate serializer modules on their side.
+ * @param transformationAstJsons Map of transformation path (or generated rule name) to its
+ *        JSON-serialized [com.mdeo.modeltransformation.ast.TypedAst], one entry per file however
+ *        many operators use it. Workers deserialize these with the appropriate serializer
+ *        modules on their side.
  * @param scriptAstJsons Map of script path to its JSON-serialized
  *        [com.mdeo.script.ast.TypedAst]. Workers deserialize these with the
  *        appropriate contextual serializer modules on their side.
+ * @param pluginAstJson JSON-serialized [com.mdeo.script.ast.TypedPluginAst] holding every
+ *        function contributed by script contribution plugins, or `null` when the project
+ *        enables no such contribution.
+ * @param projectId The project the execution belongs to, for opening sessions to contributions
+ *        whose functions are implemented outside the platform.
+ * @param runToken The token the execution holds for the run, which a worker uses to ask the
+ *        backend for those sessions. Null when the run calls no external function.
  * @param goalConfig Objective and constraint definitions for fitness evaluation.
  * @param solverConfig Solver parameters (algorithm, population size, etc.).
  * @param initialSolutionCount Number of initial solutions the worker should generate
@@ -40,6 +49,13 @@ import kotlinx.serialization.Serializable
  * @param timeout Per-evaluation timeouts from the optimization config, or `null` to let each
  *        worker node apply its own environment defaults. Sent as configured rather than resolved
  *        here, because the fallback belongs to the node that runs the evaluation.
+ * @param mutationOperators The mutation operators: hand-written ones with their arguments and
+ *        generated ones (by rule name, without arguments). Each names its AST in
+ *        [transformationAstJsons]; every node numbers them alike
+ *        ([com.mdeo.optimizer.operators.OperatorCatalog]). The arguments travel here, once per
+ *        run, not with each task.
+ * @param crossoverOperators The crossover operators with their arguments, numbered in their own id
+ *        space; empty for `variation = mutation`.
  */
 @Serializable
 data class WorkerAllocationRequest(
@@ -48,6 +64,9 @@ data class WorkerAllocationRequest(
     val initialModelData: ModelData,
     val transformationAstJsons: Map<String, String>,
     val scriptAstJsons: Map<String, String>,
+    val pluginAstJson: String? = null,
+    val projectId: String? = null,
+    val runToken: String? = null,
     val goalConfig: GoalConfig,
     val solverConfig: SolverConfig,
     val initialSolutionCount: Int,
@@ -55,7 +74,9 @@ data class WorkerAllocationRequest(
     val orchestratorWsUrl: String? = null,
     val useLocalChannel: Boolean = false,
     val graphBackendType: GraphBackendType = GraphBackendType.MDEO,
-    val timeout: RuntimeConfig.TimeoutConfig? = null
+    val timeout: RuntimeConfig.TimeoutConfig? = null,
+    val mutationOperators: List<OperatorRef> = emptyList(),
+    val crossoverOperators: List<OperatorRef> = emptyList()
 )
 
 /**
@@ -88,10 +109,31 @@ data class InitialSolutionData(
  * A single mutation task within a [com.mdeo.optimizer.worker.NodeWorkBatchRequest].
  *
  * @param solutionId Identifier of the parent solution to mutate.
+ * @param taskId The task id ([com.mdeo.optimizer.evaluation.MutationTask.taskId]), echoed in
+ *   [BatchResult.taskId].
  */
 @Serializable
 data class BatchTask(
-    val solutionId: String
+    val solutionId: String,
+    val taskId: String = ""
+)
+
+/**
+ * A single crossover task within a [com.mdeo.optimizer.worker.NodeWorkBatchRequest]
+ * ([com.mdeo.optimizer.evaluation.CrossoverTask]): runs on the node of its primary parent, where
+ * every donor is present, as a population member or as a replica of this batch.
+ *
+ * @param taskId The task id, echoed in [BatchResult.taskId].
+ * @param primarySolutionId The primary parent: the child starts as its copy.
+ * @param donorSolutionIds The other parents of the group, in cyclic order after the primary.
+ * @param attemptCrossover Whether a crossover is attempted (decided by the orchestrator).
+ */
+@Serializable
+data class BatchCrossoverTask(
+    val taskId: String,
+    val primarySolutionId: String,
+    val donorSolutionIds: List<String>,
+    val attemptCrossover: Boolean
 )
 
 /**
@@ -122,6 +164,9 @@ data class BatchEvaluationTask(
  *   deterministically fail on the parent's current model state.
  * @param errorMessage Human-readable diagnostic detail accompanying a [ResultStatus.HARD_FAILURE].
  *   `null` for [ResultStatus.SUCCESS] and [ResultStatus.SOFT_FAILURE].
+ * @param taskId The id of the mutation or crossover task answered; empty for evaluation tasks.
+ * @param crossoverAttempted Whether the task attempted a crossover.
+ * @param crossoverOperator The crossover operator that applied, or `null`.
  */
 @Serializable
 data class BatchResult(
@@ -132,7 +177,10 @@ data class BatchResult(
     val status: ResultStatus,
     val executedTransformations: Int = 0,
     val skippedOperatorSlots: Int = 0,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val taskId: String = "",
+    val crossoverAttempted: Boolean = false,
+    val crossoverOperator: Int? = null
 )
 
 /**

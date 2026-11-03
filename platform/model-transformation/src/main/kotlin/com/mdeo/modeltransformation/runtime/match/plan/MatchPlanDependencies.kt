@@ -129,30 +129,47 @@ internal fun computeInstancePriorities(
 }
 
 /**
+ * A pair of main-pattern instances that must be bound to distinct vertices.
+ *
+ * @property exactClassOfA When set, [nameA] is a pattern object of this class and [nameB] a
+ *           bound object: the two must differ only when the bound element is of exactly this
+ *           class, as two pattern objects must differ only when they have the same class.
+ */
+internal data class InjectivePair(val nameA: String, val nameB: String, val exactClassOfA: String? = null)
+
+/**
  * Computes all pairs of main-pattern instances that must be bound to *distinct* graph
  * vertices (injective matching).
  *
- * Two instances form an injective pair when they share the same metamodel class.  If
- * both were allowed to match the same vertex, the match would be degenerate (one object
- * playing two roles simultaneously), which is almost never the intended semantics.
- *
- * Only instances with a known class name are considered; untyped instances (className
- * == null) are pre-bound by vertex ID and therefore cannot collide.
+ * Two objects of the pattern form an injective pair when they share the same metamodel class.
+ * If both were allowed to match the same vertex, the match would be degenerate (one object
+ * playing two roles simultaneously), which is almost never the intended semantics. The same
+ * holds between a pattern object and a *bound* object the pattern references (an element
+ * input, an object of an earlier or enclosing statement, a call output or a loop variable —
+ * `seed { }`, without a class): the pattern object must not match the bound element when that
+ * element is of exactly the object's class. The bound element's class is only known at run
+ * time, so that pair carries the class ([InjectivePair.exactClassOfA]) and the traversal checks
+ * it. Two bound objects are not compared: they are whatever the caller bound.
  *
  * @param allMatchable All matchable instance elements in the main pattern.
- * @return A list of (nameA, nameB) pairs, each representing the required inequality
- *         nameA ≠ nameB.  Each unordered pair appears exactly once.
+ * @param isBound Whether an instance without a class name is bound to a vertex.
+ * @return The pairs; each unordered pair appears exactly once.
  */
 internal fun computeInjectivePairs(
-    allMatchable: List<TypedPatternObjectInstanceElement>
-): List<Pair<String, String>> {
-    val result = mutableListOf<Pair<String, String>>()
+    allMatchable: List<TypedPatternObjectInstanceElement>,
+    isBound: (String) -> Boolean = { false }
+): List<InjectivePair> {
+    val result = mutableListOf<InjectivePair>()
     for (i in allMatchable.indices) {
         for (j in i + 1 until allMatchable.size) {
             val a = allMatchable[i].objectInstance
             val b = allMatchable[j].objectInstance
-            if (a.name != b.name && a.className != null && a.className == b.className) {
-                result.add(a.name to b.name)
+            if (a.name == b.name) continue
+            when {
+                a.className != null && b.className != null ->
+                    if (a.className == b.className) result.add(InjectivePair(a.name, b.name))
+                a.className != null && isBound(b.name) -> result.add(InjectivePair(a.name, b.name, a.className))
+                b.className != null && isBound(a.name) -> result.add(InjectivePair(b.name, a.name, b.className))
             }
         }
     }

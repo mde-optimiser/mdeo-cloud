@@ -48,10 +48,11 @@ export class BackendExternalReferencesResolver implements ExternalReferenceResol
                 try {
                     const source = await this.serverApi.readFile(uri.path);
                     this.langiumDocuments.createDocument(uri, source.content);
-                } catch {
-                    // ignore, file does not exist
-                } finally {
+                    // a new document: the build has to start over to include it
                     this.cancelationTokenSource?.cancel();
+                } catch {
+                    // ignore, file does not exist; cancelling the build here would only start
+                    // it over, try the same file again, and never finish
                 }
             })
         );

@@ -6,12 +6,15 @@ import com.mdeo.expression.ast.statements.TypedStatement
 import com.mdeo.metamodel.data.MetamodelData
 import com.mdeo.metamodel.data.ModelData
 import com.mdeo.script.ast.TypedAst
+import com.mdeo.script.ast.TypedPluginAst
 import com.mdeo.script.ast.expressions.TypedExpressionSerializer
 import com.mdeo.script.ast.statements.TypedStatementSerializer
 import com.mdeo.script.compiler.CompilationInput
 import com.mdeo.script.compiler.ScriptCompiler
 import com.mdeo.script.runtime.ExecutionEnvironment
 import com.mdeo.script.runtime.SimpleScriptContext
+import com.mdeo.execution.common.external.ExternalSessions
+import com.mdeo.execution.common.external.SessionAccess
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -46,22 +49,28 @@ class ScriptSubprocessMain : SubprocessMain() {
          * Serializes the script execute command into a byte array for subprocess communication.
          *
          * @param typedAsts All resolved typed ASTs keyed by file path.
+         * @param pluginAst Optional typed AST of all plugin-contributed functions.
          * @param metamodelData Optional metamodel data.
          * @param modelData Optional model data.
          * @param filePath Path of the main file.
          * @param methodName Method to invoke.
          * @param timeoutMs Execution timeout in milliseconds (0 = no timeout).
+         * @param sessionAccess How the subprocess may open sessions for external calls, or null.
          * @return JSON-encoded byte array.
          */
         fun serializeInput(
             typedAsts: Map<String, TypedAst>,
+            pluginAst: TypedPluginAst?,
             metamodelData: MetamodelData?,
             modelData: ModelData?,
             filePath: String,
             methodName: String,
-            timeoutMs: Long = 0L
+            timeoutMs: Long = 0L,
+            sessionAccess: SessionAccess? = null
         ): ByteArray {
-            val cmd = ScriptCommand.Execute(typedAsts, metamodelData, modelData, filePath, methodName, timeoutMs)
+            val cmd = ScriptCommand.Execute(
+                typedAsts, pluginAst, metamodelData, modelData, filePath, methodName, timeoutMs, sessionAccess
+            )
             return json.encodeToString<ScriptCommand>(cmd).toByteArray()
         }
 
@@ -86,7 +95,7 @@ class ScriptSubprocessMain : SubprocessMain() {
         if (cmd.timeoutMs > 0) registerTimeout(timeoutId, cmd.timeoutMs)
         try {
             val compiledProgram = ScriptCompiler().compile(
-                CompilationInput(cmd.typedAsts),
+                CompilationInput(cmd.typedAsts, cmd.pluginAst),
                 cmd.metamodelData
             )
 
@@ -98,8 +107,17 @@ class ScriptSubprocessMain : SubprocessMain() {
                 null
             }
 
-            val context = SimpleScriptContext(printStream, model)
-            val result = env.invoke(cmd.filePath, cmd.methodName, context)
+            val sessions = cmd.sessionAccess?.let { ExternalSessions(it) }
+            val result = try {
+                val context = if (sessions != null) {
+                    SimpleScriptContext(printStream, model, sessions.createDispatcher(compiledProgram))
+                } else {
+                    SimpleScriptContext(printStream, model)
+                }
+                env.invoke(cmd.filePath, cmd.methodName, context)
+            } finally {
+                sessions?.close()
+            }
 
             return json.encodeToString<ScriptResponse>(
                 ScriptResponse.ExecuteOk(
@@ -137,11 +155,13 @@ sealed class ScriptCommand {
     @SerialName("execute")
     data class Execute(
         val typedAsts: Map<String, TypedAst>,
+        val pluginAst: TypedPluginAst? = null,
         val metamodelData: MetamodelData?,
         val modelData: ModelData?,
         val filePath: String,
         val methodName: String,
-        val timeoutMs: Long = 0L
+        val timeoutMs: Long = 0L,
+        val sessionAccess: SessionAccess? = null
     ) : ScriptCommand()
 
     /**

@@ -1,0 +1,27 @@
+using "./deployment.mm"
+
+// Number of servers that run at least one component.
+fun usedServers(): int {
+    var used = 0
+    for (server in Server.all()) {
+        if (server.components.size() > 0) {
+            used = used + 1
+        }
+    }
+    return used
+}
+
+// How far the busiest server is loaded beyond its capacity.
+fun maxOverload(): int {
+    var worst = 0
+    for (server in Server.all()) {
+        var load = 0
+        for (component in server.components) {
+            load = load + component.load
+        }
+        if (load - server.capacity > worst) {
+            worst = load - server.capacity
+        }
+    }
+    return worst
+}

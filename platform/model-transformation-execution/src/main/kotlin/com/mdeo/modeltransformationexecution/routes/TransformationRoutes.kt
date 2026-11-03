@@ -1,11 +1,11 @@
 package com.mdeo.modeltransformationexecution.routes
 
+import com.mdeo.common.auth.Scopes
 import com.mdeo.execution.common.auth.*
 import com.mdeo.execution.common.routes.*
 import com.mdeo.execution.common.routes.ErrorResponses.respondBadRequest
 import com.mdeo.execution.common.routes.ErrorResponses.respondInternalError
 import com.mdeo.execution.common.routes.RouteUtils.getUuidParam
-import com.mdeo.execution.common.service.ExecutionScopes
 import com.mdeo.modeltransformationexecution.service.TransformationExecutionService
 import io.ktor.http.*
 import io.ktor.server.application.*
@@ -38,7 +38,7 @@ fun Route.transformationRoutes(executionService: TransformationExecutionService)
  */
 private fun Route.createExecutionRoute(executionService: TransformationExecutionService) {
     post {
-        val authResult = call.requireScope(ExecutionScopes.EXECUTION_WRITE)
+        val authResult = call.requireScope(Scopes.PLUGIN_EXECUTION_START)
         if (authResult is AuthorizationResult.Denied) {
             call.respondAuthError(authResult)
             return@post

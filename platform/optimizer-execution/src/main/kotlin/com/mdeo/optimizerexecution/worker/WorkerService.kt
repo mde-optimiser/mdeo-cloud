@@ -1,6 +1,8 @@
 package com.mdeo.optimizerexecution.worker
 
 import com.mdeo.common.model.ExecutionState
+import com.mdeo.common.transport.SessionClient
+import com.mdeo.execution.common.external.SessionAccess
 import com.mdeo.execution.common.subprocess.SubprocessPool
 import com.mdeo.execution.common.subprocess.SubprocessResult
 import com.mdeo.execution.common.subprocess.SubprocessRunner
@@ -50,6 +52,9 @@ import kotlin.uuid.toKotlinUuid
  * @param subprocessPool Pool of reusable subprocess runners. Completed executions return
  *        their subprocesses to the pool (after a protocol-level reset) instead of destroying
  *        them, amortising JVM startup and class-loading costs across executions.
+ * @param backendApiUrl Backend the subprocesses ask for sessions to external functions; without
+ *        it they cannot make external calls.
+ * @param sessionConnectTimeoutMillis How long dialling such a session may take.
  */
 @OptIn(ExperimentalSerializationApi::class)
 class WorkerService(
@@ -57,7 +62,9 @@ class WorkerService(
     private val scriptTimeoutMs: Long,
     private val transformationTimeoutMs: Long,
     private val serverPort: Int = 0,
-    private val subprocessPool: SubprocessPool = buildDefaultPool()
+    private val subprocessPool: SubprocessPool = buildDefaultPool(),
+    private val backendApiUrl: String? = null,
+    private val sessionConnectTimeoutMillis: Long = SessionClient.DEFAULT_CONNECT_TIMEOUT_MILLIS
 ) {
 
     /**
@@ -157,6 +164,8 @@ class WorkerService(
             initialModelData = request.initialModelData,
             transformationAstJsons = request.transformationAstJsons,
             scriptAstJsons = request.scriptAstJsons,
+            pluginAstJson = request.pluginAstJson,
+            sessionAccess = sessionAccess(request),
             goalConfig = request.goalConfig,
             solverConfig = request.solverConfig,
             initialSolutionCount = request.initialSolutionCount,
@@ -166,7 +175,9 @@ class WorkerService(
             scriptTimeoutMs = effectiveScriptTimeoutMs,
             transformationTimeoutMs = effectiveTransformationTimeoutMs,
             workerThreads = effectiveThreads,
-            graphBackendType = request.graphBackendType
+            graphBackendType = request.graphBackendType,
+            mutationOperators = request.mutationOperators,
+            crossoverOperators = request.crossoverOperators
         )
 
         val setupResult = withContext(dispatcher) {
@@ -488,6 +499,17 @@ class WorkerService(
         runner.onProcessExited = {
             localChannelPending.values.forEach { it.completeExceptionally(RuntimeException("Subprocess exited")) }
         }
+    }
+
+    /**
+     * How the subprocess of [request] may open sessions for external calls, or null when the run
+     * makes none (the orchestrator then withholds the run token) or this node has no backend URL.
+     */
+    private fun sessionAccess(request: WorkerAllocationRequest): SessionAccess? {
+        val url = backendApiUrl ?: return null
+        val projectId = request.projectId ?: return null
+        val runToken = request.runToken ?: return null
+        return SessionAccess(url, projectId, runToken, sessionConnectTimeoutMillis)
     }
 
     /**

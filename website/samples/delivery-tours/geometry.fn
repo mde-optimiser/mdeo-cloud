@@ -1,0 +1,14 @@
+// Records and functions the other files of this project import.
+
+// A location on the map, in kilometres. `y` can be left out.
+record Point(x: double, y: double = 0.0)
+
+// A place a tour visits, and how many minutes the delivery takes there.
+record Stop(name: string, location: Point, minutes: int = 15)
+
+// Straight-line distance between two points.
+fun distance(a: Point, b: Point): double {
+    val dx = b.x - a.x
+    val dy = b.y - a.y
+    return (dx * dx + dy * dy).sqrt()
+}

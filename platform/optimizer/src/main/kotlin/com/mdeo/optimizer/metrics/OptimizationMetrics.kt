@@ -12,6 +12,7 @@ package com.mdeo.optimizer.metrics
  * @param rebalancedSolutions Total number of solutions moved between nodes this generation.
  * @param iterationTimeMs Wall-clock time for this generation in milliseconds.
  * @param perNode Per-node breakdown of models and transformations.
+ * @param crossover Crossovers of this generation (all zero with `variation = mutation`).
  */
 data class GenerationMetrics(
     val generation: Int,
@@ -20,7 +21,30 @@ data class GenerationMetrics(
     val skippedOperatorSlots: Int,
     val rebalancedSolutions: Int,
     val iterationTimeMs: Long,
-    val perNode: Map<String, NodeGenerationMetrics>
+    val perNode: Map<String, NodeGenerationMetrics>,
+    val crossover: CrossoverGenerationMetrics = CrossoverGenerationMetrics()
+)
+
+/**
+ * Crossovers of one generation, counted per child: every child of a group that attempts a
+ * crossover runs one crossover of its own.
+ *
+ * [executedTransformations][GenerationMetrics.executedTransformations] counts mutation attempts
+ * only; crossover operators are counted here.
+ *
+ * @param attempted Children that attempted a crossover.
+ * @param succeeded Children to which some crossover operator applied.
+ * @param fellBack Children whose crossover operators all failed, so that they started as a copy
+ *   of their primary parent.
+ * @param perOperator Children each crossover operator applied to, by operator id (crossover id
+ *   space, see [com.mdeo.optimizer.operators.OperatorCatalog]); operators that never applied are
+ *   absent.
+ */
+data class CrossoverGenerationMetrics(
+    val attempted: Int = 0,
+    val succeeded: Int = 0,
+    val fellBack: Int = 0,
+    val perOperator: Map<Int, Int> = emptyMap()
 )
 
 /**

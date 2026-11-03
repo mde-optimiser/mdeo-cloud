@@ -15,7 +15,24 @@ import java.util.concurrent.ThreadLocalRandom
  */
 abstract class AbstractCollection<T, C : MutableCollection<T>>(
     protected val backing: C
-) : Collection<T> {
+) : Collection<T>, HeapCollection {
+
+    /**
+     * Mutation counter, see [HeapCollection.heapVersion].
+     */
+    @JvmField
+    internal var version: Long = 0
+
+    override val heapVersion: Long get() = version
+
+    override fun heapSnapshot(): List<Any?> = ArrayList<Any?>(backing)
+
+    @Suppress("UNCHECKED_CAST")
+    override fun heapReplace(elements: List<Any?>) {
+        version++
+        backing.clear()
+        backing.addAll(elements as List<T>)
+    }
 
     override fun iterator(): Iterator<T> = backing.iterator()
 
@@ -379,9 +396,13 @@ abstract class AbstractCollection<T, C : MutableCollection<T>>(
 
     override fun firstOrNull(): T? = backing.firstOrNull()
 
-    override fun add(item: T): Boolean = backing.add(item)
+    override fun add(item: T): Boolean {
+        version++
+        return backing.add(item)
+    }
 
     override fun addAll(col: ReadonlyCollection<T>): Boolean {
+        version++
         var modified = false
         for (element in col) {
             if (backing.add(element)) {
@@ -392,12 +413,17 @@ abstract class AbstractCollection<T, C : MutableCollection<T>>(
     }
 
     override fun clear() {
+        version++
         backing.clear()
     }
 
-    override fun remove(item: T): Boolean = backing.remove(item)
+    override fun remove(item: T): Boolean {
+        version++
+        return backing.remove(item)
+    }
 
     override fun removeAll(col: ReadonlyCollection<T>): Boolean {
+        version++
         var modified = false
         for (element in col) {
             if (backing.remove(element)) {

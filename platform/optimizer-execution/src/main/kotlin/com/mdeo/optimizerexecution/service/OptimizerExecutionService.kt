@@ -23,7 +23,10 @@ import com.mdeo.optimizer.moea.SearchResult
 import com.mdeo.optimizer.moea.SolutionResult
 import com.mdeo.optimizer.moea.getWorkerRef
 import com.mdeo.optimizer.metrics.OptimizationMetricsCollector
+import com.mdeo.optimizer.operators.OperatorCatalog
+import com.mdeo.optimizer.rulegen.GenerationResult
 import com.mdeo.optimizer.rulegen.MutationRuleGenerator
+import com.mdeo.optimizer.rulegen.Preparation
 import com.mdeo.optimizer.worker.WorkerAllocationRequest
 import com.mdeo.optimizerexecution.config.AppConfig
 import com.mdeo.optimizerexecution.database.OptimizerExecutionsTable
@@ -34,6 +37,9 @@ import com.mdeo.optimizerexecution.worker.RemoteWorkerClient
 import com.mdeo.optimizerexecution.worker.WorkerClient
 import com.mdeo.optimizerexecution.worker.WorkerService
 import com.mdeo.script.ast.TypedAst as ScriptTypedAst
+import com.mdeo.script.ast.TypedPluginAst as ScriptTypedPluginAst
+import com.mdeo.execution.common.external.ExternalSessions
+import com.mdeo.execution.common.external.SessionAccess
 import com.mdeo.script.ast.expressions.TypedExpressionSerializer as ScriptExpressionSerializer
 import com.mdeo.script.ast.statements.TypedStatementSerializer
 import com.mdeo.metamodel.Model
@@ -57,10 +63,6 @@ import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.jetbrains.exposed.v1.jdbc.update
 import com.mdeo.optimizer.moea.SolutionSnapshot
 import org.moeaframework.core.Solution
-import org.moeaframework.core.indicator.Normalizer
-import org.moeaframework.core.indicator.WFGNormalizedHypervolume
-import org.moeaframework.core.population.NondominatedPopulation
-import com.mdeo.optimizer.moea.DelegatingProblem
 import org.slf4j.LoggerFactory
 import java.time.Instant
 import java.util.*
@@ -141,6 +143,7 @@ class OptimizerExecutionService(
          * Directory prefix for auto-generated mutation transformation files.
          */
         private const val GENERATED_MUTATIONS_DIR = "generated-mutations"
+        private const val GENERATION_WARNINGS_FILE = "warnings.md"
         /**
          * File path for the markdown summary stored alongside solution files. 
          */
@@ -351,31 +354,36 @@ class OptimizerExecutionService(
         val modelData = fetchModelData(executionId, projectId, config.problem.modelPath, jwtToken)
             ?: return
 
+        val crossoverRefs = crossoverOperatorRefs(config)
+        val operatorPaths = (config.search.mutations.operators + crossoverRefs).map { it.path }.distinct()
         updateState(
             executionId, ExecutionState.INITIALIZING,
-            "Fetching ${config.search.mutations.usingPaths.size} transformation(s)...", jwtToken
+            "Fetching ${operatorPaths.size} transformation(s)...", jwtToken
         )
         val fetchedTransformations = fetchAllTransformations(
-            executionId, projectId, config.search.mutations.usingPaths, jwtToken
+            executionId, projectId, operatorPaths, jwtToken
         ) ?: return
 
         val generatedMutations = LinkedHashMap<String, TransformationTypedAst>()
+        var generationWarnings = emptyList<String>()
         val transformations: Map<String, TransformationTypedAst> =
             if (config.search.mutations.generate.isNotEmpty()) {
-                val generated = MutationRuleGenerator.generate(
-                    metamodelData = metamodelData,
-                    specs = config.search.mutations.generate
-                )
+                val generated = generateMutations(executionId, config, metamodelData, modelData, jwtToken)
+                    ?: return
+                generationWarnings = generated.warnings
+                generated.warnings.forEach { logger.warn("Mutation generation: {}", it) }
                 logger.info(
                     "Auto-generated {} mutation rule(s) from {} spec(s)",
-                    generated.size, config.search.mutations.generate.size
+                    generated.mutations.size, config.search.mutations.generate.size
                 )
                 updateState(
                     executionId, ExecutionState.INITIALIZING,
-                    "Auto-generated ${generated.size} mutation rule(s)...", jwtToken
+                    "Auto-generated ${generated.mutations.size} mutation rule(s)" +
+                        (if (generated.warnings.isEmpty()) "" else ", ${generated.warnings.size} warning(s)") + "...",
+                    jwtToken
                 )
                 val merged = LinkedHashMap<String, TransformationTypedAst>()
-                generated.forEach { m ->
+                generated.mutations.forEach { m ->
                     generatedMutations[m.name] = m.typedAst
                     merged[m.name] = m.typedAst
                 }
@@ -385,6 +393,14 @@ class OptimizerExecutionService(
                 fetchedTransformations
             }
 
+        val mutationRefs = generatedMutations.keys.map { OperatorRef(it) } + config.search.mutations.operators
+        val operatorProblem = checkOperators(config, mutationRefs, crossoverRefs, transformations)
+        if (operatorProblem != null) {
+            storeError(executionId, operatorProblem)
+            updateState(executionId, ExecutionState.FAILED, operatorProblem, jwtToken)
+            return
+        }
+
         val scriptPaths = collectScriptPaths(config.goal)
         updateState(
             executionId, ExecutionState.INITIALIZING,
@@ -392,18 +408,68 @@ class OptimizerExecutionService(
         )
         val scriptAsts = fetchAllScripts(executionId, projectId, scriptPaths, jwtToken)
             ?: return
+        val pluginAst = apiClient.getPluginAst(projectId.toString(), jwtToken)
+        val sessionAccess = SessionAccess(apiClient.backendBaseUrl, projectId.toString(), jwtToken)
+        val sessionProblem = ExternalSessions(sessionAccess).use { it.findProblem(pluginAst) }
+        if (sessionProblem != null) {
+            storeError(executionId, sessionProblem)
+            updateState(executionId, ExecutionState.FAILED, sessionProblem, jwtToken)
+            return
+        }
 
         val federated = createFederatedEvaluator(
             executionId, config, metamodelData, modelData,
-            transformations, scriptAsts
+            transformations, mutationRefs, crossoverRefs, scriptAsts, pluginAst, projectId, jwtToken
         )
         updateState(
             executionId, ExecutionState.RUNNING,
             "Running federated ${config.solver.algorithm} optimizer across ${federated.workerCount} nodes...",
             jwtToken
         )
-        runWithEvaluator(executionId, config, metamodel, federated, generatedMutations, jwtToken)
+        runWithEvaluator(
+            executionId, config, metamodel, federated, generatedMutations, generationWarnings,
+            RunOperators(OperatorCatalog.sorted(mutationRefs), OperatorCatalog.sorted(crossoverRefs)), jwtToken
+        )
     }
+
+    /**
+     * The crossover operators the run uses: those of `search.crossovers` with
+     * `variation = genetic`, none otherwise (an unused `crossovers` block is not even loaded).
+     */
+    private fun crossoverOperatorRefs(config: OptimizationConfig): List<OperatorRef> =
+        if (config.solver.parameters.variation == VariationType.GENETIC) config.search.crossovers.operators else emptyList()
+
+    /**
+     * Checks the operators against their transformations before any worker is started, the way
+     * every worker will build them ([OperatorCatalog]): mutation operators have no model inputs,
+     * crossover operators are crossover operators accepting `crossover.parents`, and every
+     * required non-model input is set by the operator's arguments.
+     *
+     * @return A message describing the first problem, or `null` when the operators are fine.
+     */
+    private fun checkOperators(
+        config: OptimizationConfig,
+        mutationRefs: List<OperatorRef>,
+        crossoverRefs: List<OperatorRef>,
+        transformations: Map<String, TransformationTypedAst>
+    ): String? = try {
+        OperatorCatalog.mutationOperators(mutationRefs, transformations)
+        OperatorCatalog.crossoverOperators(crossoverRefs, transformations, config.solver.parameters.crossover.parents)
+        null
+    } catch (e: IllegalArgumentException) {
+        e.message ?: "Invalid operator configuration"
+    }
+
+    /**
+     * The operators of a run in id order, for result files.
+     *
+     * @param mutations The mutation operators (generated ones by rule name); index = id.
+     * @param crossovers The crossover operators; index = id (their own id space).
+     */
+    private data class RunOperators(
+        val mutations: List<OperatorRef>,
+        val crossovers: List<OperatorRef>
+    )
 
     /**
      * Runs the optimization using the supplied [MutationEvaluator].
@@ -427,6 +493,8 @@ class OptimizerExecutionService(
         metamodel: Metamodel,
         evaluator: MutationEvaluator,
         generatedMutations: Map<String, TransformationTypedAst>,
+        generationWarnings: List<String>,
+        operators: RunOperators,
         jwtToken: String
     ) {
         val orchestrator = OptimizationOrchestrator(config = config, evaluator = evaluator)
@@ -489,7 +557,7 @@ class OptimizerExecutionService(
                 return
             }
 
-            storeResults(executionId, config, batchResults, generatedMutations, evaluator)
+            storeResults(executionId, config, batchResults, generatedMutations, generationWarnings, operators, evaluator)
             updateState(executionId, ExecutionState.COMPLETED, "Completed successfully", jwtToken)
             logger.info("Optimizer execution $executionId completed")
         } finally {
@@ -544,7 +612,12 @@ class OptimizerExecutionService(
      * @param metamodelData The metamodel data to send to workers.
      * @param modelData The initial model data to send to workers.
      * @param transformations Map of transformation path to typed AST.
+     * @param mutationRefs The mutation operators (generated ones by rule name).
+     * @param crossoverRefs The crossover operators.
      * @param scriptAsts Map of script path to typed AST.
+     * @param pluginAst Typed AST of all plugin-contributed script functions, or `null`.
+     * @param projectId Project that owns the execution.
+     * @param jwtToken Run token, forwarded to workers only when the run makes external calls.
      * @return A [FederatedMutationEvaluator] ready for use.
      */
     private suspend fun createFederatedEvaluator(
@@ -553,7 +626,12 @@ class OptimizerExecutionService(
         metamodelData: MetamodelData,
         modelData: ModelData,
         transformations: Map<String, TransformationTypedAst>,
-        scriptAsts: Map<String, ScriptTypedAst>
+        mutationRefs: List<OperatorRef>,
+        crossoverRefs: List<OperatorRef>,
+        scriptAsts: Map<String, ScriptTypedAst>,
+        pluginAst: ScriptTypedPluginAst?,
+        projectId: UUID,
+        jwtToken: String
     ): FederatedMutationEvaluator {
         val resources = config.runtime.resources
         val requiredBackend = config.runtime.backend ?: GraphBackendType.MDEO
@@ -561,7 +639,8 @@ class OptimizerExecutionService(
         val workers = workerAndBudgets.map { it.first }
         val workerThreadBudgets = workerAndBudgets.associate { (client, budget) -> client.nodeId to budget }
         val allocationRequest = buildAllocationRequest(
-            executionId, config, metamodelData, modelData, transformations, scriptAsts,
+            executionId, config, metamodelData, modelData, transformations, mutationRefs, crossoverRefs,
+            scriptAsts, pluginAst, projectId, jwtToken
         )
         return FederatedMutationEvaluator(executionId.toString(), workers, allocationRequest, workerThreadBudgets)
     }
@@ -578,7 +657,12 @@ class OptimizerExecutionService(
      * @param metamodelData The metamodel data.
      * @param modelData The initial model data.
      * @param transformations Map of transformation path to typed AST.
+     * @param mutationRefs The mutation operators (generated ones by rule name).
+     * @param crossoverRefs The crossover operators.
      * @param scriptAsts Map of script path to typed AST.
+     * @param pluginAst Typed AST of all plugin-contributed script functions, or `null`.
+     * @param projectId Project that owns the execution.
+     * @param jwtToken Run token, forwarded to workers only when the run makes external calls.
      * @return A fully populated [WorkerAllocationRequest].
      */
     private fun buildAllocationRequest(
@@ -587,7 +671,12 @@ class OptimizerExecutionService(
         metamodelData: MetamodelData,
         modelData: ModelData,
         transformations: Map<String, TransformationTypedAst>,
+        mutationRefs: List<OperatorRef>,
+        crossoverRefs: List<OperatorRef>,
         scriptAsts: Map<String, ScriptTypedAst>,
+        pluginAst: ScriptTypedPluginAst?,
+        projectId: UUID,
+        jwtToken: String,
     ): WorkerAllocationRequest {
         val transformationAstJsons = transformations.mapValues { (_, ast) ->
             transformationJson.encodeToString(TransformationTypedAst.serializer(), ast)
@@ -595,18 +684,29 @@ class OptimizerExecutionService(
         val scriptAstJsons = scriptAsts.mapValues { (_, ast) ->
             scriptJson.encodeToString(ScriptTypedAst.serializer(), ast)
         }
+        val hasExternalCalls = pluginAst?.functions.orEmpty().any { f -> f.signatures.values.any { it.external != null } }
+        val pluginAstJson = pluginAst?.let {
+            scriptJson.encodeToString(ScriptTypedPluginAst.serializer(), it)
+        }
         return WorkerAllocationRequest(
             executionId = executionId.toString(),
             metamodelData = metamodelData,
             initialModelData = modelData,
             transformationAstJsons = transformationAstJsons,
             scriptAstJsons = scriptAstJsons,
+            pluginAstJson = pluginAstJson,
+            // Workers open sessions for external calls themselves, and need the run token to
+            // ask for them. A run without external calls does not hand its token to other nodes.
+            projectId = projectId.toString().takeIf { hasExternalCalls },
+            runToken = jwtToken.takeIf { hasExternalCalls },
             goalConfig = config.goal,
             solverConfig = config.solver,
             initialSolutionCount = config.solver.parameters.population,
             threadsPerNode = -1,
             graphBackendType = config.runtime.backend ?: GraphBackendType.MDEO,
-            timeout = config.runtime.timeout
+            timeout = config.runtime.timeout,
+            mutationOperators = mutationRefs,
+            crossoverOperators = crossoverRefs
         )
     }
 
@@ -731,6 +831,7 @@ class OptimizerExecutionService(
      * - `batch_{n}/report.json`
      * - `batch_{n}/solution_{i}.m_gen`
      * - `generated-mutations/{rule}.mt_gen` (for auto-generated mutations only)
+     * - `generated-mutations/warnings.md` (when generating them raised warnings)
      *
      * Special case: when there is exactly one batch and no auto-generated mutations,
      * this service flattens the output and stores `report.json` plus `solution_{i}.m_gen`
@@ -741,12 +842,14 @@ class OptimizerExecutionService(
         config: OptimizationConfig,
         batchResults: List<BatchResultArtifacts>,
         generatedMutations: Map<String, TransformationTypedAst>,
+        generationWarnings: List<String>,
+        operators: RunOperators,
         evaluator: MutationEvaluator
     ) {
         val backend = config.runtime.backend ?: GraphBackendType.MDEO
         val nodeThreadCounts = (evaluator as? FederatedMutationEvaluator)?.getWorkerThreadCounts() ?: emptyMap()
         val flattenSingleBatchOutput = batchResults.size == 1 && generatedMutations.isEmpty()
-        val summaryContent = buildResultSummary(batchResults, nodeThreadCounts, backend, flattenSingleBatchOutput)
+        val summaryContent = buildResultSummary(batchResults, nodeThreadCounts, backend, flattenSingleBatchOutput, operators)
 
         transaction {
             OptimizerResultFilesTable.insert {
@@ -763,7 +866,7 @@ class OptimizerExecutionService(
                 } else {
                     "batch_${batch.batchIndex}/$REPORT_FILE"
                 }
-                val reportContent = buildJsonReport(batch, flattenSingleBatchOutput)
+                val reportContent = buildJsonReport(batch, flattenSingleBatchOutput, operators)
                 OptimizerResultFilesTable.insert {
                     it[id] = Uuid.random()
                     it[OptimizerResultFilesTable.executionId] = executionId.toKotlinUuid()
@@ -802,6 +905,16 @@ class OptimizerExecutionService(
                     it[mimeType] = MIME_TYPE_JSON
                 }
             }
+
+            GenerationResult(emptyList(), generationWarnings).warningsReport()?.let { report ->
+                OptimizerResultFilesTable.insert {
+                    it[id] = Uuid.random()
+                    it[OptimizerResultFilesTable.executionId] = executionId.toKotlinUuid()
+                    it[filePath] = "$GENERATED_MUTATIONS_DIR/$GENERATION_WARNINGS_FILE"
+                    it[content] = report
+                    it[mimeType] = MIME_TYPE_MARKDOWN
+                }
+            }
         }
     }
 
@@ -813,6 +926,31 @@ class OptimizerExecutionService(
         return sanitized.ifBlank { "mutation" }
     }
 
+
+    /**
+     * Generates the mutation operators the config asks for, against the metamodel with the goal's
+     * refinements applied. Fails the execution when a spec or refinement is invalid, or when the
+     * initial model violates a refinement: the operators only keep bounds a model already has.
+     *
+     * @return The generated operators, or `null` when the execution was failed.
+     */
+    private suspend fun generateMutations(
+        executionId: UUID,
+        config: OptimizationConfig,
+        metamodelData: MetamodelData,
+        modelData: ModelData,
+        jwtToken: String
+    ): GenerationResult? {
+        val failure = when (val preparation = MutationRuleGenerator.prepare(
+            metamodelData, config.search.mutations.generate, config.goal.refinements, modelData
+        )) {
+            is Preparation.Ready -> return preparation.result
+            is Preparation.Rejected -> preparation.reason
+        }
+        storeError(executionId, failure)
+        updateState(executionId, ExecutionState.FAILED, failure, jwtToken)
+        return null
+    }
 
     /**
      * Fetches metamodel data from the backend API.
@@ -864,21 +1002,21 @@ class OptimizerExecutionService(
      *
      * @param executionId Execution to update on failure.
      * @param projectId Project context.
-     * @param usingPaths Ordered list of transformation file paths to fetch.
+     * @param paths Ordered list of transformation file paths to fetch, each once.
      * @param jwtToken Authentication token.
      * @return Map from path to typed AST, or `null` if any fetch failed.
      */
     private suspend fun fetchAllTransformations(
         executionId: UUID,
         projectId: UUID,
-        usingPaths: List<String>,
+        paths: List<String>,
         jwtToken: String
     ): Map<String, TransformationTypedAst>? {
         val result = mutableMapOf<String, TransformationTypedAst>()
-        for (path in usingPaths) {
+        for (path in paths) {
             val ast = apiClient.getTransformationTypedAst(projectId.toString(), path, jwtToken)
             if (ast == null) {
-                val msg = "Failed to fetch transformation: $path"
+                val msg = "Could not load transformation $path: it is missing or has errors"
                 storeError(executionId, msg)
                 updateState(executionId, ExecutionState.FAILED, msg, jwtToken)
                 return null
@@ -889,10 +1027,10 @@ class OptimizerExecutionService(
     }
 
     /**
-     * Fetches all script typed ASTs for the given paths from the backend API,
-     * including transitive dependencies discovered via each AST's [imports] field.
-     * Uses BFS traversal to handle arbitrarily deep import chains while avoiding
-     * duplicate fetches and infinite loops from circular imports.
+     * Fetches the typed ASTs of the given scripts and of every file they import, one request per
+     * script. A script already contained in an earlier answer is not asked for again.
+     *
+     * The ASTs are keyed by absolute path, the form the optimization config names scripts by.
      *
      * Fails fast: returns null and sets execution state to FAILED if any path cannot be resolved.
      *
@@ -910,26 +1048,16 @@ class OptimizerExecutionService(
         jwtToken: String
     ): Map<String, ScriptTypedAst>? {
         val result = mutableMapOf<String, ScriptTypedAst>()
-        val visited = mutableSetOf<String>()
-        val pending = mutableSetOf<String>().also { it.addAll(scriptPaths) }
-        while (pending.isNotEmpty()) {
-            val path = pending.first()
-            pending.remove(path)
-            if (visited.contains(path)) continue
-            visited.add(path)
-            val ast = apiClient.getScriptTypedAst(projectId.toString(), path, jwtToken)
-            if (ast == null) {
-                val msg = "Failed to fetch script: $path"
+        for (path in scriptPaths) {
+            if (path in result) continue
+            val closure = apiClient.getTypedAstClosure(projectId.toString(), path, jwtToken)
+            if (closure == null) {
+                val msg = "Could not load script $path or a file it imports: one is missing or has errors"
                 storeError(executionId, msg)
                 updateState(executionId, ExecutionState.FAILED, msg, jwtToken)
                 return null
             }
-            result[path] = ast
-            for (import in ast.imports) {
-                if (!visited.contains(import.uri) && !pending.contains(import.uri)) {
-                    pending.add(import.uri)
-                }
-            }
+            result.putAll(closure)
         }
         return result
     }
@@ -957,13 +1085,15 @@ class OptimizerExecutionService(
      * @param metricsCollector Collected per-generation performance metrics.
      * @param nodeThreadCounts Map from node ID to the number of threads allocated on that node.
      * @param backend The graph backend used during optimization.
+     * @param operators The run's mutation and crossover operators, listed separately.
      * @return Markdown-formatted summary string.
      */
     private fun buildResultSummary(
         batchResults: List<BatchResultArtifacts>,
         nodeThreadCounts: Map<String, Int>,
         backend: GraphBackendType,
-        flattenSingleBatchOutput: Boolean
+        flattenSingleBatchOutput: Boolean,
+        operators: RunOperators
     ): String {
         return buildString {
             append("## Optimization Results\n\n")
@@ -977,6 +1107,8 @@ class OptimizerExecutionService(
                     append("- **Node $nodeId:** $threads thread${if (threads == 1) { "" } else { "s" }}\n")
                 }
             append("\n")
+
+            append(buildOperatorsSummary(operators))
 
             batchResults.sortedBy { it.batchIndex }.forEach { batch ->
                 append("\n### Batch ${batch.batchIndex}\n\n")
@@ -1008,8 +1140,27 @@ class OptimizerExecutionService(
                     append("\n")
                 }
 
-                append(buildMetricsSummary(batch.metrics, batch.paretoFrontHistory))
+                append(buildMetricsSummary(batch.metrics, batch.paretoFrontHistory, operators))
             }
+        }
+    }
+
+    /**
+     * Lists the run's operators with their arguments, mutation and crossover operators
+     * separately, each in id order.
+     */
+    private fun buildOperatorsSummary(operators: RunOperators): String = buildString {
+        append("\n### Operators\n\n")
+        append("#### Mutation Operators\n\n")
+        if (operators.mutations.isEmpty()) {
+            append("None\n")
+        }
+        operators.mutations.forEach { append("- ${it.label}\n") }
+        append("\n")
+        if (operators.crossovers.isNotEmpty()) {
+            append("#### Crossover Operators\n\n")
+            operators.crossovers.forEach { append("- ${it.label}\n") }
+            append("\n")
         }
     }
 
@@ -1018,7 +1169,8 @@ class OptimizerExecutionService(
      */
     private fun buildMetricsSummary(
         metricsCollector: OptimizationMetricsCollector,
-        paretoFrontHistory: List<List<SolutionSnapshot>>
+        paretoFrontHistory: List<List<SolutionSnapshot>>,
+        operators: RunOperators
     ): String {
         val generations = metricsCollector.generations
         if (generations.isEmpty()) {
@@ -1047,7 +1199,33 @@ class OptimizerExecutionService(
                 stackedBars = true
             ))
 
-            val hypervolumeValues = computeHypervolumeByGeneration(paretoFrontHistory)
+            if (operators.crossovers.isNotEmpty()) {
+                val xs = generations.map { it.generation }
+                append("##### Crossovers per Generation\n\n")
+                append(buildPlotBlock(
+                    xTitle = "Generation",
+                    yTitle = "Children",
+                    traces = listOf(
+                        PlotTrace("Succeeded", xs, generations.map { it.crossover.succeeded }),
+                        PlotTrace("Fell back to copy", xs, generations.map { it.crossover.fellBack })
+                    ),
+                    stackedBars = true
+                ))
+
+                append("##### Crossover Operator Successes\n\n")
+                append(buildPlotBlock(
+                    xTitle = "Generation",
+                    yTitle = "Children",
+                    traces = operators.crossovers.mapIndexed { id, ref ->
+                        // two entries of one file with the same arguments share a label; the id tells them apart
+                        val name = if (operators.crossovers.count { it.label == ref.label } > 1) "${ref.label} #$id" else ref.label
+                        PlotTrace(jsonText(name), xs, generations.map { it.crossover.perOperator[id] ?: 0 })
+                    },
+                    stackedBars = true
+                ))
+            }
+
+            val hypervolumeValues = ParetoFrontHistoryMetrics.hypervolumeByGeneration(paretoFrontHistory)?.values.orEmpty()
             if (hypervolumeValues.isNotEmpty()) {
                 append("##### Hypervolume (Feasible Solutions)\n\n")
                 append(buildPlotBlock(
@@ -1059,7 +1237,7 @@ class OptimizerExecutionService(
                 ))
             }
 
-            val constraintViolations = computeMinConstraintViolationByGeneration(paretoFrontHistory)
+            val constraintViolations = ParetoFrontHistoryMetrics.minConstraintViolationByGeneration(paretoFrontHistory)
             if (constraintViolations.isNotEmpty()) {
                 append("##### Best Constraint Violation\n\n")
                 append(buildPlotBlock(
@@ -1120,10 +1298,20 @@ class OptimizerExecutionService(
         }
     }
 
-    private fun buildJsonReport(batch: BatchResultArtifacts, flattenSingleBatchOutput: Boolean): String {
+    private fun buildJsonReport(
+        batch: BatchResultArtifacts,
+        flattenSingleBatchOutput: Boolean,
+        operators: RunOperators
+    ): String {
+        val hypervolume = ParetoFrontHistoryMetrics.hypervolumeByGeneration(batch.paretoFrontHistory)
+        val constraintViolations = ParetoFrontHistoryMetrics.minConstraintViolationByGeneration(batch.paretoFrontHistory)
         val report = buildJsonObject {
             put("batch", batch.batchIndex)
             put("durationMs", batch.durationMs)
+            putJsonObject("operators") {
+                putJsonArray("mutations") { operators.mutations.forEachIndexed { id, ref -> add(operatorJson(id, ref)) } }
+                putJsonArray("crossovers") { operators.crossovers.forEachIndexed { id, ref -> add(operatorJson(id, ref)) } }
+            }
             putJsonArray("paretoFront") {
                 batch.solutions.forEachIndexed { index, sol ->
                     addJsonObject {
@@ -1134,15 +1322,37 @@ class OptimizerExecutionService(
                 }
             }
             putJsonObject("graphData") {
+                // the normalisation of the generations' hypervolume (see ParetoFrontHistoryMetrics.hypervolumeByGeneration)
+                if (hypervolume != null) {
+                    putJsonObject("hypervolume") {
+                        put("indicator", "WFG normalised hypervolume of each generation's feasible Pareto front")
+                        putJsonArray("minimum") { hypervolume.minimum.forEach { add(it) } }
+                        putJsonArray("reference") { hypervolume.reference.forEach { add(it) } }
+                    }
+                }
                 putJsonArray("generations") {
-                    batch.metrics.generations.forEach { gen ->
+                    batch.metrics.generations.forEachIndexed { index, gen ->
                         addJsonObject {
                             put("generation", gen.generation)
+                            hypervolume?.values?.getOrNull(index)?.let { put("hypervolume", it) }
+                            constraintViolations.getOrNull(index)?.let { put("bestConstraintViolation", it) }
                             put("totalModels", gen.totalModels)
                             put("executedTransformations", gen.executedTransformations)
                             put("skippedOperatorSlots", gen.skippedOperatorSlots)
                             put("rebalancedSolutions", gen.rebalancedSolutions)
                             put("iterationTimeMs", gen.iterationTimeMs)
+                            if (operators.crossovers.isNotEmpty()) {
+                                putJsonObject("crossover") {
+                                    put("attempted", gen.crossover.attempted)
+                                    put("succeeded", gen.crossover.succeeded)
+                                    put("fellBack", gen.crossover.fellBack)
+                                    // keyed by crossover operator id (see "operators.crossovers" for the labels):
+                                    // labels are not unique when one file is listed twice with the same arguments
+                                    putJsonObject("perOperator") {
+                                        gen.crossover.perOperator.forEach { (id, count) -> put(id.toString(), count) }
+                                    }
+                                }
+                            }
                             putJsonObject("perNode") {
                                 gen.perNode.forEach { (nodeId, nodeMetrics) ->
                                     putJsonObject(nodeId) {
@@ -1161,102 +1371,21 @@ class OptimizerExecutionService(
     }
 
     /**
-     * Computes the normalised WFG hypervolume for each generation's Pareto front snapshot,
-     * considering **only feasible solutions** (all constraint violations equal to zero).
-     *
-     * Normalisation bounds are derived from the union of feasible solutions across ALL generations
-     * so that hypervolume values are comparable generation-to-generation. Objectives are already
-     * in MOEA-internal minimisation form.
-     *
-     * Generations with no feasible solutions return 0.0. If fewer than two feasible solutions
-     * exist across the entire run the list is returned empty (insufficient data for normalisation).
-     *
-     * @param paretoFrontHistory Per-generation snapshots from [SearchResult.getParetoFrontHistory].
-     * @return List of hypervolume values in generation order; empty when computation is not possible.
+     * One operator of the report: its id (in its kind's id space), label, path and arguments.
      */
-    private fun computeHypervolumeByGeneration(
-        paretoFrontHistory: List<List<SolutionSnapshot>>
-    ): List<Double> {
-        // Only use feasible solutions (all constraints exactly 0 within tolerance)
-        val isFeasible: (SolutionSnapshot) -> Boolean = { snap ->
-            snap.constraints.all { kotlin.math.abs(it) < 1e-10 }
-        }
-
-        val allFeasiblePoints = paretoFrontHistory.flatMap { gen -> gen.filter(isFeasible).map { it.objectives } }
-        if (allFeasiblePoints.size < 2) return emptyList()
-
-        val nObj = allFeasiblePoints.first().size
-        if (nObj == 0) return emptyList()
-
-        val minimum = DoubleArray(nObj) { i -> allFeasiblePoints.minOf { it[i] } }
-        val maximum = DoubleArray(nObj) { i -> allFeasiblePoints.maxOf { it[i] } }
-
-        // Ensure no degenerate objective range
-        for (i in 0 until nObj) {
-            if (maximum[i] - minimum[i] < 1e-10) {
-                maximum[i] = minimum[i] + 1.0
-            }
-        }
-
-        val problem = DelegatingProblem(numberOfObjectives = nObj, numberOfConstraints = 0)
-        // Reference point sits 10% beyond the worst feasible value found across all generations
-        val delta = 0.1
-        val referenceMaximum = DoubleArray(nObj) { i -> maximum[i] + delta * (maximum[i] - minimum[i]) }
-        val normalizer = Normalizer(minimum, referenceMaximum)
-        val hvIndicator = WFGNormalizedHypervolume(problem, normalizer)
-
-        return paretoFrontHistory.map { genSnapshot ->
-            val feasible = genSnapshot.filter(isFeasible)
-            if (feasible.isEmpty()) {
-                0.0
-            } else {
-                val population = NondominatedPopulation()
-                for (snap in feasible) {
-                    val solution = Solution(0, nObj, 0)
-                    for (i in 0 until nObj) {
-                        solution.setObjectiveValue(i, snap.objectives[i])
-                    }
-                    population.add(solution)
-                }
-                try {
-                    hvIndicator.evaluate(population)
-                } catch (_: Exception) {
-                    0.0
-                }
-            }
+    private fun operatorJson(id: Int, ref: OperatorRef): JsonObject = buildJsonObject {
+        put("id", id)
+        put("label", ref.label)
+        put("path", ref.path)
+        putJsonObject("arguments") {
+            ref.arguments.toSortedMap().forEach { (name, value) -> put(name, value.render()) }
         }
     }
 
     /**
-     * Computes the minimum total constraint violation across all Pareto front solutions
-     * for each generation. This represents the "best" feasibility achieved that generation:
-     * 0.0 means at least one fully feasible solution existed.
-     *
-     * Total violation for a solution is \u03a3 |constraint_i|. Generations with an empty
-     * snapshot return 0.0.
-     *
-     * Returns an empty list when the run has no constraint data at all (unconstrained problem).
-     *
-     * @param paretoFrontHistory Per-generation snapshots from [SearchResult.getParetoFrontHistory].
-     * @return List of minimum violation values in generation order; empty when unconstrained.
+     * [text] escaped for embedding inside a JSON string literal of a hand-built plot block.
      */
-    private fun computeMinConstraintViolationByGeneration(
-        paretoFrontHistory: List<List<SolutionSnapshot>>
-    ): List<Double> {
-        // Only emit this graph when the problem actually has constraints
-        val hasConstraints = paretoFrontHistory.any { gen -> gen.any { it.constraints.isNotEmpty() } }
-        if (!hasConstraints) return emptyList()
-
-        return paretoFrontHistory.map { genSnapshot ->
-            if (genSnapshot.isEmpty()) {
-                0.0
-            } else {
-                genSnapshot.minOf { snap ->
-                    snap.constraints.sumOf { kotlin.math.abs(it) }
-                }
-            }
-        }
-    }
+    private fun jsonText(text: String): String = JsonPrimitive(text).toString().removeSurrounding("\"")
 
     private fun solutionFilePath(batchIndex: Int, solutionIndex: Int, flattenSingleBatchOutput: Boolean): String {
         return if (flattenSingleBatchOutput) {
@@ -1327,8 +1456,23 @@ class OptimizerExecutionService(
         require(config.problem.metamodelPath.isNotBlank()) { "metamodelPath cannot be empty" }
         require(config.problem.modelPath.isNotBlank()) { "modelPath cannot be empty" }
         require(config.goal.objectives.isNotEmpty()) { "At least one objective is required" }
-        require(config.search.mutations.usingPaths.isNotEmpty() || config.search.mutations.generate.isNotEmpty()) {
-            "At least one mutation source is required: specify usingPaths or generate in search.mutations"
+        require(config.search.mutations.operators.isNotEmpty() || config.search.mutations.generate.isNotEmpty()) {
+            "At least one mutation source is required: specify operators or generate in search.mutations"
+        }
+        val parameters = config.solver.parameters
+        if (parameters.variation == VariationType.GENETIC) {
+            require(config.solver.algorithm != AlgorithmType.PAES) {
+                "PAES only takes a mutation operator; variation = genetic is not supported with PAES"
+            }
+            require(config.search.crossovers.operators.isNotEmpty()) {
+                "variation = genetic requires at least one crossover operator in search.crossovers"
+            }
+            require(parameters.crossover.parents >= 2) {
+                "crossover.parents must be at least 2, not ${parameters.crossover.parents}"
+            }
+            require(parameters.crossover.rate in 0.0..1.0) {
+                "crossover.rate must be in [0, 1], not ${parameters.crossover.rate}"
+            }
         }
         require(!config.problem.metamodelPath.contains("..")) { "Path traversal not allowed" }
         require(!config.problem.modelPath.contains("..")) { "Path traversal not allowed" }

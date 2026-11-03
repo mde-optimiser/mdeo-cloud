@@ -1,9 +1,10 @@
 import type { AstReflection } from "@mdeo/language-common";
 import { TypedAstConverter, type TypedExpression } from "@mdeo/language-expression";
 import { AssociationResolver, type ResolvedAssociation } from "@mdeo/language-model";
-import { resolveRelativePath } from "@mdeo/language-shared";
-import type { LangiumDocument } from "langium";
+import { resolveRelativePath, sharedImport } from "@mdeo/language-shared";
+import type { LangiumDocument, LangiumDocuments } from "langium";
 import {
+    getCallee,
     expressionTypes,
     type ModelTransformationTypirServices,
     type ModelTransformationType,
@@ -29,12 +30,9 @@ import {
     type TypedStopStatement,
     type PatternType,
     type TypedPattern,
-    type TypedPatternVariableElement,
-    type TypedPatternVariableReassignmentElement,
     type TypedPatternObjectInstanceElement,
     type TypedPatternLinkElement,
     type TypedPatternWhereClauseElement,
-    type TypedPatternApplicationConditionElement,
     type TypedPatternApplicationCondition,
     type PatternApplicationConditionType,
     type PatternVariableType,
@@ -68,10 +66,44 @@ import {
     type PatternObjectInstanceReferenceType,
     PatternObjectInstanceReference,
     PatternApplicationCondition,
-    type PatternPropertyOperator
+    type PatternPropertyOperator,
+    CallStatement,
+    type CallStatementType,
+    type TypedCallStatement,
+    type TypedTransformationSignature,
+    TransformationDeclarationResolver,
+    PatternModelScope,
+    type PatternModelScopeType,
+    getModelShape,
+    IfCallStatement,
+    ForInStatement,
+    AssignmentStatement,
+    PatternCollectionAppend,
+    type IfCallStatementType,
+    type ForInStatementType,
+    type AssignmentStatementType,
+    type PatternCollectionAppendType,
+    type TypedIfCallStatement,
+    type TypedForInStatement,
+    type TypedAssignmentStatement,
+    type TypedPatternCollectionAppendElement,
+    type TransformationParameterType,
+    type TypedTransformationParameter
 } from "@mdeo/language-model-transformation";
 import { AssociationEnd, type AssociationEndType } from "@mdeo/language-metamodel";
 import type { AstNode } from "langium";
+
+const { AstUtils, UriUtils } = sharedImport("langium");
+
+/**
+ * The element of a typed pattern.
+ */
+type TypedPatternElementUnion = TypedPattern["elements"][number];
+
+/**
+ * The element of a typed application condition.
+ */
+type TypedConditionElementUnion = TypedPatternApplicationCondition["elements"][number];
 
 /**
  * Model Transformation-specific extension of ExpressionTypedAstConverter.
@@ -90,17 +122,25 @@ export class ModelTransformationTypedAstConverter extends TypedAstConverter {
     private readonly associationResolver: AssociationResolver;
 
     /**
+     * Resolver for the classes of parameters and call outputs.
+     */
+    private readonly declarations: TransformationDeclarationResolver;
+
+    /**
      * Creates a new ModelTransformationTypedAstConverter.
      *
      * @param typir The Typir services for type inference
      * @param reflection The AST reflection for type checking
+     * @param documents The Langium documents, for the metamodels of the transformations
      */
     constructor(
         protected override readonly typir: ModelTransformationTypirServices,
-        reflection: AstReflection
+        reflection: AstReflection,
+        documents: LangiumDocuments
     ) {
         super(typir, reflection);
         this.associationResolver = new AssociationResolver(reflection);
+        this.declarations = new TransformationDeclarationResolver(reflection, documents, () => typir.Inference);
     }
 
     /**
@@ -118,10 +158,158 @@ export class ModelTransformationTypedAstConverter extends TypedAstConverter {
             this.convertTransformationStatement(stmt)
         );
 
+        const signature = this.convertSignature(transformation, document);
+
         return {
             types: this.types,
             metamodelPath: resolveRelativePath(document, transformation.import.file).path,
-            statements
+            statements,
+            signature
+        };
+    }
+
+    /**
+     * Converts the header declarations into the signature, named after the file.
+     *
+     * @param transformation The ModelTransformation AST node
+     * @param document The document of the transformation
+     * @returns The TypedTransformationSignature representation
+     */
+    private convertSignature(
+        transformation: ModelTransformationType,
+        document: LangiumDocument
+    ): TypedTransformationSignature {
+        return {
+            name: UriUtils.basename(document.uri),
+            parameters: (transformation.parameters ?? []).map((parameter) => this.convertParameter(parameter))
+        };
+    }
+
+    /**
+     * Converts a header declaration.
+     *
+     * @param parameter The TransformationParameter AST node
+     * @returns The TypedTransformationParameter representation
+     */
+    private convertParameter(parameter: TransformationParameterType): TypedTransformationParameter {
+        const modelShape = getModelShape(this.reflection, parameter);
+        if (modelShape != undefined) {
+            return {
+                name: parameter.name,
+                direction: "in",
+                type: this.getTypeIndex(parameter.type),
+                isElement: false,
+                ...(modelShape === "list" ? { collection: "List" as const, elementsAreElements: false } : {}),
+                isModel: true
+            };
+        }
+        const shape = this.declarations.getCollectionShape(parameter);
+        const isNullable = (parameter.type as { isNullable?: boolean } | undefined)?.isNullable === true;
+        const optional = parameter.direction === "in" && parameter.defaultValue == undefined && isNullable;
+        const pinsNode = this.declarations.getPinnedObject(parameter) != undefined;
+        return {
+            name: parameter.name,
+            direction: parameter.direction === "out" ? "out" : "in",
+            type: this.getTypeIndex(parameter.type),
+            isElement: this.declarations.getParameterKind(parameter) === "element",
+            ...(parameter.defaultValue != undefined
+                ? { defaultValue: this.convertExpression(parameter.defaultValue) }
+                : {}),
+            ...(shape != undefined
+                ? { collection: shape.collection, elementsAreElements: shape.elementKind === "element" }
+                : {}),
+            ...(optional ? { optional: true } : {}),
+            ...(pinsNode ? { pinsNode: true } : {})
+        };
+    }
+
+    /**
+     * Converts an if-call statement.
+     *
+     * @param stmt The IfCallStatement AST node
+     * @returns The TypedIfCallStatement representation
+     */
+    private convertIfCallStatement(stmt: IfCallStatementType): TypedIfCallStatement {
+        return {
+            kind: "ifCall",
+            call: this.convertCallStatement(stmt.ifBlock.call),
+            thenBlock: stmt.ifBlock.thenBlock.statements.map((s) => this.convertTransformationStatement(s)),
+            elseBlock: stmt.elseBlock
+                ? stmt.elseBlock.statements.map((s) => this.convertTransformationStatement(s))
+                : undefined
+        };
+    }
+
+    /**
+     * Converts a for-in loop.
+     *
+     * @param stmt The ForInStatement AST node
+     * @returns The TypedForInStatement representation
+     */
+    private convertForInStatement(stmt: ForInStatementType): TypedForInStatement {
+        return {
+            kind: "forIn",
+            variable: stmt.variable.name,
+            collection: this.convertExpression(stmt.collection),
+            doBlock: stmt.doBlock.statements.map((s) => this.convertTransformationStatement(s))
+        };
+    }
+
+    /**
+     * Converts an assignment outside a pattern.
+     *
+     * @param stmt The AssignmentStatement AST node
+     * @returns The TypedAssignmentStatement representation
+     */
+    private convertAssignmentStatement(stmt: AssignmentStatementType): TypedAssignmentStatement {
+        return {
+            kind: "assignment",
+            name: stmt.variable?.$refText ?? "",
+            operator: stmt.operator === "+=" ? "+=" : "=",
+            value: this.convertExpression(stmt.value)
+        };
+    }
+
+    /**
+     * Converts an addition to a collection inside a pattern.
+     *
+     * @param element The PatternCollectionAppend AST node
+     * @returns The TypedPatternCollectionAppendElement representation
+     */
+    private convertPatternCollectionAppend(element: PatternCollectionAppendType): TypedPatternCollectionAppendElement {
+        return {
+            kind: "collectionAppend",
+            append: {
+                name: element.variable?.$refText ?? "",
+                value: this.convertExpression(element.value)
+            }
+        };
+    }
+
+    /**
+     * Converts a call statement. The callee is named by the absolute path of its file, under
+     * which the typed AST handler bundles its typed AST, and by the alias it is imported under.
+     *
+     * @param stmt The CallStatement AST node
+     * @returns The TypedCallStatement representation
+     */
+    private convertCallStatement(stmt: CallStatementType): TypedCallStatement {
+        const callee = getCallee(stmt);
+        if (callee == undefined) {
+            throw new Error(`Call of an unresolved transformation '${stmt.callee?.$refText}'`);
+        }
+        return {
+            kind: "call",
+            callee: AstUtils.getDocument(callee).uri.path,
+            name: stmt.callee.$refText,
+            arguments: (stmt.arguments ?? []).map((argument) => ({
+                name: argument.parameter?.$refText ?? "",
+                value: this.convertExpression(argument.value)
+            })),
+            outputs: (stmt.outputs ?? []).map((output) => ({
+                parameter: output.parameter?.$refText ?? "",
+                name: output.name
+            }))
         };
     }
 
@@ -156,6 +344,18 @@ export class ModelTransformationTypedAstConverter extends TypedAstConverter {
         }
         if (this.reflection.isInstance(stmt, StopStatement)) {
             return this.convertStopStatement(stmt);
+        }
+        if (this.reflection.isInstance(stmt, CallStatement)) {
+            return this.convertCallStatement(stmt);
+        }
+        if (this.reflection.isInstance(stmt, IfCallStatement)) {
+            return this.convertIfCallStatement(stmt);
+        }
+        if (this.reflection.isInstance(stmt, ForInStatement)) {
+            return this.convertForInStatement(stmt);
+        }
+        if (this.reflection.isInstance(stmt, AssignmentStatement)) {
+            return this.convertAssignmentStatement(stmt);
         }
         throw new Error(`Unknown transformation statement type: ${stmt.$type}`);
     }
@@ -293,21 +493,36 @@ export class ModelTransformationTypedAstConverter extends TypedAstConverter {
     /**
      * Converts a pattern.
      *
+     * Model scope blocks (`in donor { … }`) are flattened: their elements are emitted in their
+     * place, and the object instances among them (declared or referenced, also inside nested
+     * `forbid` / `require` blocks) carry the name of the block's model value in `model`.
+     *
      * @param pattern The Pattern AST node
      * @returns The TypedPattern representation
      */
     private convertPattern(pattern: PatternType): TypedPattern {
-        const elements: (
-            | TypedPatternVariableElement
-            | TypedPatternVariableReassignmentElement
-            | TypedPatternObjectInstanceElement
-            | TypedPatternLinkElement
-            | TypedPatternWhereClauseElement
-            | TypedPatternApplicationConditionElement
-        )[] = [];
+        const elements: TypedPatternElementUnion[] = [];
+        this.convertPatternElements(pattern.elements, undefined, elements);
+        return { elements };
+    }
 
-        for (const element of pattern.elements) {
-            if (this.reflection.isInstance(element, PatternVariable)) {
+    /**
+     * Converts the elements of a pattern or of a model scope block.
+     *
+     * @param patternElements The elements
+     * @param model The model value of the enclosing scope block, if any
+     * @param elements Collects the converted elements
+     */
+    private convertPatternElements(
+        patternElements: readonly AstNode[],
+        model: string | undefined,
+        elements: TypedPatternElementUnion[]
+    ): void {
+        for (const element of patternElements) {
+            if (this.reflection.isInstance(element, PatternModelScope)) {
+                const scope = element as PatternModelScopeType;
+                this.convertPatternElements(scope.elements ?? [], scope.model?.$refText, elements);
+            } else if (this.reflection.isInstance(element, PatternVariable)) {
                 elements.push({
                     kind: "variable",
                     variable: this.convertPatternVariable(element)
@@ -317,42 +532,51 @@ export class ModelTransformationTypedAstConverter extends TypedAstConverter {
                     kind: "variableReassignment",
                     reassignment: this.convertPatternVariableReassignment(element)
                 });
-            } else if (this.reflection.isInstance(element, PatternObjectInstance)) {
-                elements.push({
-                    kind: "objectInstance",
-                    objectInstance: this.convertPatternObjectInstance(element)
-                });
-            } else if (this.reflection.isInstance(element, PatternLink)) {
-                elements.push({
-                    kind: "link",
-                    link: this.convertPatternLink(element)
-                });
-            } else if (this.reflection.isInstance(element, WhereClause)) {
-                elements.push({
-                    kind: "whereClause",
-                    whereClause: this.convertWhereClause(element)
-                });
-            } else if (this.reflection.isInstance(element, PatternObjectInstanceDelete)) {
-                elements.push({
-                    kind: "objectInstance",
-                    objectInstance: this.convertPatternObjectReferenceDelete(element)
-                });
-            } else if (this.reflection.isInstance(element, PatternObjectInstanceReference)) {
-                elements.push({
-                    kind: "objectInstance",
-                    objectInstance: this.convertPatternObjectInstanceReference(element)
-                });
+            } else if (this.reflection.isInstance(element, PatternCollectionAppend)) {
+                elements.push(this.convertPatternCollectionAppend(element));
             } else if (this.reflection.isInstance(element, PatternApplicationCondition)) {
                 elements.push({
                     kind: "applicationCondition",
-                    condition: this.convertApplicationCondition(element)
+                    condition: this.convertApplicationCondition(element, model)
                 });
             } else {
-                throw new Error(`Unknown pattern element type: ${element.$type}`);
+                elements.push(this.convertGraphElement(element, model));
             }
         }
+    }
 
-        return { elements };
+    /**
+     * Converts an element of a pattern's graph: an object instance, a reference to one, an
+     * object deletion, a link or a where clause.
+     *
+     * @param element The element
+     * @param model The model value of the enclosing scope block, if any
+     * @returns The converted element
+     */
+    private convertGraphElement(
+        element: AstNode,
+        model: string | undefined
+    ): TypedPatternObjectInstanceElement | TypedPatternLinkElement | TypedPatternWhereClauseElement {
+        const inModel = (objectInstance: TypedPatternObjectInstance): TypedPatternObjectInstanceElement => ({
+            kind: "objectInstance",
+            objectInstance: model != undefined ? { ...objectInstance, model } : objectInstance
+        });
+        if (this.reflection.isInstance(element, PatternObjectInstance)) {
+            return inModel(this.convertPatternObjectInstance(element));
+        }
+        if (this.reflection.isInstance(element, PatternObjectInstanceReference)) {
+            return inModel(this.convertPatternObjectInstanceReference(element));
+        }
+        if (this.reflection.isInstance(element, PatternObjectInstanceDelete)) {
+            return inModel(this.convertPatternObjectReferenceDelete(element));
+        }
+        if (this.reflection.isInstance(element, PatternLink)) {
+            return { kind: "link", link: this.convertPatternLink(element) };
+        }
+        if (this.reflection.isInstance(element, WhereClause)) {
+            return { kind: "whereClause", whereClause: this.convertWhereClause(element) };
+        }
+        throw new Error(`Unknown pattern element type: ${element.$type}`);
     }
 
     /**
@@ -362,41 +586,36 @@ export class ModelTransformationTypedAstConverter extends TypedAstConverter {
      * instances of the enclosing pattern are emitted without a class name — exactly as for
      * references in a main pattern — so the execution engine can tell condition-local nodes
      * from the anchors that bind the condition to the match. Where clauses are emitted as
-     * they are: they belong to the condition, not to the enclosing match.
+     * they are: they belong to the condition, not to the enclosing match. Model scope blocks
+     * inside the block are flattened like those of a pattern.
      *
      * @param condition The PatternApplicationCondition AST node
+     * @param model The model value of the scope block the condition is in, if any
      * @returns The TypedPatternApplicationCondition representation
      */
-    private convertApplicationCondition(condition: PatternApplicationConditionType): TypedPatternApplicationCondition {
-        const elements: (
-            TypedPatternObjectInstanceElement | TypedPatternLinkElement | TypedPatternWhereClauseElement
-        )[] = [];
-
-        for (const element of condition.elements ?? []) {
-            if (this.reflection.isInstance(element, PatternObjectInstance)) {
-                elements.push({
-                    kind: "objectInstance",
-                    objectInstance: this.convertPatternObjectInstance(element)
-                });
-            } else if (this.reflection.isInstance(element, PatternLink)) {
-                elements.push({
-                    kind: "link",
-                    link: this.convertPatternLink(element)
-                });
-            } else if (this.reflection.isInstance(element, PatternObjectInstanceReference)) {
-                elements.push({
-                    kind: "objectInstance",
-                    objectInstance: this.convertPatternObjectInstanceReference(element)
-                });
-            } else if (this.reflection.isInstance(element, WhereClause)) {
-                elements.push({
-                    kind: "whereClause",
-                    whereClause: this.convertWhereClause(element)
-                });
-            } else {
-                throw new Error(`Unsupported application condition element type: ${element.$type}`);
+    private convertApplicationCondition(
+        condition: PatternApplicationConditionType,
+        model: string | undefined
+    ): TypedPatternApplicationCondition {
+        const elements: TypedConditionElementUnion[] = [];
+        const convert = (conditionElements: readonly AstNode[], elementModel: string | undefined) => {
+            for (const element of conditionElements) {
+                if (this.reflection.isInstance(element, PatternModelScope)) {
+                    const scope = element as PatternModelScopeType;
+                    convert(scope.elements ?? [], scope.model?.$refText);
+                } else if (
+                    this.reflection.isInstance(element, PatternObjectInstance) ||
+                    this.reflection.isInstance(element, PatternObjectInstanceReference) ||
+                    this.reflection.isInstance(element, PatternLink) ||
+                    this.reflection.isInstance(element, WhereClause)
+                ) {
+                    elements.push(this.convertGraphElement(element, elementModel));
+                } else {
+                    throw new Error(`Unsupported application condition element type: ${element.$type}`);
+                }
             }
-        }
+        };
+        convert(condition.elements ?? [], model);
 
         return {
             negative: (condition.kind ?? "forbid") === "forbid",
@@ -546,11 +765,7 @@ export class ModelTransformationTypedAstConverter extends TypedAstConverter {
      * @param targetObj The target PatternObjectInstance
      * @returns Object containing the resolved association and whether direction matches association direction
      */
-    private resolveAssociation(
-        link: PatternLinkType,
-        sourceObj: PatternObjectInstanceType,
-        targetObj: PatternObjectInstanceType
-    ): ResolvedAssociation {
+    private resolveAssociation(link: PatternLinkType, sourceObj: AstNode, targetObj: AstNode): ResolvedAssociation {
         const sourceClass = this.resolveObjectClass(sourceObj);
         const targetClass = this.resolveObjectClass(targetObj);
         const sourcePropertyRef = link.source.property?.ref;
@@ -581,15 +796,16 @@ export class ModelTransformationTypedAstConverter extends TypedAstConverter {
     }
 
     /**
-     * Resolves the class type for a pattern object instance.
+     * Resolves the class of an object declaration: a pattern object instance, an element
+     * parameter or an element output of a call.
      *
-     * @param obj The PatternObjectInstance AST node
+     * @param obj The declaration
      * @returns The ClassType
      */
-    private resolveObjectClass(obj: PatternObjectInstanceType) {
-        const classRef = obj.class?.ref;
+    private resolveObjectClass(obj: AstNode) {
+        const classRef = this.declarations.getDeclaredClass(obj);
         if (classRef == undefined) {
-            throw new Error(`PatternObjectInstance ${obj.name} has no class reference`);
+            throw new Error(`Object '${(obj as { name?: string }).name}' has no class`);
         }
         return classRef;
     }

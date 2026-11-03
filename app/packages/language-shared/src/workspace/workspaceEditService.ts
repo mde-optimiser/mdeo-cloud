@@ -159,12 +159,21 @@ export class DefaultWorkspaceEditService implements WorkspaceEditService {
 
         const onSameLine = startNode.range.start.line === endNode.range.start.line;
 
+        // when the closing delimiter starts its line, the content goes before the delimiter's
+        // line rather than between its indentation and the delimiter, so that no line holding
+        // nothing but that indentation is left behind
+        const atLineStart = !onSameLine && closingIndentation.length === endNode.range.start.character;
+        const insertPosition: PositionType = atLineStart
+            ? Position.create(endNode.range.start.line, 0)
+            : endNode.range.start;
+        const suffix = atLineStart ? "\n" : "\n" + closingIndentation;
+
         let prefix: string;
         if (onSameLine) {
             prefix = "\n";
         } else if (ensureNewlineBefore) {
             const docText = document.textDocument.getText();
-            const endOffset = document.textDocument.offsetAt(endNode.range.start);
+            const endOffset = document.textDocument.offsetAt(insertPosition);
             const textBefore = docText.substring(0, endOffset);
             const hasBlankLineBefore = textBefore.endsWith("\n\n") || textBefore.endsWith("\r\n\r\n");
             prefix = hasBlankLineBefore ? "" : "\n";
@@ -172,9 +181,6 @@ export class DefaultWorkspaceEditService implements WorkspaceEditService {
             prefix = "";
         }
 
-        const suffix = "\n" + closingIndentation;
-
-        const insertPosition = endNode.range.start;
         const uri = document.uri.toString();
 
         return {

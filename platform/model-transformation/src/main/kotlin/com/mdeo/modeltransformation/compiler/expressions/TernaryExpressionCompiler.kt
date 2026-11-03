@@ -93,7 +93,7 @@ class TernaryExpressionCompiler(
         context: CompilationContext,
         initialTraversal: GraphTraversal<*, *>?
     ): CompilationResult {
-        val conditionResult = registry.compile(expr.condition, context, initialTraversal)
+        val conditionResult = registry.compile(expr.condition, context, null)
 
         val trueResult = registry.compile(expr.trueExpression, context, null)
         val falseResult = registry.compile(expr.falseExpression, context, null)
@@ -101,7 +101,8 @@ class TernaryExpressionCompiler(
         val traversal = buildChooseTraversal(
             conditionResult.traversal as GraphTraversal<Any, Any>,
             trueResult.traversal as GraphTraversal<Any, Any>,
-            falseResult.traversal as GraphTraversal<Any, Any>
+            falseResult.traversal as GraphTraversal<Any, Any>,
+            initialTraversal as GraphTraversal<Any, Any>?
         )
 
         return CompilationResult.of(traversal)
@@ -110,24 +111,24 @@ class TernaryExpressionCompiler(
     /**
      * Builds the choose traversal for conditional branching.
      *
-     * Uses is(P.eq(true)) as the condition predicate to check if the
-     * condition evaluates to true. This creates the Gremlin equivalent of
-     * the ternary operator: condition ? trueExpr : falseExpr.
+     * The condition is a child traversal of the traverser the expression is evaluated on, and
+     * so are both branches: each sees the labels of the match path, even when the condition
+     * ends in a reducing step such as the `count()` of `exists`.
      *
      * @param conditionTraversal The traversal that produces the boolean condition value
      * @param trueTraversal The traversal to execute if the condition is true
      * @param falseTraversal The traversal to execute if the condition is false
+     * @param initialTraversal The traversal to continue, or `null` for an anonymous one
      * @return A [GraphTraversal] implementing the conditional logic with choose()
      */
+    @Suppress("UNCHECKED_CAST")
     private fun buildChooseTraversal(
         conditionTraversal: GraphTraversal<Any, Any>,
         trueTraversal: GraphTraversal<Any, Any>,
-        falseTraversal: GraphTraversal<Any, Any>
+        falseTraversal: GraphTraversal<Any, Any>,
+        initialTraversal: GraphTraversal<Any, Any>?
     ): GraphTraversal<Any, Any> {
-        return conditionTraversal.choose(
-            AnonymousTraversal.`is`(P.eq(true)),
-            trueTraversal,
-            falseTraversal
-        )
+        val start = initialTraversal ?: AnonymousTraversal.start<Any>() as GraphTraversal<Any, Any>
+        return start.choose(conditionTraversal.`is`(P.eq(true)), trueTraversal, falseTraversal)
     }
 }

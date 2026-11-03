@@ -17,7 +17,6 @@ import { ConfigDelegatingScopeProvider } from "./features/configDelegatingScopeP
 import { ConfigAstSerializer } from "./features/configAstSerializer.js";
 import {
     IdValueConverter,
-    NewlineAwareTokenBuilder,
     SerializerFormatter,
     registerDefaultTokenSerializers,
     ActionHandlerRegistry,
@@ -29,6 +28,8 @@ import { registerConfigValidationChecks } from "./validation/configValidator.js"
 import { ConfigActionProvider } from "./features/configActionProvider.js";
 import { RunConfigActionHandler } from "./action-handlers/runConfigActionHandler.js";
 import { ConfigDelegatingCompletionProvider } from "./features/configDelegatingCompletionProvider.js";
+import { ConfigTokenBuilder } from "./features/configTokenBuilder.js";
+import { ConfigDelegatingHoverProvider } from "./features/configDelegatingHoverProvider.js";
 
 /**
  * Additional services for the Config language.
@@ -57,8 +58,7 @@ export const configPluginProvider: LangiumLanguagePluginProvider<ConfigAdditiona
             additionalTerminals: ConfigTerminals,
             module: {
                 parser: {
-                    TokenBuilder: () =>
-                        new NewlineAwareTokenBuilder(new Set(["{"]), new Set(["("]), new Set(["}", ")"])),
+                    TokenBuilder: () => new ConfigTokenBuilder(new Set(["{"]), new Set(["("]), new Set(["}", ")"])),
                     ValueConverter: () => new IdValueConverter(),
                     ParserConfig: () => ({
                         maxLookahead: 4
@@ -71,6 +71,7 @@ export const configPluginProvider: LangiumLanguagePluginProvider<ConfigAdditiona
                 },
                 lsp: {
                     CompletionProvider: (services) => new ConfigDelegatingCompletionProvider(services, resolvedPlugins),
+                    HoverProvider: (services) => new ConfigDelegatingHoverProvider(services, resolvedPlugins),
                     Formatter: (services) => new SerializerFormatter(services)
                 },
                 AstSerializer: (services) =>

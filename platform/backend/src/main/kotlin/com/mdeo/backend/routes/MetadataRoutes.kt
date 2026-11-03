@@ -1,5 +1,6 @@
 package com.mdeo.backend.routes
 
+import com.mdeo.common.transport.respondError
 import com.mdeo.backend.plugins.*
 import com.mdeo.backend.service.MetadataService
 import com.mdeo.backend.service.ProjectPermission
@@ -30,7 +31,7 @@ fun Route.metadataRoutes(metadataService: MetadataService, projectService: Proje
         get("{path...}") {
             val session = call.getUserSession()
             if (session == null) {
-                call.respond(HttpStatusCode.Unauthorized)
+                call.respondError(HttpStatusCode.Unauthorized, "Not authenticated")
                 return@get
             }
             
@@ -38,17 +39,17 @@ fun Route.metadataRoutes(metadataService: MetadataService, projectService: Proje
                 try { UUID.fromString(it) } catch (e: Exception) { null }
             }
             if (projectId == null) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid project ID"))
+                call.respondError(HttpStatusCode.BadRequest, "Invalid project ID")
                 return@get
             }
             
             val userId = try { UUID.fromString(session.userId) } catch (e: Exception) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid user ID"))
+                call.respondError(HttpStatusCode.BadRequest, "Invalid user ID")
                 return@get
             }
 
             if (!projectService.hasProjectPermission(projectId, userId, call.isAdmin(), ProjectPermission.READ)) {
-                call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Access denied"))
+                call.respondError(HttpStatusCode.Forbidden, "Access denied")
                 return@get
             }
 
@@ -70,7 +71,7 @@ fun Route.metadataRoutes(metadataService: MetadataService, projectService: Proje
         put("{path...}") {
             val session = call.getUserSession()
             if (session == null) {
-                call.respond(HttpStatusCode.Unauthorized)
+                call.respondError(HttpStatusCode.Unauthorized, "Not authenticated")
                 return@put
             }
             
@@ -78,17 +79,17 @@ fun Route.metadataRoutes(metadataService: MetadataService, projectService: Proje
                 try { UUID.fromString(it) } catch (e: Exception) { null }
             }
             if (projectId == null) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid project ID"))
+                call.respondError(HttpStatusCode.BadRequest, "Invalid project ID")
                 return@put
             }
             
             val userId = try { UUID.fromString(session.userId) } catch (e: Exception) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid user ID"))
+                call.respondError(HttpStatusCode.BadRequest, "Invalid user ID")
                 return@put
             }
 
             if (!projectService.hasProjectPermission(projectId, userId, call.isAdmin(), ProjectPermission.WRITE)) {
-                call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Access denied"))
+                call.respondError(HttpStatusCode.Forbidden, "Access denied")
                 return@put
             }
 
@@ -113,7 +114,7 @@ fun Route.metadataRoutes(metadataService: MetadataService, projectService: Proje
         get("{path...}") {
             val session = call.getUserSession()
             if (session == null) {
-                call.respond(HttpStatusCode.Unauthorized)
+                call.respondError(HttpStatusCode.Unauthorized, "Not authenticated")
                 return@get
             }
             
@@ -121,17 +122,17 @@ fun Route.metadataRoutes(metadataService: MetadataService, projectService: Proje
                 try { UUID.fromString(it) } catch (e: Exception) { null }
             }
             if (projectId == null) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid project ID"))
+                call.respondError(HttpStatusCode.BadRequest, "Invalid project ID")
                 return@get
             }
             
             val userId = try { UUID.fromString(session.userId) } catch (e: Exception) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid user ID"))
+                call.respondError(HttpStatusCode.BadRequest, "Invalid user ID")
                 return@get
             }
 
             if (!projectService.hasProjectPermission(projectId, userId, call.isAdmin(), ProjectPermission.READ)) {
-                call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Access denied"))
+                call.respondError(HttpStatusCode.Forbidden, "Access denied")
                 return@get
             }
 
@@ -139,7 +140,7 @@ fun Route.metadataRoutes(metadataService: MetadataService, projectService: Proje
                 try { UUID.fromString(it) } catch (e: Exception) { null }
             }
             if (executionId == null) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid execution ID"))
+                call.respondError(HttpStatusCode.BadRequest, "Invalid execution ID")
                 return@get
             }
             
@@ -162,7 +163,7 @@ fun Route.metadataRoutes(metadataService: MetadataService, projectService: Proje
         put("{path...}") {
             val session = call.getUserSession()
             if (session == null) {
-                call.respond(HttpStatusCode.Unauthorized)
+                call.respondError(HttpStatusCode.Unauthorized, "Not authenticated")
                 return@put
             }
             
@@ -170,17 +171,17 @@ fun Route.metadataRoutes(metadataService: MetadataService, projectService: Proje
                 try { UUID.fromString(it) } catch (e: Exception) { null }
             }
             if (projectId == null) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid project ID"))
+                call.respondError(HttpStatusCode.BadRequest, "Invalid project ID")
                 return@put
             }
             
             val userId = try { UUID.fromString(session.userId) } catch (e: Exception) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid user ID"))
+                call.respondError(HttpStatusCode.BadRequest, "Invalid user ID")
                 return@put
             }
 
             if (!projectService.hasProjectPermission(projectId, userId, call.isAdmin(), ProjectPermission.WRITE)) {
-                call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Access denied"))
+                call.respondError(HttpStatusCode.Forbidden, "Access denied")
                 return@put
             }
 
@@ -188,7 +189,7 @@ fun Route.metadataRoutes(metadataService: MetadataService, projectService: Proje
                 try { UUID.fromString(it) } catch (e: Exception) { null }
             }
             if (executionId == null) {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid execution ID"))
+                call.respondError(HttpStatusCode.BadRequest, "Invalid execution ID")
                 return@put
             }
             

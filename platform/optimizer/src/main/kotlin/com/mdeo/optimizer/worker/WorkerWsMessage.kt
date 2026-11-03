@@ -33,15 +33,22 @@ sealed class WorkerWsMessage {
  * persistent WebSocket to [destinationWorkerBaseUrl] and pushes the solutions via
  * [SolutionPushRequest] without any orchestrator involvement.
  *
+ * In replicate mode ([replicate]) the push copies crossover donors to the node of a crossover
+ * task for one batch: the source keeps the solutions (the orchestrator lists no discard for
+ * them), and the destination drops its copies after its batch ([NodeWorkBatchRequest.replicas]).
+ * A replica carries no failed-operator record: it is never mutated as a parent.
+ *
  * @param destinationWorkerBaseUrl HTTP base URL of the destination worker (e.g. `http://worker-2:8080`).
  * @param executionId The execution identifier on the destination worker.
  * @param solutionIds Identifiers of the solutions to push to the destination.
+ * @param replicate Whether the push copies donors for one batch rather than moving solutions.
  */
 @Serializable
 data class SolutionRelocation(
     val destinationWorkerBaseUrl: String,
     val executionId: String,
-    val solutionIds: List<String>
+    val solutionIds: List<String>,
+    val replicate: Boolean = false
 )
 
 /**
@@ -63,6 +70,10 @@ data class SolutionRelocation(
  * @param discards Solution IDs on this node to release after evaluation.
  * @param relocations Solutions on this node that must be pushed to other nodes before
  *   (or concurrently with) the mutation work. The subprocess handles the direct transfer.
+ * @param crossoverTasks Crossover children whose primary parent is on this node.
+ * @param replicas Donors pushed to this node for this batch's [crossoverTasks] by other nodes
+ *   ([SolutionRelocation.replicate]); tasks wait for them to arrive, and the node drops them
+ *   after the batch.
  */
 @OptIn(ExperimentalSerializationApi::class)
 @Serializable
@@ -72,14 +83,17 @@ data class NodeWorkBatchRequest(
     val tasks: List<BatchTask>,
     val evaluationTasks: List<BatchEvaluationTask> = emptyList(),
     val discards: List<String>,
-    val relocations: List<SolutionRelocation> = emptyList()
+    val relocations: List<SolutionRelocation> = emptyList(),
+    val crossoverTasks: List<BatchCrossoverTask> = emptyList(),
+    val replicas: List<String> = emptyList()
 ) : WorkerWsMessage()
 
 /**
  * Worker → Orchestrator: results for all mutation tasks in the batch.
  *
  * @param requestId Matches [NodeWorkBatchRequest.requestId].
- * @param results One entry per task in [NodeWorkBatchRequest.tasks], in request order.
+ * @param results One entry per task of the request (mutation, crossover and evaluation tasks),
+ *   matched by [BatchResult.taskId] or, for evaluation tasks, by solution.
  */
 @OptIn(ExperimentalSerializationApi::class)
 @Serializable

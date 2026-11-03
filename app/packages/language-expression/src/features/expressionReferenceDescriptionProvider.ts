@@ -208,7 +208,8 @@ export class ExpressionReferenceDescriptionProvider extends DefaultReferenceDesc
         document: LangiumDocument,
         descriptions: ReferenceDescription[]
     ): void {
-        const { packageMap, allInternalPackages } = this.typir.PackageMapCache.getDocumentPackageCache(document);
+        const { packageMap, allInternalPackages, typeAliases } =
+            this.typir.PackageMapCache.getDocumentPackageCache(document);
         const nameCstNode = this.findCstNodeForProperty(node, "name");
         if (nameCstNode == undefined) {
             return;
@@ -226,6 +227,12 @@ export class ExpressionReferenceDescriptionProvider extends DefaultReferenceDesc
                         descriptions
                     );
                 }
+            }
+        } else if (typeAliases.has(node.name)) {
+            const alias = typeAliases.get(node.name)!;
+            const classTypeDef = this.typir.TypeDefinitions.getClassTypeIfExisting(alias.name, alias.package);
+            if (classTypeDef?.languageNode != undefined) {
+                this.pushClassTypeDescription(node, nameCstNode, classTypeDef.languageNode as AstNode, descriptions);
             }
         } else {
             const types = this.typir.TypeDefinitions.getClassTypesByName(node.name).filter((type) =>

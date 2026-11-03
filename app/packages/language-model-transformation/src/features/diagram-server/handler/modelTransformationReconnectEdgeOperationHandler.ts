@@ -1,4 +1,5 @@
 import type { GEdge } from "@mdeo/language-shared";
+import { asPatternObjectInstance } from "../../transformationDeclarations.js";
 import {
     BaseReconnectEdgeOperationHandler,
     sharedImport,
@@ -24,7 +25,11 @@ import {
 } from "../../../grammar/modelTransformationTypes.js";
 import { ModelTransformationElementType } from "@mdeo/protocol-model-transformation";
 import { GPatternLinkEdge } from "../model/patternLinkEdge.js";
-import { findContainingCondition, findContainingPattern } from "../modelTransformationPatternUtils.js";
+import {
+    findContainingCondition,
+    findContainingModelScope,
+    findContainingPattern
+} from "../modelTransformationPatternUtils.js";
 
 const { injectable, inject } = sharedImport("inversify");
 const { GrammarUtils } = sharedImport("langium");
@@ -189,10 +194,10 @@ export class ModelTransformationReconnectEdgeOperationHandler extends BaseReconn
             return node as PatternObjectInstanceType;
         }
         if (this.reflection.isInstance(node, PatternObjectInstanceReference)) {
-            return (node as PatternObjectInstanceReferenceType).instance?.ref;
+            return asPatternObjectInstance(this.reflection, (node as PatternObjectInstanceReferenceType).instance?.ref);
         }
         if (this.reflection.isInstance(node, PatternObjectInstanceDelete)) {
-            return (node as PatternObjectInstanceDeleteType).instance?.ref;
+            return asPatternObjectInstance(this.reflection, (node as PatternObjectInstanceDeleteType).instance?.ref);
         }
         return undefined;
     }
@@ -221,7 +226,9 @@ export class ModelTransformationReconnectEdgeOperationHandler extends BaseReconn
      * Cross-pattern reconnection is not supported. A link of an application condition block may
      * additionally reach a node of the enclosing match - that is how a condition is anchored to
      * the pattern it constrains - while a link of the match may not reach into a block, whose
-     * names belong to the block's own graph.
+     * names belong to the block's own graph. Links never cross models: an end of a link of a
+     * scope block (`in donor { … }`) is an object of that input model, an end of any other link
+     * an object of the transformed model.
      *
      * @param link The PatternLink whose container is the reference
      * @param node The endpoint AST node to check
@@ -235,7 +242,22 @@ export class ModelTransformationReconnectEdgeOperationHandler extends BaseReconn
         if (pattern == undefined || pattern !== findContainingPattern(node, this.reflection)) {
             return false;
         }
+        if (this.modelOf(link) !== this.modelOf(node)) {
+            return false;
+        }
         return findContainingCondition(node, this.reflection) == undefined;
+    }
+
+    /**
+     * Returns the input model a pattern element belongs to.
+     *
+     * @param node The element
+     * @returns The name of the model value its scope block names, or undefined for the
+     *   transformed model
+     */
+    private modelOf(node: AstNode): string | undefined {
+        const scope = findContainingModelScope(node, this.reflection);
+        return scope != undefined ? (scope.model?.ref?.name ?? scope.model?.$refText ?? "?") : undefined;
     }
 
     /**

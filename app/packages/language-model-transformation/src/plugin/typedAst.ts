@@ -21,6 +21,226 @@ export interface TypedAst {
      */
 
     statements: TypedTransformationStatement[];
+
+    /**
+     * The header declarations (`in …` / `out …`) of the transformation. Always present; a file
+     * without declarations has an empty parameter list.
+     */
+    signature?: TypedTransformationSignature;
+
+    /**
+     * The typed ASTs of every transformation this one calls, directly or through its callees,
+     * by absolute file path. Only the root of a bundle has callees; the bundled ASTs have none
+     * of their own, so the engine finds every callee in the root's map.
+     */
+    callees?: Record<string, TypedAst>;
+}
+
+/**
+ * The inputs and outputs of a transformation (its header declarations). Every transformation
+ * file can be imported and called.
+ */
+export interface TypedTransformationSignature {
+    /**
+     * The display name of the transformation: the base name of its file including the
+     * extension, e.g. `move-component.mt` (for diagnostics and `failedAt`).
+     */
+    name: string;
+
+    /**
+     * The parameters, in declaration order.
+     */
+    parameters: TypedTransformationParameter[];
+}
+
+/**
+ * A header declaration (`in name: Type [= default]` / `out name: Type`).
+ */
+export interface TypedTransformationParameter {
+    /**
+     * The parameter's name; the engine binds it at the transformation's own scope level (1).
+     */
+    name: string;
+
+    /**
+     * `in` or `out`.
+     */
+    direction: "in" | "out";
+
+    /**
+     * Index into the types array for the parameter's type.
+     */
+    type: number;
+
+    /**
+     * Whether the parameter is a model element (a metamodel class) rather than a scalar or a
+     * collection.
+     */
+    isElement: boolean;
+
+    /**
+     * The default value of an optional input, evaluated in the callee before its first statement.
+     */
+    defaultValue?: TypedExpression;
+
+    /**
+     * For a collection parameter: `List` or `Set`. A collection output starts empty.
+     */
+    collection?: "List" | "Set";
+
+    /**
+     * For a collection parameter: whether its elements are model elements.
+     */
+    elementsAreElements?: boolean;
+
+    /**
+     * Whether the input may be left out: its type is nullable and it has no default. It is then
+     * null, or, when it pins an object (see {@link pinsNode}), unbound.
+     */
+    optional?: boolean;
+
+    /**
+     * Whether the input pins the object of the same name in the first pattern: when it is
+     * passed (and not null), the object is bound to it; otherwise the input is left unbound and
+     * the object is matched freely.
+     */
+    pinsNode?: boolean;
+
+    /**
+     * Whether the input is a model input: `in x: model` (no {@link collection}) or
+     * `in xs: List<model>` ({@link collection} `List`). The type index points to the builtin
+     * `model` type (or `List<model>`). A model input is always an `in` parameter without a default,
+     * neither an element nor optional; the engine passes models by reference (never copies).
+     * Absent (false) for every other parameter.
+     */
+    isModel?: boolean;
+}
+
+/**
+ * A named argument of a call.
+ */
+export interface TypedTransformationCallArgument {
+    /**
+     * The callee parameter the argument is passed to.
+     */
+    name: string;
+
+    /**
+     * The value, evaluated in the caller before the call.
+     */
+    value: TypedExpression;
+}
+
+/**
+ * The binding of a callee output to a name of the caller.
+ */
+export interface TypedTransformationCallOutput {
+    /**
+     * The callee's `out` parameter.
+     */
+    parameter: string;
+
+    /**
+     * The caller's name the output is bound to, in the scope of the call (like the objects of a
+     * match).
+     */
+    name: string;
+}
+
+/**
+ * Call of another transformation.
+ */
+export interface TypedCallStatement extends TypedTransformationStatement {
+    kind: "call";
+
+    /**
+     * Absolute path of the callee's file, the key of its typed AST in the root's callees.
+     */
+    callee: string;
+
+    /**
+     * The alias the caller imports the callee under (`import "./f.mt" as alias`), for messages.
+     */
+    name: string;
+
+    /**
+     * The arguments passed.
+     */
+    arguments: TypedTransformationCallArgument[];
+
+    /**
+     * The outputs bound.
+     */
+    outputs: TypedTransformationCallOutput[];
+}
+
+/**
+ * Conditional call of another transformation: the then block runs, with the outputs bound,
+ * when the callee succeeds; the else block when it fails.
+ */
+export interface TypedIfCallStatement extends TypedTransformationStatement {
+    kind: "ifCall";
+
+    /**
+     * The call; its outputs are bound in the scope of the then block's parent (one level below
+     * the statement).
+     */
+    call: TypedCallStatement;
+
+    /**
+     * Statements run after a successful call.
+     */
+    thenBlock: TypedTransformationStatement[];
+
+    /**
+     * Statements run after a failed call.
+     */
+    elseBlock?: TypedTransformationStatement[];
+}
+
+/**
+ * Loop over the elements of a collection.
+ */
+export interface TypedForInStatement extends TypedTransformationStatement {
+    kind: "forIn";
+
+    /**
+     * The loop variable, bound one level below the statement to each element in turn.
+     */
+    variable: string;
+
+    /**
+     * The collection, evaluated once before the first iteration.
+     */
+    collection: TypedExpression;
+
+    /**
+     * Statements run per element.
+     */
+    doBlock: TypedTransformationStatement[];
+}
+
+/**
+ * Assignment outside a pattern: `name = value` assigns a variable or an output, `name += value`
+ * adds to a collection output.
+ */
+export interface TypedAssignmentStatement extends TypedTransformationStatement {
+    kind: "assignment";
+
+    /**
+     * The assigned variable or output.
+     */
+    name: string;
+
+    /**
+     * `=` or `+=`.
+     */
+    operator: "=" | "+=";
+
+    /**
+     * The value.
+     */
+    value: TypedExpression;
 }
 
 /**
@@ -126,6 +346,16 @@ export interface TypedPatternObjectInstance {
      * Property assignments.
      */
     properties: TypedPatternPropertyAssignment[];
+
+    /**
+     * The model the object lives in: the name of the model value (a `model` input or the
+     * variable of a `for … in` loop over a `List<model>` input) of the scope block
+     * (`in donor { … }`) the object is declared or referenced in, also through `forbid` /
+     * `require` blocks. Absent for objects of the implicit model (the model the transformation
+     * runs on). Scope blocks themselves do not appear in the typed AST: their elements are
+     * emitted in their place, and links get their model from their ends.
+     */
+    model?: string;
 }
 
 /**
@@ -209,6 +439,33 @@ export interface TypedPatternVariableReassignmentElement extends TypedPatternEle
 }
 
 /**
+ * Addition of a value to a collection output, computed with the match after its
+ * modifications.
+ */
+export interface TypedPatternCollectionAppend {
+    /**
+     * Name of the collection output.
+     */
+    name: string;
+
+    /**
+     * The value added (an element, or a collection whose elements are all added).
+     */
+    value: TypedExpression;
+}
+
+/**
+ * Pattern collection append element.
+ */
+export interface TypedPatternCollectionAppendElement extends TypedPatternElement {
+    kind: "collectionAppend";
+    /**
+     * The append.
+     */
+    append: TypedPatternCollectionAppend;
+}
+
+/**
  * Pattern object instance element.
  */
 export interface TypedPatternObjectInstanceElement extends TypedPatternElement {
@@ -288,6 +545,7 @@ export interface TypedPattern {
     elements: (
         | TypedPatternVariableElement
         | TypedPatternVariableReassignmentElement
+        | TypedPatternCollectionAppendElement
         | TypedPatternObjectInstanceElement
         | TypedPatternLinkElement
         | TypedPatternWhereClauseElement

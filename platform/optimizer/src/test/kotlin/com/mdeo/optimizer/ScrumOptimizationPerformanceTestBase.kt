@@ -48,6 +48,7 @@ import com.mdeo.optimizer.config.MutationParameters
 import com.mdeo.optimizer.config.MutationStepConfig
 import com.mdeo.optimizer.config.MutationStrategy
 import com.mdeo.optimizer.config.MutationsConfig
+import com.mdeo.optimizer.config.OperatorRef
 import com.mdeo.optimizer.config.ConstraintConfig
 import com.mdeo.optimizer.config.ObjectiveConfig
 import com.mdeo.optimizer.config.ObjectiveTendency
@@ -1136,12 +1137,12 @@ abstract class ScrumOptimizationPerformanceTestBase {
         ),
         search = SearchConfig(
             mutations = MutationsConfig(
-                usingPaths = listOf(
+                operators = listOf(
                     "/transformation/createSprint.mt",
                     "/transformation/addItemToSprint.mt",
                     "/transformation/deleteSprint.mt",
                     "/transformation/moveItemBetweenSprints.mt"
-                )
+                ).map { OperatorRef(it) }
             )
         ),
         solver = SolverConfig(

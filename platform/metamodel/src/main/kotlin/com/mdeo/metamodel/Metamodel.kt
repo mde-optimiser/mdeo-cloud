@@ -84,6 +84,33 @@ class Metamodel internal constructor(
         }
 
         /**
+         * Returns the JVM internal name for the generated type interface of the given metamodel class.
+         *
+         * A class may extend several classes, but its instance class can extend only one of theirs.
+         * The type interface is implemented by the instance class of the class and of every class
+         * inheriting from it, however it inherits, so code that needs the type of an instance —
+         * a cast, an `instanceof`, a property read — uses the interface instead of the class.
+         *
+         * @param className The metamodel class name.
+         * @return The JVM internal name for the type interface.
+         */
+        fun getInstanceInterfaceName(className: String): String {
+            return "$INSTANCE_PACKAGE/${className}Type"
+        }
+
+        /**
+         * Returns the name of the method that reads the `prop_X` field with the given index. Every
+         * instance class implements it for each of its fields, and the type interface of the class
+         * declaring the property declares it.
+         *
+         * @param fieldIndex The field index X.
+         * @return The getter name.
+         */
+        fun getFieldGetterName(fieldIndex: Int): String {
+            return "get_prop_$fieldIndex"
+        }
+
+        /**
          * Returns the JVM internal name for the generated class container class of the given metamodel class.
          *
          * @param className The metamodel class name.

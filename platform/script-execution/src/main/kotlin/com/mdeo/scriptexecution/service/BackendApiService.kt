@@ -1,133 +1,40 @@
 package com.mdeo.scriptexecution.service
 
+import com.mdeo.execution.common.api.ScriptBackendApiClient
 import com.mdeo.metamodel.data.MetamodelData
 import com.mdeo.metamodel.data.ModelData
-import com.mdeo.script.ast.TypedAst
-import com.mdeo.common.model.ApiError
-import com.mdeo.expression.ast.expressions.TypedExpression
-import com.mdeo.expression.ast.statements.TypedStatement
-import com.mdeo.script.ast.expressions.TypedExpressionSerializer
-import com.mdeo.script.ast.statements.TypedStatementSerializer
-import com.mdeo.execution.common.api.BACKEND_REQUEST_TIMEOUT_MS
-import io.ktor.client.*
+import com.mdeo.metamodel.data.load
 import io.ktor.client.call.*
-import io.ktor.client.engine.cio.*
-import io.ktor.client.plugins.*
-import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.request.*
 import io.ktor.http.*
-import io.ktor.serialization.kotlinx.json.*
-import kotlinx.serialization.json.Json
-import org.slf4j.LoggerFactory
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.modules.SerializersModule
-import kotlinx.serialization.modules.contextual
-import io.ktor.client.request.*
 
 /**
  * Service for interacting with the backend API.
  *
+ * Typed ASTs, the plugin contribution AST and execution state updates come from
+ * [ScriptBackendApiClient]; this adds the model data a script runs against.
+ *
  * @param baseUrl Base URL of the backend API
  */
-class BackendApiService(private val baseUrl: String) {
-    private val logger = LoggerFactory.getLogger(BackendApiService::class.java)
-
-    private val client = HttpClient(CIO) {
-        install(ContentNegotiation) {
-            json(Json {
-                ignoreUnknownKeys = true
-                isLenient = true
-                serializersModule = SerializersModule {
-                    contextual(TypedExpression::class, TypedExpressionSerializer)
-                    contextual(TypedStatement::class, TypedStatementSerializer)
-                }
-            })
-        }
-        install(HttpTimeout) {
-            requestTimeoutMillis = BACKEND_REQUEST_TIMEOUT_MS
-            socketTimeoutMillis = BACKEND_REQUEST_TIMEOUT_MS
-        }
-    }
+class BackendApiService(baseUrl: String) : ScriptBackendApiClient(baseUrl) {
 
     /**
-     * Fetches the typed AST for a file from the backend API.
-     *
-     * @param projectId UUID of the project
-     * @param filePath Path to the file
-     * @param jwtToken JWT token to pass through to the backend
-     * @return TypedAst object or null if not found
-     */
-    suspend fun getTypedAst(projectId: String, filePath: String, jwtToken: String): TypedAst? {
-        return try {
-            logger.info("Fetching typed AST for $filePath in project $projectId")
-
-            val response = client.get("$baseUrl/projects/$projectId/file-data/typed-ast") {
-                parameter("path", filePath)
-                contentType(ContentType.Application.Json)
-                header(HttpHeaders.Authorization, "Bearer $jwtToken")
-            }
-
-            if (response.status == HttpStatusCode.OK) {
-                val result = response.body<TypedAstFileDataResponse>()
-                result.data
-            } else {
-                logger.warn("Failed to fetch typed AST: ${response.status}")
-                null
-            }
-        } catch (e: Exception) {
-            logger.error("Error fetching typed AST", e)
-            null
-        }
-    }
-
-    /**
-     * Updates execution state on the backend.
-     *
-     * @param executionId UUID of the execution
-     * @param state New state string
-     * @param progressText Optional progress text
-     * @param jwtToken JWT token to authenticate the request
-     * @return true if update was successful, false otherwise
-     */
-    suspend fun updateExecutionState(
-        executionId: String,
-        state: String,
-        progressText: String?,
-        jwtToken: String
-    ): Boolean {
-        @Serializable
-        data class UpdateExecutionStateRequest(val state: String, val progressText: String?)
-
-        return try {
-            logger.info("Updating backend state for execution $executionId to $state")
-
-            val response = client.patch("$baseUrl/executions/$executionId/state") {
-                contentType(ContentType.Application.Json)
-                header(HttpHeaders.Authorization, "Bearer $jwtToken")
-                setBody(UpdateExecutionStateRequest(state, progressText))
-            }
-
-            if (response.status == HttpStatusCode.OK || response.status == HttpStatusCode.NoContent) {
-                true
-            } else {
-                logger.warn("Failed to update execution state on backend: ${response.status}")
-                false
-            }
-        } catch (e: Exception) {
-            logger.error("Error updating execution state on backend", e)
-            false
-        }
-    }
-
-    /**
-     * Fetches the metamodel data for a metamodel file from the backend API.
+     * Fetches the metamodel data for a metamodel file from the backend API, merged with the
+     * metamodel files it imports.
      *
      * @param projectId UUID of the project
      * @param filePath Path to the metamodel file
      * @param jwtToken JWT token to pass through to the backend
      * @return MetamodelData object or null if not found
      */
-    suspend fun getMetamodelData(projectId: String, filePath: String, jwtToken: String): MetamodelData? {
+    suspend fun getMetamodelData(projectId: String, filePath: String, jwtToken: String): MetamodelData? =
+        MetamodelData.load(filePath) { getMetamodelFileData(projectId, it, jwtToken) }
+
+    /**
+     * Fetches the metamodel data of one metamodel file, without the files it imports.
+     */
+    private suspend fun getMetamodelFileData(projectId: String, filePath: String, jwtToken: String): MetamodelData? {
         return try {
             logger.info("Fetching metamodel data for $filePath in project $projectId")
 
@@ -180,24 +87,7 @@ class BackendApiService(private val baseUrl: String) {
             null
         }
     }
-
-    /**
-     * Closes the HTTP client and releases resources.
-     */
-    fun close() {
-        client.close()
-        logger.info("Backend API client closed")
-    }
 }
-
-/**
- * Response for the typed-ast file data request.
- */
-@Serializable
-data class TypedAstFileDataResponse(
-    val data: TypedAst?,
-    val version: Int? = null
-)
 
 /**
  * Response for the metamodel file data request.

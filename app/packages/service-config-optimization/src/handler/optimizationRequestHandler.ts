@@ -1,6 +1,10 @@
 import type { RequestHandler } from "@mdeo/service-common";
 import type { ExternalReferenceAdditionalServices } from "@mdeo/language-common";
-import { buildConfigPluginDocument, type ConfigPluginRequestResponse } from "@mdeo/service-config-common";
+import {
+    buildConfigPluginDocument,
+    createConfigDiagnosticsRequestHandler,
+    type ConfigPluginRequestResponse
+} from "@mdeo/service-config-common";
 import { getWrapperInterfaceName } from "@mdeo/language-config";
 
 import { CONFIG_OPTIMIZATION_LANGUAGE_KEY, OPTIMIZATION_PLUGIN_NAME } from "@mdeo/language-config-optimization";
@@ -149,3 +153,9 @@ export const optimizationRequestHandler: RequestHandler<
 
     return { data: response, ...context.serverApi.getTrackedRequests() };
 };
+
+/**
+ * Request handler for the diagnostics of the optimization sections of a config.
+ */
+export const optimizationDiagnosticsRequestHandler =
+    createConfigDiagnosticsRequestHandler<ExternalReferenceAdditionalServices>(CONFIG_OPTIMIZATION_LANGUAGE_KEY);

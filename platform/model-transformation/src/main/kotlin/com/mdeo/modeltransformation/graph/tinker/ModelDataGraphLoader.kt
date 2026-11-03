@@ -8,6 +8,7 @@ import com.mdeo.modeltransformation.ast.EdgeLabelUtils
 import com.mdeo.metamodel.data.ModelData
 import com.mdeo.metamodel.data.ModelDataInstance
 import com.mdeo.metamodel.data.ModelDataPropertyValue
+import com.mdeo.modeltransformation.graph.ModelGraph
 import com.mdeo.modeltransformation.runtime.InstanceNameRegistry
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource
 import org.apache.tinkerpop.gremlin.structure.Vertex
@@ -40,16 +41,21 @@ class ModelDataGraphLoader {
      * @param modelData The model data to load.
      * @param nameRegistry Registry for tracking vertex ID to name mappings.
      * @param metamodel The compiled metamodel for property graph key resolution and enum lookup.
+     * @param modelSlot The model slot of the loaded vertices: [ModelGraph.IMPLICIT_MODEL_SLOT]
+     *   for the model the graph holds, else the slot of a model input, which every vertex is
+     *   tagged with ([ModelGraph.MODEL_SLOT_KEY]) and whose names are qualified with
+     *   ([ModelGraph.modelInputName]).
      * @return Map of instance names to their vertices.
      */
     fun load(
         g: GraphTraversalSource,
         modelData: ModelData,
         nameRegistry: InstanceNameRegistry,
-        metamodel: Metamodel
+        metamodel: Metamodel,
+        modelSlot: Int = ModelGraph.IMPLICIT_MODEL_SLOT
     ): Map<String, Vertex> {
         val classMap = metamodel.data.classes.associateBy { it.name }
-        val vertexMap = createVertices(g, modelData.instances, nameRegistry, classMap, metamodel)
+        val vertexMap = createVertices(g, modelData.instances, nameRegistry, classMap, metamodel, modelSlot)
         createEdges(g, modelData, vertexMap)
         return vertexMap
     }
@@ -62,10 +68,11 @@ class ModelDataGraphLoader {
         instances: List<ModelDataInstance>,
         nameRegistry: InstanceNameRegistry,
         classMap: Map<String, ClassData>,
-        metamodel: Metamodel
+        metamodel: Metamodel,
+        modelSlot: Int
     ): Map<String, Vertex> {
         return instances.associate { instance ->
-            instance.name to createVertex(g, instance, nameRegistry, classMap, metamodel)
+            instance.name to createVertex(g, instance, nameRegistry, classMap, metamodel, modelSlot)
         }
     }
     
@@ -81,9 +88,13 @@ class ModelDataGraphLoader {
         instance: ModelDataInstance,
         nameRegistry: InstanceNameRegistry,
         classMap: Map<String, ClassData>,
-        metamodel: Metamodel
+        metamodel: Metamodel,
+        modelSlot: Int
     ): Vertex {
         var traversal = g.addV(instance.className)
+        if (modelSlot != ModelGraph.IMPLICIT_MODEL_SLOT) {
+            traversal = traversal.property(ModelGraph.MODEL_SLOT_KEY, modelSlot)
+        }
 
         for ((propertyName, propertyValue) in instance.properties) {
             val graphKey = resolveGraphKey(metamodel, instance.className, propertyName)
@@ -92,7 +103,10 @@ class ModelDataGraphLoader {
         
         val vertex = traversal.next()
         
-        nameRegistry.register(vertex.id(), instance.name)
+        nameRegistry.register(
+            vertex.id(),
+            if (modelSlot == ModelGraph.IMPLICIT_MODEL_SLOT) instance.name else ModelGraph.modelInputName(modelSlot, instance.name)
+        )
         
         return vertex
     }

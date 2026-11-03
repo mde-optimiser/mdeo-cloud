@@ -1,6 +1,7 @@
-import type { FunctionSignature, FunctionType, ReturnType } from "@mdeo/language-expression";
+import type { ClassType, FunctionSignature, FunctionType, ReturnType, ValueType } from "@mdeo/language-expression";
 import type { ServerContributionPlugin } from "@mdeo/plugin";
 import type { TypedCallableBody } from "./typedAst.js";
+import type { TypedExpression } from "@mdeo/language-expression";
 import type { Interface, ParserRule, SerializedGrammar } from "@mdeo/language-common";
 import type { GenericAstNode } from "langium";
 
@@ -33,6 +34,12 @@ export interface ScriptContributionPlugin extends ServerContributionPlugin {
      * registered in the global scope as functions.
      */
     expressions: Record<string, ContributedExpression>;
+    /**
+     * Classes the contribution's functions take and return, by name.
+     *
+     * Signatures refer to one as `{ package: "contrib/<contribution id>", type: "<name>" }`.
+     */
+    classes?: Record<string, ContributedClass>;
 }
 
 export namespace ScriptContributionPlugin {
@@ -53,6 +60,76 @@ export namespace ScriptContributionPlugin {
 }
 
 /**
+ * A class a contribution defines for its functions to exchange values with scripts.
+ */
+export type ContributedClass = ContributedRecord | ContributedOpaqueClass;
+
+/**
+ * A value with named fields, sent whole between the script and the service.
+ *
+ * Scripts use it like a record they declare themselves: they create one by calling its name like a
+ * function, read and assign its fields, copy it with `with`, and compare records by their content.
+ */
+export interface ContributedRecord {
+    /**
+     * Marks the class as a record.
+     */
+    kind: "record";
+    /**
+     * The fields, in order. A field holds a scalar, a string, a model instance or enum value, a
+     * record of the same contribution, or a collection of those. No field may be named `with`.
+     */
+    fields: ContributedRecordField[];
+}
+
+/**
+ * One field of a {@link ContributedRecord}.
+ */
+export interface ContributedRecordField {
+    /**
+     * The field name, as scripts read it.
+     */
+    name: string;
+    /**
+     * The field type.
+     */
+    type: ValueType;
+    /**
+     * The value the field takes when the constructor leaves it out, as a typed expression whose type
+     * indices refer to the contribution's `types`. It may refer to the fields declared before it.
+     */
+    defaultValue?: TypedExpression;
+}
+
+/**
+ * A handle to state that stays on the contribution's service, such as an index built once and
+ * queried by later calls. Scripts can only pass it back to the contribution's functions.
+ */
+export interface ContributedOpaqueClass {
+    /**
+     * Marks the class as opaque.
+     */
+    kind: "opaque";
+}
+
+export namespace ContributedClass {
+    /**
+     * The package of every contributed class, followed by `/<contribution id>`.
+     */
+    export const PACKAGE_PREFIX = "contrib";
+
+    /**
+     * Returns the package a contribution's classes are referred to by.
+     *
+     * @param contributionId The contribution id
+     * @returns The package
+     */
+    export function packageOf(contributionId: string): string {
+        return `${PACKAGE_PREFIX}/${contributionId}`;
+    }
+}
+
+/**
  * A contributed function that
  */
 export interface ContributedFunction {
@@ -63,6 +140,61 @@ export interface ContributedFunction {
 }
 
 /**
+ * An implementation that does not live in the platform at all.
+ *
+ * The body of a contributed function is normally a typed AST, which the execution service runs
+ * exactly as it runs a user-written function. An external implementation says instead that the
+ * function is answered by the service of the plugin that shipped the contribution, over the
+ * `script-functions` [session](/develop/sessions) that contribution declares.
+ *
+ * Every argument is *in*: arguments are sent, the service computes a return value from them, and
+ * nothing it does to what it was given reaches the script. Models are readonly on this path too.
+ */
+export interface ExternalImplementation {
+    /**
+     * Marks this implementation as external rather than a typed AST body.
+     */
+    kind: typeof ExternalImplementation.KIND;
+    /**
+     * Names the operation within the plugin's own protocol. The platform passes it through and
+     * ascribes it no meaning; the plugin decides what it dispatches to.
+     */
+    operation: string;
+    /**
+     * Whether the operation needs the model, and in what form.
+     *
+     * `none` — the default — sends no model. `readonly` sends the model the script runs on, so
+     * the operation can read it: uploaded once and reused until the script works on a different
+     * model. A call that is passed model instances gets the model either way. The model is always
+     * readonly.
+     */
+    model?: "none" | "readonly";
+}
+
+export namespace ExternalImplementation {
+    /**
+     * The discriminator distinguishing an external implementation from a typed AST body.
+     */
+    export const KIND = "external";
+
+    /**
+     * Type guard for an external implementation.
+     *
+     * @param value The implementation to check
+     * @returns True when the implementation is external
+     */
+    export function is(value: ContributedImplementation): value is ExternalImplementation {
+        return "kind" in value && value.kind === KIND;
+    }
+}
+
+/**
+ * What backs a contributed function: a typed AST the platform runs, or a call out to the
+ * plugin's own service.
+ */
+export type ContributedImplementation = TypedCallableBody | ExternalImplementation;
+
+/**
  * A contributed function signature with its implementation
  */
 export interface ContributedFunctionSignature {
@@ -71,9 +203,17 @@ export interface ContributedFunctionSignature {
      */
     signature: FunctionSignature;
     /**
-     * The implementation of the function (the body of the function)
+     * The implementation of the function: the body of the function, or an
+     * {@link ExternalImplementation} naming an operation the plugin's service answers
      */
-    implementation: TypedCallableBody;
+    implementation: ContributedImplementation;
+    /**
+     * The values parameters take when a call leaves them out, by parameter name, as typed
+     * expressions whose type indices refer to the contribution's `types`. A default may refer to the
+     * parameters declared before it. It is evaluated in the script, also for an external
+     * implementation, so the service is always sent every argument.
+     */
+    defaultValues?: Record<string, TypedExpression>;
 }
 
 /**
@@ -111,6 +251,36 @@ export interface ResolvedScriptContributionPlugins {
      * The rules for all the extensions, should be combined to one expression rule
      */
     rules: ParserRule<any>[];
+    /**
+     * The classes contributed by all the plugins
+     */
+    classes: ResolvedContributedClass[];
+}
+
+/**
+ * Resolved variant of a contributed class
+ */
+export interface ResolvedContributedClass {
+    /**
+     * Id of the contribution that defines the class.
+     */
+    contributionId: string;
+    /**
+     * The class name.
+     */
+    name: string;
+    /**
+     * The declaration.
+     */
+    declaration: ContributedClass;
+    /**
+     * The types array of the contribution, which the default values of a record's fields refer to.
+     */
+    types: ReturnType[];
+    /**
+     * The class type registered with the type system.
+     */
+    classType: ClassType;
 }
 
 /**
@@ -147,4 +317,13 @@ export interface ResolvedContributedFunction {
      * The type lookup used by the implementations of the contributed function
      */
     types: ReturnType[];
+    /**
+     * Id of the contribution that shipped the function, which is the target an external
+     * implementation of it is called on.
+     */
+    contributionId: string;
+    /**
+     * Name of the contribution's `script-functions` session, when it declares one.
+     */
+    sessionName?: string;
 }

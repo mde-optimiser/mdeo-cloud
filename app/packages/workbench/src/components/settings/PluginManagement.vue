@@ -142,7 +142,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from "vue";
+import { ref, shallowRef, computed, onMounted, watch } from "vue";
 import { PlusCircle, Trash2, RefreshCw, Pin } from "@lucide/vue";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -170,7 +170,7 @@ const props = defineProps<{
     backendApi: BackendApi;
 }>();
 
-const plugins = ref<Plugin[]>([]);
+const plugins = shallowRef<Plugin[]>([]);
 const newPluginUrl = ref("");
 const isLoading = ref(false);
 const isAdding = ref(false);

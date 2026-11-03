@@ -1,13 +1,8 @@
 import type { Doc } from "prettier";
-import type { LangiumCoreServices } from "langium";
+import type { AstNode, LangiumCoreServices } from "langium";
 import type { AstSerializerAdditionalServices, PrintContext } from "@mdeo/language-common";
 import { ID, STRING } from "@mdeo/language-common";
-import {
-    serializeNewlineSep,
-    printDanglingComments,
-    sharedImport,
-    registerImportSerializers
-} from "@mdeo/language-shared";
+import { printDanglingComments, sharedImport, registerImportSerializers } from "@mdeo/language-shared";
 import type {
     ReturnStatementType,
     LambdaExpressionType,
@@ -18,7 +13,8 @@ import type {
     ScriptType,
     FunctionParameterType,
     ExtensionExpressionType,
-    MetamodelFileImportType
+    MetamodelFileImportType,
+    RecordType
 } from "../grammar/scriptTypes.js";
 import {
     ReturnStatement,
@@ -32,7 +28,8 @@ import {
     FunctionFileImport,
     Script,
     ExtensionExpression,
-    MetamodelFileImport
+    MetamodelFileImport,
+    Record
 } from "../grammar/scriptTypes.js";
 
 const { doc } = sharedImport("prettier");
@@ -53,6 +50,7 @@ export function registerScriptSerializers(services: LangiumCoreServices & AstSer
     AstSerializer.registerNodeSerializer(FunctionParameter, (ctx) => printFunctionParameter(ctx));
     AstSerializer.registerNodeSerializer(FunctionParameters, (ctx) => printFunctionParameters(ctx));
     AstSerializer.registerNodeSerializer(Function, (ctx) => printFunction(ctx));
+    AstSerializer.registerNodeSerializer(Record, (ctx) => printRecord(ctx));
     AstSerializer.registerNodeSerializer(MetamodelFileImport, (ctx) => printMetamodelFileImport(ctx));
     AstSerializer.registerNodeSerializer(Script, (ctx) => printScript(ctx));
     AstSerializer.registerNodeSerializer(ExtensionExpression, (ctx) => printExtensionExpression(ctx));
@@ -143,6 +141,10 @@ function printFunctionParameter(context: PrintContext<FunctionParameterType>): D
         docs.push(": ", path.call(print, "type"));
     }
 
+    if (ctx.defaultValue != undefined) {
+        docs.push(" = ", path.call(print, "defaultValue"));
+    }
+
     return docs;
 }
 
@@ -190,6 +192,17 @@ function printFunction(context: PrintContext<FunctionType>): Doc {
 }
 
 /**
+ * Prints a record node.
+ *
+ * @param context The print context
+ * @returns The formatted record
+ */
+function printRecord(context: PrintContext<RecordType>): Doc {
+    const { ctx, printPrimitive, getPrimitive, path, print } = context;
+    return group(["record ", printPrimitive(getPrimitive(ctx, "name"), ID), path.call(print, "parameterList")]);
+}
+
+/**
  * Prints a metamodel file import node.
  *
  * @param context The print context
@@ -223,7 +236,7 @@ function printScript(context: PrintContext<ScriptType>): Doc {
         importDocs.push(fi);
     }
 
-    const functionDocs = serializeNewlineSep(context, ["functions"], doc.builders);
+    const functionDocs = printDeclarations(context);
 
     if (importDocs.length === 0 && functionDocs.length === 0) {
         return printDanglingComments(context, doc.builders);
@@ -234,6 +247,42 @@ function printScript(context: PrintContext<ScriptType>): Doc {
     }
 
     return [...importDocs, ...functionDocs];
+}
+
+/**
+ * Prints the functions and records of a script in the order they are written, one per line,
+ * keeping a single empty line where the source has at least one.
+ *
+ * @param context The print context of the script
+ * @returns The formatted declarations
+ */
+function printDeclarations(context: PrintContext<ScriptType>): Doc[] {
+    const { path, print, document } = context;
+    const { hardline } = doc.builders;
+
+    const declarations = [
+        ...path.map((entry) => ({ node: entry.node as AstNode, doc: print(entry) }), "functions"),
+        ...path.map((entry) => ({ node: entry.node as AstNode, doc: print(entry) }), "records")
+    ].sort((a, b) => (a.node.$cstNode?.offset ?? 0) - (b.node.$cstNode?.offset ?? 0));
+    if (declarations.length === 0) {
+        return printDanglingComments(context, doc.builders);
+    }
+
+    const docs: Doc[] = [];
+    let lastLine: number | undefined = undefined;
+    for (const { node, doc: declaration } of declarations) {
+        const cstNode = node.$cstNode;
+        const startLine = cstNode != undefined ? document.textDocument.positionAt(cstNode.offset).line : undefined;
+        if (docs.length > 0) {
+            docs.push(hardline);
+            if (startLine != undefined && lastLine != undefined && startLine > lastLine + 1) {
+                docs.push(hardline);
+            }
+        }
+        docs.push(declaration);
+        lastLine = cstNode != undefined ? document.textDocument.positionAt(cstNode.end).line : undefined;
+    }
+    return docs;
 }
 
 /**

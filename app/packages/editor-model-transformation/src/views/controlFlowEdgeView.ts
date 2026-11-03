@@ -1,10 +1,9 @@
-import type { RenderingContext } from "@eclipse-glsp/sprotty";
 import {
     sharedImport,
     GEdgeView,
     type EdgeMarkerData,
     type GEdge,
-    type EdgeAttachment,
+    type EdgeLabelElement,
     EdgeAttachmentPosition
 } from "@mdeo/editor-shared";
 import { GControlFlowLabelNode } from "../model/controlFlowLabelNode.js";
@@ -18,21 +17,16 @@ const { svg } = sharedImport("@eclipse-glsp/sprotty");
  */
 @injectable()
 export class GControlFlowEdgeView extends GEdgeView {
-    protected override getEdgeAttachments(model: Readonly<GEdge>, context: RenderingContext): EdgeAttachment[] {
-        const attachments: EdgeAttachment[] = [];
+    protected override getLabelElements(model: Readonly<GEdge>): EdgeLabelElement[] {
+        const labels: EdgeLabelElement[] = [];
 
         for (const child of model.children) {
             if (child instanceof GControlFlowLabelNode) {
-                const attachment: EdgeAttachment = {
-                    vnode: context.renderElement(child),
-                    bounds: child.bounds,
-                    position: EdgeAttachmentPosition.MIDDLE_LEFT
-                };
-                attachments.push(attachment);
+                labels.push({ element: child, position: EdgeAttachmentPosition.MIDDLE_LEFT });
             }
         }
 
-        return attachments;
+        return labels;
     }
 
     protected override renderTargetMarker(): EdgeMarkerData {

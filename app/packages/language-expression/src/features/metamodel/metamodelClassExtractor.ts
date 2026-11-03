@@ -471,10 +471,8 @@ class MetamodelClassExtractor {
             return;
         }
 
-        if (!this.allClassesSet.has(sourceClass) || !this.allClassesSet.has(targetClass)) {
-            return;
-        }
-
+        // The class at the other end may be one of an imported file that is none of the extracted
+        // classes' superclasses: an association may reach any class its file imports.
         if (sourceClass === classNode && assoc.source.name != undefined) {
             const oppositePropertyName = assoc.target.name;
             const relation = this.createRelationInfo(assoc.source, targetClass, oppositePropertyName, true);
@@ -512,10 +510,7 @@ class MetamodelClassExtractor {
             return undefined;
         }
 
-        const oppositeSimpleName = this.classNameMap.get(oppositeClass);
-        if (oppositeSimpleName == undefined) {
-            return undefined;
-        }
+        const oppositeSimpleName = this.classNameMap.get(oppositeClass) ?? oppositeClass.name;
 
         const oppositePackage = this.getActualPackageForClass(oppositeClass);
         const oppositeClassName = `${oppositePackage}.${oppositeSimpleName}`;

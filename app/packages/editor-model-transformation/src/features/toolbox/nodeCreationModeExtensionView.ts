@@ -1,5 +1,5 @@
 import type { VNode } from "snabbdom";
-import { sharedImport, generateIcon, iconButtonClasses } from "@mdeo/editor-shared";
+import { sharedImport, generateIcon, iconButtonClasses, inputClasses } from "@mdeo/editor-shared";
 import type { ModelTransformationToolbox } from "./modelTransformationToolbox.js";
 import { NodeCreationMode } from "@mdeo/protocol-model-transformation";
 import type { IconNode } from "lucide";
@@ -60,33 +60,116 @@ const MODE_BUTTONS: ModeButtonDef[] = [
 ];
 
 /**
+ * Value of the target-model selector standing for the transformed model.
+ */
+const TRANSFORMED_MODEL_OPTION = "";
+
+/**
  * Generates the node creation mode selection bar for the model transformation toolbox.
- * Renders 5 buttons controlling which modifier is applied to newly created pattern instances.
+ * Renders 5 buttons controlling which modifier is applied to newly created pattern instances
+ * and, when the transformation has input models, a selector choosing the model they are
+ * created in (create and delete are not available in an input model, which is read-only).
  *
  * @param context The model transformation toolbox context
  * @returns The mode extension container VNode
  */
 export function generateNodeCreationModeExtensionView(context: ModelTransformationToolbox): VNode {
-    return html(
+    const modeBar = html(
         "div",
         {
             class: {
                 flex: true,
                 "flex-row": true,
-                "px-3": true,
-                "py-2": true,
-                "border-b": true,
-                "border-border": true,
                 "justify-center": true,
                 "gap-2.5": true
             }
         },
         ...MODE_BUTTONS.map((def) => generateModeButton(context, def))
     );
+    return html(
+        "div",
+        {
+            class: {
+                flex: true,
+                "flex-col": true,
+                "gap-2": true,
+                "px-3": true,
+                "py-2": true,
+                "border-b": true,
+                "border-border": true
+            }
+        },
+        modeBar,
+        ...(context.targetModels.length > 0 ? [generateTargetModelSelector(context)] : [])
+    );
+}
+
+/**
+ * Generates the selector of the model new pattern instances are created in: the transformed
+ * model or one of the input models the server listed.
+ *
+ * @param context The model transformation toolbox context
+ * @returns The selector VNode
+ */
+function generateTargetModelSelector(context: ModelTransformationToolbox): VNode {
+    const selected = context.selectedModel ?? TRANSFORMED_MODEL_OPTION;
+    const options = [
+        { value: TRANSFORMED_MODEL_OPTION, label: "transformed model" },
+        ...context.targetModels.map((model) => ({ value: model.name, label: `in ${model.label}` }))
+    ];
+    return html(
+        "label",
+        {
+            class: {
+                flex: true,
+                "flex-row": true,
+                "items-center": true,
+                "gap-2": true,
+                "text-sm": true,
+                "text-muted-foreground": true
+            }
+        },
+        html("span", { class: { "shrink-0": true } }, "Create in"),
+        html(
+            "select",
+            {
+                class: {
+                    ...inputClasses,
+                    "h-8": true,
+                    "h-9": false,
+                    "px-2": true,
+                    "px-3": false,
+                    "text-foreground": true,
+                    "bg-background": true,
+                    "cursor-pointer": true
+                },
+                attrs: {
+                    title: "The model new pattern instances are created in",
+                    "aria-label": "Target model"
+                },
+                props: { value: selected },
+                on: {
+                    change: (event: Event) => {
+                        const value = (event.target as HTMLSelectElement).value;
+                        context.selectModel(value === TRANSFORMED_MODEL_OPTION ? undefined : value);
+                    }
+                }
+            },
+            ...options.map((option) =>
+                html(
+                    "option",
+                    { attrs: { value: option.value }, props: { selected: option.value === selected } },
+                    option.label
+                )
+            )
+        )
+    );
 }
 
 function generateModeButton(context: ModelTransformationToolbox, def: ModeButtonDef): VNode {
     const isActive = context.selectedMode === def.mode;
+    const isAvailable = context.isModeAvailable(def.mode);
+    const title = isAvailable ? def.title : `${def.title} (not available in an input model, which is read-only)`;
 
     return html(
         "button",
@@ -96,12 +179,13 @@ function generateModeButton(context: ModelTransformationToolbox, def: ModeButton
                 [def.bgClass]: isActive,
                 [def.textClass]: true,
                 "border-0": true,
-                "cursor-pointer": true
+                "cursor-pointer": isAvailable
             },
             attrs: {
-                title: def.title,
-                "aria-label": def.title,
-                "aria-pressed": isActive ? "true" : "false"
+                title,
+                "aria-label": title,
+                "aria-pressed": isActive ? "true" : "false",
+                disabled: !isAvailable
             },
             on: {
                 click: () => context.selectMode(def.mode)

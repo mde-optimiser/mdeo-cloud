@@ -48,8 +48,19 @@ export class GPatternInstanceNode extends GRectangularNode {
      */
     classHierarchy?: string[];
 
+    /**
+     * The input model the instance belongs to (e.g. `donor` for an instance of a scope block
+     * `in donor { … }`), or undefined for an instance of the transformed model.
+     */
+    model?: string;
+
     override canConnect(edge: GEdge, role: "source" | "target"): boolean {
         if (edge instanceof GPatternLinkEdge) {
+            // links never cross models
+            const other = role === "target" ? this.endOf(edge, "source") : this.endOf(edge, "target");
+            if (other instanceof GPatternInstanceNode && other !== this && other.model !== this.model) {
+                return false;
+            }
             if (this.classHierarchy != null) {
                 if (role === "source" && edge.sourceClass != null) {
                     if (!this.classHierarchy.includes(edge.sourceClass)) {
@@ -67,6 +78,22 @@ export class GPatternInstanceNode extends GRectangularNode {
             }
         }
         return true;
+    }
+
+    /**
+     * Returns the node at one end of an edge.
+     *
+     * @param edge The edge
+     * @param end Which end
+     * @returns The node, or undefined when it is not part of the diagram
+     */
+    private endOf(edge: GEdge, end: "source" | "target"): GModelElement | undefined {
+        const id = end === "source" ? edge.sourceId : edge.targetId;
+        try {
+            return id != undefined ? this.index.getById(id) : undefined;
+        } catch {
+            return undefined;
+        }
     }
 
     /**

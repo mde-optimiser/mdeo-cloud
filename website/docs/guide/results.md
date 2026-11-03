@@ -26,7 +26,11 @@ batch_1/solution_0.m_gen
 batch_2/report.json
 batch_2/solution_0.m_gen
 generated-mutations/<rule>.mt_gen
+generated-mutations/warnings.md
 ```
+
+`generated-mutations/warnings.md` only appears when some requested operators could not be generated
+or are limited; see [Generated mutation operators](/guide/generated-operators#warnings-and-limitations).
 
 ## `summary.md`
 
@@ -36,9 +40,12 @@ The human-readable report, rendered directly in the workbench. It contains:
 - **Per batch**: the duration, the number of solutions found, and the **Pareto front** as a table of
   objective values and constraint values, one row per solution.
 - **Solution models** — links to the generated models, which open in the model diagram editor.
+- **Operators** — the mutation operators and, with `variation = genetic`, the crossover operators
+  of the run, each with its [arguments](/plugins/config-mdeo#operator-arguments).
 - **Metrics** — plots over the generations of the run: total models produced, transformations
   executed versus skipped, and the hypervolume of the front, which is the usual single number for
-  "how good is this front".
+  "how good is this front". With crossover, also the children that crossed over versus those that
+  fell back to a copy of their parent, and how often each crossover operator applied.
 
 The metrics plots are the quickest way to tell whether a run was worth its time. A hypervolume curve
 that flattens early means you could have stopped sooner; one still climbing at the end means the

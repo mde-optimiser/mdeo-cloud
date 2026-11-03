@@ -1,6 +1,10 @@
 package com.mdeo.modeltransformation.runtime
 
 import com.mdeo.modeltransformation.ast.statements.TypedTransformationStatement
+import com.mdeo.modeltransformation.runtime.statements.AssignmentStatementExecutor
+import com.mdeo.modeltransformation.runtime.statements.CallStatementExecutor
+import com.mdeo.modeltransformation.runtime.statements.ForInStatementExecutor
+import com.mdeo.modeltransformation.runtime.statements.IfCallStatementExecutor
 import com.mdeo.modeltransformation.runtime.statements.ForMatchStatementExecutor
 import com.mdeo.modeltransformation.runtime.statements.IfExpressionStatementExecutor
 import com.mdeo.modeltransformation.runtime.statements.IfMatchStatementExecutor
@@ -152,7 +156,11 @@ class StatementExecutorRegistry {
                 WhileMatchStatementExecutor(),
                 WhileExpressionStatementExecutor(),
                 ForMatchStatementExecutor(),
-                UntilMatchStatementExecutor()
+                UntilMatchStatementExecutor(),
+                CallStatementExecutor(),
+                IfCallStatementExecutor(),
+                ForInStatementExecutor(),
+                AssignmentStatementExecutor()
             )
         }
     }

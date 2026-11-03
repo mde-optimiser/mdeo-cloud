@@ -9,6 +9,8 @@ import {
     UntilMatchStatement,
     ForMatchStatement,
     PatternApplicationCondition,
+    PatternModelScope,
+    type PatternModelScopeType,
     type PatternType,
     type MatchStatementType,
     type IfMatchConditionAndBlockType,
@@ -67,27 +69,31 @@ export function getPatternFromMatchNode(astNode: AstNode, reflection: AstReflect
 }
 
 /**
- * A pattern element together with the application condition block it was declared in.
+ * A pattern element together with the application condition block and the model scope block it
+ * was declared in.
  */
 export interface FlattenedPatternElement {
     /** The pattern element itself. */
     element: AstNode;
     /** The block the element belongs to, or `undefined` for elements of the match pattern. */
     condition?: PatternApplicationConditionType;
+    /** The model scope block (`in donor { … }`) the element belongs to, if any. */
+    scope?: PatternModelScopeType;
 }
 
 /**
- * Returns every element of a pattern together with the application condition block it
- * belongs to, so that block members are handled like the elements of the match pattern.
+ * Returns every element of a pattern together with the application condition block and the
+ * model scope block it belongs to, so that block members are handled like the elements of the
+ * match pattern.
  *
  * Blocks are not drawn as containers: following Henshin, their members stay in the
- * match node and are tagged with `«forbid name»` / `«require name»` instead, which
- * keeps a condition legible next to the pattern it constrains. Everything that walks a
+ * match node and are tagged with `«forbid name»` / `«require name»` / `«in donor»` instead,
+ * which keeps a condition legible next to the pattern it constrains. Everything that walks a
  * pattern for its diagram elements therefore has to see through the blocks.
  *
  * @param pattern The pattern whose elements should be listed.
  * @param reflection The AST reflection instance for type checks.
- * @returns The elements in declaration order, block members after the main pattern.
+ * @returns The elements in declaration order, condition block members after the others.
  */
 export function flattenPatternElements(
     pattern: { elements?: unknown[] } | undefined,
@@ -96,16 +102,30 @@ export function flattenPatternElements(
     const result: FlattenedPatternElement[] = [];
     const conditions: FlattenedPatternElement[] = [];
 
-    for (const element of pattern?.elements ?? []) {
-        if (reflection.isInstance(element, PatternApplicationCondition)) {
-            const condition = element as PatternApplicationConditionType;
-            for (const member of condition.elements ?? []) {
-                conditions.push({ element: member as AstNode, condition });
+    const visit = (
+        elements: unknown[] | undefined,
+        condition: PatternApplicationConditionType | undefined,
+        scope: PatternModelScopeType | undefined
+    ) => {
+        for (const element of elements ?? []) {
+            if (reflection.isInstance(element, PatternApplicationCondition)) {
+                visit(
+                    (element as PatternApplicationConditionType).elements,
+                    element as PatternApplicationConditionType,
+                    scope
+                );
+            } else if (reflection.isInstance(element, PatternModelScope)) {
+                visit((element as PatternModelScopeType).elements, condition, element as PatternModelScopeType);
+            } else {
+                (condition != undefined ? conditions : result).push({
+                    element: element as AstNode,
+                    ...(condition != undefined ? { condition } : {}),
+                    ...(scope != undefined ? { scope } : {})
+                });
             }
-        } else {
-            result.push({ element: element as AstNode });
         }
-    }
+    };
+    visit(pattern?.elements, undefined, undefined);
 
     return [...result, ...conditions];
 }
@@ -145,6 +165,71 @@ export function patternConditions(
 }
 
 /**
+ * Returns every application condition block of a pattern, those inside its model scope blocks
+ * (and the scope blocks inside a condition) included, in declaration order.
+ *
+ * @param pattern The pattern to inspect.
+ * @param reflection The AST reflection instance for type checks.
+ * @returns The blocks of the pattern.
+ */
+export function allPatternConditions(
+    pattern: { elements?: unknown[] } | undefined,
+    reflection: AstReflection
+): PatternApplicationConditionType[] {
+    const result: PatternApplicationConditionType[] = [];
+    const visit = (elements: unknown[] | undefined) => {
+        for (const element of elements ?? []) {
+            if (reflection.isInstance(element, PatternApplicationCondition)) {
+                result.push(element as PatternApplicationConditionType);
+                visit((element as PatternApplicationConditionType).elements);
+            } else if (reflection.isInstance(element, PatternModelScope)) {
+                visit((element as PatternModelScopeType).elements);
+            }
+        }
+    };
+    visit(pattern?.elements);
+    return result;
+}
+
+/**
+ * Returns the model scope blocks (`in donor { … }`) declared directly in a pattern, in
+ * declaration order.
+ *
+ * @param pattern The pattern to inspect.
+ * @param reflection The AST reflection instance for type checks.
+ * @returns The scope blocks of the pattern.
+ */
+export function patternModelScopes(
+    pattern: { elements?: unknown[] } | undefined,
+    reflection: AstReflection
+): PatternModelScopeType[] {
+    return (pattern?.elements ?? []).filter((element) =>
+        reflection.isInstance(element, PatternModelScope)
+    ) as PatternModelScopeType[];
+}
+
+/**
+ * Returns the model scope block a node is declared in.
+ *
+ * @param node The node to start from.
+ * @param reflection The AST reflection instance for type checks.
+ * @returns The scope block, or `undefined` when the node belongs to the transformed model.
+ */
+export function findContainingModelScope(node: AstNode, reflection: AstReflection): PatternModelScopeType | undefined {
+    let current: AstNode | undefined = node.$container;
+    while (current != undefined) {
+        if (reflection.isInstance(current, PatternModelScope)) {
+            return current as PatternModelScopeType;
+        }
+        if (reflection.isInstance(current, Pattern)) {
+            return undefined;
+        }
+        current = current.$container;
+    }
+    return undefined;
+}
+
+/**
  * Returns the name each application condition block of a pattern is shown under.
  *
  * A block does not have to be named: a name is only worth writing when it says
@@ -165,7 +250,7 @@ export function conditionDisplayNames(
     pattern: { elements?: unknown[] } | undefined,
     reflection: AstReflection
 ): Map<PatternApplicationConditionType, string> {
-    const conditions = patternConditions(pattern, reflection);
+    const conditions = allPatternConditions(pattern, reflection);
     const taken = new Set(conditions.map((condition) => condition.name).filter((name) => name != undefined));
 
     const names = new Map<PatternApplicationConditionType, string>();
@@ -195,7 +280,7 @@ export function conditionDisplayName(condition: PatternApplicationConditionType,
     if (condition.name != undefined) {
         return condition.name;
     }
-    const names = conditionDisplayNames(condition.$container as { elements?: unknown[] } | undefined, reflection);
+    const names = conditionDisplayNames(findContainingPattern(condition, reflection), reflection);
     return names.get(condition) ?? "1";
 }
 
@@ -263,4 +348,29 @@ export function effectivePatternModifier(node: AstNode, reflection: AstReflectio
     }
     const modifier = (node as { modifier?: { modifier?: string } }).modifier?.modifier;
     return patternModifierKind(modifier);
+}
+
+/**
+ * Returns the stereotype text (without guillemets) of an element of the blocks it is declared
+ * in: the condition block, named (an unnamed one by its number), and the model scope block, by
+ * its model, e.g. `forbid 1`, `in donor` or `forbid 1, in donor`.
+ *
+ * @param condition The condition block the element belongs to, if any.
+ * @param scope The model scope block the element belongs to, if any.
+ * @param reflection The AST reflection instance for type checks.
+ * @returns The stereotype text, or `undefined` for elements of the match pattern itself.
+ */
+export function blockStereotype(
+    condition: PatternApplicationConditionType | undefined,
+    scope: PatternModelScopeType | undefined,
+    reflection: AstReflection
+): string | undefined {
+    const parts: string[] = [];
+    if (condition != undefined) {
+        parts.push(`${condition.kind ?? "forbid"} ${conditionDisplayName(condition, reflection)}`);
+    }
+    if (scope != undefined) {
+        parts.push(`in ${scope.model?.$refText ?? "?"}`);
+    }
+    return parts.length > 0 ? parts.join(", ") : undefined;
 }

@@ -1,0 +1,695 @@
+{
+ "types": [
+  {
+   "kind": "void"
+  },
+  {
+   "package": "builtin",
+   "type": "string",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "double",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "boolean",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "Any",
+   "isNullable": true
+  }
+ ],
+ "metamodelPath": "/metamodel/shop.mm",
+ "statements": [
+  {
+   "kind": "call",
+   "callee": "/optimize/scenarios/move-and-sync.mt",
+   "name": "moveAndSync",
+   "arguments": [],
+   "outputs": [
+    {
+     "parameter": "movedTo",
+     "name": "t"
+    }
+   ]
+  },
+  {
+   "kind": "match",
+   "pattern": {
+    "elements": [
+     {
+      "kind": "objectInstance",
+      "objectInstance": {
+       "name": "t",
+       "properties": [
+        {
+         "propertyName": "name",
+         "operator": "=",
+         "value": {
+          "kind": "stringLiteral",
+          "evalType": 1,
+          "value": "chosen"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  }
+ ],
+ "signature": {
+  "name": "call-nested.mt",
+  "parameters": []
+ },
+ "callees": {
+  "/optimize/scenarios/move-and-sync.mt": {
+   "types": [
+    {
+     "kind": "void"
+    },
+    {
+     "package": "builtin",
+     "type": "string",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "double",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "boolean",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "Any",
+     "isNullable": true
+    },
+    {
+     "package": "class/metamodel/base.mm",
+     "type": "Component",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "class/metamodel/base.mm",
+     "type": "Container",
+     "isNullable": false,
+     "typeArgs": {}
+    }
+   ],
+   "metamodelPath": "/metamodel/shop.mm",
+   "statements": [
+    {
+     "kind": "call",
+     "callee": "/optimize/generic/move-component.mt",
+     "name": "moveComponent",
+     "arguments": [],
+     "outputs": [
+      {
+       "parameter": "moved",
+       "name": "m"
+      },
+      {
+       "parameter": "target",
+       "name": "b"
+      }
+     ]
+    },
+    {
+     "kind": "call",
+     "callee": "/optimize/sync/follow-reader.mt",
+     "name": "followReader",
+     "arguments": [
+      {
+       "name": "moved",
+       "value": {
+        "kind": "identifier",
+        "evalType": 5,
+        "name": "m",
+        "scope": 1
+       }
+      },
+      {
+       "name": "target",
+       "value": {
+        "kind": "identifier",
+        "evalType": 6,
+        "name": "b",
+        "scope": 1
+       }
+      }
+     ],
+     "outputs": []
+    },
+    {
+     "kind": "match",
+     "pattern": {
+      "elements": [
+       {
+        "kind": "objectInstance",
+        "objectInstance": {
+         "name": "b",
+         "properties": []
+        }
+       },
+       {
+        "kind": "variableReassignment",
+        "reassignment": {
+         "name": "movedTo",
+         "value": {
+          "kind": "identifier",
+          "evalType": 6,
+          "name": "b",
+          "scope": 1
+         }
+        }
+       }
+      ]
+     }
+    }
+   ],
+   "signature": {
+    "name": "move-and-sync.mt",
+    "parameters": [
+     {
+      "name": "movedTo",
+      "direction": "out",
+      "type": 6,
+      "isElement": true
+     }
+    ]
+   }
+  },
+  "/optimize/generic/move-component.mt": {
+   "types": [
+    {
+     "kind": "void"
+    },
+    {
+     "package": "builtin",
+     "type": "string",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "double",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "boolean",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "Any",
+     "isNullable": true
+    },
+    {
+     "package": "builtin",
+     "type": "int",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "Set",
+     "isNullable": false,
+     "typeArgs": {
+      "T": {
+       "package": "class/metamodel/base.mm",
+       "type": "Container",
+       "isNullable": false,
+       "typeArgs": {}
+      }
+     }
+    },
+    {
+     "package": "class/metamodel/base.mm",
+     "type": "Placement",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "class/metamodel/base.mm",
+     "type": "Component",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "class/metamodel/base.mm",
+     "type": "Container",
+     "isNullable": false,
+     "typeArgs": {}
+    }
+   ],
+   "metamodelPath": "/metamodel/base.mm",
+   "statements": [
+    {
+     "kind": "match",
+     "pattern": {
+      "elements": [
+       {
+        "kind": "objectInstance",
+        "objectInstance": {
+         "name": "placement",
+         "className": "Placement",
+         "properties": []
+        }
+       },
+       {
+        "kind": "objectInstance",
+        "objectInstance": {
+         "name": "component",
+         "className": "Component",
+         "properties": []
+        }
+       },
+       {
+        "kind": "objectInstance",
+        "objectInstance": {
+         "name": "current",
+         "className": "Container",
+         "properties": []
+        }
+       },
+       {
+        "kind": "objectInstance",
+        "objectInstance": {
+         "name": "destination",
+         "className": "Container",
+         "properties": []
+        }
+       },
+       {
+        "kind": "link",
+        "link": {
+         "source": {
+          "objectName": "placement",
+          "propertyName": "component"
+         },
+         "target": {
+          "objectName": "component"
+         }
+        }
+       },
+       {
+        "kind": "link",
+        "link": {
+         "source": {
+          "objectName": "placement",
+          "propertyName": "candidates"
+         },
+         "target": {
+          "objectName": "destination"
+         }
+        }
+       },
+       {
+        "kind": "whereClause",
+        "whereClause": {
+         "expression": {
+          "kind": "binary",
+          "evalType": 3,
+          "operator": "||",
+          "left": {
+           "kind": "binary",
+           "evalType": 3,
+           "operator": "==",
+           "left": {
+            "kind": "identifier",
+            "evalType": 5,
+            "name": "maxCandidates",
+            "scope": 1
+           },
+           "right": {
+            "kind": "intLiteral",
+            "evalType": 5,
+            "value": "0"
+           }
+          },
+          "right": {
+           "kind": "binary",
+           "evalType": 3,
+           "operator": "<=",
+           "left": {
+            "kind": "memberCall",
+            "evalType": 5,
+            "expression": {
+             "kind": "memberAccess",
+             "evalType": 6,
+             "expression": {
+              "kind": "identifier",
+              "evalType": 7,
+              "name": "placement",
+              "scope": 1
+             },
+             "member": "candidates",
+             "isNullChaining": false
+            },
+            "member": "size",
+            "isNullChaining": false,
+            "arguments": [],
+            "overload": ""
+           },
+           "right": {
+            "kind": "identifier",
+            "evalType": 5,
+            "name": "maxCandidates",
+            "scope": 1
+           }
+          }
+         }
+        }
+       },
+       {
+        "kind": "link",
+        "link": {
+         "modifier": "delete",
+         "source": {
+          "objectName": "component",
+          "propertyName": "host"
+         },
+         "target": {
+          "objectName": "current"
+         }
+        }
+       },
+       {
+        "kind": "link",
+        "link": {
+         "modifier": "create",
+         "source": {
+          "objectName": "component",
+          "propertyName": "host"
+         },
+         "target": {
+          "objectName": "destination"
+         }
+        }
+       },
+       {
+        "kind": "variableReassignment",
+        "reassignment": {
+         "name": "moved",
+         "value": {
+          "kind": "identifier",
+          "evalType": 8,
+          "name": "component",
+          "scope": 1
+         }
+        }
+       },
+       {
+        "kind": "variableReassignment",
+        "reassignment": {
+         "name": "source",
+         "value": {
+          "kind": "identifier",
+          "evalType": 9,
+          "name": "current",
+          "scope": 1
+         }
+        }
+       },
+       {
+        "kind": "variableReassignment",
+        "reassignment": {
+         "name": "target",
+         "value": {
+          "kind": "identifier",
+          "evalType": 9,
+          "name": "destination",
+          "scope": 1
+         }
+        }
+       },
+       {
+        "kind": "variableReassignment",
+        "reassignment": {
+         "name": "choices",
+         "value": {
+          "kind": "memberCall",
+          "evalType": 5,
+          "expression": {
+           "kind": "memberAccess",
+           "evalType": 6,
+           "expression": {
+            "kind": "identifier",
+            "evalType": 7,
+            "name": "placement",
+            "scope": 1
+           },
+           "member": "candidates",
+           "isNullChaining": false
+          },
+          "member": "size",
+          "isNullChaining": false,
+          "arguments": [],
+          "overload": ""
+         }
+        }
+       }
+      ]
+     }
+    }
+   ],
+   "signature": {
+    "name": "move-component.mt",
+    "parameters": [
+     {
+      "name": "maxCandidates",
+      "direction": "in",
+      "type": 5,
+      "isElement": false,
+      "defaultValue": {
+       "kind": "intLiteral",
+       "evalType": 5,
+       "value": "0"
+      }
+     },
+     {
+      "name": "moved",
+      "direction": "out",
+      "type": 8,
+      "isElement": true
+     },
+     {
+      "name": "source",
+      "direction": "out",
+      "type": 9,
+      "isElement": true
+     },
+     {
+      "name": "target",
+      "direction": "out",
+      "type": 9,
+      "isElement": true
+     },
+     {
+      "name": "choices",
+      "direction": "out",
+      "type": 5,
+      "isElement": false
+     }
+    ]
+   }
+  },
+  "/optimize/sync/follow-reader.mt": {
+   "types": [
+    {
+     "kind": "void"
+    },
+    {
+     "package": "builtin",
+     "type": "string",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "double",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "boolean",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "Any",
+     "isNullable": true
+    },
+    {
+     "package": "class/metamodel/base.mm",
+     "type": "Component",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "class/metamodel/base.mm",
+     "type": "Container",
+     "isNullable": false,
+     "typeArgs": {}
+    }
+   ],
+   "metamodelPath": "/metamodel/shop.mm",
+   "statements": [
+    {
+     "kind": "forMatch",
+     "pattern": {
+      "elements": [
+       {
+        "kind": "objectInstance",
+        "objectInstance": {
+         "name": "moved",
+         "properties": []
+        }
+       },
+       {
+        "kind": "objectInstance",
+        "objectInstance": {
+         "name": "target",
+         "properties": []
+        }
+       },
+       {
+        "kind": "objectInstance",
+        "objectInstance": {
+         "name": "feed",
+         "className": "CopyFeed",
+         "properties": []
+        }
+       },
+       {
+        "kind": "objectInstance",
+        "objectInstance": {
+         "name": "store",
+         "className": "Component",
+         "properties": []
+        }
+       },
+       {
+        "kind": "objectInstance",
+        "objectInstance": {
+         "name": "old",
+         "className": "Container",
+         "properties": []
+        }
+       },
+       {
+        "kind": "link",
+        "link": {
+         "source": {
+          "objectName": "feed",
+          "propertyName": "reader"
+         },
+         "target": {
+          "objectName": "moved"
+         }
+        }
+       },
+       {
+        "kind": "link",
+        "link": {
+         "source": {
+          "objectName": "feed",
+          "propertyName": "store"
+         },
+         "target": {
+          "objectName": "store"
+         }
+        }
+       },
+       {
+        "kind": "link",
+        "link": {
+         "modifier": "delete",
+         "source": {
+          "objectName": "store",
+          "propertyName": "host"
+         },
+         "target": {
+          "objectName": "old"
+         }
+        }
+       },
+       {
+        "kind": "link",
+        "link": {
+         "modifier": "create",
+         "source": {
+          "objectName": "store",
+          "propertyName": "host"
+         },
+         "target": {
+          "objectName": "target"
+         }
+        }
+       },
+       {
+        "kind": "applicationCondition",
+        "condition": {
+         "negative": true,
+         "elements": [
+          {
+           "kind": "link",
+           "link": {
+            "source": {
+             "objectName": "store",
+             "propertyName": "host"
+            },
+            "target": {
+             "objectName": "target"
+            }
+           }
+          }
+         ]
+        }
+       }
+      ]
+     },
+     "doBlock": []
+    }
+   ],
+   "signature": {
+    "name": "follow-reader.mt",
+    "parameters": [
+     {
+      "name": "moved",
+      "direction": "in",
+      "type": 5,
+      "isElement": true
+     },
+     {
+      "name": "target",
+      "direction": "in",
+      "type": 6,
+      "isElement": true
+     }
+    ]
+   }
+  }
+ }
+}

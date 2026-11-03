@@ -3,6 +3,7 @@ package com.mdeo.modeltransformation.stdlib.types
 import com.mdeo.modeltransformation.compiler.CompilationResult
 import com.mdeo.modeltransformation.compiler.registry.GremlinTypeDefinition
 import com.mdeo.modeltransformation.compiler.registry.gremlinType
+import com.mdeo.modeltransformation.stdlib.contextMethod
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal
 
 /**
@@ -30,6 +31,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal
 fun createLongType(): GremlinTypeDefinition {
     return gremlinType("builtin", "long")
         .extends("builtin", "Any")
+        .contextMethod("to", 1, ::compileRange)
         .method("abs", "", 0) { receiver, _ ->
             val traversal = (receiver as GraphTraversal<Any, Any>).math("abs(_)")
             CompilationResult.of(traversal as GraphTraversal<Any, Any>)

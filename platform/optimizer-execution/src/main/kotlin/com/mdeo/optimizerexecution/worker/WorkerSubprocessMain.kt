@@ -1,5 +1,7 @@
 package com.mdeo.optimizerexecution.worker
 
+import com.mdeo.common.transport.MAX_SERVICE_WEBSOCKET_MESSAGE_BYTES
+import com.mdeo.common.transport.installDeflate
 import com.mdeo.execution.common.subprocess.SubprocessMain
 import com.mdeo.expression.ast.expressions.TypedExpression
 import com.mdeo.expression.ast.statements.TypedStatement
@@ -12,13 +14,17 @@ import com.mdeo.modeltransformation.ast.patterns.TypedPatternElement
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternElementSerializer
 import com.mdeo.modeltransformation.ast.statements.TypedTransformationStatement
 import com.mdeo.modeltransformation.ast.statements.TypedTransformationStatementSerializer
+import com.mdeo.optimizer.evaluation.CrossoverTask
 import com.mdeo.optimizer.evaluation.EvaluationTask
 import com.mdeo.optimizer.evaluation.LocalMutationEvaluator
 import com.mdeo.optimizer.evaluation.MutationTask
 import com.mdeo.optimizer.evaluation.NodeBatch
 import com.mdeo.optimizer.evaluation.ResultStatus
+import com.mdeo.optimizer.evaluation.WorkerSolutionRef
 import com.mdeo.optimizer.guidance.ScriptGuidanceFunction
+import com.mdeo.optimizer.operators.CrossoverStrategyFactory
 import com.mdeo.optimizer.operators.MutationStrategyFactory
+import com.mdeo.optimizer.operators.OperatorCatalog
 import com.mdeo.optimizer.solution.Solution
 import com.mdeo.optimizer.worker.*
 import com.mdeo.modeltransformation.graph.mdeo.MdeoModelGraph
@@ -26,9 +32,13 @@ import com.mdeo.modeltransformation.graph.tinker.TinkerModelGraph
 import com.mdeo.optimizer.config.GraphBackendType
 import com.mdeo.optimizer.config.ObjectiveTendency
 import com.mdeo.script.ast.TypedAst as ScriptTypedAst
+import com.mdeo.script.ast.TypedPluginAst as ScriptTypedPluginAst
 import com.mdeo.script.ast.expressions.TypedExpressionSerializer as ScriptExpressionSerializer
 import com.mdeo.script.ast.statements.TypedStatementSerializer
 import com.mdeo.script.compiler.CompilationInput
+import com.mdeo.script.compiler.CompiledProgram
+import com.mdeo.script.runtime.ExternalCallDispatcher
+import com.mdeo.execution.common.external.ExternalSessions
 import com.mdeo.script.compiler.ScriptCompiler
 import com.mdeo.script.runtime.ExecutionEnvironment
 import io.ktor.client.*
@@ -162,7 +172,12 @@ class WorkerSubprocessMain : SubprocessMain() {
         /**
          * Ktor HTTP client used to open the WebSocket connection to the orchestrator. 
          */
-        private val client = HttpClient(CIO) { install(WebSockets) }
+        private val client = HttpClient(CIO) {
+            install(WebSockets) {
+                maxFrameSize = MAX_SERVICE_WEBSOCKET_MESSAGE_BYTES
+                extensions { installDeflate(MAX_SERVICE_WEBSOCKET_MESSAGE_BYTES) }
+            }
+        }
 
         /**
          * Reference to the active WebSocket session, set once the connection is established.
@@ -342,7 +357,12 @@ class WorkerSubprocessMain : SubprocessMain() {
         @Volatile
         private var failed = false
 
-        private val peerClient = HttpClient(CIO) { install(WebSockets) }
+        private val peerClient = HttpClient(CIO) {
+            install(WebSockets) {
+                maxFrameSize = MAX_SERVICE_WEBSOCKET_MESSAGE_BYTES
+                extensions { installDeflate(MAX_SERVICE_WEBSOCKET_MESSAGE_BYTES) }
+            }
+        }
 
         val job: Job = peerScope.launch {
             try {
@@ -526,6 +546,37 @@ class WorkerSubprocessMain : SubprocessMain() {
     }
 
     /**
+     * Sessions opened for the external calls of the current execution.
+     */
+    private var externalSessions: ExternalSessions? = null
+
+    /**
+     * Builds the dispatcher that answers the program's external calls over sessions.
+     *
+     * Every guidance function of one execution shares it; its clients serialize calls, so
+     * concurrent evaluation threads take turns on one session per contribution.
+     *
+     * @return The dispatcher, or [ExternalCallDispatcher.UNSUPPORTED] when the program makes no
+     *         external call or this node was given no way to open sessions
+     */
+    private fun createExternalCalls(
+        program: CompiledProgram,
+        request: WorkerSubprocessRequest.Setup
+    ): ExternalCallDispatcher {
+        closeExternalSessions()
+        val sessions = request.sessionAccess?.let { ExternalSessions(it) }
+            ?: return ExternalCallDispatcher.UNSUPPORTED
+        externalSessions = sessions
+        // Evaluation threads work on different solutions at once, each its own model.
+        return sessions.createDispatcher(program, perThread = true)
+    }
+
+    private fun closeExternalSessions() {
+        externalSessions?.close()
+        externalSessions = null
+    }
+
+    /**
      * Compiles all resources and optionally generates initial solutions.
      *
      * @return Pair of the evaluator and the list of initial solutions.
@@ -536,28 +587,43 @@ class WorkerSubprocessMain : SubprocessMain() {
         val transformations: Map<String, TransformationTypedAst> = request.transformationAstJsons
             .mapValues { (_, json) -> transformationJson.decodeFromString<TransformationTypedAst>(json) }
 
-        // Sort paths alphabetically and assign stable numerical IDs so that every node
-        // in a federated setup assigns the same id to the same operator.
-        val operators: List<TransformationOperator> = transformations.keys.sorted()
-            .mapIndexed { idx, path -> TransformationOperator(id = idx, ast = transformations[path]!!) }
+        // Sort operators by path and arguments and assign stable numerical IDs so that every
+        // node in a federated setup assigns the same id to the same operator.
+        val operators: List<TransformationOperator> =
+            OperatorCatalog.mutationOperators(request.mutationOperators, transformations)
+        val crossoverStrategy = request.crossoverOperators.takeIf { it.isNotEmpty() }?.let { refs ->
+            val crossover = request.solverConfig.parameters.crossover
+            CrossoverStrategyFactory.create(
+                crossover, OperatorCatalog.crossoverOperators(refs, transformations, crossover.parents)
+            )
+        }
 
         val scriptAsts: Map<String, ScriptTypedAst> = request.scriptAstJsons
             .mapValues { (_, json) -> scriptJson.decodeFromString<ScriptTypedAst>(json) }
 
-        val compiledProgram = ScriptCompiler().compile(CompilationInput(scriptAsts), request.metamodelData)
+        val pluginAst: ScriptTypedPluginAst? = request.pluginAstJson
+            ?.let { scriptJson.decodeFromString<ScriptTypedPluginAst>(it) }
+
+        val compiledProgram = ScriptCompiler().compile(
+            CompilationInput(scriptAsts, pluginAst), request.metamodelData
+        )
         val metamodel = compiledProgram.metamodel ?: Metamodel.compile(request.metamodelData)
         val clazz = ExecutionEnvironment(compiledProgram).scriptProgramClass
+        val externalCalls = createExternalCalls(compiledProgram, request)
 
         val objectives = request.goalConfig.objectives.map { obj ->
             val jvmName = compiledProgram.functionLookup[obj.path]?.get(obj.functionName)
                 ?: error("Objective '${obj.functionName}' not found in '${obj.path}'")
-            ScriptGuidanceFunction(clazz, jvmName, System.out, "${obj.path}::${obj.functionName}", obj.type)
+            ScriptGuidanceFunction(clazz, jvmName, System.out, "${obj.path}::${obj.functionName}", obj.type, externalCalls)
         }
 
         val constraints = request.goalConfig.constraints.map { con ->
             val jvmName = compiledProgram.functionLookup[con.path]?.get(con.functionName)
                 ?: error("Constraint '${con.functionName}' not found in '${con.path}'")
-            ScriptGuidanceFunction(clazz, jvmName, System.out, "${con.path}::${con.functionName}")
+            ScriptGuidanceFunction(
+                clazz, jvmName, System.out, "${con.path}::${con.functionName}",
+                externalCalls = externalCalls
+            )
         }
 
         val mutationStrategy = MutationStrategyFactory.create(request.solverConfig.parameters.mutation, operators)
@@ -575,7 +641,8 @@ class WorkerSubprocessMain : SubprocessMain() {
             objectives = objectives,
             constraints = constraints,
             metamodel = metamodel,
-            graphBackendType = graphBackendType
+            graphBackendType = graphBackendType,
+            crossoverStrategy = crossoverStrategy
         )
 
         val initialSolutions: List<WorkerInitialSolution> = if (!request.skipInitialization) {
@@ -799,7 +866,7 @@ class WorkerSubprocessMain : SubprocessMain() {
         val ev = requireEvaluator()
         val nodeId = LocalMutationEvaluator.DEFAULT_NODE_ID
         val dispatcher = taskDispatcher
-        val allTasks = msg.tasks.size + msg.evaluationTasks.size
+        val allTasks = msg.tasks.size + msg.crossoverTasks.size + msg.evaluationTasks.size
 
         // Each entry is (representativeSolutionId, Deferred<errorMessage?>).  A non-null
         // error message means the push failed and the destination node will never receive
@@ -813,7 +880,8 @@ class WorkerSubprocessMain : SubprocessMain() {
                         solutionId = solId
                     )
                     val model = runBlocking { ev.getSolutionData(ref) }
-                    val failedOperators = ev.getSolutionFailedOperators(solId)
+                    // A replica is only read as a donor; its failure record stays with the original.
+                    val failedOperators = if (relocation.replicate) emptySet() else ev.getSolutionFailedOperators(solId)
                     SolutionData(
                         solutionId = solId,
                         serializedModel = model,
@@ -856,6 +924,16 @@ class WorkerSubprocessMain : SubprocessMain() {
             msg.tasks.map { task -> processSingleMutationTask(task, ev, nodeId) }
         }
 
+        val crossoverResults: List<BatchResult> = if (dispatcher != null && allTasks > 1) {
+            runBlocking {
+                msg.crossoverTasks.map { task ->
+                    async(dispatcher) { processSingleCrossoverTask(task, ev, nodeId) }
+                }.awaitAll()
+            }
+        } else {
+            msg.crossoverTasks.map { task -> processSingleCrossoverTask(task, ev, nodeId) }
+        }
+
         val evaluationResults: List<BatchResult> = if (dispatcher != null && allTasks > 1) {
             runBlocking {
                 msg.evaluationTasks.map { task ->
@@ -884,16 +962,21 @@ class WorkerSubprocessMain : SubprocessMain() {
             }
         }
 
-        if (msg.discards.isNotEmpty()) {
+        // Replicas were pushed here as donors of this batch's crossover tasks only.
+        if (msg.discards.isNotEmpty() || msg.replicas.isNotEmpty()) {
             val batch = NodeBatch(
                 nodeId = nodeId,
                 tasks = emptyList(),
-                discards = msg.discards
+                discards = msg.discards,
+                replicas = msg.replicas
             )
             runBlocking { ev.executeNodeBatches(listOf(batch)) }
         }
 
-        return NodeWorkBatchResponse(requestId = msg.requestId, results = mutationResults + evaluationResults + pushErrors)
+        return NodeWorkBatchResponse(
+            requestId = msg.requestId,
+            results = mutationResults + crossoverResults + evaluationResults + pushErrors
+        )
     }
 
     /**
@@ -917,7 +1000,7 @@ class WorkerSubprocessMain : SubprocessMain() {
                 val errMsg = "Timed out after ${INCOMING_SOLUTION_TIMEOUT_MS}ms waiting for incoming solution " +
                     "'${task.solutionId}' — push rebalancing to this node likely failed"
                 logger.error("[processSingleMutationTask] TIMEOUT solId={}: {}", task.solutionId, errMsg)
-                return failedResult(task.solutionId, ResultStatus.HARD_FAILURE, errMsg)
+                return failedResult(task.solutionId, ResultStatus.HARD_FAILURE, errMsg, task.taskId)
             }
         }
         val evalId = evalIdCounter.incrementAndGet()
@@ -928,35 +1011,99 @@ class WorkerSubprocessMain : SubprocessMain() {
         return try {
             val batch = NodeBatch(
                 nodeId = nodeId,
-                tasks = listOf(MutationTask(task.solutionId, nodeId)),
+                tasks = listOf(MutationTask(task.solutionId, nodeId, task.taskId)),
                 discards = emptyList()
             )
             val evalResults = runBlocking { ev.executeNodeBatches(listOf(batch)) }
-            val result = evalResults.firstOrNull()
-
-            if (result != null && result.status == ResultStatus.SUCCESS) {
-                BatchResult(
-                    parentSolutionId = task.solutionId,
-                    newSolutionId = result.newSolutionId,
-                    objectives = result.objectives,
-                    constraints = result.constraints,
-                    status = ResultStatus.SUCCESS,
-                    executedTransformations = result.executedTransformations,
-                    skippedOperatorSlots = result.skippedOperatorSlots
-                )
-            } else {
-                failedResult(task.solutionId, result?.status ?: ResultStatus.SOFT_FAILURE, result?.errorMessage)
-            }
+            toBatchResult(task.solutionId, task.taskId, evalResults.firstOrNull())
         } catch (e: Throwable) {
             failedResult(
                 task.solutionId,
                 ResultStatus.HARD_FAILURE,
-                "Unexpected error during mutation of solution '${task.solutionId}': ${e.message ?: e.javaClass.simpleName}"
+                "Unexpected error during mutation of solution '${task.solutionId}': ${e.message ?: e.javaClass.simpleName}",
+                task.taskId
             )
         } finally {
             cancelTimeout(evalId)
         }
     }
+
+    /**
+     * Makes one crossover child ([BatchCrossoverTask]) with the same watchdog timeout as a
+     * mutation task, plus one transformation budget per crossover operator it may try.
+     *
+     * The primary and every donor must be present before the task starts; one that is not yet
+     * (a replica or rebalanced solution being pushed here by another node) is awaited like the
+     * parent of a mutation task, and its absence after [INCOMING_SOLUTION_TIMEOUT_MS] is a hard
+     * failure.
+     */
+    private fun processSingleCrossoverTask(
+        task: BatchCrossoverTask,
+        ev: LocalMutationEvaluator,
+        nodeId: String
+    ): BatchResult {
+        val needed = if (task.attemptCrossover) listOf(task.primarySolutionId) + task.donorSolutionIds else listOf(task.primarySolutionId)
+        for (solutionId in needed) {
+            if (!ev.hasSolution(solutionId) && !awaitSolutionAvailable(solutionId, INCOMING_SOLUTION_TIMEOUT_MS)) {
+                val errMsg = "Timed out after ${INCOMING_SOLUTION_TIMEOUT_MS}ms waiting for incoming solution " +
+                    "'$solutionId' of crossover task '${task.taskId}' — pushing it to this node likely failed"
+                logger.error("[processSingleCrossoverTask] TIMEOUT solId={}: {}", solutionId, errMsg)
+                return failedResult(task.primarySolutionId, ResultStatus.HARD_FAILURE, errMsg, task.taskId)
+            }
+        }
+        val evalId = evalIdCounter.incrementAndGet()
+        val budgetMs = mutationBudgetMs(numGuidanceFunctions, scriptTimeoutMs, transformationTimeoutMs)
+        val timeoutMs = if (budgetMs > 0 && task.attemptCrossover) budgetMs + transformationTimeoutMs else budgetMs
+        if (timeoutMs > 0) {
+            registerTimeout(evalId, timeoutMs)
+        }
+        return try {
+            val crossoverTask = CrossoverTask(
+                taskId = task.taskId,
+                primary = WorkerSolutionRef(nodeId, task.primarySolutionId),
+                donors = task.donorSolutionIds.map { WorkerSolutionRef(nodeId, it) },
+                attemptCrossover = task.attemptCrossover
+            )
+            val batch = NodeBatch(nodeId = nodeId, tasks = emptyList(), discards = emptyList(), crossoverTasks = listOf(crossoverTask))
+            val evalResults = runBlocking { ev.executeNodeBatches(listOf(batch)) }
+            toBatchResult(task.primarySolutionId, task.taskId, evalResults.firstOrNull())
+        } catch (e: Throwable) {
+            failedResult(
+                task.primarySolutionId,
+                ResultStatus.HARD_FAILURE,
+                "Unexpected error during crossover of solution '${task.primarySolutionId}': ${e.message ?: e.javaClass.simpleName}",
+                task.taskId
+            )
+        } finally {
+            cancelTimeout(evalId)
+        }
+    }
+
+    /**
+     * Converts the local result of a mutation or crossover task into its [BatchResult].
+     */
+    private fun toBatchResult(
+        parentSolutionId: String,
+        taskId: String,
+        result: com.mdeo.optimizer.evaluation.EvaluationResult?
+    ): BatchResult =
+        if (result != null && result.status == ResultStatus.SUCCESS) {
+            BatchResult(
+                parentSolutionId = parentSolutionId,
+                newSolutionId = result.newSolutionId,
+                objectives = result.objectives,
+                constraints = result.constraints,
+                status = ResultStatus.SUCCESS,
+                executedTransformations = result.executedTransformations,
+                skippedOperatorSlots = result.skippedOperatorSlots,
+                taskId = taskId,
+                crossoverAttempted = result.crossoverAttempted,
+                crossoverOperator = result.crossoverOperator
+            )
+        } else {
+            failedResult(parentSolutionId, result?.status ?: ResultStatus.SOFT_FAILURE, result?.errorMessage, taskId)
+                .copy(crossoverAttempted = result?.crossoverAttempted ?: false, crossoverOperator = result?.crossoverOperator)
+        }
 
     /**
      * Evaluates a single [BatchEvaluationTask] with a per-evaluation watchdog timeout.
@@ -1051,19 +1198,22 @@ class WorkerSubprocessMain : SubprocessMain() {
      *   penalty fitness and continues evolution.
      * @param errorMessage Human-readable diagnostic detail; required for [ResultStatus.HARD_FAILURE],
      *   `null` for [ResultStatus.SOFT_FAILURE].
+     * @param taskId The mutation or crossover task answered; empty for evaluation tasks.
      * @return A [BatchResult] with the given [status].
      */
     private fun failedResult(
         parentSolutionId: String,
         status: ResultStatus,
-        errorMessage: String? = null
+        errorMessage: String? = null,
+        taskId: String = ""
     ) = BatchResult(
         parentSolutionId = parentSolutionId,
         newSolutionId = "",
         objectives = emptyList(),
         constraints = emptyList(),
         status = status,
-        errorMessage = errorMessage
+        errorMessage = errorMessage,
+        taskId = taskId
     )
 
     /**
@@ -1073,6 +1223,7 @@ class WorkerSubprocessMain : SubprocessMain() {
      * evaluator and clears all counters.
      */
     private fun handleReset(): ByteArray {
+        closeExternalSessions()
         closeOrchestratorChannel()
         closePeerChannels()
         incomingSolutionSignals.clear()
@@ -1112,6 +1263,7 @@ class WorkerSubprocessMain : SubprocessMain() {
     }
 
     override fun cleanup() {
+        closeExternalSessions()
         closeOrchestratorChannel()
         closePeerChannels()
         peerScope.cancel()

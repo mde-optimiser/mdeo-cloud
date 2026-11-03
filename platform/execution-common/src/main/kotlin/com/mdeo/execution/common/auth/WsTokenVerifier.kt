@@ -1,14 +1,8 @@
 package com.mdeo.execution.common.auth
 
-import com.auth0.jwk.JwkProvider
-import com.auth0.jwk.JwkProviderBuilder
-import com.auth0.jwt.JWT
-import com.auth0.jwt.algorithms.Algorithm
 import com.auth0.jwt.interfaces.DecodedJWT
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.security.interfaces.RSAPublicKey
-import java.util.concurrent.TimeUnit
 
 /**
  * Verifies bearer tokens outside of Ktor's request authentication pipeline.
@@ -24,12 +18,9 @@ import java.util.concurrent.TimeUnit
  */
 class WsTokenVerifier(
     backendUrl: String,
-    private val issuer: String
+    issuer: String
 ) {
-    private val jwkProvider: JwkProvider = JwkProviderBuilder(backendUrl)
-        .cached(10, 24, TimeUnit.HOURS)
-        .rateLimited(10, 1, TimeUnit.MINUTES)
-        .build()
+    private val keys = BackendKeys(backendUrl, issuer)
 
     /**
      * Verifies a token and extracts the claims execution services authorize against.
@@ -42,7 +33,7 @@ class WsTokenVerifier(
             return null
         }
         val decoded = try {
-            // JWKS fetches on a cache miss are blocking network calls.
+            // Fetching the backend's keys is a blocking network call.
             withContext(Dispatchers.IO) { verifyToken(token) }
         } catch (e: Exception) {
             return null
@@ -54,13 +45,5 @@ class WsTokenVerifier(
         )
     }
 
-    private fun verifyToken(token: String): DecodedJWT {
-        val keyId = JWT.decode(token).keyId
-        val publicKey = jwkProvider.get(keyId).publicKey as RSAPublicKey
-        return JWT.require(Algorithm.RSA256(publicKey, null))
-            .withIssuer(issuer)
-            .acceptLeeway(3)
-            .build()
-            .verify(token)
-    }
+    private fun verifyToken(token: String): DecodedJWT = keys.verifierFor(token).verify(token)
 }

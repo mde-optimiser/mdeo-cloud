@@ -1,5 +1,7 @@
 package com.mdeo.common.transport
 
+import com.mdeo.common.model.ApiError
+import com.mdeo.common.model.ErrorCodes
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
@@ -71,7 +73,7 @@ class ExecutionWsProtocolTest {
 
     @Test
     fun `round-trips responses including the empty payload`() {
-        val error = ExecutionWsError("r", ExecutionWsErrorCodes.NOT_FOUND, "gone")
+        val error = ExecutionWsError("r", ApiError(ErrorCodes.NOT_FOUND, "gone"))
         assertEquals(error, ExecutionWsProtocol.decode(ExecutionWsProtocol.encode(error)))
 
         val empty = ExecutionWsResponse("r", null)

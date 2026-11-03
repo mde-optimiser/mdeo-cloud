@@ -17,6 +17,8 @@ import {
     Enum,
     EnumEntry,
     EnumTypeReference,
+    View,
+    ViewEntry,
     type PrimitiveTypeType,
     type SingleMultiplicityType,
     type RangeMultiplicityType,
@@ -29,7 +31,9 @@ import {
     type EnumType,
     type EnumEntryType,
     type EnumTypeReferenceType,
-    type FileImportType
+    type FileImportType,
+    type ViewType,
+    type ViewEntryType
 } from "../grammar/metamodelTypes.js";
 
 const { doc } = sharedImport("prettier");
@@ -55,6 +59,8 @@ export function registerMetamodelSerializers(services: LangiumCoreServices & Ast
     AstSerializer.registerNodeSerializer(AssociationEnd, (ctx) => printAssociationEnd(ctx));
     AstSerializer.registerNodeSerializer(Association, (ctx) => printAssociation(ctx));
     AstSerializer.registerNodeSerializer(FileImport, (ctx) => printFileImport(ctx));
+    AstSerializer.registerNodeSerializer(ViewEntry, (ctx) => printViewEntry(ctx));
+    AstSerializer.registerNodeSerializer(View, (ctx) => printView(ctx));
     AstSerializer.registerNodeSerializer(MetaModel, (ctx) => printMetaModel(ctx));
 }
 
@@ -226,7 +232,7 @@ function printAssociation(context: PrintContext<AssociationType>): Doc {
  * @returns The formatted metamodel
  */
 function printMetaModel(context: PrintContext<MetaModelType>): Doc {
-    return serializeNewlineSep(context, ["imports", "elements"], doc.builders);
+    return serializeNewlineSep(context, ["imports", "elements", "views"], doc.builders);
 }
 
 /**
@@ -264,6 +270,37 @@ function printEnum(context: PrintContext<EnumType>): Doc {
     docs.push("enum ");
     docs.push(printPrimitive(getPrimitive(ctx, "name"), ID));
     docs.push(" {");
+
+    const content = serializeNewlineSep(context, ["entries"], doc.builders);
+    if (content.length > 0) {
+        docs.push(indent([hardline, content]), hardline);
+    }
+
+    docs.push("}");
+
+    return group(docs);
+}
+
+/**
+ * Prints a view entry node.
+ *
+ * @param context The print context
+ * @returns The formatted view entry
+ */
+function printViewEntry(context: PrintContext<ViewEntryType>): Doc {
+    const { path, printReference } = context;
+    return path.call((ref) => printReference(ref, ID), "element");
+}
+
+/**
+ * Prints a view node.
+ *
+ * @param context The print context
+ * @returns The formatted view
+ */
+function printView(context: PrintContext<ViewType>): Doc {
+    const { ctx, printPrimitive, getPrimitive } = context;
+    const docs: Doc[] = ["view ", printPrimitive(getPrimitive(ctx, "name"), ID), " {"];
 
     const content = serializeNewlineSep(context, ["entries"], doc.builders);
     if (content.length > 0) {

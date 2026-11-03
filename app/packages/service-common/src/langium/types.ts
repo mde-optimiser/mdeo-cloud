@@ -43,6 +43,24 @@ export interface LangiumPoolConfig<T = object> {
     maxInstances: number;
 
     /**
+     * Maximum number of instances that may be held by open sessions at the same time.
+     *
+     * A session holds its instance for as long as the connection lives, which can be the whole
+     * length of an execution. This budget is separate from [maxInstances] and is *refused* when
+     * exhausted rather than queued: a caller that waits for a slot held by a session that is
+     * not finished yet would wait for the rest of the run.
+     */
+    maxSessionInstances?: number;
+
+    /**
+     * How long an ordinary request may wait for a free instance before it fails, in milliseconds.
+     *
+     * Without a limit the wait queue is unbounded in time, so one instance that is never
+     * released stalls every request behind it with nothing to show for it.
+     */
+    acquireTimeoutMs?: number;
+
+    /**
      * The language plugin to use for creating instances
      */
     languagePluginProvider: LangiumLanguagePluginProvider<T>;

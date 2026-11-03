@@ -87,7 +87,7 @@ goal {
 | Import | `import { a, b as c } from "./file.fn"` | Bring script functions into scope |
 | Objective | `minimize f` / `maximize f` | Add an objective |
 | Constraint | `constraint f` | Add a constraint |
-| Refinement | `refine Class.property[m]` | Narrow a multiplicity for the search |
+| Refinement | `refine Class.end[m]` | Narrow the multiplicity of an association end for the search |
 
 Entries may be given in any order and repeated.
 
@@ -95,9 +95,12 @@ Entries may be given in any order and repeated.
 numeric type. A constraint returns `0` when satisfied; larger values are the degree of violation. At
 least one objective is required.
 
-**Refinements** tighten a multiplicity declared in the metamodel, for the purposes of the search only.
-`refine Canvas.layers[1..4]` tells the search that a canvas should have between one and four layers,
-without changing the metamodel that other files share.
+**Refinements** tighten the multiplicity of an association end for the search only, without changing
+the metamodel that other files share. `refine Canvas.layers[1..4]` makes every
+[generated mutation operator](/guide/generated-operators#refinements) keep each canvas between one and
+four layers. A refinement names the class that declares the end and can only narrow its bounds. The
+initial model must already satisfy it, or the run fails before it starts; hand-written `using`
+operators are not affected.
 
 ### Full example
 

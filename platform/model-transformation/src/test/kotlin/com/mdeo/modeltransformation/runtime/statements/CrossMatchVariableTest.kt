@@ -17,6 +17,7 @@ import com.mdeo.modeltransformation.runtime.TransformationExecutionResult
 import com.mdeo.modeltransformation.runtime.isFailure
 import com.mdeo.modeltransformation.runtime.isSuccess
 import com.mdeo.modeltransformation.runtime.testHasInstance
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.`__` as AnonymousTraversal
 import org.apache.tinkerpop.gremlin.tinkergraph.structure.TinkerGraph
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
@@ -218,7 +219,7 @@ class CrossMatchVariableTest {
             // Check edge exists between house and room
             val edgeCount = graph.traversal().V(houseId)
                 .outE("`rooms`_`house`")
-                .filter { it.get().inVertex().id() == roomId }
+                .where(AnonymousTraversal.inV().hasId(roomId))
                 .count().next()
             
             assertEquals(1L, edgeCount, "Edge should be created between house and newRoom")
@@ -403,7 +404,7 @@ class CrossMatchVariableTest {
             val newRoomId = (context.variableScope.getVariable("newRoom") as? VariableBinding.InstanceBinding)?.vertexId
             val edgeCount = graph.traversal().V(houseId)
                 .outE("`rooms`_`house`")
-                .filter { it.get().inVertex().id() == newRoomId }
+                .where(AnonymousTraversal.inV().hasId(newRoomId))
                 .count().next()
             assertEquals(1L, edgeCount, "Edge should exist between house and newRoom")
             

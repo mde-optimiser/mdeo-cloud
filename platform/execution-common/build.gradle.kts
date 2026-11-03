@@ -5,6 +5,10 @@ plugins {
 
 dependencies {
     implementation(project(":common"))
+    // Script ASTs and external-call sessions, shared by the stacks that run scripts
+    implementation(project(":expression"))
+    implementation(project(":script"))
+    implementation(project(":metamodel"))
     
     // Ktor Server
     implementation(libs.ktor.server.core)

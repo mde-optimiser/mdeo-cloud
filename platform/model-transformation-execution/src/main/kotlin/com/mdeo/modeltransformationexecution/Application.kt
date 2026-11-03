@@ -1,5 +1,6 @@
 package com.mdeo.modeltransformationexecution
 
+import com.mdeo.common.transport.installHttpCompression
 import com.mdeo.execution.common.auth.configureJwtAuth
 import com.mdeo.execution.common.config.configureExecutionTransport
 import com.mdeo.execution.common.config.configureSerialization
@@ -60,6 +61,7 @@ fun Application.module(appConfig: AppConfig) {
     }
     
     configureSerialization()
+    installHttpCompression()
     configureStatusPages()
     
     configureJwtAuth(appConfig.backendApiUrl, appConfig.jwtIssuer)

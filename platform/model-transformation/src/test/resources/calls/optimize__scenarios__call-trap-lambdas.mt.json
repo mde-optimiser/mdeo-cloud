@@ -1,0 +1,725 @@
+{
+ "types": [
+  {
+   "kind": "void"
+  },
+  {
+   "package": "builtin",
+   "type": "string",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "double",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "boolean",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "Any",
+   "isNullable": true
+  },
+  {
+   "package": "class/metamodel/base.mm",
+   "type": "Container",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "isNullable": false,
+   "parameters": [
+    {
+     "name": "param0",
+     "type": {
+      "package": "class/metamodel/base.mm",
+      "type": "Component",
+      "isNullable": false,
+      "typeArgs": {}
+     }
+    }
+   ],
+   "returnType": {
+    "package": "builtin",
+    "type": "boolean",
+    "isNullable": false,
+    "typeArgs": {}
+   }
+  },
+  {
+   "package": "class/metamodel/base.mm",
+   "type": "Component",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "List",
+   "isNullable": false,
+   "typeArgs": {
+    "T": {
+     "package": "class/metamodel/base.mm",
+     "type": "Component",
+     "isNullable": false,
+     "typeArgs": {}
+    }
+   }
+  }
+ ],
+ "metamodelPath": "/metamodel/shop.mm",
+ "statements": [
+  {
+   "kind": "match",
+   "pattern": {
+    "elements": [
+     {
+      "kind": "objectInstance",
+      "objectInstance": {
+       "name": "hostA",
+       "className": "Container",
+       "properties": [
+        {
+         "propertyName": "name",
+         "operator": "==",
+         "value": {
+          "kind": "stringLiteral",
+          "evalType": 1,
+          "value": "a"
+         }
+        }
+       ]
+      }
+     },
+     {
+      "kind": "objectInstance",
+      "objectInstance": {
+       "name": "hostB",
+       "className": "Container",
+       "properties": [
+        {
+         "propertyName": "name",
+         "operator": "==",
+         "value": {
+          "kind": "stringLiteral",
+          "evalType": 1,
+          "value": "b"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "kind": "call",
+   "callee": "/optimize/scenarios/components-on.mt",
+   "name": "componentsOn",
+   "arguments": [
+    {
+     "name": "host",
+     "value": {
+      "kind": "identifier",
+      "evalType": 5,
+      "name": "hostA",
+      "scope": 1
+     }
+    }
+   ],
+   "outputs": [
+    {
+     "parameter": "components",
+     "name": "onA"
+    }
+   ]
+  },
+  {
+   "kind": "call",
+   "callee": "/optimize/scenarios/components-on.mt",
+   "name": "componentsOn",
+   "arguments": [
+    {
+     "name": "host",
+     "value": {
+      "kind": "identifier",
+      "evalType": 5,
+      "name": "hostB",
+      "scope": 1
+     }
+    }
+   ],
+   "outputs": [
+    {
+     "parameter": "components",
+     "name": "onB"
+    }
+   ]
+  },
+  {
+   "kind": "forMatch",
+   "pattern": {
+    "elements": [
+     {
+      "kind": "objectInstance",
+      "objectInstance": {
+       "name": "x",
+       "className": "Component",
+       "properties": []
+      }
+     },
+     {
+      "kind": "whereClause",
+      "whereClause": {
+       "expression": {
+        "kind": "binary",
+        "evalType": 3,
+        "operator": "&&",
+        "left": {
+         "kind": "memberCall",
+         "evalType": 3,
+         "expression": {
+          "kind": "identifier",
+          "evalType": 8,
+          "name": "onA",
+          "scope": 1
+         },
+         "member": "exists",
+         "isNullChaining": false,
+         "arguments": [
+          {
+           "value": {
+            "kind": "lambda",
+            "evalType": 6,
+            "parameters": [
+             "p"
+            ],
+            "body": {
+             "kind": "binary",
+             "evalType": 3,
+             "operator": "==",
+             "left": {
+              "kind": "identifier",
+              "evalType": 7,
+              "name": "p",
+              "scope": 3
+             },
+             "right": {
+              "kind": "identifier",
+              "evalType": 7,
+              "name": "x",
+              "scope": 2
+             }
+            }
+           },
+           "parameterType": 6
+          }
+         ],
+         "overload": ""
+        },
+        "right": {
+         "kind": "unary",
+         "evalType": 3,
+         "operator": "!",
+         "expression": {
+          "kind": "memberCall",
+          "evalType": 3,
+          "expression": {
+           "kind": "identifier",
+           "evalType": 8,
+           "name": "onB",
+           "scope": 1
+          },
+          "member": "exists",
+          "isNullChaining": false,
+          "arguments": [
+           {
+            "value": {
+             "kind": "lambda",
+             "evalType": 6,
+             "parameters": [
+              "q"
+             ],
+             "body": {
+              "kind": "binary",
+              "evalType": 3,
+              "operator": "==",
+              "left": {
+               "kind": "identifier",
+               "evalType": 7,
+               "name": "q",
+               "scope": 3
+              },
+              "right": {
+               "kind": "identifier",
+               "evalType": 7,
+               "name": "x",
+               "scope": 2
+              }
+             }
+            },
+            "parameterType": 6
+           }
+          ],
+          "overload": ""
+         }
+        }
+       }
+      }
+     }
+    ]
+   },
+   "doBlock": [
+    {
+     "kind": "match",
+     "pattern": {
+      "elements": [
+       {
+        "kind": "objectInstance",
+        "objectInstance": {
+         "modifier": "create",
+         "name": "log",
+         "className": "Container",
+         "properties": [
+          {
+           "propertyName": "name",
+           "operator": "=",
+           "value": {
+            "kind": "binary",
+            "evalType": 1,
+            "operator": "+",
+            "left": {
+             "kind": "stringLiteral",
+             "evalType": 1,
+             "value": "only a "
+            },
+            "right": {
+             "kind": "memberAccess",
+             "evalType": 1,
+             "expression": {
+              "kind": "identifier",
+              "evalType": 7,
+              "name": "x",
+              "scope": 2
+             },
+             "member": "name",
+             "isNullChaining": false
+            }
+           }
+          }
+         ]
+        }
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "kind": "forMatch",
+   "pattern": {
+    "elements": [
+     {
+      "kind": "objectInstance",
+      "objectInstance": {
+       "name": "y",
+       "className": "Component",
+       "properties": []
+      }
+     },
+     {
+      "kind": "whereClause",
+      "whereClause": {
+       "expression": {
+        "kind": "binary",
+        "evalType": 3,
+        "operator": "||",
+        "left": {
+         "kind": "memberCall",
+         "evalType": 3,
+         "expression": {
+          "kind": "identifier",
+          "evalType": 8,
+          "name": "onB",
+          "scope": 1
+         },
+         "member": "exists",
+         "isNullChaining": false,
+         "arguments": [
+          {
+           "value": {
+            "kind": "lambda",
+            "evalType": 6,
+            "parameters": [
+             "p"
+            ],
+            "body": {
+             "kind": "binary",
+             "evalType": 3,
+             "operator": "==",
+             "left": {
+              "kind": "identifier",
+              "evalType": 7,
+              "name": "p",
+              "scope": 3
+             },
+             "right": {
+              "kind": "identifier",
+              "evalType": 7,
+              "name": "y",
+              "scope": 2
+             }
+            }
+           },
+           "parameterType": 6
+          }
+         ],
+         "overload": ""
+        },
+        "right": {
+         "kind": "binary",
+         "evalType": 3,
+         "operator": "&&",
+         "left": {
+          "kind": "memberCall",
+          "evalType": 3,
+          "expression": {
+           "kind": "identifier",
+           "evalType": 8,
+           "name": "onA",
+           "scope": 1
+          },
+          "member": "exists",
+          "isNullChaining": false,
+          "arguments": [
+           {
+            "value": {
+             "kind": "lambda",
+             "evalType": 6,
+             "parameters": [
+              "q"
+             ],
+             "body": {
+              "kind": "binary",
+              "evalType": 3,
+              "operator": "==",
+              "left": {
+               "kind": "identifier",
+               "evalType": 7,
+               "name": "q",
+               "scope": 3
+              },
+              "right": {
+               "kind": "identifier",
+               "evalType": 7,
+               "name": "y",
+               "scope": 2
+              }
+             }
+            },
+            "parameterType": 6
+           }
+          ],
+          "overload": ""
+         },
+         "right": {
+          "kind": "binary",
+          "evalType": 3,
+          "operator": "==",
+          "left": {
+           "kind": "memberAccess",
+           "evalType": 1,
+           "expression": {
+            "kind": "identifier",
+            "evalType": 7,
+            "name": "y",
+            "scope": 2
+           },
+           "member": "name",
+           "isNullChaining": false
+          },
+          "right": {
+           "kind": "stringLiteral",
+           "evalType": 1,
+           "value": "nobody"
+          }
+         }
+        }
+       }
+      }
+     }
+    ]
+   },
+   "doBlock": [
+    {
+     "kind": "match",
+     "pattern": {
+      "elements": [
+       {
+        "kind": "objectInstance",
+        "objectInstance": {
+         "modifier": "create",
+         "name": "log2",
+         "className": "Container",
+         "properties": [
+          {
+           "propertyName": "name",
+           "operator": "=",
+           "value": {
+            "kind": "binary",
+            "evalType": 1,
+            "operator": "+",
+            "left": {
+             "kind": "ternary",
+             "evalType": 1,
+             "condition": {
+              "kind": "memberCall",
+              "evalType": 3,
+              "expression": {
+               "kind": "identifier",
+               "evalType": 8,
+               "name": "onB",
+               "scope": 1
+              },
+              "member": "exists",
+              "isNullChaining": false,
+              "arguments": [
+               {
+                "value": {
+                 "kind": "lambda",
+                 "evalType": 6,
+                 "parameters": [
+                  "r"
+                 ],
+                 "body": {
+                  "kind": "binary",
+                  "evalType": 3,
+                  "operator": "==",
+                  "left": {
+                   "kind": "identifier",
+                   "evalType": 7,
+                   "name": "r",
+                   "scope": 4
+                  },
+                  "right": {
+                   "kind": "identifier",
+                   "evalType": 7,
+                   "name": "y",
+                   "scope": 2
+                  }
+                 }
+                },
+                "parameterType": 6
+               }
+              ],
+              "overload": ""
+             },
+             "trueExpression": {
+              "kind": "stringLiteral",
+              "evalType": 1,
+              "value": "on b "
+             },
+             "falseExpression": {
+              "kind": "stringLiteral",
+              "evalType": 1,
+              "value": "not on b "
+             }
+            },
+            "right": {
+             "kind": "memberAccess",
+             "evalType": 1,
+             "expression": {
+              "kind": "identifier",
+              "evalType": 7,
+              "name": "y",
+              "scope": 2
+             },
+             "member": "name",
+             "isNullChaining": false
+            }
+           }
+          }
+         ]
+        }
+       }
+      ]
+     }
+    }
+   ]
+  }
+ ],
+ "signature": {
+  "name": "call-trap-lambdas.mt",
+  "parameters": []
+ },
+ "callees": {
+  "/optimize/scenarios/components-on.mt": {
+   "types": [
+    {
+     "kind": "void"
+    },
+    {
+     "package": "builtin",
+     "type": "string",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "double",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "boolean",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "Any",
+     "isNullable": true
+    },
+    {
+     "package": "class/metamodel/base.mm",
+     "type": "Component",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "class/metamodel/base.mm",
+     "type": "Container",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "List",
+     "isNullable": false,
+     "typeArgs": {
+      "T": {
+       "package": "class/metamodel/base.mm",
+       "type": "Component",
+       "isNullable": false,
+       "typeArgs": {}
+      }
+     }
+    },
+    {
+     "package": "builtin",
+     "type": "Set",
+     "isNullable": false,
+     "typeArgs": {
+      "T": {
+       "package": "builtin",
+       "type": "string",
+       "isNullable": false,
+       "typeArgs": {}
+      }
+     }
+    }
+   ],
+   "metamodelPath": "/metamodel/base.mm",
+   "statements": [
+    {
+     "kind": "forMatch",
+     "pattern": {
+      "elements": [
+       {
+        "kind": "objectInstance",
+        "objectInstance": {
+         "name": "host",
+         "properties": []
+        }
+       },
+       {
+        "kind": "objectInstance",
+        "objectInstance": {
+         "name": "c",
+         "className": "Component",
+         "properties": []
+        }
+       },
+       {
+        "kind": "link",
+        "link": {
+         "source": {
+          "objectName": "c",
+          "propertyName": "host"
+         },
+         "target": {
+          "objectName": "host"
+         }
+        }
+       },
+       {
+        "kind": "collectionAppend",
+        "append": {
+         "name": "components",
+         "value": {
+          "kind": "identifier",
+          "evalType": 5,
+          "name": "c",
+          "scope": 2
+         }
+        }
+       }
+      ]
+     },
+     "doBlock": [
+      {
+       "kind": "assignment",
+       "name": "names",
+       "operator": "+=",
+       "value": {
+        "kind": "memberAccess",
+        "evalType": 1,
+        "expression": {
+         "kind": "identifier",
+         "evalType": 5,
+         "name": "c",
+         "scope": 2
+        },
+        "member": "name",
+        "isNullChaining": false
+       }
+      }
+     ]
+    }
+   ],
+   "signature": {
+    "name": "components-on.mt",
+    "parameters": [
+     {
+      "name": "host",
+      "direction": "in",
+      "type": 6,
+      "isElement": true
+     },
+     {
+      "name": "components",
+      "direction": "out",
+      "type": 7,
+      "isElement": false,
+      "collection": "List",
+      "elementsAreElements": true
+     },
+     {
+      "name": "names",
+      "direction": "out",
+      "type": 8,
+      "isElement": false,
+      "collection": "Set",
+      "elementsAreElements": false
+     }
+    ]
+   }
+  }
+ }
+}

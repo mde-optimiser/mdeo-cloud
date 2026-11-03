@@ -22,7 +22,11 @@ import {
     type EnumType
 } from "../../../grammar/metamodelTypes.js";
 
-const { injectable } = sharedImport("inversify");
+import type { PartialMetaModel } from "../../../grammar/metamodelPartialTypes.js";
+import { MetamodelViewState, scopeIdToView } from "../metamodelViews.js";
+import { MetamodelViewEdits } from "../metamodelViewEdits.js";
+
+const { injectable, inject } = sharedImport("inversify");
 
 /**
  * Metamodel-specific paste operation handler.
@@ -34,6 +38,12 @@ const { injectable } = sharedImport("inversify");
  */
 @injectable()
 export class MetamodelPasteOperationHandler extends BasePasteOperationHandler {
+    /**
+     * Which view the diagram shows. Pasted classes and enums become part of it.
+     */
+    @inject(MetamodelViewState)
+    protected viewState!: MetamodelViewState;
+
     /**
      * Resolves a cross-reference by searching first among co-pasted nodes and
      * then in the existing source model elements. Only Class nodes are targets of
@@ -116,6 +126,14 @@ export class MetamodelPasteOperationHandler extends BasePasteOperationHandler {
         }
 
         const sourceModel = this.modelState.sourceModel!;
+        const view = this.viewState.resolveActiveView(sourceModel as PartialMetaModel);
+        if (view != undefined) {
+            const members = astNodes.filter((node) => node.$type === Class.name || node.$type === Enum.name);
+            const viewEdit = new MetamodelViewEdits(this.modelState).addToView(view.node, members);
+            if (viewEdit != undefined) {
+                edits.push(viewEdit);
+            }
+        }
         const insertSpec: InsertSpecification = {
             container: sourceModel,
             property: "elements",
@@ -163,7 +181,8 @@ export class MetamodelPasteOperationHandler extends BasePasteOperationHandler {
                 this.idProvider,
                 [insertSpec],
                 insertedElements,
-                this.modelState.metadata
+                this.modelState.metadata,
+                (id) => (view != undefined ? scopeIdToView(id, view.key) : id)
             )
         };
     }

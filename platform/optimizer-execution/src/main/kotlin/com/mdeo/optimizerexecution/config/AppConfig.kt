@@ -23,6 +23,8 @@ import com.mdeo.execution.common.config.ExecutionServiceConfig
  *        Used as the `baseUrl` when creating a [com.mdeo.optimizerexecution.worker.WorkerClient]
  *        for the local node so that peer nodes can contact this instance directly in
  *        container/federated deployments where `localhost` is not routable.
+ * @param sessionConnectTimeoutMillis How long dialling a plugin session may take before it
+ *        counts as unreachable.
  */
 data class AppConfig(
     override val serverPort: Int,
@@ -34,7 +36,8 @@ data class AppConfig(
     val nodeId: Int,
     val peers: List<String>,
     val workerThreads: Int,
-    val nodeUrl: String
+    val nodeUrl: String,
+    val sessionConnectTimeoutMillis: Long
 ) : ExecutionServiceConfig {
     companion object {
         private const val DEFAULT_NODE_ID = 0
@@ -80,7 +83,8 @@ data class AppConfig(
                 nodeId = nodeId,
                 peers = peers,
                 workerThreads = workerThreads,
-                nodeUrl = nodeUrl
+                nodeUrl = nodeUrl,
+                sessionConnectTimeoutMillis = baseConfig.sessionConnectTimeoutMillis
             )
         }
     }

@@ -470,7 +470,7 @@ export class ModelGModelFactory extends BaseGModelFactory<PartialModel> {
         const nodeId = `${edgeId}__${end}-node`;
         const nodeMeta = validatedMetadata.nodes[nodeId];
         const metadata =
-            nodeMeta?.meta != undefined && NodeLayoutMetadataUtil.isValid(nodeMeta.meta)
+            nodeMeta?.meta != undefined && NodeLayoutMetadataUtil.isValidWithOptionalSize(nodeMeta.meta)
                 ? nodeMeta.meta
                 : NodeLayoutMetadataUtil.create(0, 0);
 

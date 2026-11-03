@@ -17,6 +17,7 @@ import java.util.concurrent.TimeUnit
  * @property defaultAdmin Default administrator account configuration
  * @property defaultNewUserCanCreateProject Whether newly registered users can create projects by default
  * @property plugin Plugin system configuration
+ * @property timeouts How long the backend waits on the services it calls
  */
 data class AppConfig(
     val serverPort: Int,
@@ -29,7 +30,8 @@ data class AppConfig(
     val plugin: PluginConfig,
     val jwt: JwtConfig,
     val fileData: FileDataConfig,
-    val git: GitConfig
+    val git: GitConfig,
+    val timeouts: TimeoutConfig
 ) {
     companion object {
         /**
@@ -96,7 +98,11 @@ data class AppConfig(
                         ?.split(",")
                         ?.map { it.trim() }
                         ?.filter { it.isNotEmpty() }
-                        ?: emptyList()
+                        ?: emptyList(),
+                    manifestCheckSeconds = System.getenv("PLUGIN_MANIFEST_CHECK_SECONDS")?.toLongOrNull()?.coerceAtLeast(0)
+                        ?: PluginConfig.DEFAULT_MANIFEST_CHECK_SECONDS,
+                    manifestRefreshCooldownSeconds = System.getenv("PLUGIN_MANIFEST_REFRESH_COOLDOWN_SECONDS")
+                        ?.toLongOrNull()?.coerceAtLeast(0) ?: PluginConfig.DEFAULT_MANIFEST_REFRESH_COOLDOWN_SECONDS
                 ),
                 jwt = JwtConfig(
                     expirationSeconds = System.getenv("JWT_EXPIRATION_SECONDS")?.toLongOrNull()
@@ -107,10 +113,7 @@ data class AppConfig(
                     privateKey = System.getenv("JWT_PRIVATE_KEY"),
                     publicKey = System.getenv("JWT_PUBLIC_KEY")
                 ),
-                fileData = FileDataConfig(
-                    computationTimeoutSeconds = System.getenv("FILE_DATA_COMPUTATION_TIMEOUT_SECONDS")?.toLongOrNull()
-                        ?: TimeUnit.MINUTES.toSeconds(5)
-                ),
+                fileData = FileDataConfig.load(),
                 git = GitConfig(
                     maxPushPackSizeBytes = System.getenv("GIT_MAX_PUSH_PACK_SIZE_BYTES")?.toLongOrNull()
                         ?: (100L * 1024 * 1024),
@@ -124,7 +127,8 @@ data class AppConfig(
                     sshPubliclyReachable = System.getenv("GIT_SSH_PUBLICLY_REACHABLE")?.toBooleanStrictOrNull() ?: true,
                     oauthAuthorizePath = System.getenv("GIT_OAUTH_AUTHORIZE_PATH") ?: "/oauth/authorize",
                     oauthTokenPath = System.getenv("GIT_OAUTH_TOKEN_PATH") ?: "/api/oauth/token"
-                )
+                ),
+                timeouts = TimeoutConfig.load()
             )
         }
     }
@@ -192,13 +196,25 @@ data class DefaultAdminConfig(
  * @property internalBaseUrl Base URL for internal backend-to-plugin communication
  * @property forceHttp1 Whether to force HTTP/1.1 for plugin requests
  * @property defaultPluginUrls List of plugin URLs to initialize as default plugins at startup
+ * @property manifestCheckSeconds How often every plugin is asked whether its manifest changed
+ *           (`PLUGIN_MANIFEST_CHECK_SECONDS`, default 60, 0 to only check on the plugin's answers)
+ * @property manifestRefreshCooldownSeconds How long a plugin whose manifest changed is not fetched
+ *           again after the last attempt, so a plugin that cannot be refreshed is not asked on every
+ *           answer (`PLUGIN_MANIFEST_REFRESH_COOLDOWN_SECONDS`, default 60)
  */
 data class PluginConfig(
     val baseUrl: String,
     val internalBaseUrl: String,
     val forceHttp1: Boolean,
-    val defaultPluginUrls: List<String> = emptyList()
-)
+    val defaultPluginUrls: List<String> = emptyList(),
+    val manifestCheckSeconds: Long = DEFAULT_MANIFEST_CHECK_SECONDS,
+    val manifestRefreshCooldownSeconds: Long = DEFAULT_MANIFEST_REFRESH_COOLDOWN_SECONDS
+) {
+    companion object {
+        const val DEFAULT_MANIFEST_CHECK_SECONDS = 60L
+        const val DEFAULT_MANIFEST_REFRESH_COOLDOWN_SECONDS = 60L
+    }
+}
 
 /**
  * JWT configuration for plugin authentication.
@@ -222,11 +238,47 @@ data class JwtConfig(
 /**
  * File data computation configuration.
  *
- * @property computationTimeoutSeconds Timeout in seconds before a computation is considered stale (default 5 minutes)
+ * Two different lifetimes: how long the backend waits for a plugin to answer, and how long a
+ * computation stays recorded as running — which is how long the token handed to the plugin keeps
+ * being accepted. They share a default but are separate settings, so a deployment can let tokens
+ * outlive a slow HTTP answer without waiting longer for it, or the other way round.
+ *
+ * @property computationTimeoutSeconds How long the backend waits for a plugin to compute file data
+ *           (`FILE_DATA_COMPUTATION_TIMEOUT_SECONDS`, default 5 minutes)
+ * @property computationBindingSeconds How long a computation, and the token bound to it, stays live
+ *           before it is treated as abandoned (`FILE_DATA_COMPUTATION_BINDING_SECONDS`, default
+ *           [computationTimeoutSeconds])
+ * @property batchConcurrency How many entries of one batch request are looked up at the same time
+ *           (`FILE_DATA_BATCH_CONCURRENCY`, default 16). Each one may wait on the database and on a
+ *           plugin, so this should stay below the database pool size.
  */
 data class FileDataConfig(
-    val computationTimeoutSeconds: Long
-)
+    val computationTimeoutSeconds: Long,
+    val computationBindingSeconds: Long = computationTimeoutSeconds,
+    val batchConcurrency: Int = DEFAULT_BATCH_CONCURRENCY
+) {
+    companion object {
+        const val DEFAULT_BATCH_CONCURRENCY = 16
+
+        /**
+         * Reads the configuration from the environment.
+         *
+         * @param environment Where to read from
+         * @return The configuration
+         */
+        fun load(environment: Map<String, String> = System.getenv()): FileDataConfig {
+            // A non-positive value would fail every computation at once, so it counts as unset.
+            fun seconds(name: String) = environment[name]?.toLongOrNull()?.takeIf { it > 0 }
+            val timeout = seconds("FILE_DATA_COMPUTATION_TIMEOUT_SECONDS") ?: TimeUnit.MINUTES.toSeconds(5)
+            return FileDataConfig(
+                computationTimeoutSeconds = timeout,
+                computationBindingSeconds = seconds("FILE_DATA_COMPUTATION_BINDING_SECONDS") ?: timeout,
+                batchConcurrency = environment["FILE_DATA_BATCH_CONCURRENCY"]?.toIntOrNull()?.takeIf { it > 0 }
+                    ?: DEFAULT_BATCH_CONCURRENCY
+            )
+        }
+    }
+}
 
 /**
  * Git server configuration.
@@ -274,3 +326,48 @@ data class GitConfig(
     val oauthAuthorizePath: String,
     val oauthTokenPath: String
 )
+
+/**
+ * How long the backend waits on the services it calls, in one place.
+ *
+ * Sessions have no timeout here: a call on a session can take as long as the work takes, and
+ * liveness comes from keepalives instead.
+ *
+ * @property pluginRequestSeconds A one-shot request to a language plugin
+ *           (`PLUGIN_REQUEST_TIMEOUT_SECONDS`, default 5 minutes)
+ * @property executionStartSeconds Starting an execution on a plugin or execution service
+ *           (`EXECUTION_START_TIMEOUT_SECONDS`, default 5 minutes)
+ * @property executionReadSeconds Reading an execution's state, summary or files, or cancelling or
+ *           deleting it (`EXECUTION_READ_TIMEOUT_SECONDS`, default 1 minute)
+ * @property manifestFetchSeconds Fetching a plugin's manifest (`PLUGIN_MANIFEST_TIMEOUT_SECONDS`,
+ *           default 30 seconds)
+ * @property connectSeconds Opening a connection to any service (`SERVICE_CONNECT_TIMEOUT_SECONDS`,
+ *           default 10 seconds)
+ */
+data class TimeoutConfig(
+    val pluginRequestSeconds: Long = TimeUnit.MINUTES.toSeconds(5),
+    val executionStartSeconds: Long = TimeUnit.MINUTES.toSeconds(5),
+    val executionReadSeconds: Long = TimeUnit.MINUTES.toSeconds(1),
+    val manifestFetchSeconds: Long = 30,
+    val connectSeconds: Long = 10
+) {
+    companion object {
+        /**
+         * Reads the configuration from the environment, falling back to the defaults.
+         *
+         * @param environment Where to read from
+         * @return The configuration
+         */
+        fun load(environment: Map<String, String> = System.getenv()): TimeoutConfig {
+            val defaults = TimeoutConfig()
+            fun seconds(name: String, default: Long) = environment[name]?.toLongOrNull()?.takeIf { it > 0 } ?: default
+            return TimeoutConfig(
+                pluginRequestSeconds = seconds("PLUGIN_REQUEST_TIMEOUT_SECONDS", defaults.pluginRequestSeconds),
+                executionStartSeconds = seconds("EXECUTION_START_TIMEOUT_SECONDS", defaults.executionStartSeconds),
+                executionReadSeconds = seconds("EXECUTION_READ_TIMEOUT_SECONDS", defaults.executionReadSeconds),
+                manifestFetchSeconds = seconds("PLUGIN_MANIFEST_TIMEOUT_SECONDS", defaults.manifestFetchSeconds),
+                connectSeconds = seconds("SERVICE_CONNECT_TIMEOUT_SECONDS", defaults.connectSeconds)
+            )
+        }
+    }
+}

@@ -1,18 +1,12 @@
 import type { TypirLangiumSpecifics } from "typir-langium";
 import { BaseScopeProvider } from "../typir-extensions/langium/baseScopeProvider.js";
-import {
-    DefaultScope,
-    type BoundScope,
-    type ControlFlowEntry,
-    type Scope,
-    type ScopeEntry,
-    type ScopeLocalInitialization
-} from "../typir-extensions/scope/scope.js";
+import { DefaultScope, type BoundScope, type Scope, type ScopeEntry } from "../typir-extensions/scope/scope.js";
 import type { ExpressionTypirServices } from "../type-system/services.js";
 import type { ForStatementType, StatementsScopeType, StatementTypes } from "../grammar/statementTypes.js";
 import type { AstReflection } from "@mdeo/language-common";
 import type { TypeInferenceCollector } from "typir";
-import type { ExpressionTypes, IdentifierExpressionType } from "../grammar/expressionTypes.js";
+import type { ExpressionTypes } from "../grammar/expressionTypes.js";
+import type { ControlFlowAnalysis } from "./controlFlowAnalysis.js";
 import type { ClassType } from "../typir-extensions/config/type.js";
 
 /**
@@ -20,7 +14,8 @@ import type { ClassType } from "../typir-extensions/config/type.js";
  *
  * Handles scope creation and management for statements including variable declarations,
  * control flow statements (if/else, loops), and for-loop iteration variables. Manages
- * variable visibility, control flow analysis, and initialization tracking within scopes.
+ * variable visibility. Whether a variable is initialized at a point is answered by the
+ * {@link ControlFlowAnalysis}.
  *
  * @template Specifics The language-specific Typir-Langium configuration.
  */
@@ -38,12 +33,14 @@ export class StatementsScopeProvider<Specifics extends TypirLangiumSpecifics> ex
      * @param statementTypes Type definitions for statement AST nodes.
      * @param expressionTypes Type definitions for expression AST nodes.
      * @param iterableType The class type used for iterable collections in for-loops.
+     * @param controlFlow The control flow analysis of the language's statements
      */
     constructor(
         typir: ExpressionTypirServices<Specifics>,
         protected readonly statementTypes: StatementTypes,
         protected readonly expressionTypes: ExpressionTypes,
-        protected iterableType: ClassType
+        protected iterableType: ClassType,
+        protected readonly controlFlow: ControlFlowAnalysis<Specifics>
     ) {
         super(typir);
         this.reflection = typir.langium.LangiumServices.AstReflection;
@@ -72,8 +69,7 @@ export class StatementsScopeProvider<Specifics extends TypirLangiumSpecifics> ex
     /**
      * Creates a scope for a statements block node.
      *
-     * The scope includes all variable declarations, control flow entries for conditional
-     * and loop statements, and tracks variable initializations within the block.
+     * The scope includes all variable declarations of the block.
      *
      * @param node The statements block AST node.
      * @param parentScope The parent scope containing this statements block, if any.
@@ -83,12 +79,13 @@ export class StatementsScopeProvider<Specifics extends TypirLangiumSpecifics> ex
         node: StatementsScopeType,
         parentScope: BoundScope<Specifics> | undefined
     ): Scope<Specifics> {
-        return new DefaultScope<Specifics>(
+        return new StatementsScope<Specifics>(
             parentScope,
             (scope) => this.getStatementsScopeEntries(node, scope),
-            () => this.getStatementsControlFlowEntries(node),
-            this.getStatementsLocalInitializations(node),
-            node
+            node,
+            this.statementTypes,
+            this.reflection,
+            this.controlFlow
         );
     }
 
@@ -120,7 +117,6 @@ export class StatementsScopeProvider<Specifics extends TypirLangiumSpecifics> ex
                     }
                 ];
             },
-            () => [],
             [
                 {
                     name: variable.name,
@@ -151,84 +147,41 @@ export class StatementsScopeProvider<Specifics extends TypirLangiumSpecifics> ex
                     name: statement.name,
                     position: i,
                     definingScope: scope,
-                    inferType: () => this.inference.inferType(statement)
+                    inferType: () => this.inference.inferType(statement),
+                    readonly: statement.isReadonly
                 });
             }
         }
         return entries;
     }
+}
 
-    /**
-     * Extracts control flow entries from a statements block.
-     *
-     * Identifies control flow statements (if/else-if/else, while, do-while, for)
-     * and creates entries that track their nested scopes and completeness.
-     * Control flow completeness affects variable initialization analysis.
-     *
-     * @param node The statements block AST node.
-     * @returns An array of control flow entries for statements with branching or loops.
-     */
-    protected getStatementsControlFlowEntries(node: StatementsScopeType): ControlFlowEntry<Specifics>[] {
-        const controlFlowEntries: ControlFlowEntry<Specifics>[] = [];
-        for (let i = 0; i < node.statements.length; i++) {
-            const statement = node.statements[i];
-            if (this.reflection.isInstance(statement, this.statementTypes.ifStatementType)) {
-                const scopes: Scope<Specifics>[] = [this.getScope(statement.thenBlock).scope];
-                for (const elseIf of statement.elseIfs) {
-                    scopes.push(this.getScope(elseIf.thenBlock).scope);
-                }
-                if (statement.elseBlock != undefined) {
-                    scopes.push(this.getScope(statement.elseBlock).scope);
-                }
-                controlFlowEntries.push({
-                    position: i,
-                    scopes,
-                    isComplete: statement.elseBlock != undefined
-                });
-            } else if (
-                this.reflection.isInstance(statement, this.statementTypes.forStatementType) ||
-                this.reflection.isInstance(statement, this.statementTypes.whileStatementType)
-            ) {
-                controlFlowEntries.push({
-                    position: i,
-                    scopes: [this.getScope(statement.body).scope],
-                    isComplete: false
-                });
-            }
-        }
-        return controlFlowEntries;
+/**
+ * The scope of a statements block. Whether one of its variables is initialized before a
+ * statement is decided by the control flow analysis.
+ */
+class StatementsScope<Specifics extends TypirLangiumSpecifics> extends DefaultScope<Specifics> {
+    constructor(
+        parent: BoundScope<Specifics> | undefined,
+        entriesProvider: (scope: Scope<Specifics>) => ScopeEntry<Specifics>[],
+        private readonly block: StatementsScopeType,
+        private readonly statementTypes: StatementTypes,
+        private readonly reflection: AstReflection,
+        private readonly controlFlow: ControlFlowAnalysis<Specifics>
+    ) {
+        super(parent, entriesProvider, [], block);
     }
 
-    /**
-     * Extracts local variable initializations from a statements block.
-     *
-     * Tracks where variables are initialized within the block, including both
-     * variable declarations with initial values and assignment statements.
-     * This information is used for definite assignment analysis.
-     *
-     * @param node The statements block AST node.
-     * @returns An array of initialization records with variable names and positions.
-     */
-    protected getStatementsLocalInitializations(node: StatementsScopeType): ScopeLocalInitialization[] {
-        const initializations: ScopeLocalInitialization[] = [];
-        for (let i = 0; i < node.statements.length; i++) {
-            const statement = node.statements[i];
-            if (this.reflection.isInstance(statement, this.statementTypes.variableDeclarationStatementType)) {
-                if (statement.initialValue != undefined) {
-                    initializations.push({
-                        name: statement.name,
-                        position: i
-                    });
-                }
-            } else if (this.reflection.isInstance(statement, this.statementTypes.assignmentStatementType)) {
-                if (this.reflection.isInstance(statement.left, this.expressionTypes.identifierExpressionType)) {
-                    initializations.push({
-                        name: (statement.left as IdentifierExpressionType).name,
-                        position: i
-                    });
-                }
-            }
+    override isEntryInitialized(entry: ScopeEntry<Specifics>, position: number): boolean {
+        const declaration = entry.languageNode;
+        const statement = this.block.statements[position];
+        if (
+            statement != undefined &&
+            declaration != undefined &&
+            this.reflection.isInstance(declaration, this.statementTypes.variableDeclarationStatementType)
+        ) {
+            return this.controlFlow.isAssignedBefore(statement, declaration);
         }
-        return initializations;
+        return super.isEntryInitialized(entry, position);
     }
 }

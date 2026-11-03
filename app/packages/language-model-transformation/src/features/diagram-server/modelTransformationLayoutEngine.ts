@@ -1,15 +1,14 @@
-import type { GModelRoot } from "@eclipse-glsp/server";
+import type { GModelElement, GModelRoot } from "@eclipse-glsp/server";
 import type { LayoutOperation } from "@mdeo/protocol-common";
 import { BaseLayoutEngine, GEdge, GNode, sharedImport } from "@mdeo/language-shared";
-import type { NodeAlignment } from "@mdeo/language-shared";
-import type { ElkExtendedEdge, ElkNode } from "elkjs";
+import type { EdgeLabelSpec, ElkOptions, LayoutInput, NodeAlignment } from "@mdeo/language-shared";
 import { GMatchNode } from "./model/matchNode.js";
 import { GMatchNodeCompartments } from "./model/matchNodeCompartments.js";
 import { GPatternInstanceNode } from "./model/patternInstanceNode.js";
 import { GPatternLinkEdge } from "./model/patternLinkEdge.js";
 import { GControlFlowLabelNode } from "./model/controlFlowLabelNode.js";
+import { GControlFlowEdge } from "./model/controlFlowEdge.js";
 import { GPatternLinkEndNode } from "./model/patternLinkEndNode.js";
-import { GPatternLinkModifierLabel } from "./model/patternLinkModifierLabel.js";
 import { GPatternLinkModifierNode } from "./model/patternLinkModifierNode.js";
 import { GStartNode } from "./model/startNode.js";
 import { GEndNode } from "./model/endNode.js";
@@ -20,12 +19,36 @@ import { MATCH_NODE_INNER_PADDING } from "@mdeo/protocol-model-transformation";
 const { injectable } = sharedImport("inversify");
 
 /**
+ * Minimum size of the pattern area of a match node (see the client's GMatchNodeView.MIN_CONTENT_SIZE).
+ */
+const MATCH_NODE_MIN_CONTENT_SIZE = 80;
+
+/**
+ * Offset of the shadow copy drawn behind a "for match" (see the client's GMatchNodeView.SHADOW_OFFSET).
+ * The bounds of such a node include the shadow.
+ */
+const MATCH_NODE_SHADOW_OFFSET = 8;
+
+/**
+ * Generous average character width of compartment texts (used to estimate their natural width).
+ */
+const COMPARTMENT_CHAR_WIDTH = 9;
+
+/**
+ * Horizontal margin of a compartment (m-2 on both sides) plus a little slack.
+ */
+const COMPARTMENT_HORIZONTAL_MARGIN = 24;
+
+/**
+ * Length of the control flow arrow head.
+ */
+const CONTROL_FLOW_ARROW = { length: 12, width: 12 };
+
+/**
  * Layout engine for model transformation diagrams.
- * Uses ELK for automatic layout computation.
  *
- * Handles nested nodes: match nodes contain pattern elements as children.
- * Pattern instances are positioned globally but displayed relative to match node.
- * ELK returns relative positions for children, which must be converted to global positions.
+ * Match nodes are containers: their pattern instances and pattern links are laid out first (left to right), then the
+ * control flow is laid out top down with the match nodes at the size the client draws them at.
  */
 @injectable()
 export class ModelTransformationLayoutEngine extends BaseLayoutEngine {
@@ -50,144 +73,139 @@ export class ModelTransformationLayoutEngine extends BaseLayoutEngine {
         return super.getNodeAlignment(nodeId);
     }
 
-    /**
-     * Transforms the GModel to an ELK graph for layout computation.
-     * Creates a hierarchical graph with match nodes containing pattern instances.
-     *
-     * Control flow edge labels are given ELK placement {@code CENTER} because
-     * {@link GControlFlowEdgeView} renders them at the middle of the edge
-     * ({@link EdgeAttachmentPosition.MIDDLE}). Using {@code CENTER} makes ELK
-     * reserve space at the correct location, preventing labels from overlapping
-     * intermediate nodes.
-     *
-     * @param model The GModelRoot to transform
-     * @param operation The layout operation containing bounds information
-     * @returns The ELK node representation of the graph
-     */
-    protected override transformToElk(model: GModelRoot, operation: LayoutOperation): ElkNode {
-        const bounds = operation.bounds;
-        const nodes: ElkNode[] = [];
-        const edges: ElkExtendedEdge[] = [];
-
-        for (const child of model.children) {
-            if (child instanceof GMatchNode) {
-                const matchNode = this.transformMatchNode(child, bounds);
-                nodes.push(matchNode);
-            } else if (child instanceof GNode) {
-                nodes.push({
-                    id: child.id,
-                    width: bounds[child.id]?.width,
-                    height: bounds[child.id]?.height
-                });
-            } else if (child instanceof GEdge) {
-                edges.push({
-                    id: child.id,
-                    sources: [child.sourceId],
-                    targets: [child.targetId],
-                    labels: child.children
-                        .filter((label) => label instanceof GControlFlowLabelNode)
-                        .map((label) => ({
-                            id: label.id,
-                            text: "_",
-                            width: bounds[label.id]?.width,
-                            height: bounds[label.id]?.height,
-                            layoutOptions: {
-                                "elk.edgeLabels.placement": "CENTER"
-                            }
-                        }))
-                });
-            }
-        }
-
-        return {
-            id: model.id,
-            layoutOptions: {
-                "elk.algorithm": "layered",
-                "elk.direction": "DOWN",
+    protected override layeredOptions(containerId: string | undefined): ElkOptions {
+        if (containerId == undefined) {
+            return {
                 "elk.spacing.nodeNode": "50",
-                "elk.layered.spacing.nodeNodeBetweenLayers": "50",
-                "elk.spacing.edgeEdge": "40"
-            },
-            children: nodes,
-            edges: edges
+                "elk.layered.spacing.nodeNodeBetweenLayers": "50"
+            };
+        }
+        return {
+            "elk.spacing.nodeNode": "40",
+            "elk.layered.spacing.nodeNodeBetweenLayers": "60"
         };
     }
 
     /**
-     * Transforms a match node to an ELK node with children.
-     * Pattern instances become ELK child nodes, pattern links become ELK edges.
+     * Builds the layout input: control flow nodes and match nodes on the top level, pattern instances and pattern
+     * links inside their match node.
      *
-     * @param matchNode The match node to transform
-     * @param bounds The bounds information from the layout operation
-     * @returns The ELK node representation
+     * @param model The GModelRoot to transform
+     * @param operation The layout operation containing bounds information
+     * @returns The layout input
      */
-    private transformMatchNode(matchNode: GMatchNode, bounds: LayoutOperation["bounds"]): ElkNode {
-        const childNodes: ElkNode[] = [];
-        const childEdges: ElkExtendedEdge[] = [];
+    protected override buildInput(model: GModelRoot, operation: LayoutOperation): LayoutInput {
+        const bounds = operation.bounds;
+        const input: LayoutInput = { nodes: [], edges: [], direction: "down" };
 
-        let compartmentHeight = 0;
+        for (const child of model.children) {
+            if (child instanceof GMatchNode) {
+                this.addMatchNode(child, bounds, input);
+            } else if (child instanceof GNode) {
+                input.nodes.push({ id: child.id, ...this.sizeOf(child.id, bounds) });
+            }
+        }
+        for (const child of model.children) {
+            if (child instanceof GEdge) {
+                const labels: EdgeLabelSpec[] = child.children
+                    .filter((label) => label instanceof GControlFlowLabelNode)
+                    .map((label) => this.labelSpec(label, "middle", "left", bounds));
+                input.edges.push({
+                    id: child.id,
+                    sourceId: child.sourceId,
+                    targetId: child.targetId,
+                    labels,
+                    targetMarker: child instanceof GControlFlowEdge ? CONTROL_FLOW_ARROW : undefined
+                });
+            }
+        }
+        return input;
+    }
 
+    /**
+     * Estimates the natural width of the compartments of a match node (where clauses, variables) from their texts.
+     *
+     * @param compartments The compartments element
+     * @returns The estimated width
+     */
+    private estimateCompartmentsWidth(compartments: GModelElement): number {
+        let longest = 0;
+        const stack: GModelElement[] = [compartments];
+        while (stack.length > 0) {
+            const element = stack.pop()!;
+            const text = (element as { text?: unknown }).text;
+            if (typeof text === "string") {
+                longest = Math.max(longest, text.length);
+            }
+            stack.push(...element.children);
+        }
+        return Math.ceil(longest * COMPARTMENT_CHAR_WIDTH + COMPARTMENT_HORIZONTAL_MARGIN);
+    }
+
+    /**
+     * Adds a match node and its pattern elements to the input. The padding reproduces the client's frame:
+     * the pattern area has {@link MATCH_NODE_INNER_PADDING} on every side, the compartments are drawn below it
+     * and a "for match" is larger by the shadow offset.
+     *
+     * @param matchNode The match node
+     * @param bounds The bounds information from the layout operation
+     * @param input The input to add to
+     */
+    private addMatchNode(matchNode: GMatchNode, bounds: LayoutOperation["bounds"], input: LayoutInput): void {
+        const shadow = matchNode.multiple ? MATCH_NODE_SHADOW_OFFSET : 0;
+        let compartments = { width: 0, height: 0 };
+        let hasChildren = false;
+        const childEdges: GPatternLinkEdge[] = [];
+        const index = input.nodes.length;
         for (const child of matchNode.children) {
             if (child instanceof GPatternInstanceNode) {
-                childNodes.push({
-                    id: child.id,
-                    width: bounds[child.id]?.width,
-                    height: bounds[child.id]?.height
-                });
+                hasChildren = true;
+                input.nodes.push({ id: child.id, parentId: matchNode.id, ...this.sizeOf(child.id, bounds) });
             } else if (child instanceof GPatternLinkEdge) {
-                childEdges.push({
-                    id: child.id,
-                    sources: [child.sourceId],
-                    targets: [child.targetId],
-                    labels: child.children
-                        .filter(
-                            (label) =>
-                                label instanceof GPatternLinkEndNode ||
-                                label instanceof GPatternLinkModifierNode ||
-                                label instanceof GPatternLinkModifierLabel
-                        )
-                        .map((label) => {
-                            if (label instanceof GPatternLinkEndNode) {
-                                return {
-                                    text: "_",
-                                    width: bounds[label.id]?.width,
-                                    height: bounds[label.id]?.height,
-                                    layoutOptions: {
-                                        "elk.edgeLabels.placement": label.end === "source" ? "HEAD" : "TAIL"
-                                    }
-                                };
-                            }
-                            return {
-                                text: "_",
-                                width: bounds[label.id]?.width,
-                                height: bounds[label.id]?.height,
-                                layoutOptions: {
-                                    "elk.edgeLabels.placement": "CENTER"
-                                }
-                            };
-                        })
-                });
+                childEdges.push(child);
             } else if (child instanceof GMatchNodeCompartments) {
-                compartmentHeight = bounds[child.id]?.height ?? 0;
+                const measured = this.sizeOf(child.id, bounds);
+                // the client stretches the compartments to the current frame, so the measured width is only an upper
+                // bound of the width they need: estimate the natural width from the texts
+                compartments = {
+                    width: Math.min(measured.width, this.estimateCompartmentsWidth(child)),
+                    height: measured.height
+                };
             }
         }
 
-        const bottomPadding = MATCH_NODE_INNER_PADDING + compartmentHeight;
-        const topPadding = MATCH_NODE_INNER_PADDING * 2;
+        const padding = MATCH_NODE_INNER_PADDING;
+        const prefWidth = matchNode.meta?.prefWidth ?? 0;
+        const prefHeight = matchNode.meta?.prefHeight ?? 0;
+        const node = hasChildren
+            ? {
+                  id: matchNode.id,
+                  width:
+                      Math.max(MATCH_NODE_MIN_CONTENT_SIZE + 2 * padding, compartments.width, prefWidth - shadow) +
+                      shadow,
+                  height: Math.max(0, prefHeight),
+                  padding: {
+                      top: padding,
+                      left: padding,
+                      right: padding + shadow,
+                      bottom: padding + compartments.height + shadow
+                  },
+                  direction: "right" as const
+              }
+            : { id: matchNode.id, ...this.sizeOf(matchNode.id, bounds) };
+        // parents are listed before their children
+        input.nodes.splice(index, 0, node);
 
-        return {
-            id: matchNode.id,
-            width: bounds[matchNode.id]?.width,
-            height: bounds[matchNode.id]?.height,
-            layoutOptions: {
-                "elk.algorithm": "layered",
-                "elk.direction": "RIGHT",
-                "elk.spacing.nodeNode": "30",
-                "elk.spacing.edgeEdge": "40",
-                "elk.padding": `[top=${topPadding},left=${MATCH_NODE_INNER_PADDING},bottom=${bottomPadding},right=${MATCH_NODE_INNER_PADDING}]`
-            },
-            children: childNodes,
-            edges: childEdges
-        };
+        for (const edge of childEdges) {
+            const labels: EdgeLabelSpec[] = [];
+            for (const label of edge.children) {
+                if (label instanceof GPatternLinkEndNode) {
+                    labels.push(this.labelSpec(label, label.end, "left", bounds));
+                } else if (label instanceof GPatternLinkModifierNode) {
+                    labels.push(this.labelSpec(label, "middle", "left", bounds));
+                }
+            }
+            input.edges.push({ id: edge.id, sourceId: edge.sourceId, targetId: edge.targetId, labels });
+        }
     }
 }

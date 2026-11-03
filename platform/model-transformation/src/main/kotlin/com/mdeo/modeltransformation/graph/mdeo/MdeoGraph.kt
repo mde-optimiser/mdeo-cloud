@@ -4,11 +4,12 @@ import com.mdeo.metamodel.Metamodel
 import com.mdeo.metamodel.Model
 import com.mdeo.metamodel.ModelInstance
 import com.mdeo.modeltransformation.graph.CountingModelStatistics
+import com.mdeo.modeltransformation.graph.ModelGraph
 import com.mdeo.modeltransformation.graph.ModelStatistics
 import com.mdeo.modeltransformation.ast.EdgeLabelUtils
 import com.mdeo.modeltransformation.runtime.InstanceNameRegistry
+import com.mdeo.modeltransformation.graph.ModelGraphStrategies
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategies
-import org.apache.tinkerpop.gremlin.process.traversal.strategy.optimization.LazyBarrierStrategy
 import org.apache.tinkerpop.gremlin.structure.Edge
 import org.apache.tinkerpop.gremlin.structure.Graph
 import org.apache.tinkerpop.gremlin.structure.Transaction
@@ -18,8 +19,19 @@ import org.apache.tinkerpop.gremlin.structure.util.ElementHelper
 import org.apache.tinkerpop.gremlin.structure.util.StringFactory
 import org.apache.commons.configuration2.BaseConfiguration
 import org.apache.commons.configuration2.Configuration
+import java.util.Collections
 import java.util.IdentityHashMap
 import java.util.LinkedHashMap
+import java.util.concurrent.ThreadLocalRandom
+
+/**
+ * The vertices of one label, in iteration order, with the shuffle epoch of their graph in which
+ * their order was last randomised; see [MdeoGraph.shuffleVertices].
+ */
+internal class VertexBucket(capacity: Int = 10) : ArrayList<MdeoVertex>(capacity) {
+    /** The [MdeoGraph] shuffle epoch whose permutation this bucket already has. */
+    @JvmField var shuffledIn: Long = 0
+}
 
 /**
  * A simplified in-memory graph implementation optimized for model transformation.
@@ -66,11 +78,17 @@ class MdeoGraph private constructor(
         }
 
         init {
+            // No lazy barriers, no path retraction, no filter ranking: a match traversal is built
+            // and run once, so a strategy is paid per match; it selects every pattern label at its
+            // end, so path retraction can drop almost nothing while its label analysis grows with
+            // the square of the traversal's length, and the match planner already orders its
+            // constraints (TraversalStrategiesTest). MDEO_MT_DEFAULT_STRATEGIES=1 keeps the last
+            // two (ModelGraphStrategies).
             TraversalStrategies.GlobalCache.registerStrategies(
                 MdeoGraph::class.java,
                 TraversalStrategies.GlobalCache.getStrategies(Graph::class.java).clone()
                     .addStrategies(MdeoGraphStepStrategy.instance())
-                    .removeStrategies(LazyBarrierStrategy::class.java)
+                    .let { ModelGraphStrategies.configure(it) }
             )
         }
 
@@ -96,30 +114,119 @@ class MdeoGraph private constructor(
                 maxNumericInstanceName = maxOf(maxNumericInstanceName, name.toIntOrNull() ?: -1)
             }
             graph.nextVertexId = maxOf(graph.nextVertexId, maxNumericInstanceName + 1)
-            val classMeta = metamodel.metadata.classes
-            for ((_, instance) in model.instancesByName) {
-                val outVertex = vertexByInstance[instance] ?: continue
-                val meta = classMeta[outVertex.label] ?: continue
-                for ((roleName, linkMapping) in meta.linkFields) {
-                    if (!linkMapping.isOutgoing) continue
-                    val rawValue = instance.getPropertyByKey(roleName) ?: continue
-                    val edgeLabel = EdgeLabelUtils.computeEdgeLabel(roleName, linkMapping.oppositeFieldName)
-                    when {
-                        linkMapping.isMultiple && rawValue is Set<*> -> {
-                            for (target in rawValue) {
-                                val inVertex = vertexByInstance[target] ?: continue
-                                graph.addEdgeInternal(outVertex, inVertex, edgeLabel, updateAssociations = false)
-                            }
+            graph.wireEdges(model.instancesByName.values, vertexByInstance) { graph.nextEdgeId++ }
+            return graph
+        }
+    }
+
+    /**
+     * Adds the edges the outgoing link fields of [instances] describe, between their vertices in
+     * [vertexByInstance], in the order of [instances]; a link to an instance without a vertex
+     * there is skipped.
+     *
+     * @param instances The instances whose links become edges, in order.
+     * @param vertexByInstance The vertices, by backing instance.
+     * @param nextId Supplies the ID of each new edge.
+     */
+    private fun wireEdges(
+        instances: Collection<ModelInstance>,
+        vertexByInstance: Map<ModelInstance, MdeoVertex>,
+        nextId: () -> Int
+    ) {
+        val classMeta = metamodel.metadata.classes
+        for (instance in instances) {
+            val outVertex = vertexByInstance[instance] ?: continue
+            val meta = classMeta[outVertex.label] ?: continue
+            for ((roleName, linkMapping) in meta.linkFields) {
+                if (!linkMapping.isOutgoing) continue
+                val rawValue = instance.getPropertyByKey(roleName) ?: continue
+                val edgeLabel = EdgeLabelUtils.computeEdgeLabel(roleName, linkMapping.oppositeFieldName)
+                when {
+                    linkMapping.isMultiple && rawValue is Set<*> -> {
+                        for (target in rawValue) {
+                            val inVertex = vertexByInstance[target] ?: continue
+                            addEdgeInternal(outVertex, inVertex, edgeLabel, updateAssociations = false, id = nextId())
                         }
-                        rawValue is ModelInstance -> {
-                            val inVertex = vertexByInstance[rawValue] ?: continue
-                            graph.addEdgeInternal(outVertex, inVertex, edgeLabel, updateAssociations = false)
-                        }
+                    }
+                    rawValue is ModelInstance -> {
+                        val inVertex = vertexByInstance[rawValue] ?: continue
+                        addEdgeInternal(outVertex, inVertex, edgeLabel, updateAssociations = false, id = nextId())
                     }
                 }
             }
-            return graph
         }
+    }
+
+    // ---- Model inputs ----
+
+    /**
+     * The ID of the next vertex of a model input. Model inputs count downwards from -1, apart from
+     * the implicit model's IDs, so that loading and removing them leaves [nextVertexId] — and with
+     * it the IDs of the vertices a transformation creates — exactly as without them.
+     */
+    private var nextModelInputVertexId: Int = -1
+
+    /** The ID of the next edge of a model input; see [nextModelInputVertexId]. */
+    private var nextModelInputEdgeId: Int = -1
+
+    /**
+     * Adds the instances of a model input as read-only vertices of [modelSlot], with the edges
+     * their link fields describe among them.
+     *
+     * @param modelSlot The model-input slot, at least 1.
+     * @param instances The input's instances by name, owned by this graph from now on (a copy,
+     *   never the instances of another live graph).
+     * @return The vertices, by instance name.
+     */
+    internal fun loadModelInput(modelSlot: Int, instances: Map<String, ModelInstance>): Map<String, MdeoVertex> {
+        require(modelSlot != ModelGraph.IMPLICIT_MODEL_SLOT) { "Slot $modelSlot is the implicit model's" }
+        val vertexByInstance = IdentityHashMap<ModelInstance, MdeoVertex>(instances.size)
+        val vertexByName = LinkedHashMap<String, MdeoVertex>(instances.size * 2)
+        for ((name, instance) in instances) {
+            val vertex = addVertexBacked(instance, nextModelInputVertexId--, modelSlot)
+            vertexByInstance[instance] = vertex
+            vertexByName[name] = vertex
+        }
+        wireEdges(instances.values, vertexByInstance) { nextModelInputEdgeId-- }
+        return vertexByName
+    }
+
+    /**
+     * Removes the vertices of every model input ([loadModelInput]) and their edges, leaving the
+     * implicit model's vertices, edges, iteration order and label counts as they were.
+     *
+     * A model input's edges only connect its own vertices (its vertices refuse any other edge,
+     * see [MdeoVertex.checkWritable]), so no implicit vertex's adjacency or backing instance has
+     * to be updated. One pass over [vertexList] and over the removed vertices' edges.
+     *
+     * @return The IDs of the removed vertices.
+     */
+    internal fun removeModelInputs(): List<Int> {
+        val removed = vertexList.filter { it.isModelInput }
+        if (removed.isEmpty()) return emptyList()
+        vertexList.removeIf { it.isModelInput }
+        for (vertex in removed) {
+            vertexMap.remove(vertex.id)
+            vertexLabelCounts.computeIfPresent(vertex.label) { _, n -> if (n <= 1) null else n - 1 }
+            vertex.removed = true
+            for (adjacency in listOfNotNull(vertex.outEdges, vertex.inEdges)) {
+                for (edges in adjacency.values) {
+                    for (edge in edges) {
+                        edge as MdeoEdge
+                        if (edgeMap.remove(edge.id) == null) continue
+                        edgeLabelCounts.computeIfPresent(edge.label) { _, n -> if (n <= 1) null else n - 1 }
+                        edge.removed = true
+                    }
+                }
+            }
+        }
+        for (label in removed.mapTo(HashSet()) { it.label }) {
+            val bucket = verticesByLabel[label] ?: continue
+            bucket.removeIf { it.isModelInput }
+            if (bucket.isEmpty()) verticesByLabel.remove(label)
+        }
+        invalidateStatistics()
+        return removed.map { it.id }
     }
 
     private val graphFeatures = MdeoGraphFeatures()
@@ -150,22 +257,84 @@ class MdeoGraph private constructor(
      * search that runs thousands of matches over the same graph dominates everything else.
      * The buckets hold the same vertex objects as [vertexList], not copies.
      *
-     * Iteration order within a bucket is shuffled by [shuffleVertices] together with
-     * [vertexList], so a label-restricted scan is as unbiased as a full one.
+     * Iteration order within a bucket is shuffled like [vertexList] (see [shuffleVertices]),
+     * so a label-restricted scan is as unbiased as a full one.
      */
-    private val verticesByLabel = HashMap<String, ArrayList<MdeoVertex>>()
+    private val verticesByLabel = HashMap<String, VertexBucket>()
 
     /**
      * Returns the vertices carrying [label], in current iteration order.
      *
      * The returned list is the live bucket — callers that iterate while the graph may be
-     * modified must snapshot it first.
+     * modified must snapshot it first. A pending shuffle is applied to it first.
      *
      * @param label The vertex label to look up.
      * @return The bucket for [label], or an empty list if no vertex carries it.
      */
     internal fun verticesWithLabel(label: String): List<MdeoVertex> =
-        verticesByLabel[label] ?: emptyList()
+        verticesByLabel[label]?.let { settle(it) } ?: emptyList()
+
+    /**
+     * Whether [shuffleVertices] has run on this graph, so that traversal order is meant to be
+     * random. A deep copy starts unshuffled.
+     */
+    internal var isShuffled: Boolean = false
+        private set
+
+    /**
+     * Counts the calls of [shuffleVertices]. Every ordered structure — [vertexList], each label
+     * bucket, each adjacency set — records the epoch whose permutation it has; one that is
+     * behind is shuffled the first time it is read or appended to.
+     */
+    private var shuffleEpoch: Long = 0
+
+    /** The epoch whose permutation [vertexList] has; see [shuffleEpoch]. */
+    private var vertexListShuffledIn: Long = 0
+
+    /**
+     * Gives [bucket] the pending shuffle of the current epoch, if it does not have it yet.
+     *
+     * @return [bucket], now in the epoch's order.
+     */
+    private fun settle(bucket: VertexBucket): VertexBucket {
+        if (isShuffled && bucket.shuffledIn != shuffleEpoch) {
+            Collections.shuffle(bucket, ThreadLocalRandom.current())
+            bucket.shuffledIn = shuffleEpoch
+        }
+        return bucket
+    }
+
+    /**
+     * Gives [edges] the pending shuffle of the current epoch, if it does not have it yet.
+     *
+     * @return [edges], now in the epoch's order.
+     */
+    internal fun settle(edges: MdeoEdgeSet): MdeoEdgeSet {
+        if (isShuffled && edges.shuffledIn != shuffleEpoch) {
+            if (edges.size > 1) {
+                val shuffled = ArrayList(edges)
+                Collections.shuffle(shuffled, ThreadLocalRandom.current())
+                edges.clear()
+                edges.addAll(shuffled)
+            }
+            edges.shuffledIn = shuffleEpoch
+        }
+        return edges
+    }
+
+    /** Gives [vertexList] the pending shuffle of the current epoch, if it does not have it yet. */
+    private fun settleVertexList() {
+        if (isShuffled && vertexListShuffledIn != shuffleEpoch) {
+            Collections.shuffle(vertexList, ThreadLocalRandom.current())
+            vertexListShuffledIn = shuffleEpoch
+        }
+    }
+
+    /** A new, empty bucket; it counts as shuffled in the current epoch, as an empty list would be. */
+    private fun newBucket(capacity: Int = 10) = VertexBucket(capacity).also { it.shuffledIn = shuffleEpoch }
+
+    /** A new, empty adjacency set; it counts as shuffled in the current epoch. */
+    private fun newEdgeSet() = MdeoEdgeSet().also { it.shuffledIn = shuffleEpoch }
 
     /** Cached immutable view of [vertexLabelCounts] / [edgeLabelCounts]; see [labelStatistics]. */
     private var cachedStatistics: ModelStatistics? = null
@@ -207,8 +376,9 @@ class MdeoGraph private constructor(
         val vertex = MdeoVertex(id, label, this, backingInstance, metadata)
 
         vertexMap[id] = vertex
+        settleVertexList()
         vertexList.add(vertex)
-        verticesByLabel.getOrPut(label) { ArrayList() }.add(vertex)
+        settle(verticesByLabel.getOrPut(label) { newBucket() }).add(vertex)
         vertexLabelCounts.merge(label, 1, Int::plus)
         invalidateStatistics()
 
@@ -220,16 +390,25 @@ class MdeoGraph private constructor(
     /**
      * Adds a vertex backed by an existing [ModelInstance].
      *
-     * Used internally during graph construction from an existing [Model].
+     * Used internally during graph construction from an existing [Model], and for the vertices
+     * of a model input ([loadModelInput]).
+     *
+     * @param instance The backing instance, owned by this graph from now on.
+     * @param id The vertex ID.
+     * @param modelSlot The vertex's model slot.
      */
-    private fun addVertexBacked(instance: ModelInstance): MdeoVertex {
-        val id = nextVertexId++
+    private fun addVertexBacked(
+        instance: ModelInstance,
+        id: Int = nextVertexId++,
+        modelSlot: Int = ModelGraph.IMPLICIT_MODEL_SLOT
+    ): MdeoVertex {
         val className = metamodel.classNameOf(instance)
         val metadata = metamodel.metadata.classes[className]
-        val vertex = MdeoVertex(id, className, this, instance, metadata)
+        val vertex = MdeoVertex(id, className, this, instance, metadata, modelSlot)
         vertexMap[id] = vertex
+        settleVertexList()
         vertexList.add(vertex)
-        verticesByLabel.getOrPut(className) { ArrayList() }.add(vertex)
+        settle(verticesByLabel.getOrPut(className) { newBucket() }).add(vertex)
         vertexLabelCounts.merge(className, 1, Int::plus)
         invalidateStatistics()
         return vertex
@@ -276,9 +455,9 @@ class MdeoGraph private constructor(
         inVertex: MdeoVertex,
         label: String,
         updateAssociations: Boolean,
-        vararg keyValues: Any
+        vararg keyValues: Any,
+        id: Int = nextEdgeId++
     ): Edge {
-        val id = nextEdgeId++
         val edge = MdeoEdge(id, outVertex, label, inVertex)
 
         edgeMap[id] = edge
@@ -286,10 +465,10 @@ class MdeoGraph private constructor(
         invalidateStatistics()
 
         if (outVertex.outEdges == null) outVertex.outEdges = HashMap()
-        outVertex.outEdges!!.getOrPut(label) { mutableSetOf() }.add(edge)
+        settle(outVertex.outEdges!!.getOrPut(label) { newEdgeSet() }).add(edge)
 
         if (inVertex.inEdges == null) inVertex.inEdges = HashMap()
-        inVertex.inEdges!!.getOrPut(label) { mutableSetOf() }.add(edge)
+        settle(inVertex.inEdges!!.getOrPut(label) { newEdgeSet() }).add(edge)
 
         if (updateAssociations) {
             updateModelAssociationOnAdd(outVertex, inVertex, label)
@@ -313,6 +492,7 @@ class MdeoGraph private constructor(
      * directly to the primary constructor to avoid any resizing during population.
      */
     internal fun deepCopy(): MdeoGraph {
+        settleVertexList()
         val vertexCount = vertexMap.size
         val edgeCount = edgeMap.size
         val vertexCapacity = (vertexCount * 4 + 2) / 3
@@ -326,6 +506,8 @@ class MdeoGraph private constructor(
             metamodel, newVertexMap, newVertexList, newEdgeMap,
             nextVertexId, nextEdgeId, nextVpId
         )
+        copy.nextModelInputVertexId = nextModelInputVertexId
+        copy.nextModelInputEdgeId = nextModelInputEdgeId
         // A deep copy has exactly this graph's label distribution; copying the counters is
         // O(labels) and saves the copy a full pass over its own vertices and edges.
         copy.vertexLabelCounts.putAll(vertexLabelCounts)
@@ -337,11 +519,11 @@ class MdeoGraph private constructor(
             val old = vertex.backingInstance
             val copiedInstance = old.copy()
             oldToNew[old] = copiedInstance
-            val copiedVertex = MdeoVertex(vertex.id, vertex.label, copy, copiedInstance, vertex.classMetadata)
+            val copiedVertex = MdeoVertex(vertex.id, vertex.label, copy, copiedInstance, vertex.classMetadata, vertex.modelSlot)
             newVertexMap[vertex.id] = copiedVertex
             newVertexList.add(copiedVertex)
             copy.verticesByLabel
-                .getOrPut(vertex.label) { ArrayList(vertexLabelCounts[vertex.label] ?: 0) }
+                .getOrPut(vertex.label) { VertexBucket(vertexLabelCounts[vertex.label] ?: 0) }
                 .add(copiedVertex)
         }
 
@@ -357,9 +539,9 @@ class MdeoGraph private constructor(
             val copiedEdge = MdeoEdge(edge.id, copiedOutVertex, edge.label, copiedInVertex)
             newEdgeMap[edge.id] = copiedEdge
             if (copiedOutVertex.outEdges == null) copiedOutVertex.outEdges = HashMap()
-            copiedOutVertex.outEdges!!.getOrPut(edge.label) { mutableSetOf() }.add(copiedEdge)
+            copiedOutVertex.outEdges!!.getOrPut(edge.label) { MdeoEdgeSet() }.add(copiedEdge)
             if (copiedInVertex.inEdges == null) copiedInVertex.inEdges = HashMap()
-            copiedInVertex.inEdges!!.getOrPut(edge.label) { mutableSetOf() }.add(copiedEdge)
+            copiedInVertex.inEdges!!.getOrPut(edge.label) { MdeoEdgeSet() }.add(copiedEdge)
         }
 
         return copy
@@ -377,9 +559,14 @@ class MdeoGraph private constructor(
      * is needed here.
      *
      * @param registry Maps vertex IDs to logical instance names.
+     * @param settle Whether to apply a pending shuffle to the vertex order first (see
+     *   [shuffleVertices]). Without it the graph is only read, never changed, so that several
+     *   threads may read it at once — as when it is loaded as a model input of other graphs, which
+     *   does not depend on the order.
      * @return A fully populated [Model] reflecting the current graph state.
      */
-    internal fun toModel(registry: InstanceNameRegistry): Model {
+    internal fun toModel(registry: InstanceNameRegistry, settle: Boolean = true): Model {
+        if (settle) settleVertexList()
         val newInstancesByName = LinkedHashMap<String, ModelInstance>(vertexList.size * 2)
         for (vertex in vertexList) {
             val logicalName = registry.getName(vertex.id) ?: vertex.id.toString()
@@ -390,6 +577,7 @@ class MdeoGraph private constructor(
 
     override fun vertices(vararg vertexIds: Any): Iterator<Vertex> {
         if (vertexIds.isEmpty()) {
+            settleVertexList()
             return ArrayList<Vertex>(vertexList).iterator()
         }
         return vertexIds.mapNotNull { id ->
@@ -470,10 +658,24 @@ class MdeoGraph private constructor(
      * Shuffles the vertex iteration list, the per-label buckets and all per-vertex edge
      * adjacency sets to provide nondeterministic traversal order.
      *
+     * The shuffle is lazy: this only starts a new epoch, in O(1). Each ordered structure —
+     * [vertexList], a label bucket, an adjacency set — gets its uniformly random permutation the
+     * first time in the epoch it is read (a scan of its label, a walk over its edges, a full
+     * vertex scan, [toModel], [deepCopy]) or appended to; one that is never touched is never
+     * shuffled. Each structure is shuffled independently, at most once per epoch, so everything a
+     * traversal can observe has exactly the distribution an eager shuffle of the whole graph would
+     * give it — every structure an independent uniform permutation, fixed until the next call —
+     * while a match pays only for what it touches instead of for the whole graph. (Shuffling at
+     * the first append keeps an element added later in the epoch at the end, as it would be after
+     * an eager shuffle; a removal needs nothing, as a uniform permutation of a set minus one
+     * element is a uniform permutation of the rest.)
+     *
      * The per-label buckets are shuffled independently of [vertexList] rather than rebuilt
      * from it: a label-restricted scan only needs its own bucket to be a uniformly random
      * permutation, which an independent shuffle gives just as well as filtering a shuffled
-     * whole, and at a fraction of the cost.
+     * whole, and at a fraction of the cost. A scan over several labels (a class with
+     * subclasses) joins their buckets and, once the graph [isShuffled], shuffles the result,
+     * so that the first candidate is not always of the first label.
      *
      * Shuffling only the vertex list is insufficient: when a vertex has multiple outgoing
      * edges with the same label (e.g. a Sprint with several committedItems), the
@@ -482,21 +684,23 @@ class MdeoGraph private constructor(
      * every edge in the neighbourhood has an equal chance of being the first hit.
      */
     internal fun shuffleVertices() {
-        vertexList.shuffle()
-        for (bucket in verticesByLabel.values) {
-            bucket.shuffle()
-        }
+        isShuffled = true
+        shuffleEpoch++
+    }
+
+    /**
+     * Applies the pending shuffle of the current epoch to every structure at once.
+     *
+     * Directly after [shuffleVertices] this is the eager whole-graph shuffle the engine used
+     * before the shuffle became lazy; tests use it as the reference the lazy version is compared
+     * with.
+     */
+    internal fun settleAll() {
+        settleVertexList()
+        verticesByLabel.values.forEach { settle(it) }
         for (vertex in vertexList) {
-            vertex.outEdges?.forEach { (_, edgeSet) ->
-                val shuffled = edgeSet.shuffled()
-                edgeSet.clear()
-                edgeSet.addAll(shuffled)
-            }
-            vertex.inEdges?.forEach { (_, edgeSet) ->
-                val shuffled = edgeSet.shuffled()
-                edgeSet.clear()
-                edgeSet.addAll(shuffled)
-            }
+            vertex.outEdges?.values?.forEach { settle(it) }
+            vertex.inEdges?.values?.forEach { settle(it) }
         }
     }
 

@@ -1,0 +1,270 @@
+{
+ "types": [
+  {
+   "kind": "void"
+  },
+  {
+   "package": "builtin",
+   "type": "string",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "double",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "boolean",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "Any",
+   "isNullable": true
+  },
+  {
+   "package": "builtin",
+   "type": "int",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "List",
+   "isNullable": false,
+   "typeArgs": {
+    "T": {
+     "package": "builtin",
+     "type": "model",
+     "isNullable": false,
+     "typeArgs": {}
+    }
+   }
+  },
+  {
+   "package": "class/metamodel/base.mm",
+   "type": "Component",
+   "isNullable": false,
+   "typeArgs": {}
+  }
+ ],
+ "metamodelPath": "/metamodel/base.mm",
+ "statements": [
+  {
+   "kind": "assignment",
+   "name": "seen",
+   "operator": "=",
+   "value": {
+    "kind": "intLiteral",
+    "evalType": 5,
+    "value": "0"
+   }
+  },
+  {
+   "kind": "forIn",
+   "variable": "d",
+   "collection": {
+    "kind": "identifier",
+    "evalType": 6,
+    "name": "donors",
+    "scope": 1
+   },
+   "doBlock": [
+    {
+     "kind": "forMatch",
+     "pattern": {
+      "elements": [
+       {
+        "kind": "objectInstance",
+        "objectInstance": {
+         "name": "dc",
+         "className": "Component",
+         "properties": [],
+         "model": "d"
+        }
+       },
+       {
+        "kind": "objectInstance",
+        "objectInstance": {
+         "name": "dh",
+         "className": "Container",
+         "properties": [],
+         "model": "d"
+        }
+       },
+       {
+        "kind": "link",
+        "link": {
+         "source": {
+          "objectName": "dc",
+          "propertyName": "host"
+         },
+         "target": {
+          "objectName": "dh"
+         }
+        }
+       },
+       {
+        "kind": "objectInstance",
+        "objectInstance": {
+         "name": "c",
+         "className": "Component",
+         "properties": [
+          {
+           "propertyName": "name",
+           "operator": "==",
+           "value": {
+            "kind": "memberAccess",
+            "evalType": 1,
+            "expression": {
+             "kind": "identifier",
+             "evalType": 7,
+             "name": "dc",
+             "scope": 4
+            },
+            "member": "name",
+            "isNullChaining": false
+           }
+          }
+         ]
+        }
+       }
+      ]
+     },
+     "doBlock": [
+      {
+       "kind": "assignment",
+       "name": "seen",
+       "operator": "=",
+       "value": {
+        "kind": "binary",
+        "evalType": 5,
+        "operator": "+",
+        "left": {
+         "kind": "identifier",
+         "evalType": 5,
+         "name": "seen",
+         "scope": 1
+        },
+        "right": {
+         "kind": "intLiteral",
+         "evalType": 5,
+         "value": "1"
+        }
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "kind": "match",
+   "pattern": {
+    "elements": [
+     {
+      "kind": "objectInstance",
+      "objectInstance": {
+       "modifier": "create",
+       "name": "log",
+       "className": "Container",
+       "properties": [
+        {
+         "propertyName": "name",
+         "operator": "=",
+         "value": {
+          "kind": "binary",
+          "evalType": 1,
+          "operator": "+",
+          "left": {
+           "kind": "binary",
+           "evalType": 1,
+           "operator": "+",
+           "left": {
+            "kind": "binary",
+            "evalType": 1,
+            "operator": "+",
+            "left": {
+             "kind": "stringLiteral",
+             "evalType": 1,
+             "value": "seen "
+            },
+            "right": {
+             "kind": "identifier",
+             "evalType": 5,
+             "name": "seen",
+             "scope": 1
+            }
+           },
+           "right": {
+            "kind": "stringLiteral",
+            "evalType": 1,
+            "value": " in "
+           }
+          },
+          "right": {
+           "kind": "memberCall",
+           "evalType": 5,
+           "expression": {
+            "kind": "identifier",
+            "evalType": 6,
+            "name": "donors",
+            "scope": 1
+           },
+           "member": "size",
+           "isNullChaining": false,
+           "arguments": [],
+           "overload": ""
+          }
+         }
+        }
+       ]
+      }
+     },
+     {
+      "kind": "whereClause",
+      "whereClause": {
+       "expression": {
+        "kind": "memberCall",
+        "evalType": 3,
+        "expression": {
+         "kind": "identifier",
+         "evalType": 6,
+         "name": "donors",
+         "scope": 1
+        },
+        "member": "notEmpty",
+        "isNullChaining": false,
+        "arguments": [],
+        "overload": ""
+       }
+      }
+     }
+    ]
+   }
+  }
+ ],
+ "signature": {
+  "name": "vote.mt",
+  "parameters": [
+   {
+    "name": "donors",
+    "direction": "in",
+    "type": 6,
+    "isElement": false,
+    "collection": "List",
+    "elementsAreElements": false,
+    "isModel": true
+   },
+   {
+    "name": "seen",
+    "direction": "out",
+    "type": 5,
+    "isElement": false
+   }
+  ]
+ }
+}

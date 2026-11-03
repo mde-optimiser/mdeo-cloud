@@ -1,5 +1,6 @@
 package com.mdeo.backend.plugins
 
+import com.mdeo.common.transport.respondError
 import com.auth0.jwt.interfaces.Payload
 import com.mdeo.backend.config.SessionConfig
 import com.mdeo.backend.service.JwtService
@@ -65,7 +66,7 @@ fun Application.configureAuthentication(
                 }
             }
             challenge {
-                call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "Not authenticated"))
+                call.respondError(HttpStatusCode.Unauthorized, "Not authenticated")
             }
         }
         
@@ -83,7 +84,7 @@ fun Application.configureAuthentication(
                 }
             }
             challenge { _, _ ->
-                call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "Invalid or expired token"))
+                call.respondError(HttpStatusCode.Unauthorized, "Invalid or expired token")
             }
         }
     }

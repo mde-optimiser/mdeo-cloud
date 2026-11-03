@@ -1,9 +1,10 @@
-import type { RenderingContext, IView, Point, Bounds } from "@eclipse-glsp/sprotty";
+import type { RenderingContext, IView, Point, Bounds, GModelElement, BoundsAware } from "@eclipse-glsp/sprotty";
 import { sharedImport } from "../sharedImport.js";
 import type { GEdge, EdgeReconnectData } from "../model/edge.js";
 import type { VNode } from "snabbdom";
 import { EdgeRouter, type RouteComputationResult } from "../features/edge-routing/edgeRouter.js";
-import type { AnchorSide } from "@mdeo/protocol-common";
+import type { AnchorSide, EdgeLabelGeometrySpec } from "@mdeo/protocol-common";
+import { endLabelKey, findMiddleSegment, placeEdgeLabels, EDGE_LABEL_SPACING } from "@mdeo/protocol-common";
 import { findViewportZoom } from "../base/findViewportZoom.js";
 import type { ContextActionRailOrientation } from "../features/context-actions/contextActions.js";
 import { isIssueMarker, ISSUE_MARKER_SIZE } from "../features/decoration/issueMarker.js";
@@ -107,7 +108,45 @@ export interface EdgeAttachment {
      * from where visual MIDDLE attachments go. Used by context action rails at MIDDLE.
      */
     oppositeMiddleSide?: boolean;
+    /**
+     * The model element rendered by this attachment (label attachments), used for the label text
+     * (detection of identical end labels) and for the edit mode (labels are not rotated while editing).
+     */
+    element?: GModelElement;
 }
+
+/**
+ * A label element of an edge together with its attachment position.
+ */
+export interface EdgeLabelElement {
+    /**
+     * The label element (typically a GNode child of the edge wrapping a text label).
+     */
+    element: GModelElement & BoundsAware;
+    /**
+     * The label position (one of the *_LEFT / *_RIGHT label positions).
+     */
+    position: EdgeAttachmentPosition;
+}
+
+/**
+ * Information about one end of an edge whose labels are shared with other edges ending at the same point.
+ */
+interface SharedEndInfo {
+    /**
+     * Whether this edge renders the shared labels / marker / trunk (the representative of the group).
+     */
+    representative: boolean;
+    /**
+     * Length of the end segment that is drawn by the representative as well (0 for representatives).
+     */
+    sharedLength: number;
+}
+
+/**
+ * Cache of the edges attached to each node, per model root.
+ */
+const edgesByNodeCache = new WeakMap<object, Map<string, GEdge[]>>();
 
 /**
  * Abstract base view for rendering edge elements.
@@ -127,16 +166,6 @@ export abstract class GEdgeView implements IView {
      * Distance from the edge line to the first attachment (in pixels)
      */
     protected attachmentDistanceToLine = 2;
-
-    /**
-     * Distance from the source/target element to the first attachment (in pixels)
-     */
-    protected attachmentDistanceFromElement = 6;
-
-    /**
-     * Distance between stacked attachments (in pixels)
-     */
-    protected attachmentDistanceBetween = 2;
 
     /**
      * Size of the reconnect handle (in pixels at zoom 1.0)
@@ -162,19 +191,36 @@ export abstract class GEdgeView implements IView {
         const sourceMarkerData = this.renderSourceMarker(model, context);
         const targetMarkerData = this.renderTargetMarker(model, context);
 
+        const attachments = this.getEdgeAttachments(model, context);
+        const sourceElementOffset = sourceMarkerData?.elementOffset ?? 0;
+        const targetElementOffset = targetMarkerData?.elementOffset ?? 0;
+
+        const sharedSource = this.getSharedEndInfo(model, context, route, attachments, "source");
+        const sharedTarget = this.getSharedEndInfo(model, context, route, attachments, "target");
+        const selected = isSelected(model);
+        const skipSource = sharedSource != undefined && !sharedSource.representative;
+        const skipTarget = sharedTarget != undefined && !sharedTarget.representative;
+
         const startStrokeOffset = sourceMarkerData?.strokeOffset ?? 0;
         const endStrokeOffset = targetMarkerData?.strokeOffset ?? 0;
 
         const adjustedRoute = this.adjustRouteForMarkers(route, startStrokeOffset, endStrokeOffset);
+        const visibleRoute = selected
+            ? adjustedRoute
+            : this.trimSharedSegments(
+                  adjustedRoute,
+                  skipSource ? sharedSource.sharedLength - startStrokeOffset : 0,
+                  skipTarget ? sharedTarget.sharedLength - endStrokeOffset : 0
+              );
 
         const children: VNode[] = [];
 
-        if (sourceMarkerData && route.length >= 2) {
+        if (sourceMarkerData && route.length >= 2 && (!skipSource || selected)) {
             const sourceMarker = this.transformMarker(sourceMarkerData.marker, route[0], route[1], "source");
             children.push(sourceMarker);
         }
 
-        if (targetMarkerData && route.length >= 2) {
+        if (targetMarkerData && route.length >= 2 && (!skipTarget || selected)) {
             const targetMarker = this.transformMarker(
                 targetMarkerData.marker,
                 route[route.length - 1],
@@ -184,18 +230,34 @@ export abstract class GEdgeView implements IView {
             children.push(targetMarker);
         }
 
-        children.push(this.renderVisiblePath(adjustedRoute, model, context));
+        if (visibleRoute.length >= 2) {
+            children.push(this.renderVisiblePath(visibleRoute, model, context));
+        }
 
         children.push(...this.renderInvisiblePath(adjustedRoute, model));
 
         children.push(...this.renderAdditional(model, context, routeResult));
 
-        const attachments = this.getEdgeAttachments(model, context);
-        const sourceElementOffset = sourceMarkerData?.elementOffset ?? 0;
-        const targetElementOffset = targetMarkerData?.elementOffset ?? 0;
-        children.push(...this.renderAttachments(attachments, routeResult, sourceElementOffset, targetElementOffset));
+        const visibleAttachments = attachments.filter((attachment) => {
+            if (skipSource && GEdgeView.isSourceLabelPosition(attachment.position)) {
+                return false;
+            }
+            if (skipTarget && GEdgeView.isTargetLabelPosition(attachment.position)) {
+                return false;
+            }
+            return true;
+        });
+        children.push(
+            ...this.renderAttachments(
+                visibleAttachments,
+                routeResult,
+                sourceElementOffset,
+                targetElementOffset,
+                context
+            )
+        );
 
-        if (isSelected(model) && route.length >= 2 && !this.toolStateManager.isCreationMode()) {
+        if (selected && route.length >= 2 && !this.toolStateManager.isCreationMode()) {
             children.push(...this.renderReconnectHandles(model, route));
         }
 
@@ -206,7 +268,7 @@ export abstract class GEdgeView implements IView {
         children.push(...this.renderIssueMarkers(model, route, context));
 
         const rootClasses: Record<string, boolean> = {};
-        if (!isSelected(model)) {
+        if (!selected) {
             rootClasses["cursor-pointer"] = true;
         }
         if (model.reconnectData != undefined || model.edgeCreateData != undefined) {
@@ -215,6 +277,219 @@ export abstract class GEdgeView implements IView {
         }
 
         return svg("g", { class: rootClasses }, ...children);
+    }
+
+    /**
+     * Determines whether the labels at one end of this edge are shared with other edges: other edges that end at
+     * exactly the same point of the same node, with an identical set of end label texts and the same marker.
+     * Of such a group, only the edge with the lowest id (the representative) renders the labels, the marker and the
+     * shared end segment (the joined trunk), so they are drawn only once (no antialiasing artifacts).
+     *
+     * @param model the edge
+     * @param context the rendering context
+     * @param route the route of the edge
+     * @param attachments the attachments of the edge
+     * @param end the end
+     * @returns the shared end info, or undefined if the end is not shared
+     */
+    protected getSharedEndInfo(
+        model: Readonly<GEdge>,
+        context: RenderingContext,
+        route: Point[],
+        attachments: EdgeAttachment[],
+        end: "source" | "target"
+    ): SharedEndInfo | undefined {
+        if (context.targetKind === "hidden" || route.length < 2 || model.reconnectData || model.edgeCreateData) {
+            return undefined;
+        }
+        const key = endLabelKey(this.toLabelSpecs(attachments), end);
+        if (key == undefined) {
+            return undefined;
+        }
+        const nodeId = end === "source" ? model.sourceId : model.targetId;
+        const endpoint = end === "source" ? route[0] : route[route.length - 1];
+        const ownMarker = this.markerLengthAt(model, context, end);
+        const ownSegment = GEdgeView.endSegmentOf(route, end);
+
+        let representative = true;
+        let shared = false;
+        let sharedLength = 0;
+        for (const other of this.getEdgesAtNode(model, nodeId)) {
+            if (other.id === model.id || other.reconnectData || other.edgeCreateData) {
+                continue;
+            }
+            for (const otherEnd of ["source", "target"] as const) {
+                if ((otherEnd === "source" ? other.sourceId : other.targetId) !== nodeId) {
+                    continue;
+                }
+                const otherKey = endLabelKey(
+                    this.toLabelSpecs(this.getLabelAttachmentsWithoutRendering(other)),
+                    otherEnd
+                );
+                if (otherKey !== key || this.markerLengthAt(other, context, otherEnd) !== ownMarker) {
+                    continue;
+                }
+                const otherRoute = this.edgeRouter.computeRoute(other).route;
+                if (otherRoute.length < 2) {
+                    continue;
+                }
+                const otherPoint = otherEnd === "source" ? otherRoute[0] : otherRoute[otherRoute.length - 1];
+                if (Math.abs(otherPoint.x - endpoint.x) > 0.5 || Math.abs(otherPoint.y - endpoint.y) > 0.5) {
+                    continue;
+                }
+                shared = true;
+                if (other.id < model.id) {
+                    representative = false;
+                    const otherSegment = GEdgeView.endSegmentOf(otherRoute, otherEnd);
+                    if (
+                        ownSegment != undefined &&
+                        otherSegment != undefined &&
+                        ownSegment.direction.x === otherSegment.direction.x &&
+                        ownSegment.direction.y === otherSegment.direction.y
+                    ) {
+                        sharedLength = Math.max(sharedLength, Math.min(ownSegment.length, otherSegment.length));
+                    }
+                }
+            }
+        }
+        if (!shared) {
+            return undefined;
+        }
+        return { representative, sharedLength: representative ? 0 : sharedLength };
+    }
+
+    /**
+     * Returns the label attachments of another edge without rendering them (vnodes are undefined).
+     * Only labels that this view recognizes are returned (other edge types yield no labels).
+     *
+     * @param model the edge
+     * @returns the attachments
+     */
+    private getLabelAttachmentsWithoutRendering(model: Readonly<GEdge>): EdgeAttachment[] {
+        return this.getLabelElements(model).map((label) => ({
+            vnode: undefined,
+            bounds: label.element.bounds,
+            position: label.position,
+            element: label.element
+        }));
+    }
+
+    /**
+     * Returns the length of the marker at an end as used for label placement (the distance from the node border to
+     * the end of the marker, 0 if there is no marker).
+     *
+     * @param model the edge
+     * @param context the rendering context
+     * @param end the end
+     * @returns the marker length
+     */
+    protected markerLengthAt(model: Readonly<GEdge>, context: RenderingContext, end: "source" | "target"): number {
+        const marker =
+            end === "source" ? this.renderSourceMarker(model, context) : this.renderTargetMarker(model, context);
+        if (marker == undefined || marker.elementOffset <= 0) {
+            return 0;
+        }
+        return marker.elementOffset + EDGE_LABEL_SPACING.distanceFromElement;
+    }
+
+    /**
+     * Returns all edges attached to a node (cached per model root).
+     *
+     * @param model an edge of the model
+     * @param nodeId the node
+     * @returns the edges whose source or target is the node
+     */
+    protected getEdgesAtNode(model: Readonly<GEdge>, nodeId: string): GEdge[] {
+        const root = model.root;
+        let byNode = edgesByNodeCache.get(root);
+        if (byNode == undefined) {
+            byNode = new Map();
+            for (const element of model.index.all()) {
+                const candidate = element as unknown as GEdge;
+                if (
+                    typeof candidate.sourceId === "string" &&
+                    typeof candidate.targetId === "string" &&
+                    "meta" in candidate
+                ) {
+                    for (const id of new Set([candidate.sourceId, candidate.targetId])) {
+                        const list = byNode.get(id) ?? [];
+                        list.push(candidate);
+                        byNode.set(id, list);
+                    }
+                }
+            }
+            edgesByNodeCache.set(root, byNode);
+        }
+        return (byNode.get(nodeId) ?? []).filter((edge) => model.index.getById(edge.id) === edge);
+    }
+
+    /**
+     * Computes the first non-degenerate segment at an end of a route.
+     *
+     * @param route the route
+     * @param end the end
+     * @returns the axis direction away from the node and the segment length, or undefined
+     */
+    private static endSegmentOf(
+        route: Point[],
+        end: "source" | "target"
+    ): { direction: Point; length: number } | undefined {
+        const points = end === "source" ? route : [...route].reverse();
+        for (let i = 1; i < points.length; i++) {
+            const dx = points[i].x - points[0].x;
+            const dy = points[i].y - points[0].y;
+            if (Math.abs(dx) > 1e-6 || Math.abs(dy) > 1e-6) {
+                if (Math.abs(dx) > 1e-6 && Math.abs(dy) > 1e-6) {
+                    return undefined;
+                }
+                return {
+                    direction: { x: Math.sign(dx), y: Math.sign(dy) },
+                    length: Math.abs(dx) + Math.abs(dy)
+                };
+            }
+        }
+        return undefined;
+    }
+
+    /**
+     * Removes the given lengths from the start / end of a route (used to not draw shared trunk segments twice).
+     *
+     * @param route the route
+     * @param startLength the length to remove at the start
+     * @param endLength the length to remove at the end
+     * @returns the trimmed route (may have fewer than two points if nothing remains)
+     */
+    private trimSharedSegments(route: Point[], startLength: number, endLength: number): Point[] {
+        let result = route;
+        if (startLength > 0.5) {
+            result = GEdgeView.trimStart(result, startLength);
+        }
+        if (endLength > 0.5) {
+            result = GEdgeView.trimStart([...result].reverse(), endLength).reverse();
+        }
+        return result;
+    }
+
+    /**
+     * Removes the given length from the start of a route.
+     *
+     * @param route the route
+     * @param length the length to remove
+     * @returns the trimmed route
+     */
+    private static trimStart(route: Point[], length: number): Point[] {
+        let remaining = length;
+        for (let i = 0; i < route.length - 1; i++) {
+            const segmentLength = Math.hypot(route[i + 1].x - route[i].x, route[i + 1].y - route[i].y);
+            if (segmentLength >= remaining - 1e-6) {
+                const t = segmentLength > 0 ? remaining / segmentLength : 0;
+                const start = PointUtil.linear(route[i], route[i + 1], t);
+                const rest = route.slice(i + 1);
+                return segmentLength - remaining > 1e-6 ? [start, ...rest] : rest;
+            }
+            remaining -= segmentLength;
+        }
+        return [];
     }
 
     /**
@@ -277,8 +552,8 @@ export abstract class GEdgeView implements IView {
             return [];
         }
 
-        const midIndex = Math.floor(route.length / 2);
-        const midPoint = PointUtil.linear(route[midIndex - 1], route[midIndex], 0.5);
+        const midIndex = findMiddleSegment(route);
+        const midPoint = PointUtil.linear(route[midIndex], route[midIndex + 1], 0.5);
 
         const x = midPoint.x - iconSvgSize / 2;
         const y = midPoint.y - iconSvgSize / 2;
@@ -305,106 +580,132 @@ export abstract class GEdgeView implements IView {
 
     /**
      * Gets edge attachments to be rendered along the edge.
-     * Override this method to provide custom attachments like multiplicity labels or properties.
+     * The default implementation renders the label elements returned by {@link getLabelElements}.
+     * Override this method to provide additional custom attachments.
      *
-     * @param _model The edge model
-     * @param _context The rendering context
+     * @param model The edge model
+     * @param context The rendering context
      * @returns An array of edge attachments
      */
-    protected getEdgeAttachments(_model: Readonly<GEdge>, _context: RenderingContext): EdgeAttachment[] {
+    protected getEdgeAttachments(model: Readonly<GEdge>, context: RenderingContext): EdgeAttachment[] {
+        return this.getLabelElements(model).map((label) => ({
+            vnode: context.renderElement(label.element),
+            bounds: label.element.bounds,
+            position: label.position,
+            element: label.element
+        }));
+    }
+
+    /**
+     * Gets the label elements of the edge with their positions (source / target / middle, left / right).
+     * Must not render anything: it is also used to compare the end labels of neighbouring edges.
+     *
+     * @param _model The edge model
+     * @returns The label elements
+     */
+    protected getLabelElements(_model: Readonly<GEdge>): EdgeLabelElement[] {
         return [];
     }
 
     /**
+     * Converts label attachments into the shared label geometry specs.
+     *
+     * @param attachments the attachments (non-label attachments are ignored)
+     * @returns the specs, in the order of the attachments
+     */
+    protected toLabelSpecs(attachments: EdgeAttachment[]): (EdgeLabelGeometrySpec & { attachment: EdgeAttachment })[] {
+        const specs: (EdgeLabelGeometrySpec & { attachment: EdgeAttachment })[] = [];
+        attachments.forEach((attachment, index) => {
+            if (!GEdgeView.isLabelPosition(attachment.position)) {
+                return;
+            }
+            const end = GEdgeView.isSourceLabelPosition(attachment.position)
+                ? "source"
+                : GEdgeView.isTargetLabelPosition(attachment.position)
+                  ? "target"
+                  : "middle";
+            specs.push({
+                id: attachment.element?.id ?? `#${index}`,
+                end,
+                side: GEdgeView.determineAttachmentSide(attachment.position) ? "left" : "right",
+                width: attachment.bounds.width,
+                height: attachment.bounds.height,
+                text: attachment.element != undefined ? collectLabelText(attachment.element) : undefined,
+                attachment
+            });
+        });
+        return specs;
+    }
+
+    /**
      * Renders edge attachments at their computed positions.
+     * Label attachments are placed with the shared label geometry ({@link placeEdgeLabels}): they run along their
+     * segment and are rotated by -90 degrees on vertical segments (except while being edited and in the hidden
+     * bounds computation, where the unrotated size is measured).
      *
      * @param attachments The attachments to render
      * @param routeResult The route data
      * @param sourceElementOffset Offset from the source element due to markers
      * @param targetElementOffset Offset from the target element due to markers
+     * @param context The rendering context
      * @returns An array of VNodes for the attachments
      */
     private renderAttachments(
         attachments: EdgeAttachment[],
         routeResult: RouteComputationResult,
         sourceElementOffset: number,
-        targetElementOffset: number
+        targetElementOffset: number,
+        context: RenderingContext
     ): VNode[] {
         const vnodes: VNode[] = [];
+        const route = routeResult.route;
+        if (route.length < 2) {
+            return vnodes;
+        }
+
+        const labelSpecs = this.toLabelSpecs(attachments);
+        if (labelSpecs.length > 0) {
+            const markerLength = (offset: number) => (offset > 0 ? offset + EDGE_LABEL_SPACING.distanceFromElement : 0);
+            const placed = placeEdgeLabels(route, labelSpecs, {
+                source: { length: markerLength(sourceElementOffset) },
+                target: { length: markerLength(targetElementOffset) }
+            });
+            const hidden = context.targetKind === "hidden";
+            for (const placement of placed) {
+                const attachment = (placement.label as EdgeLabelGeometrySpec & { attachment: EdgeAttachment })
+                    .attachment;
+                const unrotated =
+                    hidden ||
+                    placement.rotation === 0 ||
+                    (attachment.element != undefined && isInEditMode(attachment.element));
+                const transform = unrotated
+                    ? `translate(${placement.center.x - attachment.bounds.width / 2}, ${
+                          placement.center.y - attachment.bounds.height / 2
+                      })`
+                    : placement.transform;
+                vnodes.push(svg("g", { attrs: { transform } }, attachment.vnode));
+            }
+        }
 
         const groupedAttachments = new Map<EdgeAttachmentPosition, EdgeAttachment[]>();
         for (const attachment of attachments) {
+            if (GEdgeView.isLabelPosition(attachment.position)) {
+                continue;
+            }
             const group = groupedAttachments.get(attachment.position) ?? [];
             group.push(attachment);
             groupedAttachments.set(attachment.position, group);
         }
 
         for (const [position, group] of groupedAttachments) {
-            vnodes.push(
-                ...this.renderAttachmentGroup(group, position, routeResult, sourceElementOffset, targetElementOffset)
-            );
+            const anchorInfo = this.getAnchorInfo(position, routeResult);
+            if (anchorInfo) {
+                // Context rail positions (START, END, MIDDLE): no distanceFromElement for START/END
+                vnodes.push(...this.stackAttachments(group, anchorInfo.anchorPoint, position, anchorInfo));
+            }
         }
 
         return vnodes;
-    }
-
-    /**
-     * Renders a group of attachments at a specific position.
-     *
-     * For SOURCE_LEFT/RIGHT and TARGET_LEFT/RIGHT (label positions at endpoints), applies
-     * `attachmentDistanceFromElement` offset before stacking with the label stacking algorithm.
-     * For MIDDLE_LEFT/RIGHT, uses the label stacking algorithm without element offset.
-     * For START/END/MIDDLE (context rail positions), uses the rail stacking algorithm with no
-     * distanceFromElement applied for START/END.
-     *
-     * @param attachments The attachments in the group
-     * @param position The position along the edge
-     * @param routeResult The route data
-     * @param sourceElementOffset Offset from the source element due to markers
-     * @param targetElementOffset Offset from the target element due to markers
-     * @returns An array of VNodes for the attachment group
-     */
-    private renderAttachmentGroup(
-        attachments: EdgeAttachment[],
-        position: EdgeAttachmentPosition,
-        routeResult: RouteComputationResult,
-        sourceElementOffset: number,
-        targetElementOffset: number
-    ): VNode[] {
-        const route = routeResult.route;
-        if (route.length < 2) {
-            return [];
-        }
-
-        const anchorInfo = this.getAnchorInfo(position, routeResult);
-        if (!anchorInfo) {
-            return [];
-        }
-
-        let anchorPoint = anchorInfo.anchorPoint;
-
-        if (GEdgeView.isLabelPosition(position)) {
-            // For SOURCE_*/TARGET_* label positions, offset away from the element before stacking
-            if (
-                (GEdgeView.isSourceLabelPosition(position) || GEdgeView.isTargetLabelPosition(position)) &&
-                anchorInfo.anchorSide
-            ) {
-                const direction = this.getDirectionFromSide(anchorInfo.anchorSide);
-                const distanceFromElement = this.attachmentDistanceFromElement;
-                const markerOffset = GEdgeView.isSourceLabelPosition(position)
-                    ? sourceElementOffset
-                    : targetElementOffset;
-                const totalOffset = distanceFromElement + markerOffset;
-                anchorPoint = {
-                    x: anchorPoint.x + direction.x * totalOffset,
-                    y: anchorPoint.y + direction.y * totalOffset
-                };
-            }
-            return this.stackLabelAttachments(attachments, anchorPoint, position, anchorInfo);
-        }
-
-        // Context rail positions (START, END, MIDDLE): no distanceFromElement for START/END
-        return this.stackAttachments(attachments, anchorPoint, position, anchorInfo);
     }
 
     /**
@@ -471,9 +772,9 @@ export abstract class GEdgeView implements IView {
                 dy = route[route.length - 2].y - route[route.length - 1].y;
             }
         } else if (basePosition === EdgeAttachmentPosition.MIDDLE) {
-            const middleIndex = Math.floor(route.length / 2);
-            anchorPoint = PointUtil.linear(route[middleIndex - 1], route[middleIndex], 0.5);
-            const directionPoint = route[middleIndex];
+            const middleIndex = findMiddleSegment(route);
+            anchorPoint = PointUtil.linear(route[middleIndex], route[middleIndex + 1], 0.5);
+            const directionPoint = route[middleIndex + 1];
             dx = directionPoint.x - anchorPoint.x;
             dy = directionPoint.y - anchorPoint.y;
         } else {
@@ -555,123 +856,6 @@ export abstract class GEdgeView implements IView {
             position === EdgeAttachmentPosition.TARGET_LEFT ||
             position === EdgeAttachmentPosition.MIDDLE_LEFT
         );
-    }
-
-    /**
-     * Stacks and renders label attachments (SOURCE_LEFT/RIGHT, TARGET_LEFT/RIGHT, MIDDLE_LEFT/RIGHT)
-     * at the computed anchor position.
-     *
-     * For horizontal edges: attachments are placed above (LEFT) or below (RIGHT) the edge, stacking
-     * outward, and offset horizontally along the edge direction.
-     * For vertical edges: attachments are placed to the left (LEFT) or right (RIGHT) of the edge,
-     * stacking outward, and offset vertically in the edge direction.
-     * For MIDDLE_LEFT/RIGHT on vertical edges: attachments are centered vertically around the anchor.
-     *
-     * @param attachments The attachments to stack
-     * @param anchorPoint The anchor point on the edge (already offset from element for SOURCE/TARGET)
-     * @param position The label attachment position
-     * @param anchorInfo Direction and side information for the anchor
-     * @returns An array of VNodes for the stacked label attachments
-     */
-    private stackLabelAttachments(
-        attachments: EdgeAttachment[],
-        anchorPoint: Point,
-        position: EdgeAttachmentPosition,
-        anchorInfo: { dx: number; dy: number; anchorSide?: AnchorSide }
-    ): VNode[] {
-        const vnodes: VNode[] = [];
-        if (attachments.length === 0) {
-            return vnodes;
-        }
-
-        const isHorizontal = Math.abs(anchorInfo.dx) > Math.abs(anchorInfo.dy);
-        const isLeftSide = GEdgeView.determineAttachmentSide(position);
-        const sideSign = isLeftSide ? -1 : 1;
-        const distanceToLine = this.attachmentDistanceToLine;
-        const isMiddle =
-            position === EdgeAttachmentPosition.MIDDLE_LEFT || position === EdgeAttachmentPosition.MIDDLE_RIGHT;
-        const isMiddleHorizontal = isMiddle && isHorizontal;
-        const isMiddleVertical = isMiddle && !isHorizontal;
-
-        // For non-horizontal non-middle-vertical edges, determine vertical stacking direction
-        let verticalSign = 1;
-        if (!isHorizontal && !isMiddleVertical) {
-            if (Math.abs(anchorInfo.dy) > Math.abs(anchorInfo.dx)) {
-                verticalSign = anchorInfo.dy >= 0 ? 1 : -1;
-            }
-            if (
-                position === EdgeAttachmentPosition.SOURCE_LEFT ||
-                position === EdgeAttachmentPosition.SOURCE_RIGHT ||
-                position === EdgeAttachmentPosition.TARGET_LEFT ||
-                position === EdgeAttachmentPosition.TARGET_RIGHT
-            ) {
-                if (anchorInfo.anchorSide === "top") {
-                    verticalSign = -1;
-                } else if (anchorInfo.anchorSide === "bottom") {
-                    verticalSign = 1;
-                }
-            }
-        }
-
-        // For vertical middle: center the entire stack vertically around the anchor
-        let totalHeight = 0;
-        if (isMiddleVertical) {
-            for (const a of attachments) {
-                totalHeight += a.bounds.height;
-            }
-            totalHeight += (attachments.length - 1) * this.attachmentDistanceBetween;
-        }
-
-        let currentOffset = isMiddleVertical ? -totalHeight / 2 : 0;
-
-        for (const attachment of attachments) {
-            const width = attachment.bounds.width;
-            const height = attachment.bounds.height;
-            let centerX: number;
-            let centerY: number;
-
-            if (isHorizontal) {
-                const verticalDir = isLeftSide ? -1 : 1;
-                const baseY = anchorPoint.y + verticalDir * distanceToLine;
-                if (isMiddleHorizontal) {
-                    centerX = anchorPoint.x;
-                } else if (Math.abs(anchorInfo.dx) > 0) {
-                    const alongDir = anchorInfo.dx >= 0 ? 1 : -1;
-                    centerX = anchorPoint.x + alongDir * (width / 2);
-                } else {
-                    centerX = anchorPoint.x;
-                }
-                centerY = baseY + verticalDir * (currentOffset + height / 2);
-            } else {
-                // Vertical edge
-                const baseX = anchorPoint.x + sideSign * distanceToLine;
-                centerX = baseX + sideSign * (width / 2);
-                if (isMiddleVertical) {
-                    centerY = anchorPoint.y + (currentOffset + height / 2);
-                } else {
-                    centerY = anchorPoint.y + verticalSign * (currentOffset + height / 2);
-                }
-            }
-
-            const finalX = centerX - width / 2;
-            const finalY = centerY - height / 2;
-
-            vnodes.push(
-                svg(
-                    "g",
-                    {
-                        attrs: {
-                            transform: `translate(${finalX}, ${finalY})`
-                        }
-                    },
-                    attachment.vnode
-                )
-            );
-
-            currentOffset += height + this.attachmentDistanceBetween;
-        }
-
-        return vnodes;
     }
 
     /**
@@ -1051,4 +1235,38 @@ export function renderCreateEdgeEndpoint(position: Point, zoom: number): VNode {
             }
         })
     );
+}
+
+/**
+ * Collects the text of all text labels below an element (used to detect identical edge labels).
+ *
+ * @param element the element
+ * @returns the concatenated texts
+ */
+function collectLabelText(element: GModelElement): string {
+    const texts: string[] = [];
+    const visit = (current: GModelElement) => {
+        const text = (current as { text?: unknown }).text;
+        if (typeof text === "string") {
+            texts.push(text);
+        }
+        const children = (current as { children?: readonly GModelElement[] }).children ?? [];
+        children.forEach(visit);
+    };
+    visit(element);
+    return texts.join(" ");
+}
+
+/**
+ * Checks whether an element or one of its descendants is a label in edit mode.
+ *
+ * @param element the element
+ * @returns true if a label is being edited
+ */
+function isInEditMode(element: GModelElement): boolean {
+    if ((element as { editMode?: unknown }).editMode === true) {
+        return true;
+    }
+    const children = (element as { children?: readonly GModelElement[] }).children ?? [];
+    return children.some(isInEditMode);
 }

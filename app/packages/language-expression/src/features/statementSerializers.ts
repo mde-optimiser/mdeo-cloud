@@ -155,7 +155,7 @@ function printForStatement(context: PrintContext<ForStatementType>): Doc {
  */
 function printVariableDeclarationStatement(context: PrintContext<VariableDeclarationStatementType>): Doc {
     const { ctx, printPrimitive, getPrimitive, path, print } = context;
-    const docs: Doc[] = ["var ", printPrimitive(getPrimitive(ctx, "name"), ID)];
+    const docs: Doc[] = [ctx.isReadonly ? "val " : "var ", printPrimitive(getPrimitive(ctx, "name"), ID)];
 
     if (ctx.type != undefined) {
         docs.push(": ", path.call(print, "type"));

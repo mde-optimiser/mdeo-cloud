@@ -1,0 +1,61 @@
+{
+ "path": "/metamodel/shop.mm",
+ "classes": [
+  {
+   "name": "Service",
+   "isAbstract": false,
+   "extends": [
+    "Component"
+   ],
+   "properties": []
+  },
+  {
+   "name": "CopyFeed",
+   "isAbstract": false,
+   "extends": [],
+   "properties": []
+  }
+ ],
+ "enums": [],
+ "associations": [
+  {
+   "source": {
+    "className": "CopyFeed",
+    "multiplicity": {
+     "lower": 1,
+     "upper": 1
+    },
+    "name": "reader"
+   },
+   "operator": "-->",
+   "target": {
+    "className": "Component",
+    "multiplicity": {
+     "lower": 0,
+     "upper": -1
+    }
+   }
+  },
+  {
+   "source": {
+    "className": "CopyFeed",
+    "multiplicity": {
+     "lower": 1,
+     "upper": 1
+    },
+    "name": "store"
+   },
+   "operator": "-->",
+   "target": {
+    "className": "Component",
+    "multiplicity": {
+     "lower": 0,
+     "upper": -1
+    }
+   }
+  }
+ ],
+ "importedMetamodelPaths": [
+  "/metamodel/base.mm"
+ ]
+}

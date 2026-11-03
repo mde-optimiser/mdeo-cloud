@@ -9,15 +9,23 @@ import { GeneratedModelTransformationRule } from "./grammar/generatedModelTransf
 import {
     type ActionHandlerRegistryAdditionalServices,
     ActionHandlerRegistry,
-    DefaultWorkspaceEditService
+    DefaultAstSerializer,
+    DefaultWorkspaceEditService,
+    registerDefaultTokenSerializers
 } from "@mdeo/language-shared";
+import { registerExpressionSerializers, registerTypeSerializers } from "@mdeo/language-expression";
+import type { AstSerializerAdditionalServices } from "@mdeo/language-common";
+import { expressionTypes, typeTypes } from "./grammar/modelTransformationTypes.js";
+import { RenderedExpression } from "./grammar/generatedModelTransformationTypes.js";
+import { registerModelTransformationSerializers } from "./features/modelTransformationSerializers.js";
 import { GeneratedModelTransformationDiagramModule } from "./features/diagram-server/generated/generatedModelTransformationDiagramModule.js";
 import { GeneratedModelTransformationActionProvider } from "./features/generatedModelTransformationActionProvider.js";
 import { SaveGeneratedModelTransformationActionHandler } from "./action-handlers/saveGeneratedModelTransformationActionHandler.js";
 import type { LangiumDocument, URI } from "langium";
 
 export type GeneratedModelTransformationServices = ExternalReferenceAdditionalServices &
-    ActionHandlerRegistryAdditionalServices;
+    ActionHandlerRegistryAdditionalServices &
+    AstSerializerAdditionalServices;
 
 /**
  * Empty external reference collector for generated model transformations.
@@ -58,9 +66,19 @@ function createGeneratedModelTransformationPlugin(
             },
             workspace: {
                 WorkspaceEdit: (services) => new DefaultWorkspaceEditService(services)
-            }
+            },
+            // Prints the regular model transformation a generated one stands for.
+            AstSerializer: (services) => new DefaultAstSerializer(services)
         },
         postCreate(services) {
+            registerDefaultTokenSerializers(services);
+            registerTypeSerializers(services, typeTypes);
+            registerExpressionSerializers(services, expressionTypes);
+            registerModelTransformationSerializers(services);
+            services.AstSerializer.registerNodeSerializer(
+                RenderedExpression,
+                (context) => context.ctx.$cstNode?.text ?? "?"
+            );
             services.shared.glsp.serverModule.configureDiagramModule(
                 new GeneratedModelTransformationDiagramModule(services, languageJsUrl)
             );

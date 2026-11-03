@@ -11,6 +11,7 @@ import {
     NodeLayoutMetadataUtil,
     EdgeLayoutMetadataUtil
 } from "@mdeo/language-shared";
+import { asPatternObjectInstance } from "../transformationDeclarations.js";
 import { ModelTransformationElementType } from "@mdeo/protocol-model-transformation";
 import type {
     ModelTransformationType,
@@ -65,6 +66,7 @@ export class ModelTransformationMetadataManager extends MetadataManager<ModelTra
             model.type === ModelTransformationElementType.NODE_END ||
             model.type === ModelTransformationElementType.NODE_SPLIT ||
             model.type === ModelTransformationElementType.NODE_MERGE ||
+            model.type === ModelTransformationElementType.NODE_CALL ||
             model.type === ModelTransformationElementType.NODE_PATTERN_INSTANCE
         ) {
             return NodeLayoutMetadataUtil.verify(model.meta, 250);
@@ -176,6 +178,9 @@ export class ModelTransformationMetadataManager extends MetadataManager<ModelTra
             case "merge":
                 nodes[node.id] = { type: ModelTransformationElementType.NODE_MERGE, attrs: {} };
                 break;
+            case "call":
+                nodes[node.id] = { type: ModelTransformationElementType.NODE_CALL, attrs: {} };
+                break;
         }
     }
 
@@ -283,22 +288,21 @@ export class ModelTransformationMetadataManager extends MetadataManager<ModelTra
                 instanceNodeIdsInPattern.set(instanceName, instanceNodeId);
             }
 
+            // Every resolved reference gets a node, as in the GModel factory: besides objects of
+            // earlier matches, `x { }` may reference an element input, a call output or a loop variable.
             for (const [instanceName, ref] of referencedInstanceNodes) {
                 if (!localInstances.has(instanceName) && !deletedInstances.has(instanceName)) {
-                    const previousNodeId = this.declaredInstances.get(instanceName);
-                    if (previousNodeId != undefined) {
-                        const refNodeId = idRegistry.getId(ref);
-                        nodes[refNodeId] = {
-                            type: ModelTransformationElementType.NODE_PATTERN_INSTANCE,
-                            attrs: {
-                                name: instanceName,
-                                isReference: true
-                            }
-                        };
+                    const refNodeId = idRegistry.getId(ref);
+                    nodes[refNodeId] = {
+                        type: ModelTransformationElementType.NODE_PATTERN_INSTANCE,
+                        attrs: {
+                            name: instanceName,
+                            isReference: true
+                        }
+                    };
 
-                        this.addInstanceToMatchEdge(refNodeId, matchNodeId, edges);
-                        instanceNodeIdsInPattern.set(instanceName, refNodeId);
-                    }
+                    this.addInstanceToMatchEdge(refNodeId, matchNodeId, edges);
+                    instanceNodeIdsInPattern.set(instanceName, refNodeId);
                 }
             }
 
@@ -324,7 +328,7 @@ export class ModelTransformationMetadataManager extends MetadataManager<ModelTra
 
             for (const [instanceName, deleteElement] of deletedInstanceNodes) {
                 if (!localInstances.has(instanceName)) {
-                    const referencedInstance = deleteElement.instance?.ref;
+                    const referencedInstance = asPatternObjectInstance(this.reflection, deleteElement.instance?.ref);
                     const typeName = referencedInstance?.class?.$refText ?? referencedInstance?.class?.ref?.name;
 
                     const delNodeId = idRegistry.getId(deleteElement);

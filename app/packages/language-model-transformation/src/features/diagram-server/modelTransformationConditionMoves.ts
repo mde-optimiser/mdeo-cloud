@@ -2,28 +2,52 @@ import type { AstReflection } from "@mdeo/language-common";
 import { sharedImport } from "@mdeo/language-shared";
 import type { AstNode, CstNode } from "langium";
 import {
+    AssignmentStatement,
+    CallArgument,
+    ForInStatement,
+    ModelTransformation,
     Pattern,
     PatternApplicationCondition,
+    PatternCollectionAppend,
     PatternLink,
+    PatternModelScope,
     PatternObjectInstance,
     PatternObjectInstanceReference,
+    PatternVariableReassignment,
     WhereClause,
     expressionTypes,
+    type ForInStatementType,
+    type ModelTransformationType,
     type PatternApplicationConditionType,
     type PatternLinkType,
+    type PatternModelScopeType,
+    type PatternObjectInstanceReferenceType,
     type PatternObjectInstanceType,
     type PatternPropertyAssignmentType,
     type PatternType
 } from "../../grammar/modelTransformationTypes.js";
-import { conditionDisplayName, findContainingPattern, patternConditions } from "./modelTransformationPatternUtils.js";
+import {
+    conditionDisplayName,
+    findContainingModelScope,
+    findContainingPattern,
+    patternConditions,
+    patternModelScopes
+} from "./modelTransformationPatternUtils.js";
+import {
+    UNRESOLVED_MODEL,
+    declarationModel,
+    getModelShape,
+    type ModelIdentity
+} from "../transformationDeclarations.js";
+import { MODEL_BLOCK_TARGET_PREFIX, NEW_MODEL_BLOCK_TARGET_PREFIX } from "@mdeo/protocol-model-transformation";
 
 const { AstUtils, GrammarUtils } = sharedImport("langium");
 
 /**
- * The direct container of a pattern element: the match pattern itself, or one of its
- * application condition blocks.
+ * The direct container of a pattern element: the match pattern itself, one of its
+ * application condition blocks, or one of its model scope blocks.
  */
-export type PatternElementContainer = PatternType | PatternApplicationConditionType;
+export type PatternElementContainer = PatternType | PatternApplicationConditionType | PatternModelScopeType;
 
 /** The kind of an application condition block. */
 export type ConditionKind = "forbid" | "require";
@@ -126,6 +150,12 @@ export function conditionMoveOptions(astNode: AstNode, reflection: AstReflection
     if (movable == undefined) {
         return undefined;
     }
+    // the condition blocks of the pattern are graphs of the transformed model; an element of an
+    // input model moves between model scope blocks only, see modelMoveOptions
+    if (findContainingModelScope(astNode, reflection) != undefined) {
+        const none: ConditionKindOptions = { blocks: [], canCreate: false };
+        return { inBlock: false, forbid: none, require: none };
+    }
 
     const current = reflection.isInstance(movable.container, PatternApplicationCondition)
         ? (movable.container as PatternApplicationConditionType)
@@ -219,7 +249,11 @@ function elementContainer(node: AstNode, reflection: AstReflection): PatternElem
     if (container == undefined) {
         return undefined;
     }
-    if (reflection.isInstance(container, Pattern) || reflection.isInstance(container, PatternApplicationCondition)) {
+    if (
+        reflection.isInstance(container, Pattern) ||
+        reflection.isInstance(container, PatternApplicationCondition) ||
+        reflection.isInstance(container, PatternModelScope)
+    ) {
         return container as PatternElementContainer;
     }
     return undefined;
@@ -484,7 +518,8 @@ function isInside(node: AstNode, moved: Set<AstNode>): boolean {
  * Returns the CST nodes to delete when a component leaves its container.
  *
  * A block that loses its last member is removed with it: an empty block is rejected by the
- * validator, and a condition that constrains nothing has nothing left to say either.
+ * validator, and a condition that constrains nothing has nothing left to say either. The same
+ * holds for a model scope block.
  *
  * @param component The elements about to be moved.
  * @param container The container the component currently lives in.
@@ -501,7 +536,8 @@ export function removedCstNodes(
     const containerCstNode = (container as AstNode).$cstNode;
     if (
         staying.length === 0 &&
-        reflection.isInstance(container, PatternApplicationCondition) &&
+        (reflection.isInstance(container, PatternApplicationCondition) ||
+            reflection.isInstance(container, PatternModelScope)) &&
         containerCstNode != undefined
     ) {
         return [containerCstNode];
@@ -525,4 +561,205 @@ export function containerBraces(container: PatternElementContainer): { open: Cst
     const open = GrammarUtils.findNodeForKeyword(cstNode, "{");
     const close = GrammarUtils.findNodeForKeyword(cstNode, "}");
     return open != undefined && close != undefined ? { open, close } : undefined;
+}
+
+/** A model scope block destination of a pattern element. */
+export interface ModelDestination {
+    /** The name of the model the destination belongs to. */
+    readonly model: string;
+    /** The move target naming the block, see {@link MovePatternElementToConditionOperation}. */
+    readonly target: string;
+}
+
+/** The model scope block destinations a pattern element may be moved to. */
+export interface ModelMoveOptions {
+    /** Whether the element is declared in a scope block and can be moved back to the transformed model. */
+    readonly canLeave: boolean;
+    /** The existing scope blocks of the pattern it may be moved into. */
+    readonly blocks: ModelDestination[];
+    /** The models a new scope block may be created for. */
+    readonly newBlocks: ModelDestination[];
+}
+
+/**
+ * Returns the model scope blocks (`in donor { … }`) the given element may be moved to, and
+ * whether it may leave its scope block for the transformed model — the "Move to Block" of
+ * input models.
+ *
+ * Only an element of the match pattern itself or of a scope block moves this way (not one of a
+ * condition block). Like the moves between condition blocks, a move never produces source the
+ * validator rejects, see {@link canEnterModel}.
+ *
+ * @param astNode The selected element.
+ * @param reflection The AST reflection instance for type checks.
+ * @returns The destinations, or `undefined` when the element cannot be moved at all.
+ */
+export function modelMoveOptions(astNode: AstNode, reflection: AstReflection): ModelMoveOptions | undefined {
+    const movable = movableComponent(astNode, reflection);
+    if (movable == undefined || reflection.isInstance(movable.container, PatternApplicationCondition)) {
+        return undefined;
+    }
+    const current = reflection.isInstance(movable.container, PatternModelScope)
+        ? (movable.container as PatternModelScopeType)
+        : undefined;
+    const wholeBlock = current != undefined && movable.elements.length === (current.elements ?? []).length;
+
+    const blocks: ModelDestination[] = [];
+    for (const [index, scope] of patternModelScopes(movable.pattern, reflection).entries()) {
+        const model = scope.model?.ref;
+        if (scope === current || model == undefined) {
+            continue;
+        }
+        if (canEnterModel(movable.elements, model, reflection)) {
+            blocks.push({ model: scope.model.$refText, target: `${MODEL_BLOCK_TARGET_PREFIX}${index}` });
+        }
+    }
+
+    const newBlocks: ModelDestination[] = [];
+    for (const model of visibleModelValues(movable.pattern, reflection)) {
+        if (wholeBlock && current?.model?.ref === model) {
+            continue;
+        }
+        if (canEnterModel(movable.elements, model, reflection)) {
+            const name = (model as unknown as { name: string }).name;
+            newBlocks.push({ model: name, target: `${NEW_MODEL_BLOCK_TARGET_PREFIX}${name}` });
+        }
+    }
+
+    return {
+        canLeave: current != undefined && canEnterModel(movable.elements, undefined, reflection),
+        blocks,
+        newBlocks
+    };
+}
+
+/**
+ * Returns the model values a scope block of a pattern can name: the `model` inputs of the
+ * transformation and the variables of the enclosing `for … in` loops over `List<model>` inputs.
+ *
+ * @param pattern The pattern.
+ * @param reflection The AST reflection instance for type checks.
+ * @returns The declarations of the model values, innermost loop variables first.
+ */
+export function visibleModelValues(pattern: PatternType, reflection: AstReflection): AstNode[] {
+    const result: AstNode[] = [];
+    for (let node: AstNode | undefined = pattern.$container; node != undefined; node = node.$container) {
+        if (reflection.isInstance(node, ForInStatement)) {
+            const loop = node as ForInStatementType;
+            const collection = loop.collection as { name?: string } | undefined;
+            const root = AstUtils.getContainerOfType(loop, (n) => reflection.isInstance(n, ModelTransformation)) as
+                ModelTransformationType | undefined;
+            const list = (root?.parameters ?? []).find((p) => p.name === collection?.name);
+            if (loop.variable != undefined && list != undefined && getModelShape(reflection, list) === "list") {
+                result.push(loop.variable);
+            }
+        }
+        if (reflection.isInstance(node, ModelTransformation)) {
+            for (const parameter of (node as ModelTransformationType).parameters ?? []) {
+                if (parameter.direction === "in" && getModelShape(reflection, parameter) === "single") {
+                    result.push(parameter);
+                }
+            }
+        }
+    }
+    return result;
+}
+
+/**
+ * Checks whether the component may live in the given model: inside a scope block of an input
+ * model, or (for `undefined`) in the transformed model.
+ *
+ * An input model is read-only, so a component entering one carries no modifier and assigns no
+ * property. Every node the component links to or references without moving it has to be in
+ * the destination model as well, since links never cross models. And the objects of an input
+ * model are never passed on as elements of the transformed model, so a component whose objects
+ * are passed to a call, assigned to an output or looped over does not enter one.
+ *
+ * @param component The elements about to be moved.
+ * @param model The declaration of the destination model value, or `undefined` for the
+ *   transformed model.
+ * @param reflection The AST reflection instance for type checks.
+ * @returns `true` when the component can be moved into that model.
+ */
+export function canEnterModel(component: AstNode[], model: AstNode | undefined, reflection: AstReflection): boolean {
+    const moved = new Set(component);
+    const sameModel = (declaration: AstNode | undefined) => {
+        if (declaration == undefined || moved.has(declaration)) {
+            return true;
+        }
+        const declared: ModelIdentity = declarationModel(reflection, declaration);
+        return declared !== UNRESOLVED_MODEL && declared === model;
+    };
+    for (const node of component) {
+        if (
+            !reflection.isInstance(node, PatternObjectInstance) &&
+            !reflection.isInstance(node, PatternObjectInstanceReference) &&
+            !reflection.isInstance(node, PatternLink) &&
+            !reflection.isInstance(node, WhereClause)
+        ) {
+            return false;
+        }
+        if (model != undefined) {
+            if ((node as { modifier?: { modifier?: string } }).modifier?.modifier != undefined) {
+                return false;
+            }
+            const properties = (node as { properties?: PatternPropertyAssignmentType[] }).properties ?? [];
+            if (properties.some((property) => property.operator === "=")) {
+                return false;
+            }
+        }
+        if (reflection.isInstance(node, PatternLink)) {
+            const link = node as PatternLinkType;
+            if (!sameModel(link.source?.object?.ref) || !sameModel(link.target?.object?.ref)) {
+                return false;
+            }
+        }
+        if (
+            reflection.isInstance(node, PatternObjectInstanceReference) &&
+            !sameModel((node as PatternObjectInstanceReferenceType).instance?.ref)
+        ) {
+            return false;
+        }
+    }
+    return model == undefined || !passesOnMovedObjects(component, reflection);
+}
+
+/**
+ * Checks whether an object of the component is passed on as an element of the transformed
+ * model: as a call argument, as the value of an assignment, or in the collection of a
+ * `for … in` loop.
+ */
+function passesOnMovedObjects(component: AstNode[], reflection: AstReflection): boolean {
+    const names = new Set(
+        component
+            .filter((node) => reflection.isInstance(node, PatternObjectInstance))
+            .map((node) => (node as PatternObjectInstanceType).name)
+            .filter((name): name is string => name != undefined)
+    );
+    if (names.size === 0) {
+        return false;
+    }
+    const root = AstUtils.getDocument(component[0]).parseResult.value;
+    const isMovedName = (value: AstNode | undefined) =>
+        value != undefined &&
+        reflection.isInstance(value, expressionTypes.identifierExpressionType) &&
+        names.has((value as { name?: string }).name ?? "");
+    for (const node of AstUtils.streamAllContents(root)) {
+        if (
+            reflection.isInstance(node, CallArgument) ||
+            reflection.isInstance(node, AssignmentStatement) ||
+            reflection.isInstance(node, PatternVariableReassignment) ||
+            reflection.isInstance(node, PatternCollectionAppend)
+        ) {
+            if (isMovedName((node as { value?: AstNode }).value)) {
+                return true;
+            }
+        } else if (reflection.isInstance(node, ForInStatement)) {
+            const collection = (node as ForInStatementType).collection;
+            if (collection != undefined && readsAnyName(collection, names, reflection)) {
+                return true;
+            }
+        }
+    }
+    return false;
 }

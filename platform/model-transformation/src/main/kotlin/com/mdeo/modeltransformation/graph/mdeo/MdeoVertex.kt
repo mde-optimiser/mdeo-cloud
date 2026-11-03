@@ -3,6 +3,7 @@ package com.mdeo.modeltransformation.graph.mdeo
 import com.mdeo.metamodel.ClassMetadata
 import com.mdeo.metamodel.ModelInstance
 import com.mdeo.metamodel.PropertyFieldMapping
+import com.mdeo.modeltransformation.graph.ModelGraph
 import org.apache.tinkerpop.gremlin.structure.Direction
 import org.apache.tinkerpop.gremlin.structure.Edge
 import org.apache.tinkerpop.gremlin.structure.Graph
@@ -24,31 +25,62 @@ import java.util.Collections
  * @param graph The owning graph.
  * @param backingInstance The model instance this vertex represents.
  * @param classMetadata The metamodel metadata for this vertex's class.
+ * @param modelSlot The model-input slot of a vertex loaded for a model input
+ *   ([MdeoGraph.loadModelInput]), or [ModelGraph.IMPLICIT_MODEL_SLOT]. It is reported as the
+ *   property [ModelGraph.MODEL_SLOT_KEY] when that key is asked for by name — for the implicit
+ *   model too, so that a slot filter is a plain `has` the graph step folds into its scan — and
+ *   never among the vertex's properties otherwise. A vertex of a model input is read-only: its
+ *   properties, its edges and the vertex itself cannot be changed.
  */
 class MdeoVertex(
     id: Int,
     label: String,
     @JvmField val graph: MdeoGraph,
     @JvmField var backingInstance: ModelInstance,
-    @JvmField val classMetadata: ClassMetadata?
+    @JvmField val classMetadata: ClassMetadata?,
+    @JvmField val modelSlot: Int = ModelGraph.IMPLICIT_MODEL_SLOT
 ) : MdeoElement(id, label), Vertex {
 
     /**
-     * Outgoing edges grouped by label. 
+     * Outgoing edges grouped by label. Read them through [MdeoHelper], which applies a pending
+     * shuffle first (see [MdeoGraph.shuffleVertices]).
      */
-    @JvmField var outEdges: MutableMap<String, MutableSet<Edge>>? = null
+    @JvmField var outEdges: MutableMap<String, MdeoEdgeSet>? = null
 
     /**
-     * Incoming edges grouped by label. 
+     * Incoming edges grouped by label; read like [outEdges].
      */
-    @JvmField var inEdges: MutableMap<String, MutableSet<Edge>>? = null
+    @JvmField var inEdges: MutableMap<String, MdeoEdgeSet>? = null
 
     override fun graph(): Graph = graph
 
     override fun addEdge(label: String, vertex: Vertex, vararg keyValues: Any): Edge {
         if (vertex !is MdeoVertex) throw IllegalArgumentException("Target vertex must be an MdeoVertex")
         if (removed || vertex.removed) throw IllegalStateException("Cannot add edge to removed vertex")
+        checkWritable()
+        vertex.checkWritable()
         return graph.addEdge(this, vertex, label, *keyValues)
+    }
+
+    /** Whether this vertex belongs to a model input rather than to the implicit model. */
+    val isModelInput: Boolean get() = modelSlot != ModelGraph.IMPLICIT_MODEL_SLOT
+
+    /**
+     * Fails when this vertex belongs to a model input: those are read-only, and the engine never
+     * changes them unless a transformation that should have been rejected asks it to.
+     */
+    internal fun checkWritable() {
+        if (isModelInput) {
+            throw IllegalStateException(
+                "The $label vertex $id belongs to model input slot $modelSlot, which is read-only"
+            )
+        }
+    }
+
+    /** The [ModelGraph.MODEL_SLOT_KEY] property of this vertex. */
+    private fun <V> modelSlotProperty(): VertexProperty<V> {
+        @Suppress("UNCHECKED_CAST")
+        return MdeoVertexProperty(graph.nextVertexPropertyId(), this, ModelGraph.MODEL_SLOT_KEY, modelSlot as V)
     }
 
     override fun <V : Any?> property(
@@ -59,6 +91,10 @@ class MdeoVertex(
     ): VertexProperty<V> {
         if (removed) throw IllegalStateException("Vertex has been removed")
         ElementHelper.validateProperty(key, value)
+        checkWritable()
+        if (key == ModelGraph.MODEL_SLOT_KEY) {
+            throw IllegalArgumentException("The model slot of a vertex cannot be set")
+        }
 
         val meta = classMetadata
         val propertyName = resolvePropertyName(key)
@@ -84,6 +120,7 @@ class MdeoVertex(
 
     override fun <V : Any?> property(key: String): VertexProperty<V> {
         if (removed) return VertexProperty.empty()
+        if (key == ModelGraph.MODEL_SLOT_KEY) return modelSlotProperty()
 
         val meta = classMetadata ?: return VertexProperty.empty()
         val propertyName = resolvePropertyName(key) ?: return VertexProperty.empty()
@@ -130,11 +167,16 @@ class MdeoVertex(
             }
         } else if (propertyKeys.size == 1) {
             val key = propertyKeys[0]
+            if (key == ModelGraph.MODEL_SLOT_KEY) return Collections.singletonList(modelSlotProperty<V>()).iterator()
             val propertyName = resolvePropertyName(key) ?: return Collections.emptyIterator()
             val mapping = meta.propertyFields[propertyName] ?: return Collections.emptyIterator()
             addPropertiesForKey(backingInstance, propertyName, key, mapping.isCollection, result)
         } else {
             for (key in propertyKeys) {
+                if (key == ModelGraph.MODEL_SLOT_KEY) {
+                    result.add(modelSlotProperty())
+                    continue
+                }
                 val propertyName = resolvePropertyName(key) ?: continue
                 val mapping = meta.propertyFields[propertyName] ?: continue
                 addPropertiesForKey(backingInstance, propertyName, key, mapping.isCollection, result)
@@ -189,6 +231,7 @@ class MdeoVertex(
 
     override fun remove() {
         if (removed) return
+        checkWritable()
         val edgesToRemove = mutableListOf<Edge>()
         edges(Direction.BOTH).forEachRemaining { edgesToRemove.add(it) }
         edgesToRemove.forEach { it.remove() }
@@ -287,6 +330,7 @@ class MdeoVertex(
      * @param vp The vertex property being removed.
      */
     internal fun removeProperty(graphKey: String, vp: MdeoVertexProperty<*>) {
+        checkWritable()
         val propertyName = resolvePropertyName(graphKey) ?: return
         val meta = classMetadata ?: return
         val mapping = meta.propertyFields[propertyName] ?: return

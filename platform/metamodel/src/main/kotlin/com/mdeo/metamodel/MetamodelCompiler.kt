@@ -45,21 +45,29 @@ internal class MetamodelCompiler(private val data: MetamodelData) {
     )
 
     /**
-     * The complete field layout for a single class, including only the fields
-     * it declares itself (not inherited ones).
+     * The field layout of a single class.
+     *
+     * Every property and association end of the metamodel has one field index, the same in every
+     * class that has it, so `prop_X` names the same property whatever the concrete class of an
+     * instance is. The generated class extends the instance class of the first superclass and
+     * inherits its fields; it declares the others itself: its own, and those it inherits through
+     * further superclasses.
      *
      * @property className The metamodel class name.
-     * @property ownFields Fields declared directly by this class.
-     * @property totalFieldCount Total number of fields including inherited.
-     * @property ownFieldStartIndex Starting index for own fields (equals parent's totalFieldCount).
-     * @property propertyMappings Property name to [PropertyFieldMapping] for own properties.
-     * @property linkMappings Link role name to [LinkFieldMapping] for own association ends.
+     * @property ownFields Fields the generated class declares (not those of its JVM superclass).
+     * @property declaredFields Fields of the properties and association ends the metamodel class
+     *           declares itself; its type interface declares their getters.
+     * @property allFields Every field of the class, inherited ones included.
+     * @property totalFieldCount One more than the highest field index of the class, 0 without fields.
+     * @property propertyMappings Every property of the class, inherited ones included, ancestors' first.
+     * @property linkMappings Every association end of the class, inherited ones included.
      */
     data class FieldLayout(
         val className: String,
         val ownFields: List<FieldInfo>,
+        val declaredFields: List<FieldInfo>,
+        val allFields: List<FieldInfo>,
         val totalFieldCount: Int,
-        val ownFieldStartIndex: Int,
         val propertyMappings: Map<String, PropertyFieldMapping>,
         val linkMappings: Map<String, LinkFieldMapping>
     )
@@ -79,6 +87,7 @@ internal class MetamodelCompiler(private val data: MetamodelData) {
         val fieldLayouts = buildFieldLayouts()
 
         for (classData in data.classes) {
+            generateTypeInterface(classData, fieldLayouts.getValue(classData.name))
             generateInstanceClass(classData, fieldLayouts)
         }
 
@@ -131,102 +140,155 @@ internal class MetamodelCompiler(private val data: MetamodelData) {
     }
 
     /**
-     * Computes field layouts for all classes in topological order (parents before children).
+     * A property or association end, as declared by one class.
+     */
+    private sealed interface Slot {
+        val className: String
+        val name: String
+    }
+
+    private data class PropertySlot(
+        override val className: String,
+        override val name: String,
+        val property: PropertyData
+    ) : Slot
+
+    private data class LinkSlot(
+        override val className: String,
+        override val name: String,
+        val association: AssociationData,
+        val isSource: Boolean
+    ) : Slot
+
+    /**
+     * Classes with their superclasses before them, in declaration order otherwise.
+     */
+    private fun topologicalOrder(): List<String> {
+        val result = LinkedHashSet<String>()
+        fun visit(name: String, path: Set<String>) {
+            if (name in result) return
+            require(name !in path) { "Class '$name' inherits from itself" }
+            val classData = classMap[name] ?: error("Unknown class: $name")
+            for (parent in classData.extends) visit(parent, path + name)
+            result.add(name)
+        }
+        for (classData in data.classes) visit(classData.name, emptySet())
+        return result.toList()
+    }
+
+    /**
+     * Computes the field layouts of all classes.
+     *
+     * Field indices are assigned per property, parents first: each gets the lowest index that no
+     * class having the property uses yet. With single inheritance that is the parent's field count
+     * onwards, the linear layout of a class hierarchy. With several superclasses the properties of
+     * the further ones get indices no property of the other lines uses, so a class never has two
+     * properties on one index.
      *
      * @return Map from class name to its [FieldLayout].
      */
     private fun buildFieldLayouts(): Map<String, FieldLayout> {
+        val ownSlots = data.classes.associate { classData ->
+            classData.name to buildList<Slot> {
+                for (property in classData.properties) add(PropertySlot(classData.name, property.name, property))
+                for (assoc in data.associations) {
+                    if (assoc.source.className == classData.name && assoc.source.name != null) {
+                        add(LinkSlot(classData.name, assoc.source.name, assoc, isSource = true))
+                    }
+                    if (assoc.target.className == classData.name && assoc.target.name != null) {
+                        add(LinkSlot(classData.name, assoc.target.name, assoc, isSource = false))
+                    }
+                }
+            }
+        }
+        val order = topologicalOrder()
+
+        // Every slot of a class, inherited ones first: the first superclass's line, then the others.
+        val allSlots = mutableMapOf<String, List<Slot>>()
+        for (name in order) {
+            val slots = LinkedHashSet<Slot>()
+            for (parent in classMap.getValue(name).extends) slots.addAll(allSlots.getValue(parent))
+            slots.addAll(ownSlots.getValue(name))
+            allSlots[name] = slots.toList()
+        }
+
+        val classesHaving = HashMap<Slot, MutableList<String>>()
+        for ((name, slots) in allSlots) {
+            for (slot in slots) classesHaving.getOrPut(slot) { mutableListOf() }.add(name)
+        }
+        val slotIndex = HashMap<Slot, Int>()
+        val usedIndices = HashMap<String, MutableSet<Int>>()
+        for (name in order) {
+            for (slot in ownSlots.getValue(name)) {
+                val having = classesHaving.getValue(slot)
+                var index = 0
+                while (having.any { usedIndices[it]?.contains(index) == true }) index++
+                slotIndex[slot] = index
+                for (className in having) usedIndices.getOrPut(className) { mutableSetOf() }.add(index)
+            }
+        }
+
+        fun fieldOf(slot: Slot): FieldInfo {
+            val index = slotIndex.getValue(slot)
+            val descriptor = when (slot) {
+                is PropertySlot -> {
+                    if (slot.property.multiplicity.upper != 1) "Ljava/util/List;"
+                    else getPropertyElementDescriptor(slot.property)
+                }
+                is LinkSlot -> "Ljava/util/Set;"
+            }
+            return FieldInfo(index, "prop_$index", descriptor, slot.name)
+        }
+
         val layouts = mutableMapOf<String, FieldLayout>()
-        val processed = mutableSetOf<String>()
-
-        fun process(className: String): FieldLayout {
-            layouts[className]?.let { return it }
-            val classData = classMap[className] ?: error("Unknown class: $className")
-
-            val parentFieldCount = if (classData.extends.isNotEmpty()) {
-                val parentName = classData.extends.first()
-                if (parentName !in processed) process(parentName)
-                layouts[parentName]?.totalFieldCount ?: 0
-            } else {
-                0
-            }
-
-            var fieldIndex = parentFieldCount
-            val ownFields = mutableListOf<FieldInfo>()
-            val propertyMappings = mutableMapOf<String, PropertyFieldMapping>()
-            val ownAssociationEndCount = data.associations.count {
-                (it.source.className == className && it.source.name != null) ||
-                    (it.target.className == className && it.target.name != null)
-            }
-            val linkMappings = HashMap<String, LinkFieldMapping>(maxOf(16, ownAssociationEndCount * 2))
-
-            for (property in classData.properties) {
-                val elementDescriptor = getPropertyElementDescriptor(property)
-                val isCollection = property.multiplicity.upper != 1
-                val fieldDescriptor = if (isCollection) "Ljava/util/List;" else elementDescriptor
-                ownFields.add(FieldInfo(fieldIndex, "prop_$fieldIndex", fieldDescriptor, property.name))
-                propertyMappings[property.name] = PropertyFieldMapping(
-                    fieldIndex = fieldIndex,
-                    fieldDescriptor = fieldDescriptor,
-                    isCollection = isCollection,
-                    enumType = property.enumType,
-                    lower = property.multiplicity.lower,
-                    upper = property.multiplicity.upper,
-                    elementDescriptor = elementDescriptor
-                )
-                fieldIndex++
-            }
-
-            for (assoc in data.associations) {
-                if (assoc.source.className == className && assoc.source.name != null) {
-                    val sourceName = assoc.source.name
-                    ownFields.add(FieldInfo(fieldIndex, "prop_$fieldIndex", "Ljava/util/Set;", sourceName))
-                    linkMappings[sourceName] = LinkFieldMapping(
-                        fieldIndex = fieldIndex,
-                        fieldDescriptor = "Ljava/util/Set;",
-                        isOutgoing = true,
-                        oppositeClassName = assoc.target.className,
-                        oppositeFieldName = assoc.target.name,
-                        isMultiple = true,
-                        edgeLabel = assoc.operator,
-                        lower = assoc.source.multiplicity.lower,
-                        upper = assoc.source.multiplicity.upper
-                    )
-                    fieldIndex++
-                }
-                if (assoc.target.className == className && assoc.target.name != null) {
-                    val targetName = assoc.target.name
-                    ownFields.add(FieldInfo(fieldIndex, "prop_$fieldIndex", "Ljava/util/Set;", targetName))
-                    linkMappings[targetName] = LinkFieldMapping(
-                        fieldIndex = fieldIndex,
-                        fieldDescriptor = "Ljava/util/Set;",
-                        isOutgoing = false,
-                        oppositeClassName = assoc.source.className,
-                        oppositeFieldName = assoc.source.name,
-                        isMultiple = true,
-                        edgeLabel = assoc.operator,
-                        lower = assoc.target.multiplicity.lower,
-                        upper = assoc.target.multiplicity.upper
-                    )
-                    fieldIndex++
+        for (name in order) {
+            val slots = allSlots.getValue(name)
+            val fromSuperclass = classMap.getValue(name).extends.firstOrNull()?.let { allSlots.getValue(it).toSet() }.orEmpty()
+            val propertyMappings = LinkedHashMap<String, PropertyFieldMapping>()
+            val linkMappings = HashMap<String, LinkFieldMapping>(maxOf(16, slots.size * 2))
+            for (slot in slots) {
+                val index = slotIndex.getValue(slot)
+                when (slot) {
+                    is PropertySlot -> {
+                        val property = slot.property
+                        val isCollection = property.multiplicity.upper != 1
+                        val elementDescriptor = getPropertyElementDescriptor(property)
+                        propertyMappings[property.name] = PropertyFieldMapping(
+                            fieldIndex = index,
+                            fieldDescriptor = if (isCollection) "Ljava/util/List;" else elementDescriptor,
+                            isCollection = isCollection,
+                            enumType = property.enumType,
+                            lower = property.multiplicity.lower,
+                            upper = property.multiplicity.upper,
+                            elementDescriptor = elementDescriptor
+                        )
+                    }
+                    is LinkSlot -> {
+                        val assoc = slot.association
+                        val (own, opposite) = if (slot.isSource) assoc.source to assoc.target else assoc.target to assoc.source
+                        linkMappings[slot.name] = LinkFieldMapping(
+                            fieldIndex = index,
+                            fieldDescriptor = "Ljava/util/Set;",
+                            isOutgoing = slot.isSource,
+                            oppositeClassName = opposite.className,
+                            oppositeFieldName = opposite.name,
+                            isMultiple = true,
+                            edgeLabel = assoc.operator,
+                            lower = own.multiplicity.lower,
+                            upper = own.multiplicity.upper
+                        )
+                    }
                 }
             }
-
-            val layout = FieldLayout(
-                className = className,
-                ownFields = ownFields,
-                totalFieldCount = fieldIndex,
-                ownFieldStartIndex = parentFieldCount,
+            layouts[name] = FieldLayout(
+                className = name,
+                ownFields = slots.filter { it !in fromSuperclass }.map(::fieldOf).sortedBy { it.fieldIndex },
+                declaredFields = ownSlots.getValue(name).map(::fieldOf),
+                allFields = slots.map(::fieldOf),
+                totalFieldCount = (slots.maxOfOrNull { slotIndex.getValue(it) } ?: -1) + 1,
                 propertyMappings = propertyMappings,
                 linkMappings = linkMappings
             )
-            layouts[className] = layout
-            processed.add(className)
-            return layout
-        }
-
-        for (classData in data.classes) {
-            process(classData.name)
         }
         return layouts
     }
@@ -462,7 +524,8 @@ internal class MetamodelCompiler(private val data: MetamodelData) {
         }
 
         val cw = ClassWriter(ClassWriter.COMPUTE_FRAMES)
-        cw.visit(Opcodes.V11, accessFlags, internalName, null, superInternalName, null)
+        val typeInterface = Metamodel.getInstanceInterfaceName(classData.name)
+        cw.visit(Opcodes.V11, accessFlags, internalName, null, superInternalName, arrayOf(typeInterface))
 
         for (field in layout.ownFields) {
             cw.visitField(Opcodes.ACC_PUBLIC, field.fieldName, field.descriptor, null, null)?.visitEnd()
@@ -494,9 +557,10 @@ internal class MetamodelCompiler(private val data: MetamodelData) {
         init.visitMaxs(0, 0)
         init.visitEnd()
 
-        val allPropertyMappings = mutableMapOf<String, PropertyFieldMapping>()
-        val allLinkMappings = HashMap<String, LinkFieldMapping>(maxOf(16, layout.linkMappings.size * 2))
-        collectInheritedMappings(classData.name, fieldLayouts, allPropertyMappings, allLinkMappings)
+        val allPropertyMappings = layout.propertyMappings
+        val allLinkMappings = layout.linkMappings
+
+        generateFieldGetters(cw, internalName, layout.allFields)
 
         generateGetPropertyByKey(cw, internalName, allPropertyMappings, allLinkMappings)
         generateSetPropertyByKey(cw, internalName, allPropertyMappings, allLinkMappings)
@@ -522,27 +586,65 @@ internal class MetamodelCompiler(private val data: MetamodelData) {
     }
 
     /**
-     * Recursively collects all property and link field mappings for [className],
-     * including those inherited from parent classes, into the provided maps.
+     * Generates a getter per field, `get_prop_X()`, returning the field as its declared type. The
+     * type interfaces declare them, so a property is read through the interface of the class
+     * declaring it, whichever line of superclasses the instance's class inherits it through.
      *
-     * @param className The class name to collect mappings for.
-     * @param fieldLayouts The precomputed field layouts for all classes.
-     * @param propertyMappings Output map accumulating property name to [PropertyFieldMapping].
-     * @param linkMappings Output map accumulating role name to [LinkFieldMapping].
+     * @param cw The [ClassWriter] to emit into.
+     * @param internalName The JVM internal name of the instance class.
+     * @param fields Every field of the class, inherited ones included.
      */
-    private fun collectInheritedMappings(
-        className: String,
-        fieldLayouts: Map<String, FieldLayout>,
-        propertyMappings: MutableMap<String, PropertyFieldMapping>,
-        linkMappings: MutableMap<String, LinkFieldMapping>
-    ) {
-        val classData = classMap[className] ?: return
-        if (classData.extends.isNotEmpty()) {
-            collectInheritedMappings(classData.extends.first(), fieldLayouts, propertyMappings, linkMappings)
+    private fun generateFieldGetters(cw: ClassWriter, internalName: String, fields: List<FieldInfo>) {
+        for (field in fields) {
+            val mv = cw.visitMethod(
+                Opcodes.ACC_PUBLIC, Metamodel.getFieldGetterName(field.fieldIndex),
+                "()${field.descriptor}", null, null
+            )
+            mv.visitCode()
+            mv.visitVarInsn(Opcodes.ALOAD, 0)
+            mv.visitFieldInsn(Opcodes.GETFIELD, internalName, field.fieldName, field.descriptor)
+            mv.visitInsn(returnOpcode(field.descriptor))
+            mv.visitMaxs(0, 0)
+            mv.visitEnd()
         }
-        val layout = fieldLayouts[className] ?: return
-        propertyMappings.putAll(layout.propertyMappings)
-        linkMappings.putAll(layout.linkMappings)
+    }
+
+    private fun returnOpcode(descriptor: String): Int = when (descriptor) {
+        "I", "Z", "B", "C", "S" -> Opcodes.IRETURN
+        "J" -> Opcodes.LRETURN
+        "F" -> Opcodes.FRETURN
+        "D" -> Opcodes.DRETURN
+        else -> Opcodes.ARETURN
+    }
+
+    /**
+     * Generates the type interface of [classData]: it extends the type interfaces of the
+     * superclasses and declares the getters of the properties and association ends the class
+     * declares itself. The instance class of the class and of every class inheriting from it
+     * implements it.
+     *
+     * @param classData The class definition.
+     * @param layout The class's field layout.
+     */
+    private fun generateTypeInterface(classData: ClassData, layout: FieldLayout) {
+        val internalName = Metamodel.getInstanceInterfaceName(classData.name)
+        val cw = ClassWriter(0)
+        cw.visit(
+            Opcodes.V11,
+            Opcodes.ACC_PUBLIC or Opcodes.ACC_ABSTRACT or Opcodes.ACC_INTERFACE,
+            internalName,
+            null,
+            "java/lang/Object",
+            classData.extends.map { Metamodel.getInstanceInterfaceName(it) }.toTypedArray()
+        )
+        for (field in layout.declaredFields) {
+            cw.visitMethod(
+                Opcodes.ACC_PUBLIC or Opcodes.ACC_ABSTRACT, Metamodel.getFieldGetterName(field.fieldIndex),
+                "()${field.descriptor}", null, null
+            )?.visitEnd()
+        }
+        cw.visitEnd()
+        allBytecodes[internalName] = cw.toByteArray()
     }
 
     /**
@@ -696,6 +798,31 @@ internal class MetamodelCompiler(private val data: MetamodelData) {
             }
             // Boxed numeric fields (optional/nullable multiplicity) have the same
             // problem: coerce through Number, then re-box to the declared wrapper type.
+            // null (an unset optional value) is stored as is.
+            "Ljava/lang/Integer;", "Ljava/lang/Long;", "Ljava/lang/Float;", "Ljava/lang/Double;" -> {
+                val convert = Label()
+                mv.visitInsn(Opcodes.DUP)
+                mv.visitJumpInsn(Opcodes.IFNONNULL, convert)
+                mv.visitTypeInsn(Opcodes.CHECKCAST, fieldDescriptor.removePrefix("L").removeSuffix(";"))
+                mv.visitFieldInsn(Opcodes.PUTFIELD, internalName, "prop_$fieldIndex", fieldDescriptor)
+                mv.visitInsn(Opcodes.RETURN)
+                mv.visitLabel(convert)
+                emitBoxedNumberCoercion(mv, fieldDescriptor)
+            }
+            "Ljava/lang/Object;" -> { /* no cast needed */ }
+            else -> {
+                val targetType = fieldDescriptor.removePrefix("L").removeSuffix(";")
+                mv.visitTypeInsn(Opcodes.CHECKCAST, targetType)
+            }
+        }
+        mv.visitFieldInsn(Opcodes.PUTFIELD, internalName, "prop_$fieldIndex", fieldDescriptor)
+        mv.visitInsn(Opcodes.RETURN)
+        mv.visitLabel(nextLabel)
+    }
+
+    /** Coerces the non-null value on the stack through `Number` to the boxed field type [fieldDescriptor]. */
+    private fun emitBoxedNumberCoercion(mv: org.objectweb.asm.MethodVisitor, fieldDescriptor: String) {
+        when (fieldDescriptor) {
             "Ljava/lang/Integer;" -> {
                 mv.visitTypeInsn(Opcodes.CHECKCAST, "java/lang/Number")
                 mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/Number", "intValue", "()I", false)
@@ -716,15 +843,7 @@ internal class MetamodelCompiler(private val data: MetamodelData) {
                 mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, "java/lang/Number", "doubleValue", "()D", false)
                 mv.visitMethodInsn(Opcodes.INVOKESTATIC, "java/lang/Double", "valueOf", "(D)Ljava/lang/Double;", false)
             }
-            "Ljava/lang/Object;" -> { /* no cast needed */ }
-            else -> {
-                val targetType = fieldDescriptor.removePrefix("L").removeSuffix(";")
-                mv.visitTypeInsn(Opcodes.CHECKCAST, targetType)
-            }
         }
-        mv.visitFieldInsn(Opcodes.PUTFIELD, internalName, "prop_$fieldIndex", fieldDescriptor)
-        mv.visitInsn(Opcodes.RETURN)
-        mv.visitLabel(nextLabel)
     }
 
     /**
@@ -1778,7 +1897,7 @@ internal class MetamodelCompiler(private val data: MetamodelData) {
      * Builds the class hierarchy map for all classes in the metamodel.
      *
      * Each entry maps a class name to the set of all direct and indirect subtypes of that
-     * class, including itself. This is used by [Model] to support [Model.getAllInstances] with
+     * class, including itself, through every superclass a class extends. This is used by [Model] to support [Model.getAllInstances] with
      * subtype polymorphism.
      *
      * @return Map from base class name to the set of all subtype names (including self).
@@ -1789,11 +1908,13 @@ internal class MetamodelCompiler(private val data: MetamodelData) {
             result.getOrPut(classData.name) { mutableSetOf() }.add(classData.name)
         }
         for (classData in data.classes) {
-            var current = classData
-            while (current.extends.isNotEmpty()) {
-                val parentName = current.extends.first()
+            val pending = ArrayDeque(classData.extends)
+            val seen = mutableSetOf<String>()
+            while (pending.isNotEmpty()) {
+                val parentName = pending.removeFirst()
+                if (!seen.add(parentName)) continue
                 result.getOrPut(parentName) { mutableSetOf() }.add(classData.name)
-                current = classMap[parentName] ?: break
+                classMap[parentName]?.let { pending.addAll(it.extends) }
             }
         }
         return result

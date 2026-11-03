@@ -1,0 +1,221 @@
+{
+ "types": [
+  {
+   "kind": "void"
+  },
+  {
+   "package": "builtin",
+   "type": "string",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "double",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "boolean",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "Any",
+   "isNullable": true
+  }
+ ],
+ "metamodelPath": "/metamodel/shop.mm",
+ "statements": [
+  {
+   "kind": "call",
+   "callee": "/optimize/scenarios/make-container.mt",
+   "name": "makeContainer",
+   "arguments": [
+    {
+     "name": "label",
+     "value": {
+      "kind": "stringLiteral",
+      "evalType": 1,
+      "value": "fresh"
+     }
+    }
+   ],
+   "outputs": [
+    {
+     "parameter": "made",
+     "name": "f"
+    }
+   ]
+  },
+  {
+   "kind": "match",
+   "pattern": {
+    "elements": [
+     {
+      "kind": "objectInstance",
+      "objectInstance": {
+       "name": "s",
+       "className": "Service",
+       "properties": []
+      }
+     },
+     {
+      "kind": "objectInstance",
+      "objectInstance": {
+       "name": "old",
+       "className": "Container",
+       "properties": []
+      }
+     },
+     {
+      "kind": "link",
+      "link": {
+       "modifier": "delete",
+       "source": {
+        "objectName": "s",
+        "propertyName": "host"
+       },
+       "target": {
+        "objectName": "old"
+       }
+      }
+     },
+     {
+      "kind": "link",
+      "link": {
+       "modifier": "create",
+       "source": {
+        "objectName": "s",
+        "propertyName": "host"
+       },
+       "target": {
+        "objectName": "f"
+       }
+      }
+     },
+     {
+      "kind": "objectInstance",
+      "objectInstance": {
+       "name": "f",
+       "properties": [
+        {
+         "propertyName": "name",
+         "operator": "=",
+         "value": {
+          "kind": "stringLiteral",
+          "evalType": 1,
+          "value": "fresh and used"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  }
+ ],
+ "signature": {
+  "name": "call-making.mt",
+  "parameters": []
+ },
+ "callees": {
+  "/optimize/scenarios/make-container.mt": {
+   "types": [
+    {
+     "kind": "void"
+    },
+    {
+     "package": "builtin",
+     "type": "string",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "double",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "boolean",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "Any",
+     "isNullable": true
+    },
+    {
+     "package": "class/metamodel/base.mm",
+     "type": "Container",
+     "isNullable": false,
+     "typeArgs": {}
+    }
+   ],
+   "metamodelPath": "/metamodel/base.mm",
+   "statements": [
+    {
+     "kind": "match",
+     "pattern": {
+      "elements": [
+       {
+        "kind": "objectInstance",
+        "objectInstance": {
+         "modifier": "create",
+         "name": "c",
+         "className": "Container",
+         "properties": [
+          {
+           "propertyName": "name",
+           "operator": "=",
+           "value": {
+            "kind": "identifier",
+            "evalType": 1,
+            "name": "label",
+            "scope": 1
+           }
+          }
+         ]
+        }
+       },
+       {
+        "kind": "variableReassignment",
+        "reassignment": {
+         "name": "made",
+         "value": {
+          "kind": "identifier",
+          "evalType": 5,
+          "name": "c",
+          "scope": 1
+         }
+        }
+       }
+      ]
+     }
+    }
+   ],
+   "signature": {
+    "name": "make-container.mt",
+    "parameters": [
+     {
+      "name": "label",
+      "direction": "in",
+      "type": 1,
+      "isElement": false
+     },
+     {
+      "name": "made",
+      "direction": "out",
+      "type": 5,
+      "isElement": true
+     }
+    ]
+   }
+  }
+ }
+}

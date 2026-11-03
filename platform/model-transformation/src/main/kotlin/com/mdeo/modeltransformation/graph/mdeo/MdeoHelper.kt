@@ -23,10 +23,10 @@ object MdeoHelper {
     fun getEdges(vertex: MdeoVertex, direction: Direction, vararg edgeLabels: String): Iterator<Edge> {
         val edges = mutableListOf<Edge>()
         if (direction == Direction.OUT || direction == Direction.BOTH) {
-            vertex.outEdges?.let { collectEdges(it, edgeLabels, edges) }
+            vertex.outEdges?.let { collectEdges(vertex.graph, it, edgeLabels, edges) }
         }
         if (direction == Direction.IN || direction == Direction.BOTH) {
-            vertex.inEdges?.let { collectEdges(it, edgeLabels, edges) }
+            vertex.inEdges?.let { collectEdges(vertex.graph, it, edgeLabels, edges) }
         }
         return edges.iterator()
     }
@@ -44,14 +44,14 @@ object MdeoHelper {
         val vertices = mutableListOf<Vertex>()
         if (direction == Direction.OUT || direction == Direction.BOTH) {
             vertex.outEdges?.let { outEdges ->
-                collectEdges(outEdges, edgeLabels).forEach { edge ->
+                collectEdges(vertex.graph, outEdges, edgeLabels).forEach { edge ->
                     vertices.add((edge as MdeoEdge).inVertex)
                 }
             }
         }
         if (direction == Direction.IN || direction == Direction.BOTH) {
             vertex.inEdges?.let { inEdges ->
-                collectEdges(inEdges, edgeLabels).forEach { edge ->
+                collectEdges(vertex.graph, inEdges, edgeLabels).forEach { edge ->
                     vertices.add((edge as MdeoEdge).outVertex)
                 }
             }
@@ -62,22 +62,28 @@ object MdeoHelper {
     /**
      * Collects edges from an edge map into a result list, optionally filtering by labels.
      *
+     * Every set read is first given the pending shuffle of [graph]'s current epoch
+     * ([MdeoGraph.settle]), so a walk sees each neighbourhood in a random order fixed for the
+     * epoch, as if the whole graph had been shuffled.
+     *
+     * @param graph The graph owning the edge map.
      * @param edgeMap The map from label to edge sets.
      * @param edgeLabels Labels to filter by. If empty, collects from all labels.
      * @param result The list to collect edges into.
      */
     private fun collectEdges(
-        edgeMap: Map<String, MutableSet<Edge>>,
+        graph: MdeoGraph,
+        edgeMap: Map<String, MdeoEdgeSet>,
         edgeLabels: Array<out String>,
         result: MutableList<Edge>
     ) {
         if (edgeLabels.isEmpty()) {
-            edgeMap.values.forEach { result.addAll(it) }
+            edgeMap.values.forEach { result.addAll(graph.settle(it)) }
         } else if (edgeLabels.size == 1) {
-            edgeMap[edgeLabels[0]]?.let { result.addAll(it) }
+            edgeMap[edgeLabels[0]]?.let { result.addAll(graph.settle(it)) }
         } else {
             for (label in edgeLabels) {
-                edgeMap[label]?.let { result.addAll(it) }
+                edgeMap[label]?.let { result.addAll(graph.settle(it)) }
             }
         }
     }
@@ -85,16 +91,18 @@ object MdeoHelper {
     /**
      * Collects edges from an edge map, optionally filtering by labels.
      *
+     * @param graph The graph owning the edge map.
      * @param edgeMap The map from label to edge sets.
      * @param edgeLabels Labels to filter by. If empty, collects from all labels.
      * @return A list of matching edges.
      */
     private fun collectEdges(
-        edgeMap: Map<String, MutableSet<Edge>>,
+        graph: MdeoGraph,
+        edgeMap: Map<String, MdeoEdgeSet>,
         edgeLabels: Array<out String>
     ): List<Edge> {
         val result = mutableListOf<Edge>()
-        collectEdges(edgeMap, edgeLabels, result)
+        collectEdges(graph, edgeMap, edgeLabels, result)
         return result
     }
 }

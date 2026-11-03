@@ -17,7 +17,10 @@ import {
     EnumEntry,
     EnumTypeReference,
     PropertyTypeValue,
-    FileImport
+    FileImport,
+    ClassOrEnum,
+    View,
+    ViewEntry
 } from "./metamodelTypes.js";
 
 /**
@@ -204,8 +207,24 @@ export const FileImportRule = createRule("FileImportRule")
     .as(({ set }) => ["import", set("file", STRING)]);
 
 /**
+ * View entry rule.
+ * Matches a reference to a class or enum shown in a view.
+ */
+export const ViewEntryRule = createRule("ViewEntryRule")
+    .returns(ViewEntry)
+    .as(({ set }) => [set("element", ref(ClassOrEnum, ID))]);
+
+/**
+ * View rule.
+ * Matches a view definition with a name and the classes and enums it shows, one per line.
+ */
+export const ViewRule = createRule("ViewRule")
+    .returns(View)
+    .as(({ set, add }) => ["view", set("name", ID), "{", many(or(add("entries", ViewEntryRule), NEWLINE)), "}"]);
+
+/**
  * The MetaModel entry rule.
- * Defines the structure: imports, classes, enums, and associations.
+ * Defines the structure: imports, classes, enums, associations, and views.
  */
 export const MetaModelRule = createRule("MetaModelRule")
     .returns(MetaModel)
@@ -216,6 +235,7 @@ export const MetaModelRule = createRule("MetaModelRule")
                 add("elements", ClassRule),
                 add("elements", EnumRule),
                 add("elements", AssociationRule),
+                add("views", ViewRule),
                 NEWLINE
             )
         )

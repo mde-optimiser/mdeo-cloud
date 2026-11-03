@@ -1,4 +1,5 @@
 import type { Execution, ExecutionFileEntry } from "../../execution/execution";
+import { CommonErrorCode } from "../apiResult";
 import { showSuccess, showError, showInfo, showWarning } from "@/lib/notifications";
 
 /**
@@ -78,8 +79,7 @@ interface FileResponseMessage extends WebSocketMessage {
 interface FileErrorMessage extends WebSocketMessage {
     messageType: "file/error";
     requestId: string;
-    code: string;
-    message: string;
+    error: { code: string; message: string };
 }
 
 /**
@@ -181,8 +181,7 @@ interface ExecutionWsResponseMessage extends WebSocketMessage {
 interface ExecutionWsErrorMessage extends WebSocketMessage {
     messageType: "exec/error";
     requestId: string;
-    code: string;
-    message: string;
+    error: { code: string; message: string };
 }
 
 /**
@@ -779,7 +778,9 @@ export class WebSocketApi {
         const pending = this.pendingRequests.get(message.requestId);
         if (pending) {
             this.pendingRequests.delete(message.requestId);
-            pending.reject({ code: message.code, message: message.message });
+            pending.reject(
+                message.error ?? { code: CommonErrorCode.Unknown, message: "The request failed without saying why" }
+            );
         }
     }
 
@@ -1189,7 +1190,9 @@ export class WebSocketApi {
         const pending = this.pendingRequests.get(message.requestId);
         if (pending) {
             this.pendingRequests.delete(message.requestId);
-            pending.reject({ code: message.code, message: message.message });
+            pending.reject(
+                message.error ?? { code: CommonErrorCode.Unknown, message: "The request failed without saying why" }
+            );
         }
     }
 

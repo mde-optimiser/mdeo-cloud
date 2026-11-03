@@ -1,13 +1,34 @@
 import type { Doc } from "prettier";
-import type { LangiumCoreServices } from "langium";
+import type { AstNode, LangiumCoreServices } from "langium";
 import type { AstSerializerAdditionalServices, PrintContext } from "@mdeo/language-common";
-import { ID, STRING, INT } from "@mdeo/language-common";
+import { ID, STRING, INT, FLOAT } from "@mdeo/language-common";
 import { sharedImport, serializeNewlineSep } from "@mdeo/language-shared";
 import {
     SearchSection,
     SolverSection,
     MutationsBlock,
+    CrossoversBlock,
     UsingPath,
+    OperatorArguments,
+    OperatorArgument,
+    IntLiteral,
+    LongLiteral,
+    FloatLiteral,
+    DoubleLiteral,
+    StringLiteral,
+    BooleanLiteral,
+    NullLiteral,
+    EnumLiteral,
+    ListLiteral,
+    CrossoverBlock,
+    type CrossoversBlockType,
+    type CrossoverBlockType,
+    type OperatorArgumentsType,
+    type OperatorArgumentType,
+    type IntLiteralType,
+    type StringLiteralType,
+    type EnumLiteralType,
+    type ListLiteralType,
     ClassMutation,
     EdgeMutation,
     MutationStepNumeric,
@@ -40,7 +61,7 @@ import {
 } from "../grammar/mdeoTypes.js";
 
 const { doc } = sharedImport("prettier");
-const { indent, hardline, group } = doc.builders;
+const { indent, hardline, group, softline, line, join } = doc.builders;
 
 /**
  * Registers all MDEO serializers for pretty-printing AST nodes.
@@ -52,7 +73,20 @@ export function registerMdeoSerializers(services: LangiumCoreServices & AstSeria
 
     AstSerializer.registerNodeSerializer(SearchSection, (ctx) => printSearchSection(ctx));
     AstSerializer.registerNodeSerializer(MutationsBlock, (ctx) => printMutationsBlock(ctx));
+    AstSerializer.registerNodeSerializer(CrossoversBlock, (ctx) => printCrossoversBlock(ctx));
     AstSerializer.registerNodeSerializer(UsingPath, (ctx) => printUsingPath(ctx));
+    AstSerializer.registerNodeSerializer(OperatorArguments, (ctx) => printOperatorArguments(ctx));
+    AstSerializer.registerNodeSerializer(OperatorArgument, (ctx) => printOperatorArgument(ctx));
+    AstSerializer.registerNodeSerializer(IntLiteral, (ctx) => printIntLiteral(ctx));
+    AstSerializer.registerNodeSerializer(LongLiteral, ({ ctx }) => ctx.value);
+    AstSerializer.registerNodeSerializer(FloatLiteral, ({ ctx }) => ctx.value);
+    AstSerializer.registerNodeSerializer(DoubleLiteral, ({ ctx }) => ctx.value);
+    AstSerializer.registerNodeSerializer(StringLiteral, (ctx) => printStringLiteral(ctx));
+    AstSerializer.registerNodeSerializer(BooleanLiteral, ({ ctx }) => ctx.value);
+    AstSerializer.registerNodeSerializer(NullLiteral, () => "null");
+    AstSerializer.registerNodeSerializer(EnumLiteral, (ctx) => printEnumLiteral(ctx));
+    AstSerializer.registerNodeSerializer(ListLiteral, (ctx) => printListLiteral(ctx));
+    AstSerializer.registerNodeSerializer(CrossoverBlock, (ctx) => printCrossoverBlock(ctx));
     AstSerializer.registerNodeSerializer(ClassMutation, (ctx) => printClassMutation(ctx));
     AstSerializer.registerNodeSerializer(EdgeMutation, (ctx) => printEdgeMutation(ctx));
     AstSerializer.registerNodeSerializer(SolverSection, (ctx) => printSolverSection(ctx));
@@ -81,8 +115,15 @@ function printSearchSection(context: PrintContext<SearchSectionType>): Doc {
 
     docs.push("{");
 
+    const contentDocs: Doc[] = [];
     if (ctx.mutations.length > 0) {
-        docs.push(indent([hardline, path.call(print, "mutations", 0)]));
+        contentDocs.push(path.call(print, "mutations", 0));
+    }
+    if (ctx.crossovers.length > 0) {
+        contentDocs.push(path.call(print, "crossovers", 0));
+    }
+    if (contentDocs.length > 0) {
+        docs.push(indent([hardline, join(hardline, contentDocs)]));
         docs.push(hardline);
     }
 
@@ -139,6 +180,7 @@ function printAlgorithmParameters(context: PrintContext<AlgorithmParametersType>
     if (ctx.population.length > 0)
         contentDocs.push(["population = ", printPrimitive({ value: ctx.population[0] }, INT)]);
     if (ctx.variation.length > 0) contentDocs.push(["variation = ", ctx.variation[0]]);
+    if (ctx.crossover.length > 0) contentDocs.push(path.call(print, "crossover", 0));
     if (ctx.mutation.length > 0) contentDocs.push(path.call(print, "mutation", 0));
     if (ctx.bisections.length > 0)
         contentDocs.push(["bisections = ", printPrimitive({ value: ctx.bisections[0] }, INT)]);
@@ -204,6 +246,44 @@ function printMutationBlock(context: PrintContext<MutationBlockType>): Doc {
     }
     docs.push("}");
     return group(docs);
+}
+
+/**
+ * Prints the crossover sub-block.
+ *
+ * @param context The print context
+ * @returns The formatted crossover block
+ */
+function printCrossoverBlock(context: PrintContext<CrossoverBlockType>): Doc {
+    const { ctx } = context;
+    const docs: Doc[] = [];
+    docs.push("crossover {");
+
+    const contentDocs: Doc[] = [];
+    if (ctx.rate.length > 0) contentDocs.push(["rate = ", printKeyText(context, "rate", ctx.rate[0])]);
+    if (ctx.parents.length > 0) contentDocs.push(["parents = ", printKeyText(context, "parents", ctx.parents[0])]);
+    if (ctx.strategy.length > 0) contentDocs.push(["strategy = ", ctx.strategy[0]]);
+
+    if (contentDocs.length > 0) {
+        docs.push(indent([hardline, join(hardline, contentDocs)]));
+        docs.push(hardline);
+    }
+    docs.push("}");
+    return group(docs);
+}
+
+/**
+ * Prints the first value of a numeric key as it is written (e.g. `0.90` stays `0.90`).
+ *
+ * @param context The print context
+ * @param property The property of the key
+ * @param value The value, printed when the source text is not available
+ * @returns The value's text
+ */
+function printKeyText<T extends AstNode>(context: PrintContext<T>, property: keyof T & string, value: number): Doc {
+    const { ctx, printPrimitive, getPrimitive } = context;
+    const primitive = getPrimitive(ctx, property);
+    return primitive.cstNode?.text ?? printPrimitive({ value }, Number.isInteger(value) ? INT : FLOAT);
 }
 
 /**
@@ -290,14 +370,122 @@ function printMutationsBlock(context: PrintContext<MutationsBlockType>): Doc {
 }
 
 /**
- * Prints a using path declaration.
+ * Prints a crossovers block.
+ *
+ * @param context The print context
+ * @returns The formatted crossovers block
+ */
+function printCrossoversBlock(context: PrintContext<CrossoversBlockType>): Doc {
+    const docs: Doc[] = [];
+
+    docs.push("crossovers {");
+
+    const content = serializeNewlineSep(context, ["usingPaths"], doc.builders);
+    if (content.length > 0) {
+        docs.push(indent([hardline, content]));
+        docs.push(hardline);
+    }
+
+    docs.push("}");
+
+    return group(docs);
+}
+
+/**
+ * Prints a using path declaration, with its arguments block if it has one.
  *
  * @param context The print context
  * @returns The formatted using path
  */
 function printUsingPath(context: PrintContext<UsingPathType>): Doc {
-    const { printPrimitive, getPrimitive, ctx } = context;
-    return ["using ", printPrimitive(getPrimitive(ctx, "path"), STRING)];
+    const { printPrimitive, getPrimitive, ctx, path, print } = context;
+    const usingDoc: Doc[] = ["using ", printPrimitive(getPrimitive(ctx, "path"), STRING)];
+    if (ctx.with != undefined) {
+        usingDoc.push(" ", path.call(print, "with"));
+    }
+    return usingDoc;
+}
+
+/**
+ * Prints the arguments block of a using entry, one argument per line.
+ *
+ * @param context The print context
+ * @returns The formatted `with { … }` block
+ */
+function printOperatorArguments(context: PrintContext<OperatorArgumentsType>): Doc {
+    const docs: Doc[] = ["with {"];
+    const content = serializeNewlineSep(context, ["arguments"], doc.builders);
+    if (content.length > 0) {
+        docs.push(indent([hardline, content]));
+        docs.push(hardline);
+    } else {
+        docs.push(" ");
+    }
+    docs.push("}");
+    return docs;
+}
+
+/**
+ * Prints an operator argument: `name = literal`.
+ *
+ * @param context The print context
+ * @returns The formatted argument
+ */
+function printOperatorArgument(context: PrintContext<OperatorArgumentType>): Doc {
+    const { ctx, getPrimitive, path, print } = context;
+    const name = getPrimitive(ctx, "name").cstNode?.text ?? ctx.name;
+    return [name, " = ", path.call(print, "value")];
+}
+
+/**
+ * Prints an int literal as written.
+ *
+ * @param context The print context
+ * @returns The formatted literal
+ */
+function printIntLiteral(context: PrintContext<IntLiteralType>): Doc {
+    const { ctx, printPrimitive, getPrimitive } = context;
+    return printPrimitive(getPrimitive(ctx, "value"), INT);
+}
+
+/**
+ * Prints a string literal.
+ *
+ * @param context The print context
+ * @returns The formatted literal
+ */
+function printStringLiteral(context: PrintContext<StringLiteralType>): Doc {
+    const { ctx, printPrimitive, getPrimitive } = context;
+    return printPrimitive(getPrimitive(ctx, "value"), STRING);
+}
+
+/**
+ * Prints an enum literal: `Enum.ENTRY`.
+ *
+ * @param context The print context
+ * @returns The formatted literal
+ */
+function printEnumLiteral(context: PrintContext<EnumLiteralType>): Doc {
+    const { path, printReference } = context;
+    return [
+        path.call((ref) => printReference(ref, ID), "enum"),
+        ".",
+        path.call((ref) => printReference(ref, ID), "entry")
+    ];
+}
+
+/**
+ * Prints a list literal on one line, or one element per line when it does not fit.
+ *
+ * @param context The print context
+ * @returns The formatted literal
+ */
+function printListLiteral(context: PrintContext<ListLiteralType>): Doc {
+    const { ctx, path, print } = context;
+    if (ctx.elements.length === 0) {
+        return "[]";
+    }
+    return group(["[", indent([softline, join([",", line], path.map(print, "elements"))]), softline, "]"]);
 }
 
 /**

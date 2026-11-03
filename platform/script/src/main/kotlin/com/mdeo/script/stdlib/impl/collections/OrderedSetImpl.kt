@@ -94,6 +94,7 @@ class OrderedSetImpl<T> : AbstractCollection<T, LinkedHashSet<T>>, OrderedSet<T>
         while (iterator.hasNext()) {
             val element = iterator.next()
             if (i == index) {
+                version++
                 iterator.remove()
                 return element
             }
@@ -106,6 +107,7 @@ class OrderedSetImpl<T> : AbstractCollection<T, LinkedHashSet<T>>, OrderedSet<T>
     override fun sort(): OrderedCollection<T> {
         val sorted = ArrayList(backing)
         sorted.sortWith { a, b -> (a as Comparable<Any>).compareTo(b as Any) }
+        version++
         backing.clear()
         backing.addAll(sorted)
         return this
@@ -114,6 +116,7 @@ class OrderedSetImpl<T> : AbstractCollection<T, LinkedHashSet<T>>, OrderedSet<T>
     override fun sort(comparator: Func2<T, T, Int>): OrderedCollection<T> {
         val sorted = ArrayList(backing)
         sorted.sortWith { a, b -> comparator.call(a, b) }
+        version++
         backing.clear()
         backing.addAll(sorted)
         return this
@@ -122,6 +125,7 @@ class OrderedSetImpl<T> : AbstractCollection<T, LinkedHashSet<T>>, OrderedSet<T>
     override fun <U : Comparable<U>> sortBy(keyExtractor: Func1<T, U>): OrderedCollection<T> {
         val sorted = ArrayList(backing)
         sorted.sortWith { a, b -> keyExtractor.call(a).compareTo(keyExtractor.call(b)) }
+        version++
         backing.clear()
         backing.addAll(sorted)
         return this

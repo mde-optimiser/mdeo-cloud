@@ -18,10 +18,15 @@ import kotlinx.serialization.Serializable
  * @param parameterType Index into the types array for the type the function signature
  *                      expects at this parameter position. This is the resolved type
  *                      after generic substitution.
+ * @param parameter Index of the parameter the argument is passed to, set when that is not the
+ *                  argument's own position, as for a named argument. Arguments are listed in the
+ *                  order they are written and evaluated; a parameter no argument is passed to
+ *                  takes its default value.
  */
 @Serializable
 data class TypedCallArgument(
     @Contextual
     val value: TypedExpression,
-    val parameterType: Int
+    val parameterType: Int,
+    val parameter: Int? = null
 )

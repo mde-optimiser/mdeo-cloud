@@ -1,9 +1,11 @@
 package com.mdeo.optimizerexecution.worker
 
+import com.mdeo.execution.common.external.SessionAccess
 import com.mdeo.metamodel.data.MetamodelData
 import com.mdeo.metamodel.data.ModelData
 import com.mdeo.optimizer.config.GoalConfig
 import com.mdeo.optimizer.config.GraphBackendType
+import com.mdeo.optimizer.config.OperatorRef
 import com.mdeo.optimizer.config.SolverConfig
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -36,6 +38,9 @@ sealed class WorkerSubprocessRequest {
      * @param initialModelData Seed model for constructing initial solutions.
      * @param transformationAstJsons JSON-serialized transformation TypedAst per path.
      * @param scriptAstJsons JSON-serialized script TypedAst per path.
+     * @param pluginAstJson JSON-serialized script TypedPluginAst carrying all plugin-contributed
+     *        functions, or `null` when there are none.
+     * @param sessionAccess How this node opens sessions for external calls; null when none are needed.
      * @param goalConfig Objective and constraint definitions.
      * @param solverConfig Solver / mutation parameters.
      * @param initialSolutionCount How many initial solutions to generate (ignored when [skipInitialization] is true).
@@ -49,6 +54,10 @@ sealed class WorkerSubprocessRequest {
      * @param transformationTimeoutMs Per-transformation execution timeout in milliseconds. Used for internal watchdog timing.
      * @param workerThreads Number of threads to use for parallel mutation within this subprocess.
      *        When greater than 1, tasks in a [NodeWorkBatchRequest] are evaluated in parallel.
+     * @param mutationOperators The mutation operators and their arguments
+     *        ([com.mdeo.optimizer.worker.WorkerAllocationRequest.mutationOperators]).
+     * @param crossoverOperators The crossover operators and their arguments
+     *        ([com.mdeo.optimizer.worker.WorkerAllocationRequest.crossoverOperators]).
      */
     @Serializable
     @SerialName("setup")
@@ -57,6 +66,8 @@ sealed class WorkerSubprocessRequest {
         val initialModelData: ModelData,
         val transformationAstJsons: Map<String, String>,
         val scriptAstJsons: Map<String, String>,
+        val pluginAstJson: String? = null,
+        val sessionAccess: SessionAccess? = null,
         val goalConfig: GoalConfig,
         val solverConfig: SolverConfig,
         val initialSolutionCount: Int,
@@ -66,7 +77,9 @@ sealed class WorkerSubprocessRequest {
         val scriptTimeoutMs: Long = 0L,
         val transformationTimeoutMs: Long = 0L,
         val workerThreads: Int = 1,
-        val graphBackendType: GraphBackendType = GraphBackendType.MDEO
+        val graphBackendType: GraphBackendType = GraphBackendType.MDEO,
+        val mutationOperators: List<OperatorRef> = emptyList(),
+        val crossoverOperators: List<OperatorRef> = emptyList()
     ) : WorkerSubprocessRequest()
 
     /**

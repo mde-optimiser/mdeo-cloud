@@ -32,6 +32,16 @@ import { MetamodelRequestClipboardDataActionHandler } from "./handler/metamodelR
 import { MetamodelPasteOperationHandler } from "./handler/metamodelPasteOperationHandler.js";
 import { MetamodelExistingNamesProvider } from "./metamodelExistingNamesProvider.js";
 import type { ExistingNamesProvider } from "@mdeo/language-shared";
+import type { BindingContext } from "@eclipse-glsp/server";
+import { MetamodelViewState } from "./metamodelViews.js";
+import {
+    AddToMetamodelViewOperationHandler,
+    CreateMetamodelViewOperationHandler,
+    DeleteMetamodelViewOperationHandler,
+    RemoveFromMetamodelViewOperationHandler,
+    RenameMetamodelViewOperationHandler,
+    SelectMetamodelViewActionHandler
+} from "./handler/metamodelViewOperationHandlers.js";
 const { injectable } = sharedImport("inversify");
 
 /**
@@ -70,11 +80,22 @@ export class MetamodelDiagramModule extends BaseDiagramModule {
         binding.add(AddPropertyOperationHandler);
         binding.add(AddEnumEntryOperationHandler);
         binding.add(MetamodelPasteOperationHandler);
+        binding.add(AddToMetamodelViewOperationHandler);
+        binding.add(RemoveFromMetamodelViewOperationHandler);
+        binding.add(CreateMetamodelViewOperationHandler);
+        binding.add(RenameMetamodelViewOperationHandler);
+        binding.add(DeleteMetamodelViewOperationHandler);
     }
 
     protected override configureActionHandlers(binding: InstanceMultiBinding<ActionHandlerConstructor>): void {
         super.configureActionHandlers(binding);
         binding.add(MetamodelRequestClipboardDataActionHandler);
+        binding.add(SelectMetamodelViewActionHandler);
+    }
+
+    protected override configureAdditional(context: BindingContext): void {
+        super.configureAdditional(context);
+        context.bind(MetamodelViewState).toSelf().inSingletonScope();
     }
 
     protected override bindLabelEditValidator(): BindingTarget<LabelEditValidator> {

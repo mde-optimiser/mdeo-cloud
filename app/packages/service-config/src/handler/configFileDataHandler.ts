@@ -43,7 +43,7 @@ interface SectionTypeInfo {
  * @param plugins The active config contribution plugins
  * @returns A map from `$type` string to section type info
  */
-function buildSectionTypeMap(plugins: ConfigContributionPlugin[]): Map<string, SectionTypeInfo> {
+export function buildSectionTypeMap(plugins: ConfigContributionPlugin[]): Map<string, SectionTypeInfo> {
     const map = new Map<string, SectionTypeInfo>();
     for (const plugin of plugins) {
         for (const section of plugin.sections) {
@@ -65,7 +65,7 @@ function buildSectionTypeMap(plugins: ConfigContributionPlugin[]): Map<string, S
  * @param config The parsed config root node
  * @returns True if any section type appears more than once
  */
-function hasDuplicateSections(config: ConfigType): boolean {
+export function hasDuplicateSections(config: ConfigType): boolean {
     const typeCounts = new Map<string, number>();
     for (const section of config.sections ?? []) {
         typeCounts.set(section.$type, (typeCounts.get(section.$type) ?? 0) + 1);
@@ -86,7 +86,10 @@ function hasDuplicateSections(config: ConfigType): boolean {
  * @param sectionTypeMap The map from `$type` to section type info
  * @returns True if any required dependency section is absent
  */
-function hasMissingSectionDependencies(config: ConfigType, sectionTypeMap: Map<string, SectionTypeInfo>): boolean {
+export function hasMissingSectionDependencies(
+    config: ConfigType,
+    sectionTypeMap: Map<string, SectionTypeInfo>
+): boolean {
     const presentQualifiedNames = new Set<string>();
     for (const section of config.sections ?? []) {
         const info = sectionTypeMap.get(section.$type);
@@ -117,7 +120,7 @@ function hasMissingSectionDependencies(config: ConfigType, sectionTypeMap: Map<s
  * @param plugins All active ConfigContributionPlugins
  * @returns Plugins sorted so that dependencies are processed before dependents
  */
-function sortBySectionDependencies(plugins: ConfigContributionPlugin[]): ConfigContributionPlugin[] {
+export function sortBySectionDependencies(plugins: ConfigContributionPlugin[]): ConfigContributionPlugin[] {
     const pluginByName = new Map(plugins.map((plugin) => [plugin.name, plugin]));
     const sorted: ConfigContributionPlugin[] = [];
     const visited = new Set<string>();
@@ -151,6 +154,112 @@ function sortBySectionDependencies(plugins: ConfigContributionPlugin[]): ConfigC
     }
 
     return sorted;
+}
+
+/**
+ * Where a section's content is in a partial config and in the config it is taken from.
+ */
+export interface PartialConfigSegment {
+    /**
+     * The offset of the section in the config.
+     */
+    sectionOffset: number;
+    /**
+     * The offset of the section in the partial config.
+     */
+    partialSectionOffset: number;
+    /**
+     * The offset of the section's content in the config.
+     */
+    contentOffset: number;
+    /**
+     * The offset of the section's content in the partial config.
+     */
+    partialContentOffset: number;
+    /**
+     * The length of the section's content.
+     */
+    length: number;
+}
+
+/**
+ * The sections of a config that one plugin contributes, written with simple section keywords.
+ */
+export interface PartialConfig {
+    /**
+     * The text sent to the plugin.
+     */
+    text: string;
+    /**
+     * Where each section of the text is in the config, in the order of the text.
+     */
+    segments: PartialConfigSegment[];
+}
+
+/**
+ * Builds the partial config of a plugin: one line per section of the plugin in the config,
+ * with the section's simple keyword and its content as written.
+ *
+ * @param plugin The plugin
+ * @param sectionLookup The sections of the config by their wrapper `$type`
+ * @param sectionNames The names of the sections to include, or undefined for all of them
+ * @returns The partial config
+ */
+export function buildPartialConfig(
+    plugin: ConfigContributionPlugin,
+    sectionLookup: Map<string, AstNode>,
+    sectionNames?: ReadonlySet<string>
+): PartialConfig {
+    let text = "";
+    const segments: PartialConfigSegment[] = [];
+    for (const pluginSection of plugin.sections) {
+        if (sectionNames != undefined && !sectionNames.has(pluginSection.name)) {
+            continue;
+        }
+        const section = sectionLookup.get(getWrapperInterfaceName(pluginSection.name, plugin.name));
+        if (section == undefined) {
+            continue;
+        }
+        const content = (section as AstNode & { content: AstNode }).content;
+        const contentText: string = content?.$cstNode?.text ?? "";
+        if (segments.length > 0) {
+            text += "\n";
+        }
+        const sectionOffset = section.$cstNode?.offset ?? 0;
+        segments.push({
+            sectionOffset,
+            partialSectionOffset: text.length,
+            contentOffset: content?.$cstNode?.offset ?? sectionOffset,
+            partialContentOffset: text.length + pluginSection.name.length + 1,
+            length: contentText.length
+        });
+        text += `${pluginSection.name} ${contentText}`;
+    }
+    return { text, segments };
+}
+
+/**
+ * Collects the data of the sections a plugin depends on from the data computed so far.
+ *
+ * @param plugin The plugin
+ * @param computed The data of the plugins processed before, keyed by plugin short name
+ * @returns The dependency data to send to the plugin
+ */
+export function collectDependencyData(
+    plugin: ConfigContributionPlugin,
+    computed: ConfigFileData
+): ConfigPluginDependencyData {
+    const dependencyData: ConfigPluginDependencyData = {};
+    for (const dep of plugin.sectionDependencies) {
+        const depPluginData = computed[dep.pluginName];
+        if (depPluginData != undefined && dep.sectionName in depPluginData) {
+            if (dependencyData[dep.pluginName] == undefined) {
+                dependencyData[dep.pluginName] = {};
+            }
+            dependencyData[dep.pluginName][dep.sectionName] = depPluginData[dep.sectionName];
+        }
+    }
+    return dependencyData;
 }
 
 /**
@@ -214,35 +323,13 @@ export const configDataHandler: FileDataHandler<ConfigFileData | null, ConfigAdd
     const accumulatedDataDeps: DataDependency[] = [];
 
     for (const plugin of sortedPlugins) {
-        const partialLines: string[] = [];
         if (plugin.sections.length === 0) {
             continue;
         }
-        for (const pluginSection of plugin.sections) {
-            const section = sectionLookup.get(getWrapperInterfaceName(pluginSection.name, plugin.name));
-            if (section == undefined) {
-                continue;
-            }
-            const content = (section as AstNode & { content: AstNode }).content;
-            const contentText: string = content?.$cstNode?.text ?? "";
-            partialLines.push(`${pluginSection.name} ${contentText}`);
-        }
-        const partialText = partialLines.join("\n");
-
-        const dependencyData: ConfigPluginDependencyData = {};
-        for (const dep of plugin.sectionDependencies) {
-            const depPluginData = result[dep.pluginName];
-            if (depPluginData != undefined && dep.sectionName in depPluginData) {
-                if (dependencyData[dep.pluginName] == undefined) {
-                    dependencyData[dep.pluginName] = {};
-                }
-                dependencyData[dep.pluginName][dep.sectionName] = depPluginData[dep.sectionName];
-            }
-        }
 
         const requestBody: ConfigPluginRequestBody = {
-            dependencyData,
-            text: partialText,
+            dependencyData: collectDependencyData(plugin, result),
+            text: buildPartialConfig(plugin, sectionLookup).text,
             configFileUri: fileInfo.uri.toString()
         };
 

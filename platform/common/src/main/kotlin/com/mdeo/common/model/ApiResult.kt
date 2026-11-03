@@ -26,7 +26,11 @@ sealed class ApiResult<out T> {
 }
 
 /**
- * Represents an error returned from an API operation.
+ * The one error shape of the platform.
+ *
+ * Every failure a service reports, over HTTP or over a WebSocket, is this object: an HTTP error
+ * answers `{"error": {"code": …, "message": …}}` ([ErrorResponse]), and a WebSocket error message
+ * carries it in its `error` field. [code] is one of [ErrorCodes].
  *
  * @property code Error code identifying the type of error
  * @property message Human-readable error message
@@ -38,11 +42,34 @@ data class ApiError(
 )
 
 /**
- * Error codes matching the TypeScript frontend.
+ * Body of every HTTP error response.
+ *
+ * @property error What went wrong
+ */
+@Serializable
+data class ErrorResponse(val error: ApiError)
+
+/**
+ * Error codes, mirrored by `ErrorCodes` in `@mdeo/plugin`.
+ *
+ * The first group describes failures any request can have; the others belong to one area.
  */
 object ErrorCodes {
+    /** A service on the way could not be reached. */
     const val UNAVAILABLE = "Unavailable"
     const val UNKNOWN = "Unknown"
+    /** The request is malformed. */
+    const val BAD_REQUEST = "BadRequest"
+    /** The request carries no valid session or token. */
+    const val UNAUTHENTICATED = "Unauthenticated"
+    /** The caller is known but may not do this. */
+    const val FORBIDDEN = "Forbidden"
+    /** What the request addresses does not exist. */
+    const val NOT_FOUND = "NotFound"
+    /** The request conflicts with the current state. */
+    const val CONFLICT = "Conflict"
+    /** The service failed while handling the request. */
+    const val INTERNAL = "Internal"
     
     const val FILE_NOT_FOUND = "FileNotFound"
     const val FILE_EXISTS = "FileExists"
@@ -59,6 +86,10 @@ object ErrorCodes {
     const val PLUGIN_ALREADY_ADDED_TO_PROJECT = "PluginAlreadyAddedToProject"
     const val PLUGIN_NOT_ADDED_TO_PROJECT = "PluginNotAddedToProject"
     const val RESERVED_EXTENSION = "ReservedExtension"
+    const val PLUGIN_CONTRIBUTION_ID_CONFLICT = "PluginContributionIdConflict"
+    /** The plugin's manifest declares something the platform cannot store or address. */
+    const val PLUGIN_MANIFEST_INVALID = "PluginManifestInvalid"
+    const val SESSION_NOT_FOUND = "SessionNotFound"
     
     const val USER_NOT_FOUND = "UserNotFound"
     const val INVALID_CREDENTIALS = "InvalidCredentials"
@@ -70,6 +101,8 @@ object ErrorCodes {
     const val FILE_DATA_CIRCULAR_DEPENDENCY = "FileDataCircularDependency"
     const val FILE_DATA_COMPUTATION_FAILED = "FileDataComputationFailed"
     const val FILE_DATA_NO_PLUGIN_FOUND = "FileDataNoPluginFound"
+    /** The caller's deadline passed before the answer was ready. */
+    const val DEADLINE_EXCEEDED = "DeadlineExceeded"
     
     const val EXECUTION_NOT_FOUND = "ExecutionNotFound"
     const val EXECUTION_ALREADY_COMPLETED = "ExecutionAlreadyCompleted"

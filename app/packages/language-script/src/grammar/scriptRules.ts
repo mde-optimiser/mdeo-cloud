@@ -29,6 +29,7 @@ import {
     FunctionParameter,
     FunctionParameters,
     Function,
+    Record,
     FunctionImport,
     FunctionFileImport,
     scriptFileScopingConfig,
@@ -97,7 +98,8 @@ export function generateScriptRule(plugins: ScriptContributionPlugin[]): {
         expressionConfig,
         expressionTypes,
         TypeRule,
-        additionalExpressionRules
+        additionalExpressionRules,
+        { namedArguments: true }
     );
 
     const ExpressionRule = expressionRules.expressionRule;
@@ -140,7 +142,12 @@ export function generateScriptRule(plugins: ScriptContributionPlugin[]): {
      */
     const FunctionParameterRule = createRule("ScriptFunctionParameterRule")
         .returns(FunctionParameter)
-        .as(({ set }) => [set("name", ID), ":", set("type", TypeRule)]);
+        .as(({ set }) => [
+            set("name", ID),
+            ":",
+            set("type", TypeRule),
+            optional("=", set("defaultValue", ExpressionRule))
+        ]);
 
     /**
      * Function parameters rule (with round brackets).
@@ -167,7 +174,14 @@ export function generateScriptRule(plugins: ScriptContributionPlugin[]): {
         ]);
 
     /**
-     * Import rules for functions.
+     * Record rule.
+     */
+    const RecordRule = createRule("ScriptRecordRule")
+        .returns(Record)
+        .as(({ set }) => ["record", set("name", ID), set("parameterList", FunctionParametersRule)]);
+
+    /**
+     * Import rules for functions and records.
      */
     const { fileImportRule: FunctionFileImportRule } = generateImportRules(
         scriptFileScopingConfig,
@@ -192,7 +206,14 @@ export function generateScriptRule(plugins: ScriptContributionPlugin[]): {
         .as(({ add, set }) => [
             many(NEWLINE),
             optional(set("metamodelImport", MetamodelFileImportRule)),
-            many(or(add("imports", FunctionFileImportRule), add("functions", FunctionRule), NEWLINE))
+            many(
+                or(
+                    add("imports", FunctionFileImportRule),
+                    add("functions", FunctionRule),
+                    add("records", RecordRule),
+                    NEWLINE
+                )
+            )
         ]);
 
     return {

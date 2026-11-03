@@ -63,11 +63,17 @@ export function generateExpressionTypes(config: ExpressionConfig, typeTypes: Typ
         typeArguments: [baseTypeType]
     });
 
+    const namedArgumentType = createInterface(config.namedArgumentTypeName).attrs({
+        name: String,
+        value: baseExpressionType
+    });
+
     const callExpressionType = createInterface(config.callExpressionTypeName)
         .extends(baseExpressionType)
         .attrs({
             expression: baseExpressionType,
             arguments: [baseExpressionType],
+            namedArguments: [namedArgumentType],
             genericArgs: Optional(callExpressionGenericArgsType)
         });
 
@@ -78,6 +84,7 @@ export function generateExpressionTypes(config: ExpressionConfig, typeTypes: Typ
             member: String,
             isNullChaining: Boolean,
             arguments: [baseExpressionType],
+            namedArguments: [namedArgumentType],
             genericArgs: Optional(callExpressionGenericArgsType)
         });
 
@@ -147,6 +154,7 @@ export function generateExpressionTypes(config: ExpressionConfig, typeTypes: Typ
         binaryExpressionType,
         ternaryExpressionType,
         callExpressionGenericArgsType,
+        namedArgumentType,
         callExpressionType,
         memberCallExpressionType,
         memberAccessExpressionType,
@@ -197,6 +205,11 @@ export type TernaryExpressionType = ASTType<ExpressionTypes["ternaryExpressionTy
  * Type representing the call expression generic args type.
  */
 export type CallExpressionGenericArgsType = ASTType<ExpressionTypes["callExpressionGenericArgsType"]>;
+
+/**
+ * Type representing a named argument of a call, `name = value`.
+ */
+export type NamedArgumentType = ASTType<ExpressionTypes["namedArgumentType"]>;
 
 /**
  * Type representing the call expression

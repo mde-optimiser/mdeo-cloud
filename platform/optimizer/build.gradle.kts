@@ -30,6 +30,8 @@ dependencies {
 }
 
 tasks.test {
+    // -Prulegen.updateTable=true rewrites the reviewed table of generated operators (OperatorTableTest).
+    (findProperty("rulegen.updateTable") as? String)?.let { systemProperty("rulegen.updateTable", it) }
     // When asyncProfilerLib is set (e.g. -PasyncProfilerLib=.../libasyncProfiler.so),
     // attach the agent at JVM startup and dump collapsed stacks to asyncProfilerOutput.
     // asyncProfilerEvent controls the event type (cpu, alloc, live, ...).

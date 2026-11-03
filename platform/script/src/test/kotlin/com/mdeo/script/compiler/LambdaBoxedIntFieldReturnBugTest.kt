@@ -24,7 +24,7 @@ import kotlin.test.assertEquals
  *
  * The field `effort` is stored as `java/lang/Integer` (boxed) in the metamodel
  * generated class.  ScriptMetamodelTypeRegistrar.getScriptPropertyDescriptor returns
- * `"Ljava/lang/Integer;"` for primitive type `"int"`, and DirectFieldPropertyDefinition
+ * `"Ljava/lang/Integer;"` for primitive type `"int"`, and FieldGetterPropertyDefinition
  * emits GETFIELD with that descriptor — leaving a boxed Integer on the operand stack.
  * The lambda return type is int (primitive), so ReturnStatementCompiler emits ireturn.
  *

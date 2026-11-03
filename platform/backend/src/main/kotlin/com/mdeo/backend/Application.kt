@@ -1,5 +1,8 @@
 package com.mdeo.backend
 
+import com.mdeo.common.transport.MAX_DECODED_REQUEST_BYTES
+import com.mdeo.common.transport.installDeflate
+import com.mdeo.common.transport.installHttpCompression
 import com.mdeo.backend.config.AppConfig
 import com.mdeo.backend.config.configureCors
 import com.mdeo.backend.config.configureSerialization
@@ -63,7 +66,7 @@ fun Application.module(appConfig: AppConfig) {
         override val fileDataService: FileDataService by lazy { FileDataService(this) }
         override val executionService: ExecutionService by lazy { ExecutionService(this) }
         override val webSocketNotificationService: WebSocketNotificationService by lazy { WebSocketNotificationService() }
-        override val languagePluginRequestService: LanguagePluginRequestService by lazy { LanguagePluginRequestService(this) }
+        override val pluginRequestService: PluginRequestService by lazy { PluginRequestService(this) }
         override val authRateLimiter: AuthRateLimiter by lazy { AuthRateLimiter() }
         override val personalAccessTokenService: PersonalAccessTokenService by lazy { PersonalAccessTokenService(this) }
         override val sshKeyService: SshKeyService by lazy { SshKeyService(this) }
@@ -104,8 +107,13 @@ fun Application.module(appConfig: AppConfig) {
     )
     gitSshServer.start()
 
+    services.pluginService.startManifestChecks(appConfig.plugin.manifestCheckSeconds)
+
     monitor.subscribe(ApplicationStopped) {
         gitSshServer.stop()
+        // Background work stops first, so none of it reaches for a database that is already closed.
+        services.pluginService.close()
+        services.fileDataService.close()
         DatabaseFactory.close()
     }
     
@@ -126,6 +134,7 @@ fun Application.module(appConfig: AppConfig) {
     }
     
     configureSerialization()
+    installHttpCompression()
     configureCors(appConfig.cors)
     configureStatusPages()
     configureAuthentication(
@@ -138,6 +147,9 @@ fun Application.module(appConfig: AppConfig) {
     install(WebSockets) {
         pingPeriodMillis = 30_000
         timeoutMillis = 60_000
+        // Browsers write files over this connection, so it takes what an HTTP upload may carry.
+        maxFrameSize = MAX_DECODED_REQUEST_BYTES
+        extensions { installDeflate(MAX_DECODED_REQUEST_BYTES) }
     }
     
     routing {
@@ -178,9 +190,10 @@ fun Application.module(appConfig: AppConfig) {
 
         authenticate(AUTH_SESSION, AUTH_JWT, optional = true) {
             fileRoutes(services.fileService, services.projectService)
-            fileDataRoutes(services.fileDataService, services.projectService, services.jwtService)
-            languagePluginRequestRoutes(services.languagePluginRequestService, services.projectService, services.jwtService)
+            fileDataRoutes(services.fileDataService, services.projectService, services.jwtService, appConfig.fileData)
+            pluginRequestRoutes(services.pluginRequestService, services.projectService, services.jwtService)
             executionStateRoutes(services.executionService, services.jwtService)
+            sessionRoutes(services.pluginService, services.jwtService)
         }
 
         authenticate(AUTH_SESSION) {

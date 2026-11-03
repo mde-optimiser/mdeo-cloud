@@ -1,5 +1,6 @@
 package com.mdeo.backend.routes
 
+import com.mdeo.common.transport.respondError
 import com.mdeo.backend.plugins.canCreateProject
 import com.mdeo.backend.plugins.getUserSession
 import com.mdeo.backend.plugins.isAdmin
@@ -34,12 +35,12 @@ fun Route.projectRoutes(projectService: ProjectService) {
         get {
             val session = call.getUserSession()
             if (session == null) {
-                call.respond(HttpStatusCode.Unauthorized)
+                call.respondError(HttpStatusCode.Unauthorized, "Not authenticated")
                 return@get
             }
 
             val userId = parseUserId(session.userId) ?: run {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid user ID"))
+                call.respondError(HttpStatusCode.BadRequest, "Invalid user ID")
                 return@get
             }
 
@@ -50,17 +51,17 @@ fun Route.projectRoutes(projectService: ProjectService) {
         post {
             val session = call.getUserSession()
             if (session == null) {
-                call.respond(HttpStatusCode.Unauthorized)
+                call.respondError(HttpStatusCode.Unauthorized, "Not authenticated")
                 return@post
             }
 
             if (!call.canCreateProject()) {
-                call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Create project permission required"))
+                call.respondError(HttpStatusCode.Forbidden, "Create project permission required")
                 return@post
             }
 
             val userId = parseUserId(session.userId) ?: run {
-                call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid user ID"))
+                call.respondError(HttpStatusCode.BadRequest, "Invalid user ID")
                 return@post
             }
 
@@ -73,28 +74,28 @@ fun Route.projectRoutes(projectService: ProjectService) {
             get {
                 val session = call.getUserSession()
                 if (session == null) {
-                    call.respond(HttpStatusCode.Unauthorized)
+                    call.respondError(HttpStatusCode.Unauthorized, "Not authenticated")
                     return@get
                 }
 
                 val projectId = parseProjectId(call.parameters["projectId"]) ?: run {
-                    call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid project ID"))
+                    call.respondError(HttpStatusCode.BadRequest, "Invalid project ID")
                     return@get
                 }
 
                 val userId = parseUserId(session.userId) ?: run {
-                    call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid user ID"))
+                    call.respondError(HttpStatusCode.BadRequest, "Invalid user ID")
                     return@get
                 }
 
                 if (!projectService.hasProjectPermission(projectId, userId, call.isAdmin(), ProjectPermission.READ)) {
-                    call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Access denied"))
+                    call.respondError(HttpStatusCode.Forbidden, "Access denied")
                     return@get
                 }
 
                 val project = projectService.getProject(projectId)
                 if (project == null) {
-                    call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Project not found"))
+                    call.respondError(HttpStatusCode.BadRequest, "Project not found")
                     return@get
                 }
 
@@ -104,35 +105,35 @@ fun Route.projectRoutes(projectService: ProjectService) {
             put {
                 val session = call.getUserSession()
                 if (session == null) {
-                    call.respond(HttpStatusCode.Unauthorized)
+                    call.respondError(HttpStatusCode.Unauthorized, "Not authenticated")
                     return@put
                 }
 
                 val projectId = parseProjectId(call.parameters["projectId"]) ?: run {
-                    call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid project ID"))
+                    call.respondError(HttpStatusCode.BadRequest, "Invalid project ID")
                     return@put
                 }
 
                 val userId = parseUserId(session.userId) ?: run {
-                    call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid user ID"))
+                    call.respondError(HttpStatusCode.BadRequest, "Invalid user ID")
                     return@put
                 }
 
                 if (!projectService.hasProjectPermission(projectId, userId, call.isAdmin(), ProjectPermission.ADMIN)) {
-                    call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Project admin access required"))
+                    call.respondError(HttpStatusCode.Forbidden, "Project admin access required")
                     return@put
                 }
 
                 val request = call.receive<UpdateProjectRequest>()
                 val updated = projectService.updateProject(projectId, request)
                 if (!updated) {
-                    call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Project not found"))
+                    call.respondError(HttpStatusCode.BadRequest, "Project not found")
                     return@put
                 }
 
                 val updatedProject = projectService.getProject(projectId)
                 if (updatedProject == null) {
-                    call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Project not found"))
+                    call.respondError(HttpStatusCode.BadRequest, "Project not found")
                     return@put
                 }
 
@@ -142,28 +143,28 @@ fun Route.projectRoutes(projectService: ProjectService) {
             delete {
                 val session = call.getUserSession()
                 if (session == null) {
-                    call.respond(HttpStatusCode.Unauthorized)
+                    call.respondError(HttpStatusCode.Unauthorized, "Not authenticated")
                     return@delete
                 }
 
                 val projectId = parseProjectId(call.parameters["projectId"]) ?: run {
-                    call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid project ID"))
+                    call.respondError(HttpStatusCode.BadRequest, "Invalid project ID")
                     return@delete
                 }
 
                 val userId = parseUserId(session.userId) ?: run {
-                    call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid user ID"))
+                    call.respondError(HttpStatusCode.BadRequest, "Invalid user ID")
                     return@delete
                 }
 
                 if (!projectService.hasProjectPermission(projectId, userId, call.isAdmin(), ProjectPermission.ADMIN)) {
-                    call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Project admin access required"))
+                    call.respondError(HttpStatusCode.Forbidden, "Project admin access required")
                     return@delete
                 }
 
                 val deleted = projectService.deleteProject(projectId)
                 if (!deleted) {
-                    call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Project not found"))
+                    call.respondError(HttpStatusCode.BadRequest, "Project not found")
                     return@delete
                 }
 
@@ -174,22 +175,22 @@ fun Route.projectRoutes(projectService: ProjectService) {
                 get {
                     val session = call.getUserSession()
                     if (session == null) {
-                        call.respond(HttpStatusCode.Unauthorized)
+                        call.respondError(HttpStatusCode.Unauthorized, "Not authenticated")
                         return@get
                     }
 
                     val projectId = parseProjectId(call.parameters["projectId"]) ?: run {
-                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid project ID"))
+                        call.respondError(HttpStatusCode.BadRequest, "Invalid project ID")
                         return@get
                     }
 
                     val userId = parseUserId(session.userId) ?: run {
-                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid user ID"))
+                        call.respondError(HttpStatusCode.BadRequest, "Invalid user ID")
                         return@get
                     }
 
                     if (!projectService.hasProjectPermission(projectId, userId, call.isAdmin(), ProjectPermission.READ)) {
-                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Access denied"))
+                        call.respondError(HttpStatusCode.Forbidden, "Access denied")
                         return@get
                     }
 
@@ -200,28 +201,28 @@ fun Route.projectRoutes(projectService: ProjectService) {
                 post {
                     val session = call.getUserSession()
                     if (session == null) {
-                        call.respond(HttpStatusCode.Unauthorized)
+                        call.respondError(HttpStatusCode.Unauthorized, "Not authenticated")
                         return@post
                     }
 
                     val projectId = parseProjectId(call.parameters["projectId"]) ?: run {
-                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid project ID"))
+                        call.respondError(HttpStatusCode.BadRequest, "Invalid project ID")
                         return@post
                     }
 
                     val currentUserId = parseUserId(session.userId) ?: run {
-                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid user ID"))
+                        call.respondError(HttpStatusCode.BadRequest, "Invalid user ID")
                         return@post
                     }
 
                     if (!projectService.hasProjectPermission(projectId, currentUserId, call.isAdmin(), ProjectPermission.ADMIN)) {
-                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Project admin access required"))
+                        call.respondError(HttpStatusCode.Forbidden, "Project admin access required")
                         return@post
                     }
 
                     val request = call.receive<AddProjectUserRequest>()
                     val userId = parseUserId(request.userId) ?: run {
-                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid user ID"))
+                        call.respondError(HttpStatusCode.BadRequest, "Invalid user ID")
                         return@post
                     }
 
@@ -236,38 +237,38 @@ fun Route.projectRoutes(projectService: ProjectService) {
                     ) {
                         AddProjectUserResult.SUCCESS -> call.respond(Unit)
                         AddProjectUserResult.PROJECT_NOT_FOUND ->
-                            call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Project not found"))
+                            call.respondError(HttpStatusCode.BadRequest, "Project not found")
                         AddProjectUserResult.USER_NOT_FOUND ->
-                            call.respond(HttpStatusCode.BadRequest, mapOf("error" to "User not found"))
+                            call.respondError(HttpStatusCode.BadRequest, "User not found")
                         AddProjectUserResult.ALREADY_MEMBER ->
-                            call.respond(HttpStatusCode.BadRequest, mapOf("error" to "User is already in the project"))
+                            call.respondError(HttpStatusCode.BadRequest, "User is already in the project")
                     }
                 }
 
                 put("/{userId}/permissions") {
                     val session = call.getUserSession()
                     if (session == null) {
-                        call.respond(HttpStatusCode.Unauthorized)
+                        call.respondError(HttpStatusCode.Unauthorized, "Not authenticated")
                         return@put
                     }
 
                     val projectId = parseProjectId(call.parameters["projectId"]) ?: run {
-                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid project ID"))
+                        call.respondError(HttpStatusCode.BadRequest, "Invalid project ID")
                         return@put
                     }
 
                     val currentUserId = parseUserId(session.userId) ?: run {
-                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid user ID"))
+                        call.respondError(HttpStatusCode.BadRequest, "Invalid user ID")
                         return@put
                     }
 
                     if (!projectService.hasProjectPermission(projectId, currentUserId, call.isAdmin(), ProjectPermission.ADMIN)) {
-                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Project admin access required"))
+                        call.respondError(HttpStatusCode.Forbidden, "Project admin access required")
                         return@put
                     }
 
                     val userId = parseUserId(call.parameters["userId"]) ?: run {
-                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid user ID"))
+                        call.respondError(HttpStatusCode.BadRequest, "Invalid user ID")
                         return@put
                     }
 
@@ -283,51 +284,51 @@ fun Route.projectRoutes(projectService: ProjectService) {
                     ) {
                         UpdateProjectUserPermissionsResult.SUCCESS -> call.respond(Unit)
                         UpdateProjectUserPermissionsResult.PROJECT_NOT_FOUND ->
-                            call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Project not found"))
+                            call.respondError(HttpStatusCode.BadRequest, "Project not found")
                         UpdateProjectUserPermissionsResult.USER_NOT_FOUND ->
-                            call.respond(HttpStatusCode.BadRequest, mapOf("error" to "User not found"))
+                            call.respondError(HttpStatusCode.BadRequest, "User not found")
                         UpdateProjectUserPermissionsResult.NOT_MEMBER ->
-                            call.respond(HttpStatusCode.BadRequest, mapOf("error" to "User is not part of this project"))
+                            call.respondError(HttpStatusCode.BadRequest, "User is not part of this project")
                         UpdateProjectUserPermissionsResult.LAST_PROJECT_ADMIN ->
-                            call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Cannot remove the last project admin"))
+                            call.respondError(HttpStatusCode.BadRequest, "Cannot remove the last project admin")
                     }
                 }
 
                 delete("/{userId}") {
                     val session = call.getUserSession()
                     if (session == null) {
-                        call.respond(HttpStatusCode.Unauthorized)
+                        call.respondError(HttpStatusCode.Unauthorized, "Not authenticated")
                         return@delete
                     }
 
                     val projectId = parseProjectId(call.parameters["projectId"]) ?: run {
-                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid project ID"))
+                        call.respondError(HttpStatusCode.BadRequest, "Invalid project ID")
                         return@delete
                     }
 
                     val currentUserId = parseUserId(session.userId) ?: run {
-                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid user ID"))
+                        call.respondError(HttpStatusCode.BadRequest, "Invalid user ID")
                         return@delete
                     }
 
                     if (!projectService.hasProjectPermission(projectId, currentUserId, call.isAdmin(), ProjectPermission.ADMIN)) {
-                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Project admin access required"))
+                        call.respondError(HttpStatusCode.Forbidden, "Project admin access required")
                         return@delete
                     }
 
                     val userId = parseUserId(call.parameters["userId"]) ?: run {
-                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid user ID"))
+                        call.respondError(HttpStatusCode.BadRequest, "Invalid user ID")
                         return@delete
                     }
 
                     when (projectService.removeProjectUser(projectId, userId)) {
                         RemoveProjectUserResult.SUCCESS -> call.respond(Unit)
                         RemoveProjectUserResult.PROJECT_NOT_FOUND ->
-                            call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Project not found"))
+                            call.respondError(HttpStatusCode.BadRequest, "Project not found")
                         RemoveProjectUserResult.NOT_MEMBER ->
-                            call.respond(HttpStatusCode.BadRequest, mapOf("error" to "User is not part of this project"))
+                            call.respondError(HttpStatusCode.BadRequest, "User is not part of this project")
                         RemoveProjectUserResult.LAST_PROJECT_ADMIN ->
-                            call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Cannot remove the last project admin"))
+                            call.respondError(HttpStatusCode.BadRequest, "Cannot remove the last project admin")
                     }
                 }
             }
@@ -336,22 +337,22 @@ fun Route.projectRoutes(projectService: ProjectService) {
                 get {
                     val session = call.getUserSession()
                     if (session == null) {
-                        call.respond(HttpStatusCode.Unauthorized)
+                        call.respondError(HttpStatusCode.Unauthorized, "Not authenticated")
                         return@get
                     }
 
                     val projectId = parseProjectId(call.parameters["projectId"]) ?: run {
-                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid project ID"))
+                        call.respondError(HttpStatusCode.BadRequest, "Invalid project ID")
                         return@get
                     }
 
                     val userId = parseUserId(session.userId) ?: run {
-                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid user ID"))
+                        call.respondError(HttpStatusCode.BadRequest, "Invalid user ID")
                         return@get
                     }
 
                     if (!projectService.hasProjectPermission(projectId, userId, call.isAdmin(), ProjectPermission.READ)) {
-                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Access denied"))
+                        call.respondError(HttpStatusCode.Forbidden, "Access denied")
                         return@get
                     }
 
@@ -361,28 +362,28 @@ fun Route.projectRoutes(projectService: ProjectService) {
                 post {
                     val session = call.getUserSession()
                     if (session == null) {
-                        call.respond(HttpStatusCode.Unauthorized)
+                        call.respondError(HttpStatusCode.Unauthorized, "Not authenticated")
                         return@post
                     }
 
                     val projectId = parseProjectId(call.parameters["projectId"]) ?: run {
-                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid project ID"))
+                        call.respondError(HttpStatusCode.BadRequest, "Invalid project ID")
                         return@post
                     }
 
                     val currentUserId = parseUserId(session.userId) ?: run {
-                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid user ID"))
+                        call.respondError(HttpStatusCode.BadRequest, "Invalid user ID")
                         return@post
                     }
 
                     if (!projectService.hasProjectPermission(projectId, currentUserId, call.isAdmin(), ProjectPermission.ADMIN)) {
-                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Project admin access required"))
+                        call.respondError(HttpStatusCode.Forbidden, "Project admin access required")
                         return@post
                     }
 
                     val request = call.receive<AddOwnerRequest>()
                     val userId = parseUserId(request.userId) ?: run {
-                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid user ID"))
+                        call.respondError(HttpStatusCode.BadRequest, "Invalid user ID")
                         return@post
                     }
 
@@ -397,49 +398,49 @@ fun Route.projectRoutes(projectService: ProjectService) {
                     ) {
                         AddProjectUserResult.SUCCESS -> call.respond(Unit)
                         AddProjectUserResult.PROJECT_NOT_FOUND ->
-                            call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Project not found"))
+                            call.respondError(HttpStatusCode.BadRequest, "Project not found")
                         AddProjectUserResult.USER_NOT_FOUND ->
-                            call.respond(HttpStatusCode.BadRequest, mapOf("error" to "User not found"))
+                            call.respondError(HttpStatusCode.BadRequest, "User not found")
                         AddProjectUserResult.ALREADY_MEMBER ->
-                            call.respond(HttpStatusCode.BadRequest, mapOf("error" to "User is already in the project"))
+                            call.respondError(HttpStatusCode.BadRequest, "User is already in the project")
                     }
                 }
 
                 delete("/{userId}") {
                     val session = call.getUserSession()
                     if (session == null) {
-                        call.respond(HttpStatusCode.Unauthorized)
+                        call.respondError(HttpStatusCode.Unauthorized, "Not authenticated")
                         return@delete
                     }
 
                     val projectId = parseProjectId(call.parameters["projectId"]) ?: run {
-                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid project ID"))
+                        call.respondError(HttpStatusCode.BadRequest, "Invalid project ID")
                         return@delete
                     }
 
                     val currentUserId = parseUserId(session.userId) ?: run {
-                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid user ID"))
+                        call.respondError(HttpStatusCode.BadRequest, "Invalid user ID")
                         return@delete
                     }
 
                     if (!projectService.hasProjectPermission(projectId, currentUserId, call.isAdmin(), ProjectPermission.ADMIN)) {
-                        call.respond(HttpStatusCode.Forbidden, mapOf("error" to "Project admin access required"))
+                        call.respondError(HttpStatusCode.Forbidden, "Project admin access required")
                         return@delete
                     }
 
                     val userId = parseUserId(call.parameters["userId"]) ?: run {
-                        call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Invalid user ID"))
+                        call.respondError(HttpStatusCode.BadRequest, "Invalid user ID")
                         return@delete
                     }
 
                     when (projectService.removeProjectUser(projectId, userId)) {
                         RemoveProjectUserResult.SUCCESS -> call.respond(Unit)
                         RemoveProjectUserResult.PROJECT_NOT_FOUND ->
-                            call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Project not found"))
+                            call.respondError(HttpStatusCode.BadRequest, "Project not found")
                         RemoveProjectUserResult.NOT_MEMBER ->
-                            call.respond(HttpStatusCode.BadRequest, mapOf("error" to "User is not part of this project"))
+                            call.respondError(HttpStatusCode.BadRequest, "User is not part of this project")
                         RemoveProjectUserResult.LAST_PROJECT_ADMIN ->
-                            call.respond(HttpStatusCode.BadRequest, mapOf("error" to "Cannot remove the last project admin"))
+                            call.respondError(HttpStatusCode.BadRequest, "Cannot remove the last project admin")
                     }
                 }
             }

@@ -1,4 +1,4 @@
-import type { FileDependency, DataDependency, ExecutionResultEntry } from "@mdeo/service-common";
+import type { FileDependency, DataDependency, DocumentDiagnostic, ExecutionResultEntry } from "@mdeo/service-common";
 
 /**
  * Dependency data passed to each plugin request handler.
@@ -41,6 +41,30 @@ export interface ConfigPluginRequestResponse<T = Record<string, unknown>> {
      * error (e.g. parse or validation error) that prevents a valid result.
      */
     data: T | null;
+    /**
+     * File paths (and their versions) that were read during processing.
+     */
+    fileDependencies: FileDependency[];
+    /**
+     * Other file-data computations that were consulted during processing.
+     */
+    dataDependencies: DataDependency[];
+}
+
+/**
+ * Response to a {@link CONFIG_DIAGNOSTICS_REQUEST_KEY} request: the diagnostics of the partial
+ * config text, with ranges in that text.
+ */
+export interface ConfigPluginDiagnosticsResponse {
+    /**
+     * The diagnostics of the partial config text, of every severity.
+     */
+    diagnostics: DocumentDiagnostic[];
+    /**
+     * The paths of the files the sections depend on, directly or transitively, that have errors
+     * themselves.
+     */
+    dependenciesWithErrors: string[];
     /**
      * File paths (and their versions) that were read during processing.
      */
@@ -150,6 +174,15 @@ export interface ConfigExecutionFilesResponse {
  * to register and handle partial-config data requests from service-config.
  */
 export const CONFIG_PLUGIN_REQUEST_KEY = "config";
+
+/**
+ * Request-handler key used by config contribution plugin services to report the diagnostics of
+ * a partial config, with the same {@link ConfigPluginRequestBody} as {@link CONFIG_PLUGIN_REQUEST_KEY}.
+ *
+ * Only the plugin can resolve the references in its sections, so service-config cannot tell
+ * whether they resolve on its own.
+ */
+export const CONFIG_DIAGNOSTICS_REQUEST_KEY = "config-diagnostics";
 
 /**
  * Request-handler key for forwarding config execution to a contribution plugin language.

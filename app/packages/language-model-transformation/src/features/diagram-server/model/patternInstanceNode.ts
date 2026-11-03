@@ -29,6 +29,13 @@ export class GPatternInstanceNode extends GNode {
     classHierarchy?: string[];
 
     /**
+     * The input model the instance belongs to (the model value a scope block names, e.g.
+     * `donor`), or undefined for an instance of the transformed model.
+     * Used by the client to refuse links between models.
+     */
+    model?: string;
+
+    /**
      * Creates a builder for GPatternInstanceNode instances.
      *
      * @returns A new GPatternInstanceNodeBuilder
@@ -88,6 +95,19 @@ export class GPatternInstanceNodeBuilder<
      */
     classHierarchy(hierarchy: string[]): this {
         this.proxy.classHierarchy = hierarchy;
+        return this;
+    }
+
+    /**
+     * Sets the input model the pattern instance belongs to.
+     *
+     * @param model The name of the model value, or undefined for the transformed model
+     * @returns This builder for chaining
+     */
+    model(model: string | undefined): this {
+        if (model != undefined) {
+            this.proxy.model = model;
+        }
         return this;
     }
 }

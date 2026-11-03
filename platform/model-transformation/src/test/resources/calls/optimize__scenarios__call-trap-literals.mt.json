@@ -1,0 +1,177 @@
+{
+ "types": [
+  {
+   "kind": "void"
+  },
+  {
+   "package": "builtin",
+   "type": "string",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "double",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "boolean",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "Any",
+   "isNullable": true
+  }
+ ],
+ "metamodelPath": "/metamodel/shop.mm",
+ "statements": [
+  {
+   "kind": "match",
+   "pattern": {
+    "elements": [
+     {
+      "kind": "objectInstance",
+      "objectInstance": {
+       "name": "hostA",
+       "className": "Container",
+       "properties": [
+        {
+         "propertyName": "name",
+         "operator": "==",
+         "value": {
+          "kind": "stringLiteral",
+          "evalType": 1,
+          "value": "a"
+         }
+        }
+       ]
+      }
+     },
+     {
+      "kind": "variable",
+      "variable": {
+       "name": "huge",
+       "value": {
+        "kind": "doubleLiteral",
+        "evalType": 2,
+        "value": "1.0e300"
+       }
+      }
+     },
+     {
+      "kind": "variable",
+      "variable": {
+       "name": "tiny",
+       "value": {
+        "kind": "doubleLiteral",
+        "evalType": 2,
+        "value": "2.5E-3"
+       }
+      }
+     },
+     {
+      "kind": "variable",
+      "variable": {
+       "name": "plain",
+       "value": {
+        "kind": "doubleLiteral",
+        "evalType": 2,
+        "value": "1e3"
+       }
+      }
+     },
+     {
+      "kind": "whereClause",
+      "whereClause": {
+       "expression": {
+        "kind": "binary",
+        "evalType": 3,
+        "operator": "&&",
+        "left": {
+         "kind": "binary",
+         "evalType": 3,
+         "operator": "&&",
+         "left": {
+          "kind": "binary",
+          "evalType": 3,
+          "operator": ">",
+          "left": {
+           "kind": "identifier",
+           "evalType": 2,
+           "name": "huge",
+           "scope": 1
+          },
+          "right": {
+           "kind": "doubleLiteral",
+           "evalType": 2,
+           "value": "1.0e299"
+          }
+         },
+         "right": {
+          "kind": "binary",
+          "evalType": 3,
+          "operator": "<",
+          "left": {
+           "kind": "identifier",
+           "evalType": 2,
+           "name": "tiny",
+           "scope": 1
+          },
+          "right": {
+           "kind": "doubleLiteral",
+           "evalType": 2,
+           "value": "0.01"
+          }
+         }
+        },
+        "right": {
+         "kind": "binary",
+         "evalType": 3,
+         "operator": "==",
+         "left": {
+          "kind": "identifier",
+          "evalType": 2,
+          "name": "plain",
+          "scope": 1
+         },
+         "right": {
+          "kind": "doubleLiteral",
+          "evalType": 2,
+          "value": "1000.0"
+         }
+        }
+       }
+      }
+     },
+     {
+      "kind": "objectInstance",
+      "objectInstance": {
+       "modifier": "create",
+       "name": "log",
+       "className": "Container",
+       "properties": [
+        {
+         "propertyName": "name",
+         "operator": "=",
+         "value": {
+          "kind": "stringLiteral",
+          "evalType": 1,
+          "value": "literals ok"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  }
+ ],
+ "signature": {
+  "name": "call-trap-literals.mt",
+  "parameters": []
+ }
+}

@@ -21,22 +21,22 @@
     ],
     "dependencies": {
         "@mdeo/plugin": "^0.2.11",
-        "lucide": "^1.31.0",
+        "lucide": "^1.63.0",
         "munkres": "^2.1.1"
     },
     "devDependencies": {
-        "@eclipse-glsp/graph": "^2.7.0",
-        "@eclipse-glsp/protocol": "^2.7.0",
-        "@eclipse-glsp/server": "^2.7.0",
-        "elkjs": "^0.12.0",
+        "@eclipse-glsp/graph": "^2.8.0",
+        "@eclipse-glsp/protocol": "^2.8.0",
+        "@eclipse-glsp/server": "^2.8.0",
+        "elkjs": "^0.12.1",
         "inversify": "^6.2.2",
-        "langium": "~4.2.4",
-        "monaco-editor": "npm:@codingame/monaco-vscode-editor-api@^25.0.1",
-        "prettier": "^3.9.6",
+        "langium": "~4.4.0",
+        "monaco-editor": "npm:@codingame/monaco-vscode-editor-api@^37.6.1",
+        "prettier": "^3.9.10",
         "typir": "^0.3.3",
         "typir-langium": "^0.3.3",
-        "vscode-jsonrpc": "8.2.0",
-        "vscode-languageserver-protocol": "~3.17.5",
-        "vscode-languageserver-types": "~3.17.5"
+        "vscode-jsonrpc": "~9.0.3",
+        "vscode-languageserver-protocol": "3.18.4",
+        "vscode-languageserver-types": "3.18.4"
     }
 }

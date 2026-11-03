@@ -1,3 +1,4 @@
+export * from "./operations/addHeaderDeclarationOperation.js";
 export * from "./operations/addPropertyValueComparisonOperation.js";
 export * from "./operations/addVariableOperation.js";
 export * from "./operations/addWhereClauseOperation.js";

@@ -1,5 +1,8 @@
 package com.mdeo.backend.service
 
+import com.mdeo.common.auth.Scopes
+import com.mdeo.common.transport.CompressedResponses
+import com.mdeo.common.transport.describeErrorResponse
 import com.mdeo.common.model.ExecutionState
 import com.mdeo.backend.database.ExecutionsTable
 import com.mdeo.backend.database.FilesTable
@@ -18,7 +21,6 @@ import org.slf4j.LoggerFactory
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
-import java.net.http.HttpResponse
 import java.time.Duration
 import java.time.Instant
 import java.util.*
@@ -38,7 +40,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
 
     private val httpClient by lazy {
         HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(10))
+            .connectTimeout(Duration.ofSeconds(config.timeouts.connectSeconds))
             .version(if (config.plugin.forceHttp1) HttpClient.Version.HTTP_1_1 else HttpClient.Version.HTTP_2)
             .build()
     }
@@ -53,18 +55,6 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
      * that authorizes it, so a dropped connection costs nothing but a reconnect.
      */
     private val executionWsClient by lazy { ExecutionWsClient() }
-
-    companion object {
-        /**
-         * JWT scope for reading execution data 
-         */
-        const val SCOPE_EXECUTION_READ = "execution:read"
-
-        /**
-         * JWT scope for writing execution state 
-         */
-        const val SCOPE_EXECUTION_WRITE = "execution:write"
-    }
 
     /**
      * Lists all executions for a project.
@@ -188,7 +178,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
             is ApiResult.Failure -> return ApiResult.Failure(result.error)
         }
 
-        val contributionPlugins = pluginService.getContributionPluginsForLanguage(projectId, languagePlugin.id)
+        val contributions = ContributionSet(pluginService.getContributionPluginsForLanguage(projectId, languagePlugin.id))
 
         val executionId = UUID.randomUUID()
         val now = Instant.now()
@@ -210,6 +200,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
 
         val createResponse = try {
             callPluginCreateExecution(
+                pluginId,
                 pluginUrl,
                 languagePlugin.id,
                 executionId,
@@ -218,7 +209,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
                 fileContent,
                 fileVersion,
                 data,
-                contributionPlugins
+                contributions
             )
         } catch (e: Exception) {
             logger.error("Failed to create execution via plugin", e)
@@ -622,7 +613,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
         return try {
             val response = pluginWsRequest(
                 pluginUrl,
-                JwtService.SCOPE_PLUGIN_EXECUTION_READ,
+                Scopes.PLUGIN_EXECUTION_READ,
                 executionId,
                 projectId,
                 { token ->
@@ -891,6 +882,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
     /**
      * Calls the plugin to create an execution.
      *
+     * @param pluginId The plugin, whose answer shows whether its manifest changed
      * @param pluginUrl The base URL of the plugin
      * @param languageId The language identifier for routing the request
      * @param executionId The UUID of the execution
@@ -900,6 +892,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
      * @return The CreateExecutionResponse from the plugin
      */
     private suspend fun callPluginCreateExecution(
+        pluginId: UUID,
         pluginUrl: String,
         languageId: String,
         executionId: UUID,
@@ -908,7 +901,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
         fileContent: String,
         fileVersion: Int,
         data: JsonElement,
-        contributionPlugins: List<JsonElement>
+        contributions: ContributionSet
     ): CreateExecutionResponse {
         return withContext(Dispatchers.IO) {
             // The execution node keeps this token for the entire run and reports progress and the
@@ -921,35 +914,40 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
                 executionId,
                 ttlSeconds = config.jwt.executionExpirationSeconds
             )
-            val requestBody = json.encodeToString(
-                PluginCreateExecutionRequest.serializer(),
-                PluginCreateExecutionRequest(
-                    executionId = executionId.toString(),
-                    project = projectId.toString(),
-                    filePath = filePath,
-                    fileContent = fileContent,
-                    fileVersion = fileVersion,
-                    data = data,
-                    contributionPlugins = contributionPlugins
-                )
-            )
-
             val uri = URI.create(pluginUrl).resolve("$languageId/executions")
-            val request = HttpRequest.newBuilder()
-                .uri(uri)
-                .header("Content-Type", "application/json")
-                .header("Authorization", "Bearer $token")
-                .POST(HttpRequest.BodyPublishers.ofString(requestBody))
-                // Starting an execution can require the plugin to have file data computed first,
-                // which for a large model takes minutes, so this must not give up before a single
-                // computation would have been abandoned anyway.
-                .timeout(Duration.ofSeconds(config.fileData.computationTimeoutSeconds))
-                .build()
 
-            val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+            val response = ContributionDelivery.send(pluginUrl) { includePayloads ->
+                val requestBody = json.encodeToString(
+                    PluginCreateExecutionRequest.serializer(),
+                    PluginCreateExecutionRequest(
+                        executionId = executionId.toString(),
+                        project = projectId.toString(),
+                        filePath = filePath,
+                        fileContent = fileContent,
+                        fileVersion = fileVersion,
+                        data = data,
+                        contributionPlugins = contributions.plugins.takeIf { includePayloads },
+                        contributionHash = contributions.hash
+                    )
+                )
+
+                val request = CompressedResponses.accept(HttpRequest.newBuilder())
+                    .uri(uri)
+                    .header("Content-Type", "application/json")
+                    .header("Authorization", "Bearer $token")
+                    .POST(HttpRequest.BodyPublishers.ofString(requestBody))
+                    // Starting an execution can require the plugin to have file data computed first,
+                    // which for a large model takes minutes, so by default this waits as long as a
+                    // single file data computation may take.
+                    .timeout(Duration.ofSeconds(config.timeouts.executionStartSeconds))
+                    .build()
+
+                httpClient.send(request, CompressedResponses.ofString())
+            }
+            pluginService.observeManifestFingerprint(pluginId, response)
 
             if (response.statusCode() != 200 && response.statusCode() != 201) {
-                throw RuntimeException("Plugin returned status ${response.statusCode()}: ${response.body()}")
+                throw RuntimeException("Plugin returned ${describeErrorResponse(response.statusCode(), response.body())}")
             }
 
             json.decodeFromString<CreateExecutionResponse>(response.body())
@@ -972,7 +970,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
         projectId: UUID,
         metadata: JsonObject?
     ): List<FileEntry> {
-        val overWs = pluginWsRequest(pluginUrl, JwtService.SCOPE_PLUGIN_EXECUTION_READ, executionId, projectId, build = { token ->
+        val overWs = pluginWsRequest(pluginUrl, Scopes.PLUGIN_EXECUTION_READ, executionId, projectId, build = { token ->
             ExecutionFileTreeWsRequest("", wsContext(executionId, projectId, languageId, metadata, token))
         })
         if (overWs != null) {
@@ -992,22 +990,22 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
             val token = jwtService.generatePluginExecutionToken(
                 projectId,
                 executionId,
-                JwtService.SCOPE_PLUGIN_EXECUTION_READ
+                Scopes.PLUGIN_EXECUTION_READ
             )
             val uri = URI.create(pluginUrl).resolve("$languageId/executions/$executionId/files")
 
-            val request = HttpRequest.newBuilder()
+            val request = CompressedResponses.accept(HttpRequest.newBuilder())
                 .uri(uri)
                 .header("Authorization", "Bearer $token")
                 .GET()
-                .timeout(Duration.ofMinutes(1))
+                .timeout(Duration.ofSeconds(config.timeouts.executionReadSeconds))
                 .applyExecutionMetadataHeader(metadata)
                 .build()
 
-            val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+            val response = httpClient.send(request, CompressedResponses.ofString())
 
             if (response.statusCode() != 200) {
-                throw RuntimeException("Plugin returned status ${response.statusCode()}: ${response.body()}")
+                throw RuntimeException("Plugin returned ${describeErrorResponse(response.statusCode(), response.body())}")
             }
 
             json.decodeFromString<ExecutionFileTreeResponse>(response.body()).files
@@ -1030,7 +1028,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
         projectId: UUID,
         metadata: JsonObject?
     ): String {
-        val overWs = pluginWsRequest(pluginUrl, JwtService.SCOPE_PLUGIN_EXECUTION_READ, executionId, projectId, build = { token ->
+        val overWs = pluginWsRequest(pluginUrl, Scopes.PLUGIN_EXECUTION_READ, executionId, projectId, build = { token ->
             ExecutionSummaryWsRequest("", wsContext(executionId, projectId, languageId, metadata, token))
         })
         if (overWs != null) {
@@ -1050,22 +1048,22 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
             val token = jwtService.generatePluginExecutionToken(
                 projectId,
                 executionId,
-                JwtService.SCOPE_PLUGIN_EXECUTION_READ
+                Scopes.PLUGIN_EXECUTION_READ
             )
             val uri = URI.create(pluginUrl).resolve("$languageId/executions/$executionId/summary")
 
-            val request = HttpRequest.newBuilder()
+            val request = CompressedResponses.accept(HttpRequest.newBuilder())
                 .uri(uri)
                 .header("Authorization", "Bearer $token")
                 .GET()
-                .timeout(Duration.ofMinutes(1))
+                .timeout(Duration.ofSeconds(config.timeouts.executionReadSeconds))
                 .applyExecutionMetadataHeader(metadata)
                 .build()
 
-            val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+            val response = httpClient.send(request, CompressedResponses.ofString())
 
             if (response.statusCode() != 200) {
-                throw RuntimeException("Plugin returned status ${response.statusCode()}: ${response.body()}")
+                throw RuntimeException("Plugin returned ${describeErrorResponse(response.statusCode(), response.body())}")
             }
 
             json.decodeFromString<ExecutionSummaryResponse>(response.body()).summary
@@ -1090,7 +1088,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
         path: String,
         metadata: JsonObject?
     ): ByteArray {
-        val overWs = pluginWsRequest(pluginUrl, JwtService.SCOPE_PLUGIN_EXECUTION_READ, executionId, projectId, build = { token ->
+        val overWs = pluginWsRequest(pluginUrl, Scopes.PLUGIN_EXECUTION_READ, executionId, projectId, build = { token ->
             ExecutionFileWsRequest("", wsContext(executionId, projectId, languageId, metadata, token), normalizePath(path))
         })
         if (overWs != null) {
@@ -1111,20 +1109,20 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
             val token = jwtService.generatePluginExecutionToken(
                 projectId,
                 executionId,
-                JwtService.SCOPE_PLUGIN_EXECUTION_READ
+                Scopes.PLUGIN_EXECUTION_READ
             )
             val normalizedPath = normalizePath(path)
             val uri = URI.create(pluginUrl).resolve("$languageId/executions/$executionId/files/$normalizedPath")
 
-            val request = HttpRequest.newBuilder()
+            val request = CompressedResponses.accept(HttpRequest.newBuilder())
                 .uri(uri)
                 .header("Authorization", "Bearer $token")
                 .GET()
-                .timeout(Duration.ofMinutes(1))
+                .timeout(Duration.ofSeconds(config.timeouts.executionReadSeconds))
                 .applyExecutionMetadataHeader(metadata)
                 .build()
 
-            val response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray())
+            val response = httpClient.send(request, CompressedResponses.ofByteArray())
 
             if (response.statusCode() != 200) {
                 throw RuntimeException("Plugin returned status ${response.statusCode()}")
@@ -1151,7 +1149,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
         metadata: JsonObject?
     ) {
         val overWs = pluginWsRequest(
-            pluginUrl, JwtService.SCOPE_PLUGIN_EXECUTION_CANCEL, executionId, projectId,
+            pluginUrl, Scopes.PLUGIN_EXECUTION_CANCEL, executionId, projectId,
             build = { token ->
                 ExecutionCancelWsRequest("", wsContext(executionId, projectId, languageId, metadata, token))
             }
@@ -1173,22 +1171,22 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
             val token = jwtService.generatePluginExecutionToken(
                 projectId,
                 executionId,
-                JwtService.SCOPE_PLUGIN_EXECUTION_CANCEL
+                Scopes.PLUGIN_EXECUTION_CANCEL
             )
             val uri = URI.create(pluginUrl).resolve("$languageId/executions/$executionId/cancel")
 
-            val request = HttpRequest.newBuilder()
+            val request = CompressedResponses.accept(HttpRequest.newBuilder())
                 .uri(uri)
                 .header("Authorization", "Bearer $token")
                 .POST(HttpRequest.BodyPublishers.noBody())
-                .timeout(Duration.ofMinutes(1))
+                .timeout(Duration.ofSeconds(config.timeouts.executionReadSeconds))
                 .applyExecutionMetadataHeader(metadata)
                 .build()
 
-            val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+            val response = httpClient.send(request, CompressedResponses.ofString())
 
             if (response.statusCode() != 200 && response.statusCode() != 204) {
-                throw RuntimeException("Plugin returned status ${response.statusCode()}: ${response.body()}")
+                throw RuntimeException("Plugin returned ${describeErrorResponse(response.statusCode(), response.body())}")
             }
         }
     }
@@ -1211,13 +1209,13 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
     ) {
         val overWs = try {
             pluginWsRequest(
-                pluginUrl, JwtService.SCOPE_PLUGIN_EXECUTION_DELETE, executionId, projectId,
+                pluginUrl, Scopes.PLUGIN_EXECUTION_DELETE, executionId, projectId,
                 build = { token ->
                     ExecutionDeleteWsRequest("", wsContext(executionId, projectId, languageId, metadata, token))
                 }
             )
         } catch (e: ExecutionWsException) {
-            if (e.code == ExecutionWsErrorCodes.NOT_FOUND) {
+            if (e.code == ErrorCodes.NOT_FOUND) {
                 logger.warn("Plugin reports execution $executionId as unknown when deleting; assuming already deleted")
                 return
             }
@@ -1240,19 +1238,19 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
             val token = jwtService.generatePluginExecutionToken(
                 projectId,
                 executionId,
-                JwtService.SCOPE_PLUGIN_EXECUTION_DELETE
+                Scopes.PLUGIN_EXECUTION_DELETE
             )
             val uri = URI.create(pluginUrl).resolve("$languageId/executions/$executionId")
 
-            val request = HttpRequest.newBuilder()
+            val request = CompressedResponses.accept(HttpRequest.newBuilder())
                 .uri(uri)
                 .header("Authorization", "Bearer $token")
                 .DELETE()
-                .timeout(Duration.ofMinutes(1))
+                .timeout(Duration.ofSeconds(config.timeouts.executionReadSeconds))
                 .applyExecutionMetadataHeader(metadata)
                 .build()
 
-            val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+            val response = httpClient.send(request, CompressedResponses.ofString())
 
             if (response.statusCode() == 404) {
                 logger.warn("Plugin returned 404 when deleting execution $executionId; assuming already deleted")
@@ -1260,7 +1258,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
             }
 
             if (response.statusCode() != 200 && response.statusCode() != 204) {
-                throw RuntimeException("Plugin returned status ${response.statusCode()}: ${response.body()}")
+                throw RuntimeException("Plugin returned ${describeErrorResponse(response.statusCode(), response.body())}")
             }
         }
     }
@@ -1298,7 +1296,7 @@ class ExecutionService(services: InjectedServices) : BaseService(), InjectedServ
                 onStream
             )
         } catch (e: ExecutionWsException) {
-            if (e.code != ExecutionWsErrorCodes.UNAVAILABLE) {
+            if (e.code != ErrorCodes.UNAVAILABLE) {
                 // The plugin answered, and said no. That is a real result, not a reason to ask
                 // again over HTTP — the code travels with the exception so callers that treat
                 // some failures as expected can still recognise them.

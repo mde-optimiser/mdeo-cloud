@@ -90,8 +90,8 @@ object EqualityCompilerUtil {
         val leftIsCollection = isCollectionType(leftType, registry)
         val rightIsCollection = isCollectionType(rightType, registry)
 
-        val foldedLeft = if (leftIsCollection) leftTraversal.fold() else leftTraversal
-        val foldedRight = if (rightIsCollection) rightTraversal.fold() else rightTraversal
+        val foldedLeft = if (leftIsCollection) leftTraversal.fold() else orNull(leftTraversal, leftType)
+        val foldedRight = if (rightIsCollection) rightTraversal.fold() else orNull(rightTraversal, rightType)
         val isEq = (operator == "==")
         @Suppress("UNCHECKED_CAST")
         return AnonymousTraversal.project<Any, Any>(leftLabel, rightLabel)
@@ -101,6 +101,17 @@ object EqualityCompilerUtil {
                 AnonymousTraversal.constant<Boolean>(true),
                 AnonymousTraversal.constant<Boolean>(false)
             ) as GraphTraversal<Any, Boolean>
+    }
+
+    /**
+     * A nullable operand, such as an unset single-valued reference, may produce no value at all;
+     * it then stands for `null`, so that `x.ref == null` holds instead of failing for lack of a
+     * value to compare.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun orNull(traversal: GraphTraversal<Any, Any>, type: ValueType?): GraphTraversal<Any, Any> {
+        if (type !is ClassTypeRef || !type.isNullable) return traversal
+        return AnonymousTraversal.coalesce<Any, Any>(traversal, AnonymousTraversal.constant<Any>(null)) as GraphTraversal<Any, Any>
     }
 
     /**

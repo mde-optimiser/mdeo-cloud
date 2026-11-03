@@ -18,17 +18,59 @@ export interface EdgeMutationData {
 }
 
 /**
+ * The value of an operator argument, as written in the config.
+ * Maps to the Kotlin sealed class ConfigLiteral; `type` matches its @SerialName discriminators.
+ * The kind is the literal's own (an int literal stays `int` for a double input): the engine
+ * converts numbers to the input's type.
+ */
+export type ConfigLiteralData =
+    | { type: "int"; value: number }
+    | { type: "long"; value: number }
+    | { type: "float"; value: number }
+    | { type: "double"; value: number }
+    | { type: "string"; value: string }
+    | { type: "boolean"; value: boolean }
+    | { type: "enum"; enumName: string; literal: string }
+    | { type: "list"; elements: ConfigLiteralData[] };
+
+/**
+ * A hand-written operator: a `using` entry of the mutations or crossovers block.
+ * Maps to Kotlin OperatorRef. Each entry is its own operator, even when two name the same file.
+ */
+export interface OperatorRefData {
+    /**
+     * Absolute path of the model transformation file.
+     */
+    path: string;
+    /**
+     * The values the `with { }` block passes to the transformation's inputs, by input name.
+     */
+    arguments: Record<string, ConfigLiteralData>;
+}
+
+/**
  * Data for the mutations block.
- * `usingPaths` is a flat list of absolute file-system paths, matching
- * Kotlin MutationsConfig.usingPaths (List<String>).
+ * `operators` matches Kotlin MutationsConfig.operators; the class and edge mutations are
+ * converted to its `generate` list when building the optimizer execution request.
  */
 export interface MutationsBlockData {
     /**
-     * Absolute paths to the model transformation files.
+     * The hand-written mutation operators.
      */
-    usingPaths: string[];
+    operators: OperatorRefData[];
     classMutations: ClassMutationData[];
     edgeMutations: EdgeMutationData[];
+}
+
+/**
+ * Data for the crossovers block.
+ * Maps to Kotlin CrossoversConfig.
+ */
+export interface CrossoversBlockData {
+    /**
+     * The crossover operators.
+     */
+    operators: OperatorRefData[];
 }
 
 /**
@@ -36,6 +78,7 @@ export interface MutationsBlockData {
  */
 export interface SearchSectionData {
     mutations?: MutationsBlockData;
+    crossovers?: CrossoversBlockData;
 }
 
 /**
@@ -55,6 +98,19 @@ export interface MutationBlockData {
 }
 
 /**
+ * Crossover parameters block.
+ * Maps to Kotlin CrossoverParameters. Every crossover yields one child per parent, so
+ * `children` always equals `parents`.
+ * `strategy` matches Kotlin CrossoverStrategy enum names (uppercase).
+ */
+export interface CrossoverBlockData {
+    rate: number;
+    parents: number;
+    children: number;
+    strategy: "RANDOM";
+}
+
+/**
  * Algorithm parameters block.
  * Maps to Kotlin AlgorithmParameters.
  * `variation` matches Kotlin VariationType enum names (uppercase).
@@ -62,7 +118,8 @@ export interface MutationBlockData {
  */
 export interface AlgorithmParametersData {
     population?: number;
-    variation?: "MUTATION" | "GENETIC" | "PROBABILISTIC";
+    variation?: "MUTATION" | "GENETIC";
+    crossover?: CrossoverBlockData;
     mutation?: MutationBlockData;
     bisections?: number;
     archiveSize?: number;

@@ -1,9 +1,4 @@
-import {
-    BaseCreateNodeOperationHandler,
-    MetadataManager,
-    PlaceholderModelIdRegistry,
-    sharedImport
-} from "@mdeo/language-shared";
+import { MetadataManager, PlaceholderModelIdRegistry, sharedImport } from "@mdeo/language-shared";
 import type { CreateNodeResult, GroupedToolboxItem, ToolboxItemProvider } from "@mdeo/language-shared";
 import type { CreateNodeOperation, GhostElement } from "@eclipse-glsp/protocol";
 import type { ClassType } from "../../../grammar/metamodelTypes.js";
@@ -13,6 +8,7 @@ import type { MetamodelGModelFactory } from "../metamodelGModelFactory.js";
 import type { MetamodelMetadataManager } from "../metamodelMetadataManager.js";
 import type { WorkspaceEdit } from "vscode-languageserver-types";
 import type { NodeLayoutMetadata } from "@mdeo/protocol-common";
+import { MetamodelBaseCreateNodeOperationHandler } from "./metamodelBaseCreateNodeOperationHandler.js";
 
 const { injectable, inject } = sharedImport("inversify");
 const { CreateNodeOperation: CreateNodeOperationKind, TriggerNodeCreationAction } =
@@ -27,7 +23,10 @@ const { GModelFactory } = sharedImport("@eclipse-glsp/server");
  * with ghost element templates for visual preview during node creation.
  */
 @injectable()
-export class CreateClassOperationHandler extends BaseCreateNodeOperationHandler implements ToolboxItemProvider {
+export class CreateClassOperationHandler
+    extends MetamodelBaseCreateNodeOperationHandler
+    implements ToolboxItemProvider
+{
     readonly operationType = CreateNodeOperationKind.KIND;
     override readonly label = "Class";
     readonly elementTypeIds = [MetamodelElementType.NODE_CLASS];
@@ -48,7 +47,7 @@ export class CreateClassOperationHandler extends BaseCreateNodeOperationHandler 
             }
 
             return {
-                workspaceEdit: edit,
+                workspaceEdit: this.addToActiveView(edit, node),
                 insertSpecifications: [
                     {
                         container: this.modelState.sourceModel!,

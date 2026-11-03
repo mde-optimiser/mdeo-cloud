@@ -7,6 +7,10 @@ import com.mdeo.execution.common.subprocess.SubprocessRunner
 import com.mdeo.metamodel.data.MetamodelData
 import com.mdeo.metamodel.data.ModelData
 import com.mdeo.script.ast.TypedAst
+import com.mdeo.script.ast.TypedPluginAst
+import com.mdeo.execution.common.api.ScriptBackendApiClient
+import com.mdeo.execution.common.external.ExternalSessions
+import com.mdeo.execution.common.external.SessionAccess
 import com.mdeo.common.model.ExecutionState
 import com.mdeo.scriptexecution.database.ExecutionsTable
 import kotlinx.coroutines.CoroutineScope
@@ -67,6 +71,8 @@ private data class ModelContext(
  *
  * @param backendApiService Service for backend API communication
  * @param timeoutMs Execution timeout in milliseconds
+ * @param executionScope Scope the executions run in
+ * @param sessionConnectTimeoutMillis How long dialling a session for an external call may take
  * @param subprocessPool Pool of reusable subprocess JVMs; avoids JVM startup overhead for
  *        frequent executions. Each pooled process is reset between executions.
  */
@@ -74,10 +80,10 @@ class ExecutionService(
     private val backendApiService: BackendApiService,
     private val timeoutMs: Long,
     private val executionScope: CoroutineScope,
+    private val sessionConnectTimeoutMillis: Long,
     private val subprocessPool: SubprocessPool = buildDefaultPool()
 ) : CommonExecutionService {
     private val logger = LoggerFactory.getLogger(ExecutionService::class.java)
-    private val dependencyResolver = TypedAstDependencyResolver(backendApiService)
 
     companion object {
         private const val MAX_PATH_LENGTH = 1000
@@ -225,9 +231,17 @@ class ExecutionService(
         requestData: ExecutionRequestData,
         jwtToken: String
     ) {
+        // Typed ASTs name files by absolute path; the path of the execution may lack the slash.
+        val scriptPath = ScriptBackendApiClient.absolutePath(filePath)
         val resolvedAsts = resolveAndValidateAsts(
-            executionId, projectId, filePath, requestData.methodName, jwtToken
+            executionId, projectId, scriptPath, requestData.methodName, jwtToken
         ) ?: return
+
+        val sessionAccess = SessionAccess(
+            backendApiService.backendBaseUrl, projectId.toString(), jwtToken, sessionConnectTimeoutMillis
+        )
+        val pluginAst = backendApiService.getPluginAst(projectId.toString(), jwtToken)
+        if (!checkExternalSessions(executionId, sessionAccess, pluginAst, jwtToken)) return
 
         val modelContext = if (resolvedAsts.metamodelPath != null && requestData.modelPath != null) {
             fetchModelContext(
@@ -257,11 +271,13 @@ class ExecutionService(
 
         val payload = ScriptSubprocessMain.serializeInput(
             resolvedAsts.typedAsts,
+            pluginAst,
             modelContext?.metamodelData,
             modelContext?.modelData,
-            filePath,
+            scriptPath,
             requestData.methodName,
-            timeoutMs
+            timeoutMs,
+            sessionAccess
         )
         val result = subprocess.sendCommand(payload)
 
@@ -335,6 +351,25 @@ class ExecutionService(
     }
 
     /**
+     * Checks, before anything runs, that every contribution with an external function can be
+     * reached over its `script-functions` session. See [ExternalSessions.findProblem].
+     *
+     * @return true when every session resolves; false after marking the execution failed
+     */
+    private suspend fun checkExternalSessions(
+        executionId: UUID,
+        sessionAccess: SessionAccess,
+        pluginAst: TypedPluginAst?,
+        jwtToken: String
+    ): Boolean {
+        val problem = ExternalSessions(sessionAccess).use { it.findProblem(pluginAst) } ?: return true
+
+        storeError(executionId, problem)
+        updateExecutionState(executionId, ExecutionState.FAILED, problem, jwtToken)
+        return false
+    }
+
+    /**
      * Resolves all typed ASTs for [filePath] and its dependencies, then checks that the
      * target [methodName] exists and has no parameters.
      *
@@ -351,11 +386,9 @@ class ExecutionService(
     ): ResolvedAsts? {
         updateExecutionState(executionId, ExecutionState.INITIALIZING, "Fetching AST and dependencies...", jwtToken)
 
-        val typedAsts = dependencyResolver.resolveWithDependencies(
-            projectId.toString(), filePath, jwtToken
-        )
+        val typedAsts = backendApiService.getTypedAstClosure(projectId.toString(), filePath, jwtToken)
         if (typedAsts == null) {
-            val msg = "Failed to fetch typed AST or its dependencies from backend"
+            val msg = "Could not load script $filePath or a file it imports: one is missing or has errors"
             storeError(executionId, msg)
             updateExecutionState(executionId, ExecutionState.FAILED, msg, jwtToken)
             return null

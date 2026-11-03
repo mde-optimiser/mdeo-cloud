@@ -76,7 +76,77 @@ class MdeoModelGraph private constructor(
     override fun deepCopy(): MdeoModelGraph {
         return MdeoModelGraph(graph.deepCopy(), instanceNameRegistry.copy()).also {
             it.metadata = metadata?.deepCopy()
+            it.loadedModelInputs.addAll(loadedModelInputs)
         }
+    }
+
+    /** The model-input slots loaded; see [modelInputSlots]. */
+    private val loadedModelInputs = LinkedHashSet<Int>()
+
+    override val modelInputSlots: Set<Int>
+        get() = loadedModelInputs
+
+    /**
+     * Loads [model] as read-only vertices of [slot] that count their IDs downwards from -1, apart
+     * from the implicit model's (see [MdeoGraph.loadModelInput]).
+     *
+     * A model of this backend and metamodel is copied instance by instance, with the generated
+     * copy constructors a [deepCopy] uses; any other is loaded from its [ModelData]. Either way
+     * the graph owns the copied instances, so [model] is never changed.
+     */
+    override fun loadModelInput(slot: Int, model: ModelGraph) {
+        require(slot >= 1) { "A model-input slot is at least 1, not $slot" }
+        require(slot !in loadedModelInputs) { "Model-input slot $slot is already loaded" }
+        require(model !== this) { "A graph cannot be loaded into itself as a model input" }
+        require(model.modelInputSlots.isEmpty()) { "A model input must not have model inputs loaded itself" }
+        val instances = if (model is MdeoModelGraph && model.metamodel === metamodel) {
+            model.copyInstancesByName()
+        } else {
+            metamodel.loadModel(model.toModelData()).instancesByName
+        }
+        for ((name, vertex) in graph.loadModelInput(slot, instances)) {
+            instanceNameRegistry.register(vertex.id, ModelGraph.modelInputName(slot, name))
+        }
+        loadedModelInputs += slot
+    }
+
+    override fun unloadModelInputs() {
+        if (loadedModelInputs.isEmpty()) return
+        for (vertexId in graph.removeModelInputs()) {
+            instanceNameRegistry.unregister(vertexId)
+        }
+        loadedModelInputs.clear()
+    }
+
+    /**
+     * Every vertex reports its slot ([MdeoVertex.modelSlot]), the implicit one included, so the
+     * filter is a `has` that [MdeoGraphStepStrategy] folds into the label-indexed scan.
+     */
+    @Suppress("UNCHECKED_CAST")
+    override fun <S, E> filterModelSlot(traversal: GraphTraversal<S, E>, slot: Int): GraphTraversal<S, E> =
+        traversal.has(ModelGraph.MODEL_SLOT_KEY, slot) as GraphTraversal<S, E>
+
+    override fun modelSlotOf(vertex: Vertex): Int =
+        (vertex as? MdeoVertex)?.modelSlot ?: super.modelSlotOf(vertex)
+
+    /**
+     * Copies the instances of this graph's model with the generated copy constructors, by their
+     * logical names: the instances a model input of another graph of the same metamodel owns.
+     */
+    private fun copyInstancesByName(): Map<String, ModelInstance> {
+        // read-only: a population member may be the donor of several crossovers at once
+        val model = graph.toModel(instanceNameRegistry, settle = false)
+        val copies = IdentityHashMap<ModelInstance, ModelInstance>(model.instancesByName.size)
+        val byName = LinkedHashMap<String, ModelInstance>(model.instancesByName.size * 2)
+        for ((name, instance) in model.instancesByName) {
+            val copy = instance.copy()
+            copies[instance] = copy
+            byName[name] = copy
+        }
+        for ((original, copy) in copies) {
+            original.copyReferences(copy, copies)
+        }
+        return byName
     }
 
     /**

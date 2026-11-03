@@ -1,5 +1,11 @@
-import type { Point, RenderingContext } from "@eclipse-glsp/sprotty";
-import { sharedImport, GEdgeView, type EdgeAttachment, EdgeAttachmentPosition, type GEdge } from "@mdeo/editor-shared";
+import type { Point } from "@eclipse-glsp/sprotty";
+import {
+    sharedImport,
+    GEdgeView,
+    type EdgeLabelElement,
+    EdgeAttachmentPosition,
+    type GEdge
+} from "@mdeo/editor-shared";
 import type { GPatternLinkEdge } from "../model/patternLinkEdge.js";
 import { GPatternLinkEndNode } from "../model/patternLinkEndNode.js";
 import { GPatternLinkModifierNode } from "../model/patternLinkModifierNode.js";
@@ -37,29 +43,22 @@ function getStrokeClassForModifier(modifier: PatternModifierKind): string {
  */
 @injectable()
 export class GPatternLinkEdgeView extends GEdgeView {
-    protected override getEdgeAttachments(model: Readonly<GEdge>, context: RenderingContext): EdgeAttachment[] {
-        const attachments: EdgeAttachment[] = [];
+    protected override getLabelElements(model: Readonly<GEdge>): EdgeLabelElement[] {
+        const labels: EdgeLabelElement[] = [];
 
         for (const child of model.children) {
             if (child instanceof GPatternLinkEndNode) {
-                const attachment: EdgeAttachment = {
-                    vnode: context.renderElement(child),
-                    bounds: child.bounds,
+                labels.push({
+                    element: child,
                     position:
                         child.end === "source" ? EdgeAttachmentPosition.SOURCE_LEFT : EdgeAttachmentPosition.TARGET_LEFT
-                };
-                attachments.push(attachment);
+                });
             } else if (child instanceof GPatternLinkModifierNode) {
-                const attachment: EdgeAttachment = {
-                    vnode: context.renderElement(child),
-                    bounds: child.bounds,
-                    position: EdgeAttachmentPosition.MIDDLE_LEFT
-                };
-                attachments.push(attachment);
+                labels.push({ element: child, position: EdgeAttachmentPosition.MIDDLE_LEFT });
             }
         }
 
-        return attachments;
+        return labels;
     }
 
     protected override renderVisiblePath(route: Point[], model: Readonly<GEdge>): VNode {

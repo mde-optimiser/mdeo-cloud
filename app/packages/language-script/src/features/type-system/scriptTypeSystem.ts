@@ -35,9 +35,10 @@ import {
 } from "@mdeo/language-expression";
 import { expressionTypes, statementTypes, typeTypes, Script, type ScriptType } from "../../grammar/scriptTypes.js";
 import { ScriptPartialTypeSystem } from "./scriptPartialTypeSystem.js";
-import type { ResolvedScriptContributionPlugins } from "../../plugin/scriptContributionPlugin.js";
+import type { ContributedRecord, ResolvedScriptContributionPlugins } from "../../plugin/scriptContributionPlugin.js";
 import type { ScriptTypirServices, ScriptTypirSpecifics } from "../../plugin.js";
 import { stdlibGlobalFunctions } from "../stdlib/globalFunctions.js";
+import { createRecordClassType, createRecordFunctionType, describeRecordFields, getRecordPackage } from "../records.js";
 import { resolveRelativePath, sharedImport } from "@mdeo/language-shared";
 import { getExportedEntitiesByPath } from "@mdeo/language-metamodel";
 import type { LangiumDocument, LangiumDocuments, URI } from "langium";
@@ -76,7 +77,9 @@ export class ScriptTypeSystem extends ExpressionTypeSystem<ScriptTypirSpecifics>
                     BagType,
                     ReadonlyBagType,
                     OrderedSetType,
-                    ReadonlyOrderedSetType
+                    ReadonlyOrderedSetType,
+                    // Records and opaque classes contributions exchange values with scripts in
+                    ...plugins.classes.map((contributedClass) => contributedClass.classType)
                 ],
                 lambdaSuperTypes: [{ package: "builtin", type: AnyType.name }],
                 createListType: (elementType) => typeRef("builtin", "List").withTypeArgs({ T: elementType }).build()
@@ -88,7 +91,28 @@ export class ScriptTypeSystem extends ExpressionTypeSystem<ScriptTypirSpecifics>
                     name,
                     isProperty: false as const,
                     type: func.function
-                }))
+                })),
+                // The constructors of the records contributions define
+                ...plugins.classes.flatMap((contributed) =>
+                    contributed.declaration.kind === "record"
+                        ? [
+                              {
+                                  name: contributed.name,
+                                  isProperty: false as const,
+                                  type: createRecordFunctionType(
+                                      contributed.classType.package,
+                                      contributed.name,
+                                      contributed.declaration.fields.map((field) => ({
+                                          name: field.name,
+                                          hasDefault: field.defaultValue != undefined
+                                      })),
+                                      (index) => (contributed.declaration as ContributedRecord).fields[index]!.type,
+                                      false
+                                  )
+                              }
+                          ]
+                        : []
+                )
             ]
         );
     }
@@ -100,7 +124,8 @@ export class ScriptTypeSystem extends ExpressionTypeSystem<ScriptTypirSpecifics>
             this.expressionTypes,
             this.primitiveTypes,
             this.nullablePrimitiveTypes,
-            this.defaultTypeConfig.Iterable
+            this.defaultTypeConfig.Iterable,
+            typir.ControlFlow
         );
         statementPartialTypeSystem.registerRules();
 
@@ -132,6 +157,8 @@ export class ScriptTypeSystem extends ExpressionTypeSystem<ScriptTypirSpecifics>
         }
 
         const document = AstUtils.getDocument(languageNode);
+
+        this.registerRecordTypes(languageNode, document.uri.path, typir);
 
         const metamodelDoc = this.loadMetamodelSync(document, languageNode, typir);
         if (metamodelDoc == undefined) {
@@ -169,6 +196,27 @@ export class ScriptTypeSystem extends ExpressionTypeSystem<ScriptTypirSpecifics>
             const enumTypeResult = generateEnumTypes(enumInfos, absolutePath);
             this.registerEnumTypes(enumTypeResult.types, typir);
             this.registerEnumTypes(enumTypeResult.containerTypes, typir);
+        }
+    }
+
+    /**
+     * Registers the class types of the records a script declares.
+     *
+     * @param script The script
+     * @param absolutePath The absolute path of the script
+     * @param typir The Typir services
+     */
+    private registerRecordTypes(script: ScriptType, absolutePath: string, typir: ScriptTypirServices): void {
+        const typeDefinitions = typir.TypeDefinitions;
+        for (const record of script.records) {
+            const typePackage = getRecordPackage(absolutePath, record.name);
+            if (typeDefinitions.getClassTypeIfExisting(record.name, typePackage) != undefined) {
+                continue;
+            }
+            const { fields, fieldType, fieldNode } = describeRecordFields(record, typir);
+            typeDefinitions.addClassType(
+                createRecordClassType(record.name, typePackage, fields, fieldType, record, fieldNode)
+            );
         }
     }
 

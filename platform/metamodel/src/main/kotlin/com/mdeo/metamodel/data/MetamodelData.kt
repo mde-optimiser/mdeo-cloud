@@ -56,7 +56,12 @@ data class EnumData(
     /**
      * List of enum entry names.
      */
-    val entries: List<String>
+    val entries: List<String>,
+    /**
+     * The absolute path of the metamodel file declaring this enum, when that is a file the
+     * metamodel imports; `null` for [MetamodelData.path] itself.
+     */
+    val path: String? = null
 )
 
 /**
@@ -104,7 +109,12 @@ data class ClassData(
     /**
      * The properties defined on this class.
      */
-    val properties: List<PropertyData> = emptyList()
+    val properties: List<PropertyData> = emptyList(),
+    /**
+     * The absolute path of the metamodel file declaring this class, when that is a file the
+     * metamodel imports; `null` for [MetamodelData.path] itself.
+     */
+    val path: String? = null
 )
 
 /**
@@ -163,6 +173,17 @@ data class MetamodelData(
      */
     val importedMetamodelPaths: List<String> = emptyList()
 ) {
+    /**
+     * The absolute path of the metamodel file declaring [classData]. Types of a class are named
+     * after that file, as in the languages' type systems.
+     */
+    fun pathOf(classData: ClassData): String = classData.path ?: path
+
+    /**
+     * The absolute path of the metamodel file declaring [enumData].
+     */
+    fun pathOf(enumData: EnumData): String = enumData.path ?: path
+
     companion object {
         /**
          * Creates an empty MetamodelData instance.

@@ -27,8 +27,10 @@ Langium environment.
    ├── GET  /static/…/editor.js      → the GLSP editor configuration (ES module)
    ├── GET  /static/…/styles.css     → editor styles
    ├── POST /data/:language/:key     → compute file data
-   ├── POST /request/:language/:key  → language-specific request
-   └── POST /:language/executions    → start an execution
+   ├── POST /request/:kind/:id/:key  → one-shot request to a target
+   ├── POST /:language/executions    → start an execution
+   ├── WS   /ws/executions           → execution results and progress
+   └── WS   /ws/sessions/:kind/:targetId/:name → a session with an execution
 ```
 
 ## The two kinds of contribution

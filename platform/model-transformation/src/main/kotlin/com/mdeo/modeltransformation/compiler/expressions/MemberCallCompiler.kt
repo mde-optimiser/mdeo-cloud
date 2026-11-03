@@ -11,6 +11,7 @@ import com.mdeo.modeltransformation.compiler.CompilationContext
 import com.mdeo.modeltransformation.compiler.CompilationResult
 import com.mdeo.modeltransformation.compiler.ExpressionCompilerRegistry
 import com.mdeo.modeltransformation.compiler.ExpressionCompiler
+import com.mdeo.modeltransformation.stdlib.ContextMethodDefinition
 import com.mdeo.modeltransformation.stdlib.LambdaMethodDefinition
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal
 
@@ -56,7 +57,10 @@ class MemberCallCompiler(
         
         val overloadKey = getOverloadKey(memberCall.arguments, context)
         
+        // A method registered without an overload key (`""`) is not overloaded and takes any
+        // argument type: it is the fallback when no overload for the argument's type exists.
         val methodDef = context.typeRegistry.lookupMethod(receiverType, memberCall.member, overloadKey)
+            ?: context.typeRegistry.lookupMethod(receiverType, memberCall.member, "")
             ?: throw IllegalArgumentException(
                 "Method '${memberCall.member}' not found on type '${receiverType.`package`}.${receiverType.type}' " +
                 "with overload key '$overloadKey'"
@@ -72,6 +76,15 @@ class MemberCallCompiler(
             )
         }
         
+        if (methodDef is ContextMethodDefinition) {
+            return methodDef.compileWithContext(
+                receiverResult.traversal as GraphTraversal<Any, Any>,
+                memberCall.arguments.map { it.value },
+                context,
+                registry
+            )
+        }
+
         val argResults = memberCall.arguments.map { arg ->
             registry.compile(arg.value, context, null)
         }

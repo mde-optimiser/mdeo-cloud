@@ -1,10 +1,11 @@
 package com.mdeo.execution.common.routes
 
+import com.mdeo.common.auth.Scopes
+import com.mdeo.common.model.ErrorCodes
 import com.mdeo.common.transport.*
 import com.mdeo.execution.common.auth.JwtPrincipalData
 import com.mdeo.execution.common.auth.WsTokenVerifier
 import com.mdeo.execution.common.auth.hasScope
-import com.mdeo.execution.common.service.ExecutionScopes
 import com.mdeo.execution.common.service.ExecutionService
 import com.mdeo.execution.common.service.ExecutionServiceWithFileTree
 import io.ktor.server.routing.*
@@ -61,31 +62,31 @@ private suspend fun handleExecutionWsRequest(
     responder: ExecutionWsRequestResponder
 ) {
     val context = request.context()
-        ?: throw ExecutionWsException(ExecutionWsErrorCodes.BAD_REQUEST, "Unsupported request: ${request::class.simpleName}")
+        ?: throw ExecutionWsException(ErrorCodes.BAD_REQUEST, "Unsupported request: ${request::class.simpleName}")
 
     val requiredScope = when (request) {
-        is ExecutionCancelWsRequest -> ExecutionScopes.EXECUTION_CANCEL
-        is ExecutionDeleteWsRequest -> ExecutionScopes.EXECUTION_DELETE
-        else -> ExecutionScopes.EXECUTION_READ
+        is ExecutionCancelWsRequest -> Scopes.PLUGIN_EXECUTION_CANCEL
+        is ExecutionDeleteWsRequest -> Scopes.PLUGIN_EXECUTION_DELETE
+        else -> Scopes.PLUGIN_EXECUTION_READ
     }
 
     val principal = authorize(verifier, context, requiredScope)
     val executionId = try {
         UUID.fromString(context.executionId)
     } catch (e: Exception) {
-        throw ExecutionWsException(ExecutionWsErrorCodes.BAD_REQUEST, "Invalid execution ID: ${context.executionId}")
+        throw ExecutionWsException(ErrorCodes.BAD_REQUEST, "Invalid execution ID: ${context.executionId}")
     }
 
     // The token is issued for one execution; a connection shared by several of them must not
     // let a token for one address the results of another.
     if (principal.executionId != null && principal.executionId != context.executionId) {
-        throw ExecutionWsException(ExecutionWsErrorCodes.FORBIDDEN, "Token is not valid for this execution")
+        throw ExecutionWsException(ErrorCodes.FORBIDDEN, "Token is not valid for this execution")
     }
 
     when (request) {
         is ExecutionSummaryWsRequest -> {
             val summary = executionService.getSummary(executionId)
-                ?: throw ExecutionWsException(ExecutionWsErrorCodes.NOT_FOUND, "Execution not found")
+                ?: throw ExecutionWsException(ErrorCodes.NOT_FOUND, "Execution not found")
             responder.respond(ExecutionWsProtocol.json.encodeToJsonElement(ExecutionSummaryPayload(summary)))
         }
 
@@ -101,7 +102,7 @@ private suspend fun handleExecutionWsRequest(
 
         is ExecutionFileTreeWsRequest -> {
             val files = executionService.requireFileTree().getFileTree(executionId, null)
-                ?: throw ExecutionWsException(ExecutionWsErrorCodes.NOT_FOUND, "Execution not found")
+                ?: throw ExecutionWsException(ErrorCodes.NOT_FOUND, "Execution not found")
             responder.respond(
                 ExecutionWsProtocol.json.encodeToJsonElement(ExecutionFileTreePayload(files.toShared()))
             )
@@ -109,7 +110,7 @@ private suspend fun handleExecutionWsRequest(
 
         is ExecutionFileWsRequest -> {
             val content = executionService.requireFileTree().getFileContents(executionId, request.path)
-                ?: throw ExecutionWsException(ExecutionWsErrorCodes.NOT_FOUND, "File not found: ${request.path}")
+                ?: throw ExecutionWsException(ErrorCodes.NOT_FOUND, "File not found: ${request.path}")
             responder.respond(ExecutionWsProtocol.json.encodeToJsonElement(ExecutionFilePayload(content)))
         }
 
@@ -118,7 +119,7 @@ private suspend fun handleExecutionWsRequest(
         }
 
         else -> throw ExecutionWsException(
-            ExecutionWsErrorCodes.BAD_REQUEST,
+            ErrorCodes.BAD_REQUEST,
             "Unsupported request: ${request::class.simpleName}"
         )
     }
@@ -141,7 +142,7 @@ private suspend fun streamFiles(
     val logger = LoggerFactory.getLogger("ExecutionWsRoutes")
 
     val tree = executionService.getFileTree(executionId, null)
-        ?: throw ExecutionWsException(ExecutionWsErrorCodes.NOT_FOUND, "Execution not found")
+        ?: throw ExecutionWsException(ErrorCodes.NOT_FOUND, "Execution not found")
 
     val requested = request.paths?.toSet()
     val sent = mutableListOf<SharedFileEntry>()
@@ -175,9 +176,9 @@ private suspend fun authorize(
     requiredScope: String
 ): JwtPrincipalData {
     val principal = verifier.verify(context.auth)
-        ?: throw ExecutionWsException(ExecutionWsErrorCodes.FORBIDDEN, "Missing or invalid token")
+        ?: throw ExecutionWsException(ErrorCodes.FORBIDDEN, "Missing or invalid token")
     if (!principal.hasScope(requiredScope)) {
-        throw ExecutionWsException(ExecutionWsErrorCodes.FORBIDDEN, "Token missing $requiredScope scope")
+        throw ExecutionWsException(ErrorCodes.FORBIDDEN, "Token missing $requiredScope scope")
     }
     return principal
 }
@@ -185,7 +186,7 @@ private suspend fun authorize(
 private fun ExecutionService.requireFileTree(): ExecutionServiceWithFileTree {
     return this as? ExecutionServiceWithFileTree
         ?: throw ExecutionWsException(
-            ExecutionWsErrorCodes.BAD_REQUEST,
+            ErrorCodes.BAD_REQUEST,
             "This execution service does not expose result files"
         )
 }

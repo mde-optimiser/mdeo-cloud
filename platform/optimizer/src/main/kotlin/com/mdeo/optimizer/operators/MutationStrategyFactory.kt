@@ -14,7 +14,7 @@ object MutationStrategyFactory {
      * Creates a fully-configured [MutationStrategy] from the optimizer config.
      *
      * The caller is responsible for assigning stable numerical IDs to operators
-     * (e.g. by sorting paths alphabetically and using the zero-based index as the
+     * ([OperatorCatalog.mutationOperators]: sorting by path and arguments and using the zero-based index as the
      * [TransformationOperator.id]) so that every node in a federated setup assigns
      * identical IDs to identical operators.
      *

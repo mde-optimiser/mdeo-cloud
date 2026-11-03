@@ -47,9 +47,22 @@ import { GAssociationMultiplicityNode } from "./model/associationMultiplicityNod
 import { GAssociationPropertyLabel } from "./model/associationPropertyLabel.js";
 import { GAssociationMultiplicityLabel } from "./model/associationMultiplicityLabel.js";
 import { GEnumTitleCompartment } from "./model/enumTitleCompartment.js";
-import { AssociationEndKind, MetamodelElementType } from "@mdeo/protocol-metamodel";
+import {
+    ACTIVE_METAMODEL_VIEW_ARG,
+    AssociationEndKind,
+    METAMODEL_VIEWS_ARG,
+    MetamodelElementType
+} from "@mdeo/protocol-metamodel";
+import {
+    MetamodelViewState,
+    ViewScopedModelIdRegistry,
+    isExtensionInView,
+    resolveViews,
+    restrictToView,
+    type ResolvedView
+} from "./metamodelViews.js";
 
-const { injectable } = sharedImport("inversify");
+const { injectable, inject } = sharedImport("inversify");
 const { GGraph } = sharedImport("@eclipse-glsp/server");
 const { AstUtils } = sharedImport("langium");
 
@@ -93,7 +106,31 @@ interface ExtractedElements {
 @injectable()
 export class MetamodelGModelFactory extends BaseGModelFactory<PartialMetaModel> {
     /**
+     * Which view the diagram shows.
+     */
+    @inject(MetamodelViewState)
+    protected viewState!: MetamodelViewState;
+
+    /**
+     * Creates the id registry for the diagram.
+     * Inside a view every element gets the id it has in that view, so that each view keeps a
+     * layout of its own.
+     *
+     * @param sourceModel The metamodel source model
+     * @returns The registry of the diagram of the whole metamodel, or of the active view
+     */
+    protected override createIdRegistry(sourceModel: PartialMetaModel): ModelIdRegistry {
+        const registry = super.createIdRegistry(sourceModel);
+        const view = this.viewState.resolveActiveView(sourceModel);
+        return view != undefined ? new ViewScopedModelIdRegistry(registry, view.key) : registry;
+    }
+
+    /**
      * Creates the GLSP model from the metamodel source.
+     *
+     * When a view is active, only the classes and enums it lists are shown, together with the
+     * associations and inheritance relations between them. The names of all views and the
+     * active one are published on the graph, where the editor's toolbox reads them.
      *
      * @param sourceModel The metamodel source model
      * @param idRegistry The ID registry for AST node ID generation
@@ -103,16 +140,40 @@ export class MetamodelGModelFactory extends BaseGModelFactory<PartialMetaModel> 
         sourceModel: PartialMetaModel,
         idRegistry: ModelIdRegistry
     ): Promise<GModelRoot> {
-        const graph = GGraph.builder().id("metamodel-graph").addCssClass("editor-metamodel").build();
+        const view = this.viewState.resolveActiveView(sourceModel);
+        const graphBuilder = GGraph.builder()
+            .id("metamodel-graph")
+            .addCssClass("editor-metamodel")
+            .addArg(METAMODEL_VIEWS_ARG, JSON.stringify(resolveViews(sourceModel).map((v) => v.name)));
+        if (view != undefined) {
+            graphBuilder.addArg(ACTIVE_METAMODEL_VIEW_ARG, view.name);
+        }
+        const graph = graphBuilder.build();
 
         const extracted = this.extractElements(sourceModel);
-        await this.createClassNodes(graph, extracted.localClasses, idRegistry, false);
-        await this.createClassNodes(graph, extracted.importedClasses, idRegistry, true);
-        await this.createEnumNodes(graph, extracted.localEnums, idRegistry, false);
-        await this.createEnumNodes(graph, extracted.importedEnums, idRegistry, true);
-        const allClasses = [...extracted.localClasses, ...extracted.importedClasses];
-        const allAssociations = [...extracted.localAssociations, ...extracted.importedAssociations];
-        await this.createInheritanceEdges(graph, allClasses, idRegistry);
+        const local = restrictToView(
+            {
+                classes: extracted.localClasses,
+                enums: extracted.localEnums,
+                associations: extracted.localAssociations
+            },
+            view
+        );
+        const imported = restrictToView(
+            {
+                classes: extracted.importedClasses,
+                enums: extracted.importedEnums,
+                associations: extracted.importedAssociations
+            },
+            view
+        );
+        await this.createClassNodes(graph, local.classes, idRegistry, false);
+        await this.createClassNodes(graph, imported.classes, idRegistry, true);
+        await this.createEnumNodes(graph, local.enums, idRegistry, false);
+        await this.createEnumNodes(graph, imported.enums, idRegistry, true);
+        const allClasses = [...local.classes, ...imported.classes];
+        const allAssociations = [...local.associations, ...imported.associations];
+        await this.createInheritanceEdges(graph, allClasses, idRegistry, view);
         await this.createAssociationEdges(graph, allAssociations, idRegistry);
 
         return graph;
@@ -597,11 +658,13 @@ export class MetamodelGModelFactory extends BaseGModelFactory<PartialMetaModel> 
      * @param graph The graph to add edges to
      * @param classes Array of classes with extends relationships
      * @param idRegistry The ID registry for AST node ID generation
+     * @param view The view the diagram shows, or `undefined` for the whole metamodel
      */
     private async createInheritanceEdges(
         graph: GGraphType,
         classes: PartialClass[],
-        idRegistry: ModelIdRegistry
+        idRegistry: ModelIdRegistry,
+        view: ResolvedView | undefined
     ): Promise<void> {
         const validatedMetadata = await this.modelState.getValidatedMetadata();
 
@@ -617,7 +680,7 @@ export class MetamodelGModelFactory extends BaseGModelFactory<PartialMetaModel> 
                 }
 
                 const superClassRef = extendsDef.class?.ref;
-                if (superClassRef == undefined) {
+                if (superClassRef == undefined || !isExtensionInView(cls, extendsDef, view)) {
                     continue;
                 }
 
@@ -790,7 +853,7 @@ export class MetamodelGModelFactory extends BaseGModelFactory<PartialMetaModel> 
         if (property != undefined) {
             const propertyMeta = validatedMetadata.nodes[associationEndId];
             const metadata =
-                propertyMeta?.meta != undefined && NodeLayoutMetadataUtil.isValid(propertyMeta.meta)
+                propertyMeta?.meta != undefined && NodeLayoutMetadataUtil.isValidWithOptionalSize(propertyMeta.meta)
                     ? propertyMeta.meta
                     : NodeLayoutMetadataUtil.create(0, 0);
 
@@ -813,7 +876,8 @@ export class MetamodelGModelFactory extends BaseGModelFactory<PartialMetaModel> 
             const multiplicityNodeId = `${associationEndId}__multiplicity`;
             const multiplicityMeta = validatedMetadata.nodes[multiplicityNodeId];
             const metadata =
-                multiplicityMeta?.meta != undefined && NodeLayoutMetadataUtil.isValid(multiplicityMeta.meta)
+                multiplicityMeta?.meta != undefined &&
+                NodeLayoutMetadataUtil.isValidWithOptionalSize(multiplicityMeta.meta)
                     ? multiplicityMeta.meta
                     : NodeLayoutMetadataUtil.create(0, 0);
 

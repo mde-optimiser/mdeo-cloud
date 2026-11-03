@@ -21,6 +21,11 @@ package com.mdeo.optimizer.evaluation
  *   known to deterministically fail on the parent's current model state.
  * @param errorMessage Human-readable diagnostic detail accompanying a [ResultStatus.HARD_FAILURE].
  *   `null` for [ResultStatus.SUCCESS] and [ResultStatus.SOFT_FAILURE].
+ * @param taskId The [MutationTask.taskId] or [CrossoverTask.taskId] the result answers; empty for
+ *   evaluation-only tasks, which are matched by solution.
+ * @param crossoverAttempted Whether the task attempted a crossover ([CrossoverTask.attemptCrossover]).
+ * @param crossoverOperator The id (crossover id space) of the crossover operator that applied, or
+ *   `null` when none was attempted or every one failed (the child is then a copy of its primary).
  */
 data class EvaluationResult(
     val parentSolutionId: String,
@@ -31,5 +36,8 @@ data class EvaluationResult(
     val status: ResultStatus,
     val executedTransformations: Int = 0,
     val skippedOperatorSlots: Int = 0,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val taskId: String = "",
+    val crossoverAttempted: Boolean = false,
+    val crossoverOperator: Int? = null
 )

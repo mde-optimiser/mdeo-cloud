@@ -1,0 +1,114 @@
+package com.mdeo.script.external
+
+import com.mdeo.script.ast.TypeKey
+import com.mdeo.script.compiler.ContributedClassSpec
+import com.mdeo.metamodel.Model
+import com.mdeo.scriptfunctions.protocol.ScriptFunctionsProtocol
+import com.mdeo.common.transport.SessionClient
+import com.mdeo.common.transport.SessionConnection
+import com.mdeo.script.compiler.ExternalCallSpec
+import com.mdeo.script.runtime.ExternalCallDispatcher
+import kotlinx.coroutines.runBlocking
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.LinkedBlockingQueue
+
+/**
+ * Answers a program's external calls over platform sessions, one per contribution.
+ *
+ * A session to a contribution is opened the first time one of its functions is called, and kept
+ * for the rest of the execution. Each session carries its own [ScriptFunctionsClient], so the
+ * heap of one contribution's service never sees another's collections.
+ *
+ * When a connection drops, [SessionClient] brings the transport back. The service on the other side
+ * has lost everything it held by then; the client notices the new connection, sends what the call
+ * needs in full, and refuses handles that stood for state the lost service held.
+ *
+ * @param specs The external calls of the compiled program, keyed by call id
+ * @param classes The records and opaque classes contributions define, as the compiled program keys them
+ * @param connectTimeoutMillis How long dialling a session may take before it counts as unreachable
+ * @param resolve Resolves one contribution's session to something that can be dialled, with a
+ *        fresh token each time it is asked
+ */
+class SessionDispatcher(
+    private val specs: Map<String, ExternalCallSpec>,
+    private val classes: Map<TypeKey, ContributedClassSpec> = emptyMap(),
+    private val connectTimeoutMillis: Long = SessionClient.DEFAULT_CONNECT_TIMEOUT_MILLIS,
+    private val resolve: suspend (contribution: String, session: String) -> SessionConnection
+) : ExternalCallDispatcher, AutoCloseable {
+
+    private class Connection(
+        val session: SessionClient,
+        val client: ScriptFunctionsClient,
+        val inbox: LinkedBlockingQueue<Result<ByteArray>>
+    )
+
+    private val connections = ConcurrentHashMap<String, Connection>()
+
+    @Volatile
+    private var closed = false
+
+    override fun call(callId: String, arguments: Array<Any?>, model: Model?, classLoader: ClassLoader): Any? {
+        if (closed) throw ExternalCallException("External calls are no longer answered: the execution's sessions were closed")
+        val spec = specs[callId] ?: throw ExternalCallException("No external call '$callId' was compiled")
+        val session = spec.session ?: throw ExternalCallException(
+            "External function '${spec.functionName}' cannot be called: contribution " +
+                    "'${spec.contribution}' declares no '${ScriptFunctionsProtocol.NAME}' session"
+        )
+        val connection = connections.computeIfAbsent(spec.contribution) { open(it, session) }
+        return connection.client.call(callId, arguments, model, classLoader)
+    }
+
+    private fun open(contribution: String, sessionName: String): Connection {
+        val inbox = LinkedBlockingQueue<Result<ByteArray>>()
+        val session = SessionClient(
+            resolve = { resolve(contribution, sessionName) },
+            versions = listOf(ScriptFunctionsProtocol.VERSION),
+            onMessage = { inbox.put(Result.success(it)) },
+            onClosed = { reason -> inbox.put(Result.failure(ExternalCallException("Session to '$contribution' closed: $reason"))) },
+            connectTimeoutMillis = connectTimeoutMillis
+        )
+        try {
+            runBlocking { session.open() }
+        } catch (e: Exception) {
+            session.close()
+            throw ExternalCallException(
+                "Could not open the '${ScriptFunctionsProtocol.NAME}' session of contribution " +
+                        "'$contribution': ${e.message}"
+            )
+        }
+
+        val transport = object : ScriptFunctionsTransport {
+            override fun send(message: ByteArray) {
+                // A drop reported between calls concerns no call still waiting; the send below
+                // reconnects, so the report must not be mistaken for this call's answer.
+                inbox.removeIf { it.isFailure }
+                try {
+                    runBlocking { session.send(message) }
+                } catch (e: Exception) {
+                    throw ExternalCallException("Session to '$contribution' failed: ${e.message}")
+                }
+            }
+            override fun receive(): ByteArray = inbox.take().getOrThrow()
+            override val connection: Long get() = session.connectionNumber
+            override val maxReconnects: Int get() = session.maxReconnectAttempts
+        }
+        val ownSpecs = specs.filterValues { it.contribution == contribution }
+        val ownClasses = classes.values.filter { it.contribution == contribution }
+        return Connection(session, ScriptFunctionsClient(transport, ownSpecs, ownClasses), inbox)
+    }
+
+    /**
+     * Closes every session this dispatcher opened.
+     *
+     * A call still waiting for its answer fails instead of waiting forever: a session closed here
+     * reports no drop of its own.
+     */
+    override fun close() {
+        closed = true
+        for ((contribution, connection) in connections) {
+            runCatching { connection.session.close() }
+            connection.inbox.put(Result.failure(ExternalCallException("Session to '$contribution' was closed")))
+        }
+        connections.clear()
+    }
+}

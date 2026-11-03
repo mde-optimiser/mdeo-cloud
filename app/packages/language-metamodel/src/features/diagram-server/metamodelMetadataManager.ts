@@ -22,6 +22,25 @@ import type {
 } from "../../grammar/metamodelPartialTypes.js";
 import { Association, Class, Enum } from "../../grammar/metamodelTypes.js";
 import { getExportedEntitiesFromMetamodelFile } from "../importHelpers.js";
+import {
+    ViewScopedModelIdRegistry,
+    isExtensionInView,
+    resolveViews,
+    restrictToView,
+    viewKeyOfId,
+    type ResolvedView
+} from "./metamodelViews.js";
+import type { NodeLayoutMetadata } from "@mdeo/protocol-common";
+
+/**
+ * Preferred width assumed for a class or enum node whose metadata does not state one.
+ */
+const DEFAULT_NODE_WIDTH = 250;
+
+/**
+ * Horizontal gap left between nodes that are placed next to the existing ones.
+ */
+const NEW_NODE_GAP = 60;
 
 const { injectable, inject } = sharedImport("inversify");
 const { AstUtils } = sharedImport("langium");
@@ -61,6 +80,10 @@ export class MetamodelMetadataManager extends MetadataManager<PartialMetaModel> 
     /**
      * Extracts graph metadata from the metamodel source model.
      *
+     * The metadata covers the diagram of the whole metamodel and every view: an element shown
+     * in a view has an id of its own there (see {@link ViewScopedModelIdRegistry}), so each
+     * view keeps a layout of its own while all of them are stored in one metadata file.
+     *
      * @param sourceModel the metamodel source model
      * @returns extracted graph metadata
      */
@@ -72,16 +95,131 @@ export class MetamodelMetadataManager extends MetadataManager<PartialMetaModel> 
         const { localClasses, localEnums, localAssociations, importedClasses, importedEnums, importedAssociations } =
             this.extractAllElements(sourceModel);
 
-        const allClasses = [...localClasses, ...importedClasses];
-        const allEnums = [...localEnums, ...importedEnums];
-        const allAssociations = [...localAssociations, ...importedAssociations];
+        const all = {
+            classes: [...localClasses, ...importedClasses],
+            enums: [...localEnums, ...importedEnums],
+            associations: [...localAssociations, ...importedAssociations]
+        };
 
-        this.extractClassMetadata(allClasses, idRegistry, nodes);
-        this.extractEnumMetadata(allEnums, idRegistry, nodes);
-        this.extractInheritanceMetadata(allClasses, idRegistry, edges);
-        this.extractAssociationMetadata(allAssociations, idRegistry, nodes, edges);
+        this.extractDiagramMetadata(all, undefined, idRegistry, nodes, edges);
+        for (const view of resolveViews(sourceModel)) {
+            const viewRegistry = new ViewScopedModelIdRegistry(idRegistry, view.key);
+            this.extractDiagramMetadata(restrictToView(all, view), view, viewRegistry, nodes, edges);
+        }
 
         return { nodes, edges };
+    }
+
+    /**
+     * Extracts the metadata of one diagram: the whole metamodel or one view.
+     *
+     * @param contents The classes, enums and associations the diagram shows
+     * @param view The view, or `undefined` for the diagram of the whole metamodel
+     * @param idRegistry The id registry of the diagram
+     * @param nodes record to populate with node metadata
+     * @param edges record to populate with edge metadata
+     */
+    private extractDiagramMetadata(
+        contents: { classes: PartialClass[]; enums: PartialEnum[]; associations: PartialAssociation[] },
+        view: ResolvedView | undefined,
+        idRegistry: ModelIdRegistry,
+        nodes: Record<string, NodeMetadata>,
+        edges: Record<string, EdgeMetadata>
+    ): void {
+        this.extractClassMetadata(contents.classes, idRegistry, nodes);
+        this.extractEnumMetadata(contents.enums, idRegistry, nodes);
+        this.extractInheritanceMetadata(contents.classes, idRegistry, edges, view);
+        this.extractAssociationMetadata(contents.associations, idRegistry, nodes, edges);
+    }
+
+    /**
+     * Reconciles the layout of every diagram on its own.
+     *
+     * The diagram of the whole metamodel and each view are separate partitions of the metadata.
+     * Reconciling them together would let the graph edit distance match an element of one view
+     * with the same element in another and swap their positions, e.g. after a class is renamed.
+     *
+     * Classes and enums that appear in a diagram whose other elements are laid out already are
+     * placed to the right of them instead of on top of whatever lies at the origin.
+     *
+     * @param newMetadata The metadata extracted from the source model (layout absent)
+     * @param currentMetadata The current graph metadata
+     * @param lastValidMetadata The last valid graph metadata for an error-free model
+     * @returns Updated metadata or undefined if valid
+     */
+    protected override async reconcileMetadata(
+        newMetadata: GraphMetadata,
+        currentMetadata: GraphMetadata,
+        lastValidMetadata: GraphMetadata
+    ): Promise<GraphMetadata | undefined> {
+        const newParts = partitionMetadata(newMetadata);
+        const currentParts = partitionMetadata(currentMetadata);
+        const lastValidParts = partitionMetadata(lastValidMetadata);
+
+        const result: GraphMetadata = { nodes: {}, edges: {} };
+        let changed = false;
+        for (const key of new Set([...newParts.keys(), ...currentParts.keys()])) {
+            const newPart = newParts.get(key);
+            if (newPart == undefined) {
+                // The view is gone; its layout goes with it.
+                changed = true;
+                continue;
+            }
+            const currentPart = currentParts.get(key) ?? emptyMetadata();
+            const lastValidPart = lastValidParts.get(key) ?? emptyMetadata();
+
+            const reconciled = await super.reconcileMetadata(newPart, currentPart, lastValidPart);
+            const part = reconciled ?? currentPart;
+            const placed = this.placeNewNodes(part, currentPart);
+            changed = changed || reconciled != undefined || placed;
+
+            Object.assign(result.nodes, part.nodes);
+            Object.assign(result.edges, part.edges);
+        }
+        return changed ? result : undefined;
+    }
+
+    /**
+     * Places classes and enums that have just appeared in a diagram next to its other elements.
+     *
+     * A node counts as new when the diagram did not know its id before and it sits at the
+     * origin, which is where elements without a layout end up. Nothing is moved when no class
+     * or enum of the diagram has left the origin yet: the editor lays out such a diagram as a
+     * whole when it is shown.
+     *
+     * @param part The reconciled metadata of one diagram, updated in place
+     * @param previous The metadata the diagram had before
+     * @returns `true` when a node was placed
+     */
+    private placeNewNodes(part: GraphMetadata, previous: GraphMetadata): boolean {
+        const placed: NodeLayoutMetadata[] = [];
+        const fresh: string[] = [];
+        for (const [id, node] of Object.entries(part.nodes)) {
+            if (node.type !== MetamodelElementType.NODE_CLASS && node.type !== MetamodelElementType.NODE_ENUM) {
+                continue;
+            }
+            const meta = node.meta as NodeLayoutMetadata | undefined;
+            const atOrigin = meta?.position == undefined || (meta.position.x === 0 && meta.position.y === 0);
+            if (!(id in previous.nodes) && atOrigin) {
+                fresh.push(id);
+            } else if (!atOrigin) {
+                placed.push(meta!);
+            }
+        }
+        if (fresh.length === 0 || placed.length === 0) {
+            return false;
+        }
+
+        let x = Math.max(...placed.map((meta) => meta.position!.x + (meta.prefWidth ?? DEFAULT_NODE_WIDTH)));
+        const y = Math.min(...placed.map((meta) => meta.position!.y));
+        for (const id of fresh) {
+            x += NEW_NODE_GAP;
+            const node = part.nodes[id];
+            const meta: NodeLayoutMetadata = { ...(node.meta as NodeLayoutMetadata), position: { x, y } };
+            part.nodes[id] = { ...node, meta };
+            x += meta.prefWidth ?? DEFAULT_NODE_WIDTH;
+        }
+        return true;
     }
 
     /**
@@ -311,11 +449,13 @@ export class MetamodelMetadataManager extends MetadataManager<PartialMetaModel> 
      * @param classes list of classes in the metamodel
      * @param idRegistry model ID registry
      * @param edges record to populate with edge metadata
+     * @param view The view, or `undefined` for the diagram of the whole metamodel
      */
     private extractInheritanceMetadata(
         classes: PartialClass[],
         idRegistry: ModelIdRegistry,
-        edges: Record<string, EdgeMetadata>
+        edges: Record<string, EdgeMetadata>,
+        view: ResolvedView | undefined
     ): void {
         for (const cls of classes) {
             const extensions = cls.extensions?.extensions ?? [];
@@ -324,7 +464,7 @@ export class MetamodelMetadataManager extends MetadataManager<PartialMetaModel> 
             }
 
             for (const extendsDef of extensions) {
-                if (extendsDef?.class?.ref == undefined) {
+                if (extendsDef?.class?.ref == undefined || !isExtensionInView(cls, extendsDef, view)) {
                     continue;
                 }
 
@@ -542,4 +682,40 @@ export class MetamodelMetadataManager extends MetadataManager<PartialMetaModel> 
             targetProperty: assoc.target?.name ?? ""
         };
     }
+}
+
+/**
+ * Returns empty graph metadata.
+ *
+ * @returns metadata without nodes and edges
+ */
+function emptyMetadata(): GraphMetadata {
+    return { nodes: {}, edges: {} };
+}
+
+/**
+ * Splits graph metadata into the metadata of each diagram, keyed by view key; the diagram of
+ * the whole metamodel has the key `""`.
+ *
+ * @param metadata The metadata to split
+ * @returns The metadata of each diagram that has any
+ */
+export function partitionMetadata(metadata: GraphMetadata): Map<string, GraphMetadata> {
+    const parts = new Map<string, GraphMetadata>();
+    const partOf = (id: string): GraphMetadata => {
+        const key = viewKeyOfId(id) ?? "";
+        let part = parts.get(key);
+        if (part == undefined) {
+            part = emptyMetadata();
+            parts.set(key, part);
+        }
+        return part;
+    };
+    for (const [id, node] of Object.entries(metadata.nodes)) {
+        partOf(id).nodes[id] = node;
+    }
+    for (const [id, edge] of Object.entries(metadata.edges)) {
+        partOf(id).edges[id] = edge;
+    }
+    return parts;
 }

@@ -113,7 +113,27 @@ export abstract class MetadataManager<T extends AstNode = AstNode> {
     ): Promise<GraphMetadata | undefined> {
         const newMetadata = this.extractGraphMetadata(sourceModel);
         this.checkMetadataConsistency(newMetadata);
+        return this.reconcileMetadata(newMetadata, currentMetadata, lastValidMetadata);
+    }
 
+    /**
+     * Carries the layout of the current metadata over to freshly extracted metadata.
+     * If nothing has to change, returns undefined.
+     *
+     * Languages that show several diagrams of one source model, each with a layout of its own,
+     * can override this to reconcile every diagram on its own, so that layout is never carried
+     * from one diagram to another.
+     *
+     * @param newMetadata The metadata extracted from the source model (layout absent)
+     * @param currentMetadata The current graph metadata
+     * @param lastValidMetadata The last valid graph metadata for an error-free model
+     * @returns Updated metadata or undefined if valid
+     */
+    protected async reconcileMetadata(
+        newMetadata: GraphMetadata,
+        currentMetadata: GraphMetadata,
+        lastValidMetadata: GraphMetadata
+    ): Promise<GraphMetadata | undefined> {
         if (this.isMetadataValid(newMetadata, currentMetadata)) {
             return this.getCleanMetadata(newMetadata, currentMetadata);
         }

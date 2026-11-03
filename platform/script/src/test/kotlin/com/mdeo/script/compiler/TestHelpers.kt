@@ -5,6 +5,7 @@ import com.mdeo.expression.ast.TypedCallableBody
 import com.mdeo.script.ast.TypedFunction
 import com.mdeo.script.ast.TypedImport
 import com.mdeo.script.ast.TypedParameter
+import com.mdeo.script.ast.TypedRecord
 import com.mdeo.expression.ast.expressions.TypedAssertNonNullExpression
 import com.mdeo.expression.ast.expressions.TypedBinaryExpression
 import com.mdeo.expression.ast.expressions.TypedBooleanLiteralExpression
@@ -42,6 +43,7 @@ import com.mdeo.expression.ast.types.ClassTypeRef
 import com.mdeo.expression.ast.types.LambdaType
 import com.mdeo.expression.ast.types.Parameter
 import com.mdeo.expression.ast.types.ReturnType
+import com.mdeo.expression.ast.types.ValueType
 import com.mdeo.expression.ast.types.VoidType
 import com.mdeo.script.runtime.ExecutionEnvironment
 import com.mdeo.script.runtime.ScriptContext
@@ -55,6 +57,7 @@ class TypedAstBuilder {
     private val types = mutableListOf<ReturnType>()
     private val functions = mutableListOf<TypedFunction>()
     private val imports = mutableListOf<TypedImport>()
+    private val records = mutableListOf<TypedRecord>()
     
     /**
      * Adds a type to the types array and returns its index.
@@ -149,6 +152,41 @@ class TypedAstBuilder {
      * Adds a nullable list type and returns its index.
      */
     fun listNullableType(): Int = addType(ClassTypeRef("builtin", "List", true))
+
+    /**
+     * Adds a builtin collection type with its element type and returns its index.
+     *
+     * @param collection The collection type name, such as `List` or `Set`.
+     * @param element The element type.
+     * @return The index of the collection type in the types array.
+     */
+    fun collectionType(collection: String, element: ValueType): Int =
+        addType(ClassTypeRef("builtin", collection, false, mapOf("T" to element)))
+
+    /**
+     * Adds the type of a record a script declares and returns its index.
+     *
+     * @param name The record name.
+     * @param file The path of the script declaring the record.
+     * @param nullable Whether the type is nullable.
+     * @return The index of the record type in the types array.
+     */
+    fun recordType(name: String, file: String = CompilerTestHelper.TEST_FILE_PATH, nullable: Boolean = false): Int =
+        addType(recordTypeRef(name, file, nullable))
+
+    /**
+     * Declares a record in the AST, as `record name(fields)`.
+     *
+     * @param name The record name.
+     * @param fields The fields, with their default values.
+     * @param file The path of the script the AST is compiled as.
+     * @return The index of the record type in the types array.
+     */
+    fun record(name: String, fields: List<TypedParameter>, file: String = CompilerTestHelper.TEST_FILE_PATH): Int {
+        val type = recordType(name, file)
+        records.add(TypedRecord(name = name, `package` = recordTypeRef(name, file, false).`package`, type = type, fields = fields))
+        return type
+    }
     
     /**
      * Adds a lambda type and returns its index.
@@ -204,7 +242,8 @@ class TypedAstBuilder {
         return TypedAst(
             types = types.toList(),
             imports = imports.toList(),
-            functions = functions.toList()
+            functions = functions.toList(),
+            records = records.toList()
         )
     }
 }
@@ -217,6 +256,35 @@ fun buildTypedAst(block: TypedAstBuilder.() -> Unit): TypedAst {
     builder.block()
     return builder.build()
 }
+
+/**
+ * The type of a record a script declares, in the package the script service gives it.
+ *
+ * @param name The record name.
+ * @param file The path of the script declaring the record.
+ * @param nullable Whether the type is nullable.
+ */
+fun recordTypeRef(name: String, file: String = CompilerTestHelper.TEST_FILE_PATH, nullable: Boolean = false): ClassTypeRef =
+    ClassTypeRef("record$file/$name", name, nullable)
+
+/**
+ * Creates a function parameter or record field.
+ *
+ * @param name The parameter name.
+ * @param type The type index of the parameter.
+ * @param default The default value, if the parameter has one.
+ */
+fun param(name: String, type: Int, default: TypedExpression? = null): TypedParameter =
+    TypedParameter(name = name, type = type, defaultValue = default)
+
+/**
+ * Concatenates expressions with `+`, left to right, as `a + b + c`.
+ *
+ * @param stringTypeIndex The index of the string type.
+ * @param parts The operands, the first of which should be a string.
+ */
+fun concat(stringTypeIndex: Int, vararg parts: TypedExpression): TypedExpression =
+    parts.reduce { left, right -> binaryExpr(left, "+", right, stringTypeIndex) }
 
 /**
  * Creates an int literal expression.
@@ -654,9 +722,32 @@ class CompilerTestHelper {
     private val compiler = ScriptCompiler()
     
     companion object {
-        private const val TEST_FILE_PATH = "test://test.script"
+        /**
+         * The path a single test AST is compiled as.
+         */
+        const val TEST_FILE_PATH = "test://test.script"
         private const val TEST_FUNCTION_NAME = "testFunction"
     }
+
+    /**
+     * Compiles several scripts that may import each other.
+     *
+     * @param files The AST of each script, by path.
+     * @return The compiled program.
+     */
+    fun compileFiles(files: Map<String, TypedAst>): CompiledProgram = compiler.compile(CompilationInput(files))
+
+    /**
+     * Invokes a function of a compiled program.
+     *
+     * @param program The compiled program.
+     * @param functionName The function name.
+     * @param path The path of the script declaring the function.
+     * @param args Arguments to pass to the function.
+     * @return The result of the function invocation.
+     */
+    fun invoke(program: CompiledProgram, functionName: String, path: String = TEST_FILE_PATH, vararg args: Any?): Any? =
+        ExecutionEnvironment(program).invoke(path, functionName, SimpleScriptContext(System.out, null), *args)
     
     /**
      * Compiles a single function and invokes it, returning the result.
@@ -763,6 +854,46 @@ fun arg(expr: TypedExpression): TypedCallArgument {
  */
 fun arg(expr: TypedExpression, parameterType: Int): TypedCallArgument {
     return TypedCallArgument(value = expr, parameterType = parameterType)
+}
+
+/**
+ * Wraps an expression as an argument bound to a parameter other than its position, as the script
+ * service emits a named argument such as `f(c = 1, a = 2)`.
+ *
+ * @param expr The argument expression.
+ * @param parameter The index of the parameter the argument is passed to.
+ * @param parameterType The declared type of that parameter; the expression's type by default.
+ */
+fun named(expr: TypedExpression, parameter: Int, parameterType: Int = expr.evalType): TypedCallArgument {
+    return TypedCallArgument(value = expr, parameterType = parameterType, parameter = parameter)
+}
+
+/**
+ * Creates a member call expression with pre-wrapped [TypedCallArgument] arguments.
+ *
+ * @param expression The target expression.
+ * @param member The name of the member function being called.
+ * @param overload The overload string identifying the method signature.
+ * @param arguments The pre-wrapped call arguments (created via [arg] or [named]).
+ * @param isNullChaining Whether this uses null-safe chaining (?.).
+ * @param resultTypeIndex The index of the result type in the types array.
+ */
+fun memberCallWithArgs(
+    expression: TypedExpression,
+    member: String,
+    overload: String,
+    arguments: List<TypedCallArgument>,
+    isNullChaining: Boolean = false,
+    resultTypeIndex: Int
+): TypedMemberCallExpression {
+    return TypedMemberCallExpression(
+        evalType = resultTypeIndex,
+        expression = expression,
+        member = member,
+        isNullChaining = isNullChaining,
+        overload = overload,
+        arguments = arguments
+    )
 }
 
 /**

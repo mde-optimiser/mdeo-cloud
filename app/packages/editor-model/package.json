@@ -37,8 +37,8 @@
         "@mdeo/protocol-model": "^0.2.11"
     },
     "devDependencies": {
-        "@eclipse-glsp/protocol": "^2.7.0",
-        "@eclipse-glsp/sprotty": "^2.7.0",
+        "@eclipse-glsp/protocol": "^2.8.0",
+        "@eclipse-glsp/sprotty": "^2.8.0",
         "@tailwindcss/cli": "^4.3.3",
         "inversify": "^6.2.2",
         "snabbdom": "~3.5.1",

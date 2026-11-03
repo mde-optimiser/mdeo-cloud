@@ -42,7 +42,8 @@ export default defineConfig({
                     text: "Walkthrough",
                     items: [
                         { text: "Optimising a task allocation", link: "/guide/walkthrough" },
-                        { text: "Reading the results", link: "/guide/results" }
+                        { text: "Reading the results", link: "/guide/results" },
+                        { text: "Generated mutation operators", link: "/guide/generated-operators" }
                     ]
                 },
                 {
@@ -99,6 +100,9 @@ export default defineConfig({
                     text: "Reference",
                     items: [
                         { text: "Language service HTTP API", link: "/develop/service-api" },
+                        { text: "Sessions", link: "/develop/sessions" },
+                        { text: "Kotlin plugin services", link: "/develop/kotlin-plugin-service" },
+                        { text: "The script-functions protocol", link: "/develop/script-functions-protocol" },
                         { text: "Local development", link: "/develop/local-development" }
                     ]
                 }

@@ -12,10 +12,12 @@ resource "helm_release" "nginx_gateway_fabric" {
   wait             = true
   wait_for_jobs    = true
 
-  set {
-    name  = "nginxGateway.image.pullPolicy"
-    value = "Always"
-  }
+  set = [
+    {
+      name  = "nginxGateway.image.pullPolicy"
+      value = "Always"
+    },
+  ]
 }
 
 # ── CloudNativePG Operator ────────────────────────────────────────────────────

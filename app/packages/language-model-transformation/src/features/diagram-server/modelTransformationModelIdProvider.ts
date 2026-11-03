@@ -11,6 +11,14 @@ import {
     IfExpressionStatement,
     WhileExpressionStatement,
     StopStatement,
+    CallStatement,
+    CallOutput,
+    TransformationParameter,
+    IfCallStatement,
+    IfCallConditionAndBlock,
+    ForInStatement,
+    ForInVariable,
+    AssignmentStatement,
     Pattern,
     PatternObjectInstance,
     PatternObjectInstanceReference,
@@ -20,6 +28,7 @@ import {
     PatternPropertyAssignment,
     WhereClause,
     PatternApplicationCondition,
+    PatternModelScope,
     PatternVariable,
     PatternVariableReassignment,
     ElseIfBranch,
@@ -31,6 +40,7 @@ import {
     type PatternPropertyAssignmentType,
     type WhereClauseType,
     type PatternApplicationConditionType,
+    type PatternModelScopeType,
     type PatternVariableType,
     type PatternVariableReassignmentType,
     type PatternType
@@ -62,9 +72,30 @@ export class ModelTransformationModelIdProvider extends BaseModelIdProvider {
             this.reflection.isInstance(node, ForMatchStatement) ||
             this.reflection.isInstance(node, IfExpressionStatement) ||
             this.reflection.isInstance(node, WhileExpressionStatement) ||
-            this.reflection.isInstance(node, StopStatement)
+            this.reflection.isInstance(node, StopStatement) ||
+            this.reflection.isInstance(node, CallStatement) ||
+            this.reflection.isInstance(node, IfCallStatement) ||
+            this.reflection.isInstance(node, ForInStatement) ||
+            this.reflection.isInstance(node, AssignmentStatement)
         ) {
+            // the call of an `if call` is named after the statement, apart from its blocks
+            if (
+                this.reflection.isInstance(node, CallStatement) &&
+                this.reflection.isInstance(node.$container, IfCallConditionAndBlock)
+            ) {
+                const ifCall = node.$container.$container;
+                const parentName = ifCall != undefined ? registry.getName(ifCall) : undefined;
+                return `${parentName ?? "0"}_call`;
+            }
             return this.getHierarchicalStatementName(node, registry);
+        }
+
+        if (
+            this.reflection.isInstance(node, TransformationParameter) ||
+            this.reflection.isInstance(node, CallOutput) ||
+            this.reflection.isInstance(node, ForInVariable)
+        ) {
+            return BaseModelIdProvider.escapeIdPart(node.name ?? "unnamed");
         }
 
         if (this.reflection.isInstance(node, Pattern)) {
@@ -97,6 +128,9 @@ export class ModelTransformationModelIdProvider extends BaseModelIdProvider {
         }
         if (this.reflection.isInstance(node, PatternVariableReassignment)) {
             return this.getPatternVariableReassignmentName(node);
+        }
+        if (this.reflection.isInstance(node, PatternModelScope)) {
+            return this.getModelScopeName(node as PatternModelScopeType);
         }
 
         if (this.reflection.isInstance(node, ElseIfBranch)) {
@@ -330,7 +364,8 @@ export class ModelTransformationModelIdProvider extends BaseModelIdProvider {
      *
      * A clause of an application condition block is qualified with the name the block is
      * shown under, so that the clauses of two blocks do not compete for the same
-     * index-based name - including when neither block is named in the source.
+     * index-based name - including when neither block is named in the source. A clause of a
+     * model scope block is qualified with the block's model.
      *
      * @param node The where clause node
      * @returns The index-based name string, or "where" if the index cannot be determined
@@ -339,7 +374,9 @@ export class ModelTransformationModelIdProvider extends BaseModelIdProvider {
         const container = node.$container;
         const prefix = this.reflection.isInstance(container, PatternApplicationCondition)
             ? `${BaseModelIdProvider.escapeIdPart(conditionDisplayName(container as PatternApplicationConditionType, this.reflection))}_`
-            : "";
+            : this.reflection.isInstance(container, PatternModelScope)
+              ? `in_${BaseModelIdProvider.escapeIdPart((container as PatternModelScopeType).model?.$refText ?? "model")}_`
+              : "";
         if (container && "$containerProperty" in node) {
             const prop = node.$containerProperty as string;
             const containerValue = (container as unknown as Record<string, unknown>)[prop];
@@ -351,6 +388,21 @@ export class ModelTransformationModelIdProvider extends BaseModelIdProvider {
             }
         }
         return `${prefix}where`;
+    }
+
+    /**
+     * Generates a name for a {@link PatternModelScope}: its model and its index among the
+     * elements of its container.
+     *
+     * Format: "in_{model}_{index}"
+     *
+     * @param node The scope block
+     * @returns The generated name
+     */
+    private getModelScopeName(node: PatternModelScopeType): string {
+        const siblings = (node.$container as { elements?: unknown[] } | undefined)?.elements ?? [];
+        const model = BaseModelIdProvider.escapeIdPart(node.model?.$refText ?? "model");
+        return `in_${model}_${Math.max(siblings.indexOf(node), 0)}`;
     }
 
     /**

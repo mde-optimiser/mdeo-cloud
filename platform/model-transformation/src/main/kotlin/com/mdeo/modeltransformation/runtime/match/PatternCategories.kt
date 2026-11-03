@@ -2,6 +2,7 @@ package com.mdeo.modeltransformation.runtime.match
 
 import com.mdeo.modeltransformation.ast.patterns.TypedPattern
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternApplicationConditionElement
+import com.mdeo.modeltransformation.ast.patterns.TypedPatternCollectionAppendElement
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternObjectInstanceElement
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternLinkElement
 import com.mdeo.modeltransformation.ast.patterns.TypedPatternVariableElement
@@ -46,6 +47,8 @@ import com.mdeo.modeltransformation.ast.patterns.TypedPatternWhereClauseElement
  * @property variableReassignments Reassignments of variables declared in enclosing scopes
  * @property whereClauses Boolean expressions constraining the match
  * @property conditions Application condition blocks, in declaration order
+ * @property collectionAppends Additions to collection outputs (`name += value`), computed after
+ *   the modifications
  */
 internal data class PatternCategories(
     val matchableInstances: List<TypedPatternObjectInstanceElement>,
@@ -57,7 +60,8 @@ internal data class PatternCategories(
     val variables: List<TypedPatternVariableElement>,
     val variableReassignments: List<TypedPatternVariableReassignmentElement> = emptyList(),
     val whereClauses: List<TypedPatternWhereClauseElement>,
-    val conditions: List<TypedPatternApplicationConditionElement> = emptyList()
+    val conditions: List<TypedPatternApplicationConditionElement> = emptyList(),
+    val collectionAppends: List<TypedPatternCollectionAppendElement> = emptyList()
 ) {
     /**
      * All instance names for final select() step.
@@ -98,6 +102,7 @@ internal data class PatternCategories(
             val variableReassignments = mutableListOf<TypedPatternVariableReassignmentElement>()
             val whereClauses = mutableListOf<TypedPatternWhereClauseElement>()
             val conditions = mutableListOf<TypedPatternApplicationConditionElement>()
+            val collectionAppends = mutableListOf<TypedPatternCollectionAppendElement>()
 
             for (element in pattern.elements) {
                 when (element) {
@@ -111,13 +116,14 @@ internal data class PatternCategories(
                     is TypedPatternVariableReassignmentElement -> variableReassignments.add(element)
                     is TypedPatternWhereClauseElement -> whereClauses.add(element)
                     is TypedPatternApplicationConditionElement -> conditions.add(element)
+                    is TypedPatternCollectionAppendElement -> collectionAppends.add(element)
                 }
             }
 
             return PatternCategories(
                 matchableInstances, matchableLinks, createInstances, deleteInstances,
                 createLinks, deleteLinks, variables, variableReassignments, whereClauses,
-                conditions
+                conditions, collectionAppends
             )
         }
 

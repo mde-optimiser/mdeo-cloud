@@ -85,12 +85,12 @@ export const stringType = classType(DefaultTypeNames.String)
     )
     .method("substring", (m) =>
         m
-            .signature((s) =>
+            .signature("1", (s) =>
                 s
                     .param("index", typeRef("builtin", DefaultTypeNames.Int).build())
                     .returns(typeRef("builtin", DefaultTypeNames.String).build())
             )
-            .signature((s) =>
+            .signature("2", (s) =>
                 s
                     .param("startIndex", typeRef("builtin", DefaultTypeNames.Int).build())
                     .param("endIndex", typeRef("builtin", DefaultTypeNames.Int).build())

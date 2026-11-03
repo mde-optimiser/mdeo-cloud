@@ -1,5 +1,13 @@
-import { createInterface, createType, createExternalInterface, Ref, Union, type ASTType } from "@mdeo/language-common";
-import type { ClassType, PropertyType } from "@mdeo/language-metamodel";
+import {
+    createInterface,
+    createType,
+    createExternalInterface,
+    Optional,
+    Ref,
+    Union,
+    type ASTType
+} from "@mdeo/language-common";
+import type { ClassType, EnumEntryType, EnumType, PropertyType } from "@mdeo/language-metamodel";
 import type { ModelTransformationType } from "@mdeo/language-model-transformation";
 
 /**
@@ -15,17 +23,135 @@ export const MetamodelClass = createExternalInterface<ClassType>("Class");
 export const Property = createExternalInterface<PropertyType>("Property");
 
 /**
+ * External reference to Enum interface from language-metamodel.
+ * Used for enum literals in operator arguments.
+ */
+export const MetamodelEnum = createExternalInterface<EnumType>("Enum");
+
+/**
+ * External reference to EnumEntry interface from language-metamodel.
+ * Used for enum literals in operator arguments.
+ */
+export const MetamodelEnumEntry = createExternalInterface<EnumEntryType>("EnumEntry");
+
+/**
  * External reference to ModelTransformation interface from language-model-transformation.
  * Used for referencing model transformation files in the search section.
  */
 export const ModelTransformation = createExternalInterface<ModelTransformationType>("ModelTransformation");
 
 /**
- * A "using" path declaration for model transformation files.
- * Format: using "path/to/transformation.mt"
+ * The value of an operator argument: a literal (no expressions, no `null`).
+ */
+export const ConfigLiteral = createInterface("ConfigMdeoLiteral").attrs({});
+export type ConfigLiteralType = ASTType<typeof ConfigLiteral>;
+
+/**
+ * An int literal of an operator argument, e.g. `4` or `-1`.
+ */
+export const IntLiteral = createInterface("ConfigMdeoIntLiteral").extends(ConfigLiteral).attrs({
+    value: Number
+});
+export type IntLiteralType = ASTType<typeof IntLiteral>;
+
+/**
+ * A long literal of an operator argument, e.g. `42L`. The value is the literal as written.
+ */
+export const LongLiteral = createInterface("ConfigMdeoLongLiteral").extends(ConfigLiteral).attrs({
+    value: String
+});
+export type LongLiteralType = ASTType<typeof LongLiteral>;
+
+/**
+ * A float literal of an operator argument, e.g. `2.5f` or `2.5E-3f`. The value is the literal as
+ * written.
+ */
+export const FloatLiteral = createInterface("ConfigMdeoFloatLiteral").extends(ConfigLiteral).attrs({
+    value: String
+});
+export type FloatLiteralType = ASTType<typeof FloatLiteral>;
+
+/**
+ * A double literal of an operator argument, e.g. `2.5`, `1e3` or `2.5d`. The value is the
+ * literal as written.
+ */
+export const DoubleLiteral = createInterface("ConfigMdeoDoubleLiteral").extends(ConfigLiteral).attrs({
+    value: String
+});
+export type DoubleLiteralType = ASTType<typeof DoubleLiteral>;
+
+/**
+ * A string literal of an operator argument.
+ */
+export const StringLiteral = createInterface("ConfigMdeoStringLiteral").extends(ConfigLiteral).attrs({
+    value: String
+});
+export type StringLiteralType = ASTType<typeof StringLiteral>;
+
+/**
+ * A boolean literal of an operator argument (`true` / `false`).
+ */
+export const BooleanLiteral = createInterface("ConfigMdeoBooleanLiteral")
+    .extends(ConfigLiteral)
+    .attrs({
+        value: Union("true", "false")
+    });
+export type BooleanLiteralType = ASTType<typeof BooleanLiteral>;
+
+/**
+ * `null` written as an operator argument. It parses so that the validator can explain that an
+ * argument is left out instead; it is never a valid value.
+ */
+export const NullLiteral = createInterface("ConfigMdeoNullLiteral").extends(ConfigLiteral).attrs({});
+export type NullLiteralType = ASTType<typeof NullLiteral>;
+
+/**
+ * An enum literal of an operator argument, `Enum.ENTRY`, resolved in the problem's metamodel.
+ */
+export const EnumLiteral = createInterface("ConfigMdeoEnumLiteral")
+    .extends(ConfigLiteral)
+    .attrs({
+        enum: Ref(() => MetamodelEnum),
+        entry: Ref(() => MetamodelEnumEntry)
+    });
+export type EnumLiteralType = ASTType<typeof EnumLiteral>;
+
+/**
+ * A list literal of an operator argument, `[a, b, …]`, for `List<T>` and `Set<T>` inputs.
+ */
+export const ListLiteral = createInterface("ConfigMdeoListLiteral")
+    .extends(ConfigLiteral)
+    .attrs({
+        elements: [ConfigLiteral]
+    });
+export type ListLiteralType = ASTType<typeof ListLiteral>;
+
+/**
+ * One argument of a `with { }` block: `name = literal`, binding the `in` declaration `name` of
+ * the operator's transformation.
+ */
+export const OperatorArgument = createInterface("ConfigMdeoOperatorArgument").attrs({
+    name: String,
+    value: ConfigLiteral
+});
+export type OperatorArgumentType = ASTType<typeof OperatorArgument>;
+
+/**
+ * The `with { … }` block of a `using` entry.
+ */
+export const OperatorArguments = createInterface("ConfigMdeoOperatorArguments").attrs({
+    arguments: [OperatorArgument]
+});
+export type OperatorArgumentsType = ASTType<typeof OperatorArguments>;
+
+/**
+ * A "using" path declaration for model transformation files, optionally with arguments for the
+ * transformation's inputs. Each entry is its own operator, even when two name the same file.
+ * Format: using "path/to/transformation.mt" [with { name = literal … }]
  */
 export const UsingPath = createInterface("ConfigMdeoUsingPath").attrs({
-    path: String
+    path: String,
+    with: Optional(OperatorArguments)
 });
 
 /**
@@ -78,11 +204,26 @@ export const MutationsBlock = createInterface("ConfigMdeoMutationsBlock").attrs(
 export type MutationsBlockType = ASTType<typeof MutationsBlock>;
 
 /**
+ * Crossovers block in the search section.
+ * Contains the crossover operators (transformations with model inputs), used with
+ * `variation = genetic`.
+ */
+export const CrossoversBlock = createInterface("ConfigMdeoCrossoversBlock").attrs({
+    usingPaths: [UsingPath]
+});
+
+/**
+ * Type representing a CrossoversBlock AST node.
+ */
+export type CrossoversBlockType = ASTType<typeof CrossoversBlock>;
+
+/**
  * Search section interface.
- * Defines the mutations block for the search operators.
+ * Defines the mutations and crossovers blocks for the search operators.
  */
 export const SearchSection = createInterface("ConfigMdeoSearchSection").attrs({
-    mutations: [MutationsBlock]
+    mutations: [MutationsBlock],
+    crossovers: [CrossoversBlock]
 });
 
 /**
@@ -160,12 +301,28 @@ export const ArchiveBlock = createInterface("ConfigMdeoArchiveBlock").attrs({
 export type ArchiveBlockType = ASTType<typeof ArchiveBlock>;
 
 /**
+ * The `crossover { }` nested block inside the `parameters` block, used with
+ * `variation = genetic`.
+ *
+ * - `rate`     — probability that crossover is applied to a group of parents, in [0, 1]
+ * - `parents`  — parents per crossover (≥ 2); every crossover yields one child per parent
+ * - `strategy` — how a crossover operator is chosen
+ */
+export const CrossoverBlock = createInterface("ConfigMdeoCrossoverBlock").attrs({
+    rate: [Number],
+    parents: [Number],
+    strategy: [Union("random")]
+});
+export type CrossoverBlockType = ASTType<typeof CrossoverBlock>;
+
+/**
  * The `parameters { }` block in the solver section.
  * Contains population, variation, and optional sub-blocks.
  */
 export const AlgorithmParameters = createInterface("ConfigMdeoAlgorithmParameters").attrs({
     population: [Number],
-    variation: [Union("mutation", "genetic", "probabilistic")],
+    variation: [Union("mutation", "genetic")],
+    crossover: [CrossoverBlock],
     mutation: [MutationBlock],
     bisections: [Number],
     archive: [ArchiveBlock]

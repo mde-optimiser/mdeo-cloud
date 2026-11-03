@@ -1,0 +1,107 @@
+{
+ "path": "/metamodel/base.mm",
+ "classes": [
+  {
+   "name": "Component",
+   "isAbstract": false,
+   "extends": [],
+   "properties": [
+    {
+     "name": "name",
+     "multiplicity": {
+      "lower": 1,
+      "upper": 1
+     },
+     "primitiveType": "string"
+    }
+   ]
+  },
+  {
+   "name": "Container",
+   "isAbstract": false,
+   "extends": [],
+   "properties": [
+    {
+     "name": "name",
+     "multiplicity": {
+      "lower": 1,
+      "upper": 1
+     },
+     "primitiveType": "string"
+    }
+   ]
+  },
+  {
+   "name": "Placement",
+   "isAbstract": false,
+   "extends": [],
+   "properties": []
+  }
+ ],
+ "enums": [
+  {
+   "name": "Kind",
+   "entries": [
+    "SMALL",
+    "LARGE"
+   ]
+  }
+ ],
+ "associations": [
+  {
+   "source": {
+    "className": "Component",
+    "multiplicity": {
+     "lower": 1,
+     "upper": 1
+    },
+    "name": "host"
+   },
+   "operator": "-->",
+   "target": {
+    "className": "Container",
+    "multiplicity": {
+     "lower": 0,
+     "upper": -1
+    }
+   }
+  },
+  {
+   "source": {
+    "className": "Placement",
+    "multiplicity": {
+     "lower": 1,
+     "upper": 1
+    },
+    "name": "component"
+   },
+   "operator": "-->",
+   "target": {
+    "className": "Component",
+    "multiplicity": {
+     "lower": 0,
+     "upper": -1
+    }
+   }
+  },
+  {
+   "source": {
+    "className": "Placement",
+    "multiplicity": {
+     "lower": 1,
+     "upper": -1
+    },
+    "name": "candidates"
+   },
+   "operator": "-->",
+   "target": {
+    "className": "Container",
+    "multiplicity": {
+     "lower": 0,
+     "upper": -1
+    }
+   }
+  }
+ ],
+ "importedMetamodelPaths": []
+}

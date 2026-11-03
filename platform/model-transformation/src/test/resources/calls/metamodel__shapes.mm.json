@@ -1,0 +1,46 @@
+{
+ "path": "/metamodel/shapes.mm",
+ "classes": [
+  {
+   "name": "Access",
+   "isAbstract": false,
+   "extends": [],
+   "properties": [
+    {
+     "name": "shape",
+     "multiplicity": {
+      "lower": 1,
+      "upper": 1
+     },
+     "primitiveType": "string"
+    }
+   ]
+  },
+  {
+   "name": "Call",
+   "isAbstract": false,
+   "extends": [],
+   "properties": [
+    {
+     "name": "built",
+     "multiplicity": {
+      "lower": 1,
+      "upper": 1
+     },
+     "primitiveType": "string"
+    },
+    {
+     "name": "shape",
+     "multiplicity": {
+      "lower": 1,
+      "upper": 1
+     },
+     "primitiveType": "string"
+    }
+   ]
+  }
+ ],
+ "enums": [],
+ "associations": [],
+ "importedMetamodelPaths": []
+}

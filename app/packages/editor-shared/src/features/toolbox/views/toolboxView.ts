@@ -50,7 +50,7 @@ function generateToolboxInternal(context: Toolbox): VNode {
                 "flex-col": true,
                 "gap-2": true,
                 "w-[calc(var(--editor-spacing)*68-2px)]": context.isOpen,
-                "h-[50vh]": context.isOpen && context.isBottomPanelOpen,
+                "h-[50vh]": context.isOpen && context.isBottomPanelOpen && !context.layoutPanelOpen,
                 "w-[calc(var(--editor-spacing)*10+2px)]": !context.isOpen,
                 "h-[calc(var(--editor-spacing)*10+2px)]": !context.isOpen,
                 "transition-all": true,
@@ -77,7 +77,10 @@ function generateToolboxInternal(context: Toolbox): VNode {
                 }
             },
             generateToolbarView(context),
-            hasItems &&
+            context.isOpen ? context.generateLayoutPanel() : undefined,
+            context.isOpen && !context.layoutPanelOpen ? context.generateToolbarExtension() : undefined,
+            !context.layoutPanelOpen &&
+                hasItems &&
                 context.toolType !== ToolType.HAND &&
                 context.toolType !== ToolType.MARQUEE &&
                 !isCreationTool(context.toolType)

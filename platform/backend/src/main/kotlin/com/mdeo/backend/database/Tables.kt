@@ -171,6 +171,20 @@ object LanguagePluginsTable : Table("language_plugins") {
 }
 
 /**
+ * The manifest fingerprint each plugin reported when its manifest was last fetched.
+ *
+ * A plugin service sends the fingerprint of its manifest with every answer. When an answer carries a
+ * different one than recorded here, the plugin was redeployed with a changed manifest and is
+ * refreshed.
+ */
+object PluginManifestFingerprintsTable : Table("plugin_manifest_fingerprints") {
+    val pluginId = uuid("plugin_id").references(PluginsTable.id, onDelete = ReferenceOption.CASCADE)
+    val fingerprint = varchar("fingerprint", 128)
+
+    override val primaryKey = PrimaryKey(pluginId)
+}
+
+/**
  * Contribution plugins table schema for storing contribution plugins from plugin manifests.
  * Contribution plugins provide additional functionality to existing languages.
  */
@@ -188,13 +202,56 @@ object ContributionPluginsTable : Table("contribution_plugins") {
 }
 
 /**
+ * Contribution targets table schema.
+ *
+ * A contribution's payload is stored as one opaque JSON blob under a generated row id, because
+ * its shape belongs to the receiving language rather than to the platform. The one field the
+ * platform does read is the contribution's own `id`, which is what a caller addresses as
+ * `contrib:<id>`. This table lifts that id out so a contribution can be resolved back to the
+ * plugin that ships it without parsing every payload, and so duplicates within a project can
+ * be refused when the plugin is added.
+ */
+object ContributionTargetsTable : Table("contribution_targets") {
+    val pluginId = uuid("plugin_id").references(PluginsTable.id, onDelete = ReferenceOption.CASCADE)
+    val contributionId = varchar("contribution_id", 255)
+    val languageId = varchar("language_id", 255)
+
+    override val primaryKey = PrimaryKey(pluginId, contributionId)
+
+    init {
+        index(false, contributionId)
+    }
+}
+
+/**
+ * Plugin sessions table schema for the session types a target declares.
+ *
+ * Rows exist for both target kinds — `lang:<id>` and `contrib:<id>` — so the connect endpoint
+ * resolves either through one lookup. [versions] holds the protocol versions the plugin side can
+ * speak, most preferred first.
+ */
+object PluginSessionsTable : Table("plugin_sessions") {
+    val pluginId = uuid("plugin_id").references(PluginsTable.id, onDelete = ReferenceOption.CASCADE)
+    val targetKind = varchar("target_kind", 16)
+    val targetId = varchar("target_id", 255)
+    val name = varchar("name", 255)
+    val protocol = varchar("protocol", 255)
+    val versions = array<Int>("versions")
+
+    override val primaryKey = PrimaryKey(pluginId, targetKind, targetId, name)
+}
+
+/**
  * File data table schema for caching computed file data (e.g., AST).
+ *
+ * [data] is a JSON column read and written as its text: Postgres keeps `json` exactly as written, so
+ * cached data is served as stored, without being parsed and serialized again on every request.
  */
 object FileDataTable : Table("file_data") {
     val projectId = uuid("project_id")
     val path = varchar("path", 1024)
     val dataKey = varchar("data_key", 255)
-    val data = json<JsonElement>("data", Json)
+    val data = json<String>("data", { it }, { it })
     val sourceVersion = integer("source_version")
     val createdAt = timestamp("created_at")
     val updatedAt = timestamp("updated_at")

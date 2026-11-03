@@ -1,0 +1,310 @@
+{
+ "types": [
+  {
+   "kind": "void"
+  },
+  {
+   "package": "builtin",
+   "type": "string",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "double",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "boolean",
+   "isNullable": false,
+   "typeArgs": {}
+  },
+  {
+   "package": "builtin",
+   "type": "Any",
+   "isNullable": true
+  },
+  {
+   "package": "class/metamodel/base.mm",
+   "type": "Container",
+   "isNullable": false,
+   "typeArgs": {}
+  }
+ ],
+ "metamodelPath": "/metamodel/shop.mm",
+ "statements": [
+  {
+   "kind": "match",
+   "pattern": {
+    "elements": [
+     {
+      "kind": "objectInstance",
+      "objectInstance": {
+       "name": "c",
+       "className": "Container",
+       "properties": [
+        {
+         "propertyName": "name",
+         "operator": "==",
+         "value": {
+          "kind": "stringLiteral",
+          "evalType": 1,
+          "value": "skip"
+         }
+        }
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "kind": "call",
+   "callee": "/optimize/scenarios/rename-unless-skipped.mt",
+   "name": "renameUnlessSkipped",
+   "arguments": [
+    {
+     "name": "target",
+     "value": {
+      "kind": "identifier",
+      "evalType": 5,
+      "name": "c",
+      "scope": 1
+     }
+    },
+    {
+     "name": "newName",
+     "value": {
+      "kind": "stringLiteral",
+      "evalType": 1,
+      "value": "renamed"
+     }
+    }
+   ],
+   "outputs": [
+    {
+     "parameter": "renamed",
+     "name": "r"
+    }
+   ]
+  },
+  {
+   "kind": "match",
+   "pattern": {
+    "elements": [
+     {
+      "kind": "objectInstance",
+      "objectInstance": {
+       "name": "c",
+       "properties": [
+        {
+         "propertyName": "name",
+         "operator": "=",
+         "value": {
+          "kind": "stringLiteral",
+          "evalType": 1,
+          "value": "after"
+         }
+        }
+       ]
+      }
+     },
+     {
+      "kind": "whereClause",
+      "whereClause": {
+       "expression": {
+        "kind": "unary",
+        "evalType": 3,
+        "operator": "!",
+        "expression": {
+         "kind": "identifier",
+         "evalType": 3,
+         "name": "r",
+         "scope": 1
+        }
+       }
+      }
+     }
+    ]
+   }
+  }
+ ],
+ "signature": {
+  "name": "call-stopping.mt",
+  "parameters": []
+ },
+ "callees": {
+  "/optimize/scenarios/rename-unless-skipped.mt": {
+   "types": [
+    {
+     "kind": "void"
+    },
+    {
+     "package": "builtin",
+     "type": "string",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "double",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "boolean",
+     "isNullable": false,
+     "typeArgs": {}
+    },
+    {
+     "package": "builtin",
+     "type": "Any",
+     "isNullable": true
+    },
+    {
+     "package": "class/metamodel/base.mm",
+     "type": "Container",
+     "isNullable": false,
+     "typeArgs": {}
+    }
+   ],
+   "metamodelPath": "/metamodel/base.mm",
+   "statements": [
+    {
+     "kind": "match",
+     "pattern": {
+      "elements": [
+       {
+        "kind": "variable",
+        "variable": {
+         "name": "no",
+         "value": {
+          "kind": "booleanLiteral",
+          "evalType": 3,
+          "value": false
+         }
+        }
+       },
+       {
+        "kind": "variableReassignment",
+        "reassignment": {
+         "name": "renamed",
+         "value": {
+          "kind": "identifier",
+          "evalType": 3,
+          "name": "no",
+          "scope": 1
+         }
+        }
+       }
+      ]
+     }
+    },
+    {
+     "kind": "ifMatch",
+     "pattern": {
+      "elements": [
+       {
+        "kind": "objectInstance",
+        "objectInstance": {
+         "name": "target",
+         "properties": [
+          {
+           "propertyName": "name",
+           "operator": "==",
+           "value": {
+            "kind": "stringLiteral",
+            "evalType": 1,
+            "value": "skip"
+           }
+          }
+         ]
+        }
+       }
+      ]
+     },
+     "thenBlock": [
+      {
+       "kind": "stop",
+       "keyword": "stop"
+      }
+     ]
+    },
+    {
+     "kind": "match",
+     "pattern": {
+      "elements": [
+       {
+        "kind": "objectInstance",
+        "objectInstance": {
+         "name": "target",
+         "properties": [
+          {
+           "propertyName": "name",
+           "operator": "=",
+           "value": {
+            "kind": "identifier",
+            "evalType": 1,
+            "name": "newName",
+            "scope": 1
+           }
+          }
+         ]
+        }
+       },
+       {
+        "kind": "variable",
+        "variable": {
+         "name": "yes",
+         "value": {
+          "kind": "booleanLiteral",
+          "evalType": 3,
+          "value": true
+         }
+        }
+       },
+       {
+        "kind": "variableReassignment",
+        "reassignment": {
+         "name": "renamed",
+         "value": {
+          "kind": "identifier",
+          "evalType": 3,
+          "name": "yes",
+          "scope": 1
+         }
+        }
+       }
+      ]
+     }
+    }
+   ],
+   "signature": {
+    "name": "rename-unless-skipped.mt",
+    "parameters": [
+     {
+      "name": "target",
+      "direction": "in",
+      "type": 5,
+      "isElement": true
+     },
+     {
+      "name": "newName",
+      "direction": "in",
+      "type": 1,
+      "isElement": false
+     },
+     {
+      "name": "renamed",
+      "direction": "out",
+      "type": 3,
+      "isElement": false
+     }
+    ]
+   }
+  }
+ }
+}

@@ -16,7 +16,7 @@
         v-else
         data-slot="tree-item"
         data-tree="item"
-        :class="cn('group/tree-item relative')"
+        :class="cn('group/tree-item relative list-none')"
         @dragenter="handleDragEnter"
         @dragleave="handleDragLeave"
         @dragover="handleDragOver"

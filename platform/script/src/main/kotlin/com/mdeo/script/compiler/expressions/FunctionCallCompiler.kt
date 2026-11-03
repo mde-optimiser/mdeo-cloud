@@ -1,5 +1,6 @@
 package com.mdeo.script.compiler.expressions
 
+import com.mdeo.script.compiler.registry.function.PluginFunctionSignatureDefinition
 import com.mdeo.expression.ast.expressions.TypedExpression
 import com.mdeo.expression.ast.expressions.TypedFunctionCallExpression
 import com.mdeo.script.compiler.CompilationContext
@@ -60,7 +61,8 @@ class FunctionCallCompiler : AbstractCallCompiler() {
         val signature = funcDef.getOverload(functionCall.overload)
             ?: error("Overload '${functionCall.overload}' not found for function '${functionCall.name}'")
         
-        if (signature is InstanceFunctionSignatureDefinition) {
+        // Contributed functions are instance methods of the script program too, like the file's own.
+        if (signature is InstanceFunctionSignatureDefinition || signature is PluginFunctionSignatureDefinition) {
             emitInstanceReceiver(mv)
         }
 
@@ -68,15 +70,24 @@ class FunctionCallCompiler : AbstractCallCompiler() {
             emitContextLoad(context, mv)
         }
 
-        compileArgumentsWithCoercion(
-            functionCall.arguments,
-            context,
-            mv,
-            signatureParameterTypes = signature.parameterTypes,
-            varArgsStartIndex = if (signature.isVarArgs) signature.parameterTypes.size else null
-        )
-        
-        signature.emitInvocation(mv)
+        if (!signature.isVarArgs && needsArgumentBinding(functionCall.arguments, signature.parameterTypes.size, signature.hasDefaults)) {
+            val masks = compileBoundArguments(functionCall.arguments, context, mv, signature.parameterTypes)
+            if (masks.any { it != 0 }) {
+                masks.forEach { mv.visitLdcInsn(it) }
+                signature.emitDefaultsInvocation(mv)
+            } else {
+                signature.emitInvocation(mv)
+            }
+        } else {
+            compileArgumentsWithCoercion(
+                functionCall.arguments,
+                context,
+                mv,
+                signatureParameterTypes = signature.parameterTypes,
+                varArgsStartIndex = if (signature.isVarArgs) signature.parameterTypes.size else null
+            )
+            signature.emitInvocation(mv)
+        }
         
         val expectedReturnType = context.getType(functionCall.evalType)
         emitReturnTypeCoercion(expectedReturnType, signature.returnType, mv)

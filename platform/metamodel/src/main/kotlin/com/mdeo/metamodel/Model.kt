@@ -35,6 +35,24 @@ class Model(
     private val extents = ConcurrentHashMap<String, List<ModelInstance>>()
 
     /**
+     * Instance names by instance, built on first request. Like [extents], stable for the
+     * lifetime of this object.
+     */
+    private val namesByInstance: IdentityHashMap<ModelInstance, String> by lazy {
+        IdentityHashMap<ModelInstance, String>(instancesByName.size * 2).also { names ->
+            for ((name, instance) in instancesByName) names[instance] = name
+        }
+    }
+
+    /**
+     * Returns the name of an instance of this model.
+     *
+     * @param instance The instance.
+     * @return Its name, or null when it is not part of this model.
+     */
+    fun nameOf(instance: ModelInstance): String? = namesByInstance[instance]
+
+    /**
      * Returns all instances of the given [className], including instances of subtypes.
      *
      * The result is computed once per class and cached. This matters because scripts reach
@@ -89,11 +107,6 @@ class Model(
         val dataLinks = mutableListOf<ModelDataLink>()
         val emittedLinks = mutableSetOf<String>()
 
-        val nameByInstance = IdentityHashMap<ModelInstance, String>(instancesByName.size * 2)
-        for ((name, instance) in instancesByName) {
-            nameByInstance[instance] = name
-        }
-
         for ((name, instance) in instancesByName) {
             val className = metamodel.classNameOf(instance)
             val meta = metamodel.metadata.classes[className] ?: continue
@@ -115,7 +128,7 @@ class Model(
                 }
 
                 for (target in targets) {
-                    val targetName = nameByInstance[target] ?: continue
+                    val targetName = nameOf(target) ?: continue
                     val linkKey = if (linkMapping.isOutgoing) {
                         "$name->$roleName->$targetName"
                     } else {

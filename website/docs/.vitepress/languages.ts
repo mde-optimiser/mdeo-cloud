@@ -192,6 +192,11 @@ const modelTransformation = createGrammar({
     aliases: ["mt", "mt_gen"],
     keywords: [
         "using",
+        "import",
+        "as",
+        "in",
+        "out",
+        "call",
         "match",
         "if",
         "then",
@@ -209,8 +214,9 @@ const modelTransformation = createGrammar({
         "kill",
         "stop"
     ],
+    types: ["int", "long", "float", "double", "string", "boolean", "model", "List", "Set"],
     constants: ["true", "false", "null"],
-    operators: ["===", "!==", "==", "!=", "<=", ">=", "&&", "||", "??", "?.", "!!", "=>", "--"]
+    operators: ["===", "!==", "==", "!=", "<=", ">=", "&&", "||", "??", "?.", "!!", "=>", "->", "--", "+="]
 });
 
 /**
@@ -225,6 +231,7 @@ const script = createGrammar({
         "from",
         "as",
         "fun",
+        "record",
         "return",
         "if",
         "else",
@@ -233,6 +240,7 @@ const script = createGrammar({
         "break",
         "continue",
         "var",
+        "val",
         "in",
         "is"
     ],
@@ -282,7 +290,9 @@ const config = createGrammar({
         "minimize",
         "refine",
         "mutations",
+        "crossovers",
         "using",
+        "with",
         "create",
         "delete",
         "mutate",
@@ -292,6 +302,9 @@ const config = createGrammar({
         "parameters",
         "population",
         "variation",
+        "crossover",
+        "rate",
+        "parents",
         "mutation",
         "step",
         "strategy",
@@ -331,10 +344,11 @@ const config = createGrammar({
         "random",
         "repetitive",
         "genetic",
-        "probabilistic",
         "default",
         "fixed",
-        "interval"
+        "interval",
+        "true",
+        "false"
     ],
     operators: [".."]
 });

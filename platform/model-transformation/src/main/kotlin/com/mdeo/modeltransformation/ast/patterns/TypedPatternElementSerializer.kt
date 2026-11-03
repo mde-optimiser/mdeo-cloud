@@ -39,6 +39,7 @@ object TypedPatternElementSerializer : JsonContentPolymorphicSerializer<TypedPat
         return when (kindValue) {
             "variable" -> TypedPatternVariableElement.serializer()
             "variableReassignment" -> TypedPatternVariableReassignmentElement.serializer()
+            "collectionAppend" -> TypedPatternCollectionAppendElement.serializer()
             "objectInstance" -> TypedPatternObjectInstanceElement.serializer()
             "link" -> TypedPatternLinkElement.serializer()
             "whereClause" -> TypedPatternWhereClauseElement.serializer()

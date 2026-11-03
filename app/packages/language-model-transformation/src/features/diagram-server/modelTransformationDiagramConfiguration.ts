@@ -1,4 +1,5 @@
 import type { DiagramConfiguration, EdgeTypeHint, GModelElementConstructor, ShapeTypeHint } from "@eclipse-glsp/server";
+import { GCallLabel, GCallNode } from "./model/callNode.js";
 import { sharedImport } from "@mdeo/language-shared";
 import { ModelTransformationElementType } from "@mdeo/protocol-model-transformation";
 import { GStartNode } from "./model/startNode.js";
@@ -17,6 +18,7 @@ import { GPatternLinkEndNode } from "./model/patternLinkEndNode.js";
 import { GPatternLinkEndLabel } from "./model/patternLinkEndLabel.js";
 import { GWhereClauseLabel } from "./model/whereClauseLabel.js";
 import { GVariableLabel } from "./model/variableLabel.js";
+import { GDeclarationLabel } from "./model/declarationLabel.js";
 
 const { injectable } = sharedImport("inversify");
 const { ServerLayoutKind, getDefaultMapping, DefaultTypes } = sharedImport("@eclipse-glsp/server");
@@ -41,10 +43,13 @@ export class ModelTransformationDiagramConfiguration implements DiagramConfigura
         const mapping = getDefaultMapping();
 
         mapping.set(ModelTransformationElementType.NODE_START, GStartNode);
+        mapping.set(ModelTransformationElementType.LABEL_DECLARATION, GDeclarationLabel);
         mapping.set(ModelTransformationElementType.NODE_END, GEndNode);
         mapping.set(ModelTransformationElementType.NODE_MATCH, GMatchNode);
         mapping.set(ModelTransformationElementType.NODE_SPLIT, GSplitNode);
         mapping.set(ModelTransformationElementType.NODE_MERGE, GMergeNode);
+        mapping.set(ModelTransformationElementType.NODE_CALL, GCallNode);
+        mapping.set(ModelTransformationElementType.LABEL_CALL, GCallLabel);
 
         mapping.set(ModelTransformationElementType.EDGE_CONTROL_FLOW, GControlFlowEdge);
         mapping.set(ModelTransformationElementType.NODE_CONTROL_FLOW_LABEL, GControlFlowLabelNode);
@@ -82,7 +87,8 @@ export class ModelTransformationDiagramConfiguration implements DiagramConfigura
                     ModelTransformationElementType.NODE_END,
                     ModelTransformationElementType.NODE_MATCH,
                     ModelTransformationElementType.NODE_SPLIT,
-                    ModelTransformationElementType.NODE_MERGE
+                    ModelTransformationElementType.NODE_MERGE,
+                    ModelTransformationElementType.NODE_CALL
                 ]
             },
             {
@@ -122,6 +128,15 @@ export class ModelTransformationDiagramConfiguration implements DiagramConfigura
                 reparentable: false
             },
             {
+                // Calls, loop heads and assignments: deleting one deletes the statement, and the
+                // text of a call can be edited in the diagram.
+                elementTypeId: ModelTransformationElementType.NODE_CALL,
+                repositionable: true,
+                deletable: true,
+                resizable: false,
+                reparentable: false
+            },
+            {
                 elementTypeId: ModelTransformationElementType.NODE_PATTERN_INSTANCE,
                 repositionable: true,
                 deletable: true,
@@ -148,13 +163,15 @@ export class ModelTransformationDiagramConfiguration implements DiagramConfigura
                     ModelTransformationElementType.NODE_START,
                     ModelTransformationElementType.NODE_MATCH,
                     ModelTransformationElementType.NODE_SPLIT,
-                    ModelTransformationElementType.NODE_MERGE
+                    ModelTransformationElementType.NODE_MERGE,
+                    ModelTransformationElementType.NODE_CALL
                 ],
                 targetElementTypeIds: [
                     ModelTransformationElementType.NODE_END,
                     ModelTransformationElementType.NODE_MATCH,
                     ModelTransformationElementType.NODE_SPLIT,
-                    ModelTransformationElementType.NODE_MERGE
+                    ModelTransformationElementType.NODE_MERGE,
+                    ModelTransformationElementType.NODE_CALL
                 ]
             }
         ];

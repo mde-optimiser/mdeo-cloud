@@ -444,13 +444,14 @@ class BinaryOperatorCompiler(
         context: CompilationContext,
         initialTraversal: GraphTraversal<*, *>?
     ): CompilationResult {
-        val leftResult = registry.compile(expr.left, context, initialTraversal)
+        val leftResult = registry.compile(expr.left, context, null)
         val rightResult = registry.compile(expr.right, context, null)
 
         val traversal = buildLogicalTraversal(
             expr.operator,
             leftResult.traversal as GraphTraversal<Any, Any>,
-            rightResult.traversal as GraphTraversal<Any, Any>
+            rightResult.traversal as GraphTraversal<Any, Any>,
+            initialTraversal as GraphTraversal<Any, Any>?
         )
 
         return CompilationResult.of(traversal)
@@ -498,51 +499,42 @@ class BinaryOperatorCompiler(
     }
 
     /**
-     * Builds a logical AND/OR traversal using choose with nested conditionals.
+     * Builds a logical AND/OR traversal with `choose` steps.
      *
-     * For AND (&&): Returns false if left is false, otherwise evaluates and returns right
-     * For OR (||): Returns true if left is true, otherwise evaluates and returns right
+     * Both operands are evaluated as child traversals of the *same* traverser — the one the
+     * expression is evaluated on — so each sees the labels of the match path. (Evaluating the
+     * right operand on the left operand's result would lose them whenever the left operand ends
+     * in a reducing step, such as the `count()` of `exists`.)
      *
-     * The choose() structure implements short-circuit evaluation by not evaluating
-     * the right operand when the result can be determined from the left operand alone.
+     * For AND (&&): false if left is not true, otherwise whether right is true.
+     * For OR (||): true if left is true, otherwise whether right is true.
+     * The right operand is not evaluated when the left one decides (short circuit).
      *
      * @param operator The logical operator ("&&" or "||")
      * @param leftTraversal The traversal producing the left operand boolean value
      * @param rightTraversal The traversal producing the right operand boolean value
+     * @param initialTraversal The traversal to continue, or `null` for an anonymous one
      * @return A traversal producing the logical AND/OR boolean result
      * @throws IllegalStateException if an unexpected operator is provided
      */
+    @Suppress("UNCHECKED_CAST")
     private fun buildLogicalTraversal(
         operator: String,
         leftTraversal: GraphTraversal<Any, Any>,
-        rightTraversal: GraphTraversal<Any, Any>
+        rightTraversal: GraphTraversal<Any, Any>,
+        initialTraversal: GraphTraversal<Any, Any>?
     ): GraphTraversal<Any, Boolean> {
-        val leftBoolCheck = AnonymousTraversal.`is`(P.eq(true))
-
+        val leftTrue = leftTraversal.`is`(P.eq(true))
+        val rightBoolean = AnonymousTraversal.choose<Any, Any, Any>(
+            rightTraversal.`is`(P.eq(true)),
+            AnonymousTraversal.constant<Any>(true),
+            AnonymousTraversal.constant<Any>(false)
+        )
+        val start = initialTraversal ?: AnonymousTraversal.start<Any>() as GraphTraversal<Any, Any>
         return when (operator) {
-            OPERATOR_LOGICAL_AND -> {
-                leftTraversal.choose(
-                    leftBoolCheck,
-                    rightTraversal.choose(
-                        AnonymousTraversal.`is`(P.eq(true)),
-                        AnonymousTraversal.constant(true),
-                        AnonymousTraversal.constant(false)
-                    ),
-                    AnonymousTraversal.constant(false)
-                )
-            }
-            OPERATOR_LOGICAL_OR -> {
-                leftTraversal.choose(
-                    leftBoolCheck,
-                    AnonymousTraversal.constant(true),
-                    rightTraversal.choose(
-                        AnonymousTraversal.`is`(P.eq(true)),
-                        AnonymousTraversal.constant(true),
-                        AnonymousTraversal.constant(false)
-                    )
-                )
-            }
+            OPERATOR_LOGICAL_AND -> start.choose(leftTrue, rightBoolean, AnonymousTraversal.constant<Any>(false))
+            OPERATOR_LOGICAL_OR -> start.choose(leftTrue, AnonymousTraversal.constant<Any>(true), rightBoolean)
             else -> throw IllegalStateException("Unexpected logical operator: $operator")
-        }
+        } as GraphTraversal<Any, Boolean>
     }
 }

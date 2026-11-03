@@ -1,5 +1,6 @@
 package com.mdeo.optimizer.moea
 
+import com.mdeo.optimizer.metrics.CrossoverGenerationMetrics
 import com.mdeo.optimizer.metrics.GenerationMetrics
 import com.mdeo.optimizer.metrics.NodeGenerationMetrics
 import com.mdeo.optimizer.metrics.OptimizationMetricsCollector
@@ -25,6 +26,7 @@ class ProgressCallbackExtension(
 
     private var generation = 0
     private var lastStepTimeNanos = System.nanoTime()
+    private var lastSeenBatch = 0
 
     override fun onStep(algorithm: Algorithm) {
         val now = System.nanoTime()
@@ -34,8 +36,17 @@ class ProgressCallbackExtension(
         generation++
 
         val (totalModels, perNodeModels) = coordinator.getMetricsSnapshot()
-        val rebalancedCount = coordinator.getLastRebalancedCount()
-        val transformationInfo = coordinator.getLastTransformationInfo()
+        // A step without a batch of its own (a steady-state step inserting an offspring evaluated
+        // with an earlier one) did no work: it must not report the previous batch again.
+        val batched = coordinator.batchCount != lastSeenBatch
+        lastSeenBatch = coordinator.batchCount
+        val rebalancedCount = if (batched) coordinator.getLastRebalancedCount() else 0
+        val transformationInfo = if (batched) {
+            coordinator.getLastTransformationInfo()
+        } else {
+            LastTransformationInfo(0, 0, emptyMap(), emptyMap())
+        }
+        val crossoverInfo = if (batched) coordinator.getLastCrossoverInfo() else CrossoverGenerationMetrics()
 
         val perNodeMetrics = perNodeModels.mapValues { (nodeId, totalCount) ->
             NodeGenerationMetrics(
@@ -52,7 +63,8 @@ class ProgressCallbackExtension(
             skippedOperatorSlots = transformationInfo.skippedTotal,
             rebalancedSolutions = rebalancedCount,
             iterationTimeMs = iterationTimeMs,
-            perNode = perNodeMetrics
+            perNode = perNodeMetrics,
+            crossover = crossoverInfo
         )
         metricsCollector.record(metrics)
 

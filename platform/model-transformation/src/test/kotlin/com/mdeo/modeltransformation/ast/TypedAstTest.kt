@@ -367,4 +367,40 @@ class TypedAstTest {
         assertEquals(2, result.types.size)
         assertEquals(8, result.statements.size)
     }
+
+    // ========== Header declarations and model inputs ==========
+
+    @Test
+    fun `deserialize model inputs and the model of a scoped object`() {
+        val jsonString = """{
+            "types": [{"package": "builtin", "type": "model", "isNullable": false}],
+            "metamodelPath": "/mm/arch.mm",
+            "signature": {
+                "name": "take-hosting.mt",
+                "parameters": [
+                    {"name": "donor", "direction": "in", "type": 0, "isModel": true},
+                    {"name": "donors", "direction": "in", "type": 0, "collection": "List", "isModel": true},
+                    {"name": "limit", "direction": "in", "type": 0}
+                ]
+            },
+            "statements": [
+                {
+                    "kind": "match",
+                    "pattern": {"elements": [
+                        {"kind": "objectInstance", "objectInstance": {"name": "dc", "className": "Component", "properties": [], "model": "donor"}},
+                        {"kind": "objectInstance", "objectInstance": {"name": "c", "className": "Component", "properties": []}}
+                    ]}
+                }
+            ]
+        }"""
+        val result = json.decodeFromString(TypedAst.serializer(), jsonString)
+
+        val signature = result.signature!!
+        assertEquals("take-hosting.mt", signature.name)
+        assertEquals(listOf("donor", "donors"), signature.modelInputs.map { it.name })
+        assertEquals(false, signature.parameters[2].isModel)
+        val pattern = (result.statements[0] as TypedMatchStatement).pattern.elements
+            .map { (it as com.mdeo.modeltransformation.ast.patterns.TypedPatternObjectInstanceElement).objectInstance }
+        assertEquals(listOf("donor", null), pattern.map { it.model })
+    }
 }

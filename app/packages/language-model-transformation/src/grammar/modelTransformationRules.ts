@@ -51,7 +51,23 @@ import {
     type ModelTransformationType,
     BaseTransformationStatement,
     PatternObjectInstanceReference,
-    PatternApplicationCondition
+    PatternApplicationCondition,
+    TransformationParameter,
+    CallArgument,
+    CallOutput,
+    CallStatement,
+    TransformationFileImport,
+    AssignableVariable,
+    ObjectInstanceDeclaration,
+    PatternCollectionAppend,
+    IfCallConditionAndBlock,
+    IfCallStatement,
+    ForInVariable,
+    ForInStatement,
+    AssignmentStatement,
+    PatternModelScope,
+    ModelValueDeclaration,
+    CallableTransformation
 } from "./modelTransformationTypes.js";
 
 /**
@@ -137,7 +153,17 @@ export function generateModelTransformationRules(): {
      */
     const PatternVariableReassignmentRule = createRule("PatternVariableReassignmentRule")
         .returns(PatternVariableReassignment)
-        .as(({ set }) => [set("variable", ref(PatternVariable, ID)), "=", set("value", ExpressionRule)]);
+        .as(({ set }) => [set("variable", ref(AssignableVariable, ID)), "=", set("value", ExpressionRule)]);
+
+    /**
+     * Pattern collection append rule.
+     * Format: name += expression
+     *
+     * `name` must be a collection `out` parameter of the transformation.
+     */
+    const PatternCollectionAppendRule = createRule("PatternCollectionAppendRule")
+        .returns(PatternCollectionAppend)
+        .as(({ set }) => [set("variable", ref(AssignableVariable, ID)), "+=", set("value", ExpressionRule)]);
 
     /**
      * Pattern property assignment rule.
@@ -186,7 +212,7 @@ export function generateModelTransformationRules(): {
     const PatternObjectInstanceReferenceRule = createRule("PatternObjectInstanceReferenceRule")
         .returns(PatternObjectInstanceReference)
         .as(({ set, add }) => [
-            set("instance", ref(PatternObjectInstance, ID)),
+            set("instance", ref(ObjectInstanceDeclaration, ID)),
             "{",
             many(or(add("properties", PatternPropertyAssignmentRule), NEWLINE)),
             "}"
@@ -199,7 +225,7 @@ export function generateModelTransformationRules(): {
      */
     const PatternObjectDeleteRule = createRule("PatternObjectDeleteRule")
         .returns(PatternObjectInstanceDelete)
-        .as(({ set }) => ["delete", set("instance", ref(PatternObjectInstance, ID))]);
+        .as(({ set }) => ["delete", set("instance", ref(ObjectInstanceDeclaration, ID))]);
 
     /**
      * Pattern link end rule.
@@ -208,7 +234,7 @@ export function generateModelTransformationRules(): {
     const PatternLinkEndRule = createRule("PatternLinkEndRule")
         .returns(PatternLinkEnd)
         .as(({ set }) => [
-            set("object", ref(PatternObjectInstance, ID)),
+            set("object", ref(ObjectInstanceDeclaration, ID)),
             optional(group(".", set("property", ref(Property, ID))))
         ]);
 
@@ -239,10 +265,12 @@ export function generateModelTransformationRules(): {
      *
      * The block describes a graph of its own, matched independently of the enclosing
      * pattern and of every other block. Only structural elements are allowed inside it;
-     * `var`, `delete <name>` and nested condition blocks are deliberately not part of the
-     * rule, so that a condition always denotes a plain sub-graph.
+     * `var` and `delete <name>` are deliberately not part of the rule, so that a condition
+     * always denotes a plain sub-graph. A model scope block puts part of the condition graph
+     * into an input model; the validator rejects a condition block nested in another one
+     * (through a scope block).
      */
-    const PatternApplicationConditionRule = createRule("PatternApplicationConditionRule")
+    const PatternApplicationConditionRule: ParserRule<any> = createRule("PatternApplicationConditionRule")
         .returns(PatternApplicationCondition)
         .as(({ set, add }) => [
             or(set("kind", "forbid"), set("kind", "require")),
@@ -254,6 +282,38 @@ export function generateModelTransformationRules(): {
                     add("elements", PatternObjectInstanceRule),
                     add("elements", PatternLinkRule),
                     add("elements", WhereClauseRule),
+                    add("elements", () => PatternModelScopeRule),
+                    NEWLINE
+                )
+            ),
+            "}"
+        ]);
+
+    /**
+     * Model scope block rule.
+     * Format: in model { elements }
+     *
+     * The block's objects belong to the input model `model` (a `model` input or the variable
+     * of a loop over a `List<model>` input). It contains what finds and reads objects; the
+     * validator rejects whatever would change the (read-only) input model and nested scope
+     * blocks.
+     */
+    const PatternModelScopeRule: ParserRule<any> = createRule("PatternModelScopeRule")
+        .returns(PatternModelScope)
+        .as(({ set, add }) => [
+            "in",
+            set("model", ref(ModelValueDeclaration, ID)),
+            "{",
+            many(
+                or(
+                    add("elements", PatternVariableRule),
+                    add("elements", PatternObjectInstanceReferenceRule),
+                    add("elements", PatternObjectInstanceRule),
+                    add("elements", PatternLinkRule),
+                    add("elements", PatternObjectDeleteRule),
+                    add("elements", WhereClauseRule),
+                    add("elements", PatternApplicationConditionRule),
+                    add("elements", () => PatternModelScopeRule),
                     NEWLINE
                 )
             ),
@@ -271,12 +331,14 @@ export function generateModelTransformationRules(): {
                 or(
                     add("elements", PatternVariableRule),
                     add("elements", PatternVariableReassignmentRule),
+                    add("elements", PatternCollectionAppendRule),
                     add("elements", PatternObjectInstanceReferenceRule),
                     add("elements", PatternObjectInstanceRule),
                     add("elements", PatternLinkRule),
                     add("elements", PatternObjectDeleteRule),
                     add("elements", WhereClauseRule),
                     add("elements", PatternApplicationConditionRule),
+                    add("elements", PatternModelScopeRule),
                     NEWLINE
                 )
             ),
@@ -433,6 +495,98 @@ export function generateModelTransformationRules(): {
         .as(({ set }) => [or(set("keyword", "kill"), set("keyword", "stop"))]);
 
     /**
+     * Call argument rule.
+     * Format: parameter = expression
+     */
+    const CallArgumentRule = createRule("CallArgumentRule")
+        .returns(CallArgument)
+        .as(({ set }) => [set("parameter", ref(TransformationParameter, ID)), "=", set("value", ExpressionRule)]);
+
+    /**
+     * Call output rule.
+     * Format: parameter: name
+     */
+    const CallOutputRule = createRule("CallOutputRule")
+        .returns(CallOutput)
+        .as(({ set }) => [set("parameter", ref(TransformationParameter, ID)), ":", set("name", ID)]);
+
+    /**
+     * Call statement rule.
+     * Format: call alias(argument, ...) [-> (output, ...)]
+     *
+     * The alias is the one of a path import; the callee resolves to the imported file's root.
+     */
+    const CallStatementRule = createRule("CallStatementRule")
+        .returns(CallStatement)
+        .as(({ set, add }) => [
+            "call",
+            set("callee", ref(CallableTransformation, ID)),
+            "(",
+            ...manySep(add("arguments", CallArgumentRule), ",", LeadingTrailing.TRAILING),
+            ")",
+            optional(group("->", "(", ...manySep(add("outputs", CallOutputRule), ",", LeadingTrailing.TRAILING), ")"))
+        ]);
+
+    /**
+     * If-call condition rule (inner node for scoping: the outputs are visible in the then block).
+     * Format: call name(...) [-> (...)] then { block }
+     */
+    const IfCallConditionRule = createRule("IfCallConditionRule")
+        .returns(IfCallConditionAndBlock)
+        .as(({ set }) => [set("call", CallStatementRule), "then", set("thenBlock", () => StatementsScopeRule)]);
+
+    /**
+     * If-call statement rule.
+     * Format: if call name(...) [-> (...)] then { block } [else { block }]
+     */
+    const IfCallStatementRule = createRule("IfCallStatementRule")
+        .returns(IfCallStatement)
+        .as(({ set }) => [
+            "if",
+            set("ifBlock", IfCallConditionRule),
+            optional(
+                group(
+                    "else",
+                    set("elseBlock", () => StatementsScopeRule)
+                )
+            )
+        ]);
+
+    /**
+     * Loop variable rule of a for-in statement.
+     */
+    const ForInVariableRule = createRule("ForInVariableRule")
+        .returns(ForInVariable)
+        .as(({ set }) => [set("name", ID)]);
+
+    /**
+     * For-in statement rule.
+     * Format: for name in expression do { block }
+     */
+    const ForInStatementRule = createRule("ForInStatementRule")
+        .returns(ForInStatement)
+        .as(({ set }) => [
+            "for",
+            set("variable", ForInVariableRule),
+            "in",
+            set("collection", ExpressionRule),
+            "do",
+            set("doBlock", () => StatementsScopeRule)
+        ]);
+
+    /**
+     * Assignment statement rule.
+     * Format: name = expression | name += expression
+     */
+    const AssignmentStatementRule = createRule("AssignmentStatementRule")
+        .returns(AssignmentStatement)
+        .as(({ set }) => [
+            set("variable", ref(AssignableVariable, ID)),
+            or(set("operator", "+="), set("operator", "=")),
+            set("value", ExpressionRule)
+        ]);
+
+    /**
      * Statement rule containing transformation statements.
      */
     const StatementRule = createRule("StatementRule")
@@ -446,9 +600,41 @@ export function generateModelTransformationRules(): {
                 ForMatchStatementRule,
                 IfExpressionStatementRule,
                 WhileExpressionStatementRule,
-                StopStatementRule
+                StopStatementRule,
+                CallStatementRule,
+                IfCallStatementRule,
+                ForInStatementRule,
+                AssignmentStatementRule
             )
         ]);
+
+    /**
+     * Header declaration of an input or output.
+     * Format: in name: Type [= default] | out name: Type
+     *
+     * The declarations are only part of the header (after `using` and the imports, before the
+     * first statement); the root rule places them, so a declaration after a statement does not
+     * parse. A default on an `out` parameter is rejected by the validator.
+     */
+    const TransformationParameterRule = createRule("TransformationParameterRule")
+        .returns(TransformationParameter)
+        .as(({ set }) => [
+            or(set("direction", "in"), set("direction", "out")),
+            set("name", ID),
+            ":",
+            set("type", TypeRule),
+            optional(group("=", set("defaultValue", ExpressionRule)))
+        ]);
+
+    /**
+     * Path import of another transformation.
+     * Format: import "./file.mt" as alias
+     *
+     * Every `.mt` file is one transformation; the alias is its only name in this file.
+     */
+    const TransformationFileImportRule = createRule("TransformationFileImportRule")
+        .returns(TransformationFileImport)
+        .as(({ set }) => ["import", set("file", STRING), "as", set("name", ID)]);
 
     /**
      * Metamodel file import rule.
@@ -460,12 +646,16 @@ export function generateModelTransformationRules(): {
 
     /**
      * Root rule for Model Transformation language.
+     * Format: using "metamodel", then the path imports of other transformations, then the
+     * header declarations (`in …` / `out …`, one per line), then the statements.
      */
     const ModelTransformationRule = createRule("ModelTransformationRule")
         .returns(ModelTransformation)
         .as(({ add, set }) => [
             many(NEWLINE),
             set("import", MetamodelFileImportRule),
+            many(or(add("imports", TransformationFileImportRule), NEWLINE)),
+            many(or(add("parameters", TransformationParameterRule), NEWLINE)),
             many(or(add("statements", StatementRule), NEWLINE))
         ]);
 

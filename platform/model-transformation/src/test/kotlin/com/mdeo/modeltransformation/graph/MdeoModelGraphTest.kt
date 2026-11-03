@@ -544,6 +544,21 @@ class MdeoModelGraphTest {
         assertTrue(foundDifferentOrder, "Expected label-filtered vertex order to change after resetNondeterminism")
     }
 
+    @Test
+    fun multiLabelScan_keepsLabelOrderUntilShuffled_thenMixesLabels() {
+        // A pattern object of a class with subclasses scans several labels at once. Joined in
+        // label order, its first candidate would always carry the first label.
+        fun firstLabel() = mdeoGraph.traversal().V().hasLabel("House", "Room").label().next()
+        val unshuffled = (0 until 10).map { firstLabel() }.toSet()
+        assertEquals(1, unshuffled.size, "Expected a stable order before resetNondeterminism")
+
+        val firstLabels = (0 until 60).map {
+            mdeoGraph.resetNondeterminism()
+            firstLabel()
+        }.toSet()
+        assertEquals(setOf("House", "Room"), firstLabels)
+    }
+
     // ========================================================================
     // ModelData Round-trip
     // ========================================================================

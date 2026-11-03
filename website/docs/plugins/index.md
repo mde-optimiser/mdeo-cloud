@@ -14,7 +14,7 @@ lives.
 | --- | --- | --- | --- |
 | [Metamodel](/plugins/metamodel) | `metamodel` (`.mm`) | Config | Define the structure of a domain |
 | [Model](/plugins/model) | `model` (`.m`), `model_gen` (`.m_gen`) | — | Instantiate a metamodel |
-| [Model Transformation](/plugins/model-transformation) | `model-transformation` (`.mt`), `model-transformation_gen` (`.mt_gen`) | — | Rewrite models; the mutation operators of a search |
+| [Model Transformation](/plugins/model-transformation) | `model-transformation` (`.mt`), `model-transformation_gen` (`.mt_gen`) | — | Rewrite models; the mutation and crossover operators of a search |
 | [Script](/plugins/script) | `script` (`.fn`) | Config | Objectives, constraints and helper logic |
 | [Config](/plugins/config) | `config` (`.config`) | — | The host language for configuration sections |
 | [Config Optimization](/plugins/config-optimization) | `config-optimization` (generated) | Config | The `problem` and `goal` sections |

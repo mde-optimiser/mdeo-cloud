@@ -1,11 +1,10 @@
 package com.mdeo.execution.common.auth
 
-import com.auth0.jwk.JwkProviderBuilder
+import io.ktor.http.auth.HttpAuthHeader
 import io.ktor.server.application.*
 import io.ktor.server.auth.*
 import io.ktor.server.auth.jwt.*
 import org.slf4j.LoggerFactory
-import java.util.concurrent.TimeUnit
 
 /**
  * Default authentication name for JWT-based authentication.
@@ -15,12 +14,11 @@ const val AUTH_JWT = "auth-jwt"
 private val logger = LoggerFactory.getLogger("JwtAuth")
 
 /**
- * Configures JWT authentication for an execution service using JwkProvider.
+ * Configures JWT authentication for an execution service.
  *
- * This implementation follows the Ktor JWT guide recommendations for RS256:
- * - Uses JwkProviderBuilder to automatically fetch and cache JWKS from the backend
- * - The provider handles key rotation automatically by fetching from /.well-known/jwks.json
- * - Includes caching (10 keys for 24 hours) and rate limiting (10 requests per minute)
+ * Tokens are RS256, verified against the backend's keys from /.well-known/jwks.json as
+ * [BackendKeys] keeps them: fetched once, and again when a token's signature fails with the
+ * kept key, since the backend may have started signing with a new one.
  *
  * @param backendUrl The base URL of the backend service (e.g., "http://localhost:8080")
  * @param issuer The expected JWT issuer
@@ -34,15 +32,18 @@ fun Application.configureJwtAuth(
     logger.info("Configuring JWT authentication with backend URL: $backendUrl")
     logger.info("JWKS endpoint: $backendUrl/.well-known/jwks.json")
 
-    val jwkProvider = JwkProviderBuilder(backendUrl)
-        .cached(10, 24, TimeUnit.HOURS)
-        .rateLimited(10, 1, TimeUnit.MINUTES)
-        .build()
+    val keys = BackendKeys(backendUrl, issuer)
 
     install(Authentication) {
         jwt(AUTH_JWT) {
-            verifier(jwkProvider, issuer) {
-                acceptLeeway(3)
+            verifier { header ->
+                val token = (header as? HttpAuthHeader.Single)?.blob ?: return@verifier null
+                try {
+                    keys.verifierFor(token)
+                } catch (e: Exception) {
+                    logger.warn("Cannot verify token: ${e.message}")
+                    null
+                }
             }
 
             validate { credential ->

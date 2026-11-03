@@ -1,219 +1,307 @@
 package com.mdeo.optimizer.rulegen
 
 import com.mdeo.metamodel.data.AssociationData
+import com.mdeo.metamodel.data.ClassData
+import com.mdeo.metamodel.data.EnumData
 import com.mdeo.metamodel.data.MetamodelData
+import com.mdeo.metamodel.data.PropertyData
 
 /**
- * Summary of the multiplicity bounds on the opposite end of a bidirectional association, from the
- * perspective of a forward [ReferenceInfo].
+ * One end of an association, seen from the class whose objects hold it.
  *
- * @param lower Lower bound of the opposite end (0 = optional, ≥1 = required).
- * @param upper Upper bound of the opposite end (-1 = unbounded).
+ * For `A.x[n..m] <--> B.y[k..l]` the association has two ends: `x` owned by `A` pointing at `B`
+ * with bounds `n..m`, and `y` owned by `B` pointing at `A` with bounds `k..l`. Each is the other's
+ * [opposite].
+ *
+ * An end without a property name cannot be navigated and carries no multiplicity in the language,
+ * so it is unconstrained (`0..*`).
+ *
+ * @param association Index of the association in [MetamodelData.associations].
+ * @param owner The class at this end's side, i.e. the class whose objects hold the property.
+ * @param name The property name, or `null` for an unnamed end.
+ * @param target The class at the other side.
+ * @param lower The effective lower bound, after refinements.
+ * @param upper The effective upper bound (-1 = unbounded), after refinements.
+ * @param isSourceSide Whether [owner] is the association's left-hand (source) class.
+ * @param isContainment Whether [owner] is the whole of a composition, so this end holds its parts.
+ * @param isContainer Whether [owner] is the part of a composition, so this end points at its whole.
+ * @param isSingle Whether the language types the end as one optional object rather than a list:
+ *   the metamodel declares it with an upper bound of 1. Refinements leave this unchanged.
  */
-data class OppositeInfo(
+class AssociationEnd internal constructor(
+    val association: Int,
+    val owner: String,
+    val name: String?,
+    val target: String,
+    val lower: Int,
+    val upper: Int,
+    val isSourceSide: Boolean,
+    val isContainment: Boolean,
+    val isContainer: Boolean,
+    val isSingle: Boolean = false
+) {
+    /** The other end of the same association. */
+    lateinit var opposite: AssociationEnd
+        internal set
+
+    /** Whether the bounds admit exactly one count (`lower == upper`). */
+    val isFixed: Boolean get() = lower == upper
+
+    /** Whether the upper bound is finite. */
+    val isBounded: Boolean get() = upper != -1
+
+    override fun toString(): String =
+        "$owner.${name ?: "<unnamed>"}[$lower..${if (upper == -1) "*" else upper}] -> $target"
+}
+
+/**
+ * A composition that can contain objects of some class.
+ *
+ * @param containmentEnd The end owned by the whole, holding the parts; possibly unnamed.
+ * @param containerEnd The end owned by the part, pointing at the whole; always named.
+ */
+data class ContainerContext(
+    val containmentEnd: AssociationEnd,
+    val containerEnd: AssociationEnd
+) {
+    /** The class of the whole. */
+    val wholeClass: String get() = containmentEnd.owner
+}
+
+/**
+ * A multiplicity refinement: tighter bounds for one association end, for the search only.
+ *
+ * @param className The class declaring the end.
+ * @param refName The end's property name.
+ * @param lower The refined lower bound.
+ * @param upper The refined upper bound (-1 = unbounded).
+ */
+data class MultiplicityOverride(
+    val className: String,
+    val refName: String,
     val lower: Int,
     val upper: Int
 )
 
 /**
- * Describes a single navigable reference from a metamodel class.
- *
- * For an association `A.foo --> B.bar` (or composition variants such as `*-->`):
- * - The *forward* ReferenceInfo for class A has `refName="foo"`, `isReverse=false`, and an
- *   [opposite] with the multiplicity of the B-end.
- * - The *reverse* ReferenceInfo for class B has `refName="bar"`, `isReverse=true`, and an
- *   [opposite] with the multiplicity of the A-end.
- *
- * @param refName       The role name of this end.
- * @param targetClass   The name of the class at the other end.
- * @param isContainment Whether this is the *forward* end of a containment/composition association.
- *                      The reverse end is never marked as containment.
- * @param isReverse     `true` when this ReferenceInfo represents the target-end of a bidirectional
- *                      association being exposed on the target class.
- * @param lower         Lower bound of this end's multiplicity.
- * @param upper         Upper bound of this end's multiplicity (-1 = unbounded).
- * @param opposite      Multiplicity of the other end, or `null` for unidirectional associations.
+ * Raised when the operators asked for cannot be generated: an unknown class or end, an invalid
+ * refinement, or a selection the generator does not support.
  */
-data class ReferenceInfo(
-    val refName: String,
-    val targetClass: String,
-    val isContainment: Boolean,
-    val isReverse: Boolean,
-    val lower: Int,
-    val upper: Int,
-    val opposite: OppositeInfo?
-)
+class RuleGenerationException(message: String) : RuntimeException(message)
 
 /**
- * Convenience wrapper around [MetamodelData] that answers structural queries needed by the
- * consistency-preserving operator generation pipeline.
+ * The structure of a metamodel as the operator generator sees it: classes with their inheritance,
+ * properties and association ends, with refinements applied.
  *
- * Calling [withOverrides] returns a new instance that applies [MultiplicityOverride] values on top
- * of the base metamodel; used for the solution-space ("S_") rule generation pass.
+ * Every query that names a class covers the ends and properties it inherits, and every end whose
+ * owner or target is a supertype applies to subclasses too.
  */
 class MetamodelInfo private constructor(
-    private val classes: Set<String>,
-    private val referencesByClass: Map<String, List<ReferenceInfo>>,
-    private val containmentContextsByClass: Map<String, List<Pair<String, String>>>
+    val metamodelPath: String,
+    private val classesByName: Map<String, ClassData>,
+    private val enumsByName: Map<String, EnumData>,
+    private val ends: List<AssociationEnd>,
+    private val supertypes: Map<String, Set<String>>,
+    private val subtypes: Map<String, Set<String>>
 ) {
 
-    /** Returns the names of all non-abstract classes in the metamodel. */
-    fun classNames(): List<String> = classes.toList()
+    /** The refined ends, in the order the refinements were given. */
+    var refinedEnds: List<AssociationEnd> = emptyList()
+        private set
+
+    /** Both ends of every association, named or not. */
+    val allEnds: List<AssociationEnd> get() = ends
+
+    /** Whether [className] is a class of the metamodel. */
+    fun hasClass(className: String): Boolean = className in classesByName
+
+    /** Whether [className] is abstract. */
+    fun isAbstract(className: String): Boolean = classesByName.getValue(className).isAbstract
+
+    /** [className] and all its transitive supertypes. */
+    fun supertypesOf(className: String): Set<String> = supertypes[className] ?: setOf(className)
+
+    /** [className] and all its transitive subtypes. */
+    fun subtypesOf(className: String): Set<String> = subtypes[className] ?: setOf(className)
+
+    /** Whether an object of one of the classes can also be an object of the other. */
+    fun compatible(a: String, b: String): Boolean = b in supertypesOf(a) || b in subtypesOf(a)
+
+    /** The non-abstract classes among [className] and its subtypes, in declaration order. */
+    fun concreteSubtypesOf(className: String): List<String> {
+        val subs = subtypesOf(className)
+        return classesByName.values.filter { it.name in subs && !it.isAbstract }.map { it.name }
+    }
+
+    /** The path of the file declaring [className]. */
+    fun pathOf(className: String): String = classesByName[className]?.path ?: metamodelPath
+
+    /** The path of the file declaring the enum [enumName]. */
+    fun enumPathOf(enumName: String): String = enumsByName[enumName]?.path ?: metamodelPath
+
+    /** The entries of the enum [enumName]. */
+    fun enumEntries(enumName: String): List<String> = enumsByName[enumName]?.entries ?: emptyList()
+
+    /** The attributes of [className], including inherited ones. */
+    fun propertiesOf(className: String): List<PropertyData> =
+        classesByName.values.filter { it.name in supertypesOf(className) }.flatMap { it.properties }
+
+    /** The named ends an object of [className] holds, including inherited ones. */
+    fun endsOf(className: String): List<AssociationEnd> {
+        val supers = supertypesOf(className)
+        return ends.filter { it.name != null && it.owner in supers }
+    }
+
+    /** The named end [name] of [className], declared on it or inherited, or `null`. */
+    fun endOf(className: String, name: String): AssociationEnd? = endsOf(className).find { it.name == name }
 
     /**
-     * Returns all navigable references for [className], including both forward references and the
-     * reverse ends of bidirectional associations where [className] is the target.
+     * Every named end through which another object may be linked to an object of [className] or
+     * of one of its subtypes: the opposites of the ends such an object can hold.
      */
-    fun referencesForNode(className: String): List<ReferenceInfo> =
-        referencesByClass[className] ?: emptyList()
+    fun endsPointingAt(className: String): List<AssociationEnd> =
+        ends.filter { it.name != null && compatible(it.opposite.owner, className) }
 
-    /**
-     * Returns create contexts for [className]: every `(containerClass, refName)` pair that can be
-     * used to create [className] in a consistency-preserving way.
-     *
-     * Contexts are derived from:
-     * - forward containment/composition operators (for example `<>->`, `*-->`, `*--`)
-     * - required incoming ends (target lower bound > 0), regardless of operator.
-     */
-    fun containmentContextsFor(className: String): List<Pair<String, String>> =
-        containmentContextsByClass[className] ?: emptyList()
+    /** The compositions that can contain an object of exactly [className]. */
+    fun containerContextsOf(className: String): List<ContainerContext> {
+        val supers = supertypesOf(className)
+        return ends.filter { it.isContainer && it.owner in supers }
+            .map { ContainerContext(containmentEnd = it.opposite, containerEnd = it) }
+    }
+
+    /** The compositions whose parts may be objects of [className] or of one of its subtypes. */
+    fun containerEndsCompatibleWith(className: String): List<AssociationEnd> =
+        ends.filter { it.isContainer && compatible(it.owner, className) }
 
     companion object {
 
         /**
-         * Builds a [MetamodelInfo] from the given [metamodelData].
+         * Builds the structure of [metamodelData], with [refinements] applied to the ends they
+         * name.
+         *
+         * @throws RuleGenerationException when a refinement names an unknown class or end, an
+         *   attribute, an end its class inherits, or loosens the metamodel's bounds.
          */
-        operator fun invoke(metamodelData: MetamodelData): MetamodelInfo =
-            build(metamodelData, emptyList())
-
-        /**
-         * Builds a [MetamodelInfo] from [metamodelData] with the multiplicities of specific
-         * references replaced by the values in [overrides].
-         */
-        fun withOverrides(
+        operator fun invoke(
             metamodelData: MetamodelData,
-            overrides: List<MultiplicityOverride>
-        ): MetamodelInfo = build(metamodelData, overrides)
-
-        // -----------------------------------------------------------------------
-        // Internal builder
-        // -----------------------------------------------------------------------
-
-        private fun build(
-            metamodelData: MetamodelData,
-            overrides: List<MultiplicityOverride>
+            refinements: List<MultiplicityOverride> = emptyList()
         ): MetamodelInfo {
-            val overrideMap: Map<Pair<String, String>, MultiplicityOverride> =
-                overrides.associateBy { it.className to it.refName }
+            val classesByName = metamodelData.classes.associateBy { it.name }
+            val supertypes = classesByName.keys.associateWith { transitiveSupertypes(it, classesByName) }
+            val subtypes = classesByName.keys.associateWith { c -> classesByName.keys.filter { c in supertypes.getValue(it) }.toSet() }
 
-            val classes = metamodelData.classes
-                .filter { !it.isAbstract }
-                .map { it.name }
-                .toSet()
-
-            val referencesByClass = mutableMapOf<String, MutableList<ReferenceInfo>>()
-            val containmentContextsByClass = mutableMapOf<String, MutableList<Pair<String, String>>>()
-
-            for (assoc in metamodelData.associations) {
-                val isContainment = isContainmentOperator(assoc.operator)
-                val src = assoc.source
-                val tgt = assoc.target
-
-                // Forward reference: src.className → tgt.className via src.name
-                val srcName = src.name
-                if (srcName != null) {
-                    // Apply override if present
-                    val srcOverride = overrideMap[src.className to srcName]
-                    val srcLower = srcOverride?.lower ?: src.multiplicity.lower
-                    val srcUpper = srcOverride?.upper ?: src.multiplicity.upper
-
-                    val tgtName = tgt.name
-                    val opposite: OppositeInfo? = if (tgtName != null) {
-                        val tgtOverride = overrideMap[tgt.className to tgtName]
-                        OppositeInfo(
-                            lower = tgtOverride?.lower ?: tgt.multiplicity.lower,
-                            upper = tgtOverride?.upper ?: tgt.multiplicity.upper
-                        )
-                    } else null
-
-                    val ref = ReferenceInfo(
-                        refName = srcName,
-                        targetClass = tgt.className,
-                        isContainment = isContainment,
-                        isReverse = false,
-                        lower = srcLower,
-                        upper = srcUpper,
-                        opposite = opposite
-                    )
-                    referencesByClass.getOrPut(src.className) { mutableListOf() }.add(ref)
-                }
-
-                // Reverse reference: tgt.className → src.className via tgt.name
-                val tgtName2 = tgt.name
-                if (tgtName2 != null) {
-                    val tgtOverride = overrideMap[tgt.className to tgtName2]
-                    val tgtLower = tgtOverride?.lower ?: tgt.multiplicity.lower
-                    val tgtUpper = tgtOverride?.upper ?: tgt.multiplicity.upper
-
-                    val srcName2 = src.name
-                    val opposite: OppositeInfo? = if (srcName2 != null) {
-                        val srcOverride = overrideMap[src.className to srcName2]
-                        OppositeInfo(
-                            lower = srcOverride?.lower ?: src.multiplicity.lower,
-                            upper = srcOverride?.upper ?: src.multiplicity.upper
-                        )
-                    } else null
-
-                    val ref = ReferenceInfo(
-                        refName = tgtName2,
-                        targetClass = src.className,
-                        // Reverse end of containment is NOT itself a containment
-                        isContainment = false,
-                        isReverse = true,
-                        lower = tgtLower,
-                        upper = tgtUpper,
-                        opposite = opposite
-                    )
-                    referencesByClass.getOrPut(tgt.className) { mutableListOf() }.add(ref)
-                }
-
-                // Create contexts:
-                // 1) any containment/composition assoc contributes a context for the target class
-                // 2) any required incoming target end (lower > 0) contributes a context too
-                val srcNameForCtx = src.name
-                val hasRequiredIncomingTarget = tgt.multiplicity.lower > 0
-                if ((isContainment || hasRequiredIncomingTarget) && srcNameForCtx != null) {
-                    containmentContextsByClass
-                        .getOrPut(tgt.className) { mutableListOf() }
-                        .add(src.className to srcNameForCtx)
-                }
+            val overrides = resolveRefinements(metamodelData, classesByName, refinements)
+            val ends = metamodelData.associations.flatMapIndexed { index, association ->
+                buildEnds(index, association, overrides)
             }
-
-            return MetamodelInfo(
-                classes = classes,
-                referencesByClass = referencesByClass,
-                containmentContextsByClass = containmentContextsByClass
+            val info = MetamodelInfo(
+                metamodelPath = metamodelData.path,
+                classesByName = classesByName,
+                enumsByName = metamodelData.enums.associateBy { it.name },
+                ends = ends,
+                supertypes = supertypes,
+                subtypes = subtypes
             )
+            info.refinedEnds = refinements.map { r -> ends.first { it.owner == r.className && it.name == r.refName } }
+            return info
         }
 
-        // Helper to pick the class-level override for a given (class, ref) pair
-        private fun pickOverride(
-            overrideMap: Map<Pair<String, String>, MultiplicityOverride>,
-            className: String?,
-            refName: String?,
-            fallbackLower: Int,
-            fallbackUpper: Int
-        ): Pair<Int, Int> {
-            if (className == null || refName == null) return fallbackLower to fallbackUpper
-            val ov = overrideMap[className to refName] ?: return fallbackLower to fallbackUpper
-            return ov.lower to ov.upper
-        }
-
-        private fun isContainmentOperator(operator: String): Boolean {
-            return when (operator) {
-                "<>->", "*-->", "*--", "<--*", "--*" -> true
-                else -> false
+        private fun transitiveSupertypes(className: String, classesByName: Map<String, ClassData>): Set<String> {
+            val result = linkedSetOf(className)
+            val pending = ArrayDeque(listOf(className))
+            while (pending.isNotEmpty()) {
+                val parents = classesByName[pending.removeFirst()]?.extends ?: continue
+                for (parent in parents) {
+                    if (result.add(parent)) pending.add(parent)
+                }
             }
+            return result
         }
+
+        private fun buildEnds(
+            index: Int,
+            association: AssociationData,
+            overrides: Map<Pair<String, String>, MultiplicityOverride>
+        ): List<AssociationEnd> {
+            val wholeOnLeft = association.operator == "*-->" || association.operator == "*--"
+            val wholeOnRight = association.operator == "<--*" || association.operator == "--*"
+
+            fun end(own: com.mdeo.metamodel.data.AssociationEndData, other: String, isSource: Boolean): AssociationEnd {
+                val name = own.name
+                val override = name?.let { overrides[own.className to it] }
+                val isWhole = if (isSource) wholeOnLeft else wholeOnRight
+                val isPart = if (isSource) wholeOnRight else wholeOnLeft
+                return AssociationEnd(
+                    association = index,
+                    owner = own.className,
+                    name = name,
+                    target = other,
+                    lower = when {
+                        name == null -> 0
+                        override != null -> override.lower
+                        else -> own.multiplicity.lower
+                    },
+                    upper = when {
+                        name == null -> -1
+                        override != null -> override.upper
+                        else -> own.multiplicity.upper
+                    },
+                    isSourceSide = isSource,
+                    isContainment = isWhole,
+                    isContainer = isPart,
+                    isSingle = name != null && own.multiplicity.upper == 1
+                )
+            }
+
+            val left = end(association.source, association.target.className, isSource = true)
+            val right = end(association.target, association.source.className, isSource = false)
+            left.opposite = right
+            right.opposite = left
+            return listOf(left, right)
+        }
+
+        private fun resolveRefinements(
+            metamodelData: MetamodelData,
+            classesByName: Map<String, ClassData>,
+            refinements: List<MultiplicityOverride>
+        ): Map<Pair<String, String>, MultiplicityOverride> {
+            val declared = metamodelData.associations.flatMap { listOf(it.source, it.target) }
+                .filter { it.name != null }
+                .associateBy { it.className to it.name!! }
+            val result = mutableMapOf<Pair<String, String>, MultiplicityOverride>()
+            for (r in refinements) {
+                val where = "refine ${r.className}.${r.refName}"
+                val classData = classesByName[r.className]
+                    ?: throw RuleGenerationException("$where: unknown class '${r.className}'")
+                val end = declared[r.className to r.refName]
+                if (end == null) {
+                    if (classData.properties.any { it.name == r.refName }) {
+                        throw RuleGenerationException("$where: '${r.refName}' is an attribute; only association ends can be refined")
+                    }
+                    val declaring = declared.keys.firstOrNull { it.second == r.refName && it.first in transitiveSupertypes(r.className, classesByName) }
+                    if (declaring != null) {
+                        throw RuleGenerationException("$where: the end is declared on '${declaring.first}'; refine it there")
+                    }
+                    throw RuleGenerationException("$where: '${r.className}' has no association end '${r.refName}'")
+                }
+                val base = end.multiplicity
+                val tightensLower = r.lower >= base.lower
+                val tightensUpper = base.upper == -1 || (r.upper != -1 && r.upper <= base.upper)
+                if (r.lower < 0 || r.upper == 0 || (r.upper != -1 && r.lower > r.upper)) {
+                    throw RuleGenerationException("$where: invalid bounds ${bounds(r.lower, r.upper)}")
+                }
+                if (!tightensLower || !tightensUpper) {
+                    throw RuleGenerationException(
+                        "$where: ${bounds(r.lower, r.upper)} does not lie within the metamodel's ${bounds(base.lower, base.upper)}"
+                    )
+                }
+                if (result.put(r.className to r.refName, r) != null) {
+                    throw RuleGenerationException("$where: refined more than once")
+                }
+            }
+            return result
+        }
+
+        internal fun bounds(lower: Int, upper: Int): String = "[$lower..${if (upper == -1) "*" else upper}]"
     }
 }

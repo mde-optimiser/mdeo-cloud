@@ -1,5 +1,6 @@
 package com.mdeo.script.ast
 
+import com.mdeo.scriptfunctions.protocol.ContributionNames
 import com.mdeo.expression.ast.TypedCallableBody
 import com.mdeo.expression.ast.types.ReturnType
 import com.mdeo.expression.ast.types.ReturnTypeSerializer
@@ -20,8 +21,45 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class TypedPluginAst(
     val types: List<@Serializable(with = ReturnTypeSerializer::class) ReturnType>,
-    val functions: List<TypedPluginFunction>
+    val functions: List<TypedPluginFunction>,
+    val classes: List<TypedPluginClass> = emptyList()
 )
+
+/**
+ * A record or opaque class a contribution defines for its functions to exchange with scripts.
+ *
+ * Scripts refer to it as the type `contrib/<contribution>` / [name].
+ *
+ * @param contribution Id of the contribution that defines it.
+ * @param name The class name.
+ * @param kind [KIND_RECORD] or [KIND_OPAQUE].
+ * @param fields The fields of a record, in declaration order, with indices into
+ *               [TypedPluginAst.types]; empty for an opaque class.
+ */
+@Serializable
+data class TypedPluginClass(
+    val contribution: String,
+    val name: String,
+    val kind: String,
+    val fields: List<TypedParameter> = emptyList()
+) {
+    companion object {
+        /**
+         * A value with named, mutable fields, which scripts can also construct.
+         */
+        const val KIND_RECORD = "record"
+
+        /**
+         * A handle to state that stays on the contribution's service.
+         */
+        const val KIND_OPAQUE = "opaque"
+
+        /**
+         * The package every contributed class lives in, followed by `/<contribution>`.
+         */
+        const val PACKAGE_PREFIX = ContributionNames.CLASS_PACKAGE_PREFIX
+    }
+}
 
 /**
  * A single contributed function with all of its overloads.
@@ -43,13 +81,69 @@ data class TypedPluginFunction(
  *
  * All type indices refer to positions in [TypedPluginAst.types].
  *
+ * Exactly one of [body] and [external] is set. A body is run by the execution service itself;
+ * an external implementation is answered by the service of the plugin that shipped the
+ * contribution, over the `script-functions` session that contribution declares.
+ *
  * @param parameters Parameters of this overload in declaration order.
  * @param returnType Index into [TypedPluginAst.types] for the return type.
- * @param body Compiled callable body that implements this overload.
+ * @param body Compiled callable body that implements this overload, when it is implemented here.
+ * @param external The operation answering this overload, when it is implemented elsewhere.
  */
 @Serializable
 data class TypedPluginFunctionSignature(
     val parameters: List<TypedParameter>,
     val returnType: Int,
-    val body: TypedCallableBody
-)
+    val body: TypedCallableBody? = null,
+    val external: ExternalImplementation? = null
+) {
+    init {
+        require((body == null) != (external == null)) {
+            "A contributed signature needs exactly one of a body and an external implementation"
+        }
+    }
+}
+
+/**
+ * An implementation that lives outside the platform.
+ *
+ * The compiler emits a stub with the declared descriptor for such a signature: the stub boxes
+ * its arguments, hands them to the [dispatcher][com.mdeo.script.runtime.ExternalCallDispatcher]
+ * on the script context, and unboxes whatever comes back. Everything about how the call actually
+ * reaches the plugin — the session, the encoding, the checking of the answer — lives
+ * behind that dispatcher and not in the generated code.
+ *
+ * @param kind Discriminator, always `external`.
+ * @param operation Names the operation within the plugin's own protocol. The platform passes it
+ *        through and ascribes it no meaning.
+ * @param model Whether the operation needs the model, and in what form. `none` sends none;
+ *        `readonly` sends the model the call works on, readonly, once per model.
+ * @param contribution Id of the contribution that shipped the function, the `contrib:<id>`
+ *        target the call is answered on.
+ * @param session Name of that contribution's `script-functions` session.
+ */
+@Serializable
+data class ExternalImplementation(
+    val kind: String = KIND,
+    val operation: String,
+    val model: String = MODEL_NONE,
+    val contribution: String = "",
+    val session: String? = null
+) {
+    companion object {
+        /**
+         * Discriminator distinguishing an external implementation from a typed AST body.
+         */
+        const val KIND = "external"
+
+        /**
+         * [model] value for an operation that needs no model.
+         */
+        const val MODEL_NONE = "none"
+
+        /**
+         * [model] value for an operation that reads the model the script runs on.
+         */
+        const val MODEL_READONLY = "readonly"
+    }
+}
